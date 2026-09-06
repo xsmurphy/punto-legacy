@@ -562,7 +562,32 @@ tenga puede firmar documentos como él. Reglas que siguen vigentes:
 - Nunca vuelve al frontend: se sube, se guarda cifrado y se usa server-side. La
   UI puede decir que hay uno cargado y cuándo, jamás devolverlo.
 
-### Custodia del certificado y del CSC (decisión 2026-09-06)
+### Custodia del certificado y del CSC (decisión 2026-09-06) — IMPLEMENTADA
+
+> **Implementada 2026-09-06** (mig 195). Columnas `cert_pfx_enc`,
+> `cert_password_enc`, `cert_uploaded_at`, `csc_secret_enc`, `csc_updated_at`
+> en `einvoice_account`. La única puerta a esas columnas es
+> `api/lib/EInvoice/FiscalSecretStore.php`, que audita cada LECTURA en
+> `tenant_audit` (`method='READ'`, `endpoint='/einvoice/secret/<clase>'`, y el
+> motivo en `meta.reason`) antes de descifrar — un `grep` por el nombre de
+> columna alcanza para verificar el invariante. Borrado explícito por
+> `POST /v1/einvoice?action=deleteCert` (no toca el certificado del lado del
+> proveedor: el comercio sigue facturando). La custodia se USA en
+> `ensureCertApplied()`, que re-sube el certificado guardado cuando se
+> reprovisiona el emisor.
+>
+> Hallazgo del camino: `FactomateProvider::updateTenant()` logueaba el body
+> entero, y ese body lleva `CSCProduccion`. El leak estaba LATENTE (la UI no
+> tenía input de CSC, así que el campo iba siempre vacío) y se habría activado
+> con el primer CSC cargado. Ahora usa `requestUnlogged` + línea redactada,
+> mismo criterio que `uploadCert()`.
+>
+> Y la RESPUESTA también: `exec()` logueaba el body de error crudo con el
+> argumento de que Factomate nunca eco-ea lo que mandamos — un supuesto sobre
+> el formato de error de un tercero que, si es falso, deja el CSC en texto
+> plano en el log Y en `last_error`, que es visible en el panel. `exec()` ahora
+> recibe los valores secretos del caller y los tacha antes de tocar cualquiera
+> de los dos caminos. Aplica al CSC y a la contraseña del certificado.
 
 Se guardan **por `CredentialVault`** (AES-256-GCM autenticado, clave en
 `APP_ENCRYPTION_KEY` — env, NO la base). Eso es lo que hace la decisión

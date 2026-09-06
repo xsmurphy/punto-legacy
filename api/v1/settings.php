@@ -4,6 +4,7 @@
  *
  *   GET  /v1/settings?view=general                 → ajustes (perfil + parámetros), CRUDO.
  *   GET  /v1/settings?view=options                  → listas para selects.
+ *   GET  /v1/settings?view=taxpayer&ruc=<ruc>       → razón social del RUC del propio comercio en el padrón (gate: settings.company.edit).
  *   GET  /v1/settings?view=taxonomies&type=<t>       → items de taxonomía (tax/category/tag/...).
  *   GET  /v1/settings?view=currencies                → matriz de monedas (cotizaciones).
  *   GET  /v1/settings?view=templates                 → plantillas de impresión (taxonomy).
@@ -233,6 +234,35 @@ $view = (string) (validateHttp('view') ?: 'general');
 
 if ($view === 'options') {
     apiOk($svc->options());
+}
+
+// ── Lookup del RUC del PROPIO comercio en el padrón ────────────────────────
+//
+// La misma consulta existe en `/v1/contacts?resource=taxpayer`, y ahí está
+// bien gateada: quien da de alta un CLIENTE necesita `contacts.customer.create`
+// o `contacts.supplier.manage`. Pero acá el RUC que se consulta es el DEL
+// COMERCIO, para completar su propia identidad fiscal — un encargado con
+// permiso de configurar la empresa y sin permiso de crear clientes se comía un
+// 403 al querer cargar el RUC de su propio negocio.
+//
+// No se toca aquel gate (el caller del alta de clientes sigue igual): el
+// SERVICIO es uno solo y cada superficie afirma el permiso que corresponde a
+// lo que está por hacer. Acá eso es `settings.company.edit`, que es
+// exactamente el permiso que hace falta para PERSISTIR el resultado — sin él,
+// la consulta no serviría para nada.
+if ($view === 'taxpayer') {
+    if (!hasPermission('settings.company.edit')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.company.edit)', 403);
+    }
+    $ruc = trim((string) ($_GET['ruc'] ?? ''));
+    if ($ruc === '') {
+        apiError('Falta el RUC a consultar', 422);
+    }
+    $taxpayer = (new \Punto\Api\Contacts\TaxpayerLookupService())->lookup(COMPANY_ID, $ruc);
+    if ($taxpayer === null) {
+        apiError('No se encontraron datos para ese RUC', 404);
+    }
+    apiOk($taxpayer);
 }
 
 if ($view === 'currencies') {

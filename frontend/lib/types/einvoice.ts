@@ -30,10 +30,11 @@ export interface EInvoiceConfig {
 
 /**
  * Formulario legal del emisor (F7). Pide SOLO lo que Punto no tiene en otro
- * lado: el RUC y la razón social salen de Configuración del negocio, y los
- * timbrados de las CAJAS (cada caja es un punto de expedición — se editan en
- * la sección Timbrados por caja, que escribe sobre la caja). `cscSecret`
- * pasa al proveedor y nunca vuelve del backend.
+ * lado: el RUC y la razón social viven en los ajustes de la empresa (la
+ * pantalla de FE los edita, pero escribiendo a ESE destino), y los timbrados
+ * en las CAJAS (cada caja es un punto de expedición — se editan en la sección
+ * Timbrados por caja, que escribe sobre la caja). `cscSecret` va al backend y
+ * nunca vuelve.
  */
 export interface EInvoiceFiscalForm {
   /** Email de facturación — identidad del emisor, único en el sistema fiscal. */
@@ -45,10 +46,23 @@ export interface EInvoiceFiscalForm {
   actividadNombre: string
   /** Id del CSC de SIFEN (producción) — opcional hasta operar en prod. */
   cscId?: string
-  /** Secreto del CSC — pasa, no se guarda. */
+  /** Secreto del CSC — sube, se guarda cifrado y NUNCA vuelve del backend. */
   cscSecret?: string
   /** Texto adicional impreso en la factura. */
   infoAdicional?: string
+}
+
+/**
+ * Contribuyente encontrado en el padrón (`/v1/settings?view=taxpayer`). Es la
+ * MISMA respuesta que consume el alta de contactos; acá se usa para traer la
+ * razón social del RUC del propio comercio.
+ */
+export interface TaxpayerLookup {
+  ruc: string
+  name: string
+  status: string | null
+  /** De dónde salió el dato: el emisor del comercio, o el padrón público. */
+  source: string
 }
 
 export interface EInvoiceAccount {
@@ -58,7 +72,19 @@ export interface EInvoiceAccount {
   status: EInvoiceStatus
   /** Espejo del formulario legal guardado (sin secretos). */
   fiscal: Partial<EInvoiceFiscalForm>
+  /** El EMISOR tiene el certificado cargado (checkpoint del provisioning). */
   certUploaded: boolean
+  /**
+   * PUNTO tiene el certificado en custodia cifrada (mig 195). Distinto de
+   * `certUploaded`: el comercio puede pedir que Punto lo borre y seguir
+   * facturando igual. El contenido no vuelve nunca — solo esta bandera y la
+   * fecha.
+   */
+  certStored: boolean
+  certUploadedAt: string | null
+  /** Hay un secreto de CSC guardado. El código en sí nunca vuelve. */
+  cscStored: boolean
+  cscUpdatedAt: string | null
   /** Payload crudo del emisor según el proveedor — shape sin tipar. */
   emitter: Record<string, unknown>
   /** Timbrado vigente cacheado — shape sin tipar; el correlativo lo lleva el proveedor. */
@@ -67,6 +93,18 @@ export interface EInvoiceAccount {
   lastCheckAt: string | null
   lastError: string | null
   config: EInvoiceConfig
+}
+
+/**
+ * Lo ÚNICO que el backend cuenta sobre los secretos en custodia: si hay algo
+ * guardado y desde cuándo. Ni el certificado, ni su contraseña, ni el código
+ * del CSC cruzan la API — es el contrato de `FiscalSecretStore::status()`.
+ */
+export interface EInvoiceSecretStatus {
+  certStored: boolean
+  certUploadedAt: string | null
+  cscStored: boolean
+  cscUpdatedAt: string | null
 }
 
 export interface EInvoiceTestResult {

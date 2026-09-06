@@ -233,11 +233,17 @@ function checkCompanyProfile(settings: unknown): SetupCheck {
   const missing: string[] = []
   if (text(s.name) === "") missing.push("nombre del negocio")
   if (text(s.country) === "") missing.push("país")
-  // `billingName` es la razón social; si está vacía, la facturación cae al
-  // nombre comercial (mismo criterio que `CompanyFiscalSummary` en
-  // components/settings/einvoice-manager.tsx), así que solo falta cuando
-  // tampoco hay nombre.
-  if (text(s.billingName) === "" && text(s.name) === "") missing.push("razón social")
+  // `billingName` es la razón social FISCAL y no tiene fallback: el nombre
+  // comercial ("Balloon Party") y la razón social ("BALLOON PARTY S.A.") son
+  // datos distintos, y la SET valida la segunda contra el padrón del RUC.
+  //
+  // Hasta 2026-09-06 esto exigía que faltaran las DOS para reclamar, con un
+  // comentario que declaraba correcto el fallback — así que el asistente no
+  // reclamaba nunca una razón social ausente y el emisor terminaba
+  // registrándose con el nombre de fantasía. El mismo fallback estaba en
+  // `EInvoiceProvisioningService::companyFiscal()` y en `CompanyFiscalSummary`
+  // (components/settings/einvoice-manager.tsx); se sacó en los tres.
+  if (text(s.billingName) === "") missing.push("razón social")
   if (text(s.ruc) === "") missing.push(taxIdLabel)
 
   if (missing.length === 0) {
