@@ -228,6 +228,19 @@ export const PANEL_ROUTES: RouteEntry[] = [
     requires: "production.manage",
     keywords: ["produccion", "manufactura", "receta", "armado", "ensamble"],
   },
+  {
+    // Paleta y no sidebar: es una pantalla de un turno de cocina, no un módulo
+    // que se visita todo el día. El sidebar se mantiene mínimo a propósito y
+    // "Producción" ya está ahí — desde su header se llega en un clic.
+    to: "/produccion/lote",
+    title: "Lote de producción",
+    icon: Factory,
+    surface: "palette",
+    paletteGroup: "Operaciones",
+    paletteTitle: "Producción · Lote multi-plato",
+    requires: "production.manage",
+    keywords: ["lote", "produccion", "batch", "insumos", "necesidad", "viandas", "cocina"],
+  },
 
   // Compras y Gastos
   {

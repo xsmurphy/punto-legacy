@@ -142,6 +142,18 @@ final class ProductionService
     /**
      * Capacidad de producción: mínimo de unidades fabricables dado el stock
      * actual de insumos (respeta merma % planificada por insumo).
+     *
+     * De UN plato y de UN solo nivel de receta (usa `getCompoundsArray()`
+     * directo, no la explosión recursiva). La capacidad de VARIOS platos a la
+     * vez —"¿cuántos lotes completos salen con lo que hay?"— no se agrega acá:
+     * la responde `ProductionBatchService::estimate()` en `batchCapacity`,
+     * porque no es un mínimo por ítem sino el mínimo sobre la necesidad ya
+     * CONSOLIDADA entre platos. Dos platos que comparten la pechuga compiten
+     * por el mismo saldo, y `min(capacity(A), capacity(B))` daría de más:
+     * cada llamada mira el stock completo como si el otro plato no existiera.
+     * Sin la agregación previa el número no existe, así que vive donde vive la
+     * agregación. `null` sigue significando "ningún insumo con control de
+     * inventario limita", nunca 0 — mismo contrato en las dos.
      */
     public function capacity(string $companyId, string $itemId, string $outletId): array
     {
@@ -251,6 +263,14 @@ final class ProductionService
         $outputLocationId = !empty($data['outputLocationId']) ? (string) $data['outputLocationId'] : null;
         $mode             = (string) ($data['mode'] ?? 'draft');
         $note             = isset($data['note']) && $data['note'] !== '' ? (string) $data['note'] : null;
+        // Lote padre (mig 194, context/70 etapa B). NULL = orden suelta, que es
+        // el 100% de las órdenes anteriores a esa migración y sigue siendo el
+        // camino por defecto: nada de lo que hay debajo cambia de comportamiento
+        // por esta columna. Se escribe en el INSERT y no con un UPDATE posterior
+        // desde `ProductionBatchService` para que la fila nazca correcta —
+        // una orden que existe un instante sin su lote es una orden huérfana
+        // para cualquier lector concurrente.
+        $batchId          = !empty($data['batchId']) ? (string) $data['batchId'] : null;
 
         if ($itemId === '') {
             throw new \InvalidArgumentException('itemId requerido');
@@ -304,10 +324,10 @@ final class ProductionService
         $rs = $this->db->Execute(
             'INSERT INTO production_order
                 (orderid, companyid, outletid, locationid, outputlocationid, itemid,
-                 qtyplanned, status, note, userid, docnumber)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'draft\', ?, ?, ?)
+                 qtyplanned, status, note, userid, docnumber, batchid)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'draft\', ?, ?, ?, ?)
              RETURNING orderid',
-            [$companyId, $outletId, $locationId, $outputLocationId, $itemId, $qtyPlanned, $note, $userId ?: null, $docNumber]
+            [$companyId, $outletId, $locationId, $outputLocationId, $itemId, $qtyPlanned, $note, $userId ?: null, $docNumber, $batchId]
         );
         if ($rs === false || $rs->EOF) {
             throw new \RuntimeException('No se pudo crear la orden de producción');
@@ -919,6 +939,8 @@ final class ProductionService
             'outputLocationId'  => $row['outputlocationid'] ?? null,
             'itemId'            => (string) ($row['itemid'] ?? ''),
             'itemName'          => $row['itemname'] ?? null,
+            // Lote padre (mig 194) o null si es una orden suelta.
+            'batchId'           => $row['batchid'] ?? null,
             'qtyPlanned'        => (float) ($row['qtyplanned'] ?? 0),
             'qtyProduced'       => isset($row['qtyproduced']) ? (float) $row['qtyproduced'] : null,
             'qtyWaste'          => (float) ($row['qtywaste'] ?? 0),
