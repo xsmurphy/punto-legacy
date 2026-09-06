@@ -843,6 +843,130 @@ Suposiciones nuevas SIN VERIFICAR (flageadas en el código):
 - La ruta y el shape de `GET /api/Client/getbyruc/{ruc}` — el parseo es
   defensivo y cae al padrón público ante cualquier respuesta inesperada.
 
+## F7 — Qué pasa cuando SIFEN RECHAZA (plan 2026-09-06)
+
+> **Estado:** plan abierto. R1 CERRADA por el owner. R2-R5 son consecuencias de
+> R1 o propuestas sin su OK. Nace de un pedido directo: *"la facturación
+> electrónica es un tema muy sensible y es motivo por el cual muchos clientes
+> vienen con nosotros porque ofrecemos una mejor solución y debemos cumplir.
+> Necesitamos que el tenant sepa qué pasó con su factura emitida."*
+
+### F7.0 Estado verificado (2026-09-06)
+
+| Pieza | Estado |
+|---|---|
+| Reconciliación con SIFEN | **Existe** — job `einvoice-reconcile` cada 10' escribe `sifen_status` |
+| Rechazo VISIBLE | **Existe** — badge destructivo + motivo en `/settings/facturacion-electronica` y en el listado de ventas |
+| Rechazo AVISADO | **NO existe.** Nadie se entera salvo que entre a mirar |
+| Reintento tras rechazo | **NO existe, y no puede existir tal cual** — ver R3 |
+| Portal del cliente | Muestra el estado fiscal real (badge rojo), pero **ofrece descargar el KuDE igual** — ver R4 |
+| Centro de notificaciones | **Existe** (`notification_state`, mig 103 + feed unificado). Nadie escribe eventos de FE |
+
+### R1 — El cliente final NO se entera del rechazo (cerrada por el owner 2026-09-06)
+
+Al comprador no se le avisa nada cuando SIFEN rechaza. Recibe su factura cuando
+el comercio la reemite bien.
+
+Por qué, y no por comodidad: **no tiene ninguna acción disponible**. Avisarle
+sería exponerle a tu cliente un problema de compliance de su proveedor,
+generarle un llamado al comercio por algo que el comercio ya está resolviendo,
+y alarmarlo sin darle nada que hacer. Lo que el comprador necesita no es
+enterarse del error: es RECIBIR la factura.
+
+Esto NO es "esconder el problema": es que la garantía viva del lado correcto.
+Toda la presión se mueve al comercio (R2), que es quien puede actuar y hoy es
+justamente donde no hay nada.
+
+Ayuda que el diseño ya empuja para ese lado: el ticket es un comprobante
+interno NO fiscal (`context/49`) y el email del KuDE se dispara con
+`sifen_status = Aprobado` (`context/57` D3), así que **un rechazo nunca genera
+un envío al cliente**. No hay que deshacer nada — hay que no agregar.
+
+### R2 [?] — El comercio se entera SÍ o SÍ: notificación, no solo pantalla
+
+El evento nace en el job `einvoice-reconcile`, en la transición a `Rechazado`
+— es el único lugar donde ese cambio se observa.
+
+Dos superficies, porque una sola no alcanza:
+
+1. **Centro de notificaciones** (`notification_state` + feed). Es la casa
+   natural y ya existe; hoy ningún evento de FE lo escribe. Sería el primero.
+2. **Email al dueño** (ya hay canal: Resend, 2026-09-06). Una factura rechazada
+   es un problema fiscal con plazo — no puede depender de que alguien abra el
+   panel.
+
+**Al dueño y/o al contador, NO al cajero**: el cajero ya cerró la venta y se
+fue. El rechazo es del negocio, no del mostrador.
+
+Antes de construir el aviso, preguntarle a Automate si `NotifyFailure` /
+`EmailNotifyFailure` del tenant de Factomate ya cubre el rechazo de SIFEN (hoy
+vacíos en las 4 cuentas DEV) — si lo cubre, es cargar un email en el
+provisioning en vez de escribir un notificador. Ver §Preguntas abiertas.
+
+### R3 [?] — No es "reenviar": es CORREGIR Y EMITIR DE NUEVO
+
+`retry()` solo funciona desde `status = 'error'` (nunca llegó a Factomate), y
+el guard vive en el propio `WHERE` a propósito: un documento rechazado tiene
+`status = 'issued'` y reintentarlo **emitiría el documento fiscal dos veces**
+(Factomate no tiene reemisión; cada `/Bulk` es un documento nuevo y el número
+lo asigna la SET con `number => -1`).
+
+Entonces la acción correcta genera un documento NUEVO, con número NUEVO, y el
+rechazado queda como registro — SIFEN también lo tiene, borrarlo de nuestro
+lado sería perder la trazabilidad.
+
+**La línea que no se cruza:** se corrige la METADATA FISCAL —RUC del receptor,
+timbrado, datos de identidad—, **nunca el contenido económico**. La venta ya
+ocurrió y la plata ya se cobró; editar montos o ítems para que SIFEN acepte es
+falsear un comprobante. La UI ofrece "corregir y emitir de nuevo" con los
+campos de identidad, no un formulario libre sobre el payload.
+
+Corolario de diseño: el motivo del rechazo (`sifenReason`, ya expuesto) debe
+RUTEAR al arreglo. "RUC inválido" lleva a la ficha del cliente; "timbrado
+vencido" lleva a la config del emisor. Un botón genérico de reintentar sobre
+una causa que no se corrigió solo produce un segundo rechazo.
+
+### R4 [?] — El portal no puede ofrecer el PDF de un documento rechazado
+
+`portalDocument()` calcula `kudeAvailable` con `status === 'issued' ||
+'cancelled'` — o sea que en un rechazo (que es `issued`) **ofrece la descarga**.
+El badge dice la verdad, pero el PDF se baja igual, y es exactamente el caso que
+este doc ya documenta: *ni el CDC ni el PDF prueban validez fiscal* (rechazo
+real del 2026-07-30, KuDE descargable).
+
+`kudeAvailable` pasa a mirar el estado FISCAL, no el del outbox. Es la misma
+regla que ya rige las dos superficies del panel (`sifen_status` manda sobre
+`status`, `frontend/lib/einvoice/sifen-status.ts`) — acá falta aplicarla.
+
+### R5 [?] — El plazo legal es el que define la urgencia, y no lo sabemos
+
+Todo esto asume que el comercio tiene una ventana para reemitir. **Cuál es esa
+ventana en Paraguay no está confirmado** y no se puede inventar: define si el
+aviso es "avisá cuando puedas" o "tenés 24 h". Confirmar con el contador o la
+normativa antes de fijar la urgencia del aviso de R2 y cualquier escalamiento.
+
+### F7 — Fases
+
+| Fase | Qué entrega | Depende de |
+|------|-------------|-----------|
+| **N0** | Preguntarle a Automate por `NotifyFailure`/`EmailNotifyFailure` (¿cubre rechazo de SIFEN? ¿se carga por API?) y al contador por el plazo de R5. Cierra el alcance de N1. | — |
+| **N1** | Evento de rechazo en el centro de notificaciones + email al dueño, disparado desde `einvoice-reconcile`. | N0 |
+| **N2** | "Corregir y emitir de nuevo" en el listado de FE, con el motivo ruteando al arreglo (R3). Solo metadata fiscal. | — |
+| **N3** | `kudeAvailable` por estado fiscal en el portal (R4). Chico e independiente — puede ir primero. | — |
+
+### F7 — Arquitecturas rechazadas
+
+- **Avisarle al cliente final del rechazo** — R1, cerrada por el owner.
+- **Reintentar automáticamente un documento rechazado** — emite dos veces. Y el
+  rechazo más común observado fue *documento duplicado*: reintentar solo
+  empeora exactamente ese caso.
+- **Permitir editar montos/ítems para que SIFEN acepte** — R3. Es falsear un
+  comprobante ya cobrado.
+- **Que el aviso le llegue al cajero** — el rechazo es fiscal, no operativo, y
+  el turno ya cerró.
+- **Confiar solo en la pantalla** — es lo que hay hoy y es la razón de este
+  plan: nadie entra todos los días a Facturación electrónica.
+
 ## Preguntas abiertas para Factomate
 
 Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
