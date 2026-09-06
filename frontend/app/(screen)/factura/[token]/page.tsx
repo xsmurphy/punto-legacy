@@ -41,6 +41,8 @@ interface PortalDocument {
   total: number | null
   currency: string | null
   sifenStatus: string | null
+  /** Veredicto fiscal resuelto server-side — ver EInvoiceService::sifenVerdict. */
+  sifenVerdict: "approved" | "rejected" | "pending"
   qrUrl: string | null
   kudeAvailable: boolean
 }
@@ -98,7 +100,13 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
   }, [token])
 
   const kudeUrl = `/api/v1/einvoice-public?resource=kude&t=${encodeURIComponent(token)}`
-  const isPending = doc !== null && !doc.kudeAvailable
+  // TRES estados, no dos. Antes acá solo existía "descargable / pendiente", y
+  // al dejar de ofrecer el KuDE de un rechazo ese documento caía en
+  // "pendiente" — que le habría dicho al comprador "se está emitiendo, volvé
+  // en unos minutos" sobre una factura que SIFEN ya rechazó. Falso y, encima,
+  // lo manda a refrescar para siempre.
+  const isRejected = doc !== null && doc.sifenVerdict === "rejected"
+  const isPending = doc !== null && !doc.kudeAvailable && !isRejected
   // `""` cuenta como ausente igual que `null` — el backend normaliza los
   // campos sin valor a string vacío, así que un `??` solo no alcanza.
   const docCurrency = doc?.currency?.trim() || null
@@ -198,6 +206,19 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin" />
                 Tu factura se está emitiendo. Volvé a abrir este enlace en unos minutos.
+              </p>
+            )}
+
+            {/* Al comprador NO se le da el motivo del rechazo (R1 de
+                context/28 §F7): es un diagnóstico del comercio —timbrado
+                vencido, RUC no habilitado— y él no puede hacer nada con un
+                código de SIFEN. Se le dice la verdad y qué esperar, sin
+                alarmarlo ni pedirle una acción que no tiene. El backend
+                tampoco manda el motivo a esta pantalla. */}
+            {isRejected && (
+              <p className="text-sm text-muted-foreground">
+                El comercio está regularizando esta factura. Vas a poder
+                descargarla cuando esté lista.
               </p>
             )}
 

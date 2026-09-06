@@ -978,7 +978,7 @@ normativa antes de fijar la urgencia del aviso de R2 y cualquier escalamiento.
 | **N0** | Preguntarle a Automate por `NotifyFailure`/`EmailNotifyFailure` (¿cubre rechazo de SIFEN? ¿se carga por API?) y al contador por el plazo de R5. Cierra el alcance de N1. | — |
 | **N1** | Evento de rechazo en el centro de notificaciones + email al dueño, disparado desde `einvoice-reconcile`. | N0 |
 | **N2** | "Corregir y emitir de nuevo" en el listado de FE, con el motivo ruteando al arreglo (R3). Solo metadata fiscal. | — |
-| **N3** | `kudeAvailable` por estado fiscal en el portal (R4). Chico e independiente — puede ir primero. | — |
+| ~~N3~~ | **HECHO 2026-09-06.** `kudeAvailable` mira el veredicto FISCAL, y el gate real quedó en `portalKude()` (el endpoint), no solo en el flag de la UI — la URL del PDF es adivinable con el token del portal, así que un chequeo que solo vive en la pantalla no es un chequeo. El portal ganó un TERCER estado: aprobado / rechazado / pendiente, porque decirle "se está emitiendo" a un rechazado era falso y lo mandaba a refrescar para siempre. Al comprador se le dice el estado, nunca el motivo (R1). | — |
 
 ### F7 — Arquitecturas rechazadas
 

@@ -668,11 +668,55 @@ final class EInvoiceService
             // panel — ver documents()/`sifenReason`.
             'sifenStatus'    => $row['sifen_status'] ?? null,
             'qrUrl'          => $qrUrl,
-            // El KuDE solo existe cuando el documento se emitió. `kude()` ya
-            // valida esto server-side; el flag es para que la página no ofrezca
-            // un botón que va a fallar.
-            'kudeAvailable'  => $status === 'issued' || $status === 'cancelled',
+            // Veredicto FISCAL, para que el portal no tenga que reimplementar
+            // la clasificación. 'approved' | 'rejected' | 'pending'.
+            'sifenVerdict'   => self::sifenVerdict($row['sifen_status'] ?? null),
+            // El KuDE se ofrece solo si el documento se emitió Y SIFEN no lo
+            // rechazó.
+            //
+            // Antes esto miraba SOLO `status`, que en un rechazo sigue siendo
+            // 'issued' — o sea que el portal le ofrecía al comprador descargar
+            // el PDF de una factura RECHAZADA. Es exactamente el caso que este
+            // módulo documenta desde julio: el KuDE del rechazo real del
+            // 2026-07-30 se descargaba igual, y ni el CDC ni el PDF prueban
+            // validez fiscal. Un PDF con pinta de factura circulando por una
+            // que SIFEN no aceptó es el peor documento posible en una disputa.
+            //
+            // 'pending' tampoco descarga: entregar un comprobante antes de
+            // saber si vale contradice el criterio del owner (correcto le gana
+            // a rápido, `context/28` §R5b) y el mercado tolera la espera.
+            'kudeAvailable'  => ($status === 'issued' || $status === 'cancelled')
+                && self::sifenVerdict($row['sifen_status'] ?? null) === 'approved',
         ];
+    }
+
+    /**
+     * Veredicto FISCAL a partir de `sifen_status`. 'approved' | 'rejected' |
+     * 'pending'.
+     *
+     * `sifen_status` NO es un enum cerrado: la reconciliación guarda el
+     * `dEstResField` de SIFEN ("Aprobado"/"Rechazado") cuando está, y si no cae
+     * al `StatusString` libre del proveedor ("Exitoso", "FinalizadoERROR"). Por
+     * eso se clasifica por CONTENIDO y no por igualdad exacta.
+     *
+     * DOS ESPEJOS que hay que mover juntos si esto cambia:
+     *   - `documents()`, rama `status === 'rejected'` (el mismo criterio en SQL).
+     *   - `frontend/lib/einvoice/sifen-status.ts` (`sifenVerdict`, el panel).
+     * Si divergen, una superficie pinta como rechazado lo que otra no filtra.
+     */
+    private static function sifenVerdict(?string $sifenStatus): string
+    {
+        $s = mb_strtolower(trim((string) $sifenStatus));
+        if ($s === '') {
+            return 'pending';
+        }
+        if (str_contains($s, 'rechaz') || str_contains($s, 'error')) {
+            return 'rejected';
+        }
+        if (str_contains($s, 'aprobad') || str_contains($s, 'exitoso')) {
+            return 'approved';
+        }
+        return 'pending';
     }
 
     /**
@@ -685,13 +729,36 @@ final class EInvoiceService
     public function portalKude(string $companyId, string $transactionId): string
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid FROM einvoice_document WHERE companyid = ? AND transactionid = ?
+            'SELECT einvoicedocid, sifen_status FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ?
               ORDER BY created_at DESC LIMIT 1',
             [$companyId, $transactionId]
         );
         if (!$doc) {
             throw new \RuntimeException('No hay documento electrónico para esta venta.');
         }
+
+        // El gate REAL de "¿este PDF puede salir?" vive acá, no en el flag
+        // `kudeAvailable` de `portalDocument()`: ese flag existe para que la
+        // página no pinte un botón inútil, pero la URL del PDF es adivinable
+        // por cualquiera que tenga el token del portal. Un chequeo que solo
+        // vive en la UI no es un chequeo.
+        //
+        // Sin esto, sacar el botón para los rechazados era cosmético: el
+        // comprador que hubiera guardado el link seguía bajándose el PDF de
+        // una factura que SIFEN no aceptó.
+        $verdict = self::sifenVerdict($doc['sifen_status'] ?? null);
+        if ($verdict !== 'approved') {
+            // Mismo criterio que la pantalla: se dice el estado, nunca el
+            // motivo (R1 de context/28 §F7 — el motivo es diagnóstico del
+            // comercio). El endpoint responde 409, que el portal ya traduce.
+            throw new \RuntimeException(
+                $verdict === 'rejected'
+                    ? 'El comercio está regularizando esta factura. Vas a poder descargarla cuando esté lista.'
+                    : 'Tu factura todavía se está emitiendo. Volvé a intentar en unos minutos.'
+            );
+        }
+
         return $this->kude($companyId, (string) $doc['einvoicedocid']);
     }
 
