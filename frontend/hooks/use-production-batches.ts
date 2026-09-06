@@ -5,6 +5,7 @@ import { api } from "@/lib/api-client"
 import type {
   CreateProductionBatchPayload,
   EstimateBatchPayload,
+  OrderDemand,
   ProductionBatch,
   ProductionBatchEstimate,
   ProductionBatchListFilters,
@@ -61,6 +62,30 @@ export function useProductionBatchEstimate(payload: EstimateBatchPayload | null)
       ),
     enabled: !!payload && !!payload.outletId && payload.lines.length > 0,
     staleTime: 10 * 1000,
+  })
+}
+
+/**
+ * Trae la cola de órdenes pendientes de una sucursal, agregada por producto —
+ * el alimentador de la pantalla del lote (context/70, etapa B: "un clic del
+ * lote de pedidos al lote de producción").
+ *
+ * Es `useMutation` sobre un GET, y eso es deliberado. La lectura es una FOTO
+ * del momento (D2): un pedido que entra después NO muta un lote ya armado.
+ * Un `useQuery` cacheado —o peor, con refetch en foco— reintroduciría
+ * exactamente el "vivo" que la decisión descarta: las líneas ya cargadas
+ * quedarían discutiendo contra una cola más nueva a espaldas del operador.
+ * `useMutation` modela lo que esto es: "ejecutá ahora y devolveme el
+ * resultado", disparado por una acción explícita, sin cache que envejezca.
+ *
+ * Por lo mismo NO invalida nada: no escribió nada.
+ */
+export function useOrderDemand() {
+  return useMutation<OrderDemand, Error, string>({
+    mutationFn: (outletId) =>
+      api.get<OrderDemand>(
+        `/v1/production-batches?resource=order-demand&outletId=${encodeURIComponent(outletId)}`,
+      ),
   })
 }
 

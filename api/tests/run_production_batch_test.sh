@@ -3,13 +3,22 @@
 # run_production_batch_test.sh — arnés del LOTE DE PRODUCCIÓN MULTI-PLATO
 # (context/70-viandas.md, etapa B "Producción por lote").
 #
-# Lo que verifica, en una línea: tomar {plato, cantidad} × N, explotar todas
-# las recetas y AGREGAR POR INSUMO da el número correcto —dos platos que
-# comparten un insumo suman, la merma se aplica por nivel, un subproducto con
-# stock propio no se re-explota, un insumo sin control de inventario devuelve
-# necesidad y no faltante— y confirmar el lote mueve el stock por el mismo
-# `ProductionService::complete()` de siempre, dejando el COGS correcto.
-# Ver el docblock de production_batch_test.php.
+# Cubre las DOS mitades de la misma feature contra un solo Postgres:
+#
+#   1. EL LOTE (`production_batch_test.php`) — tomar {plato, cantidad} × N,
+#      explotar todas las recetas y AGREGAR POR INSUMO da el número correcto:
+#      dos platos que comparten un insumo suman, la merma se aplica por nivel,
+#      un subproducto con stock propio no se re-explota, un insumo sin control
+#      de inventario devuelve necesidad y no faltante. Y confirmar el lote
+#      mueve el stock por el mismo `ProductionService::complete()` de siempre,
+#      dejando el COGS correcto.
+#
+#   2. EL ALIMENTADOR (`production_demand_test.php`) — de dónde salen esas
+#      {plato, cantidad}: la cola de órdenes pendientes de la sucursal,
+#      agregada por producto. Qué cuenta y qué no (estados de línea y de
+#      orden), las hijas de add-on, el alcance por sucursal y por tenant.
+#
+# Ver el docblock de cada uno para el detalle de las aserciones.
 #
 # Mismo patrón que run_order_item_cancel_test.sh (Docker Postgres descartable +
 # schema + migraciones + fixtures del tenant "Verify PY") — reusa ESE seed.sql
@@ -116,6 +125,15 @@ echo ""
 echo "[run_production_batch_test.sh] === lote multi-plato (agregación, merma, subproducto, D1, COGS) ==="
 export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
 harness_run "$SCRIPT_DIR/production_batch_test.php"
+
+# ── 3. Alimentador: de la cola de órdenes a las líneas del lote ────────────
+# Va en ESTE runner y no en uno propio: comparte el Postgres descartable, el
+# schema, las migraciones y el mismo seed del tenant "Verify PY". Un runner
+# aparte levantaría un segundo contenedor para probar la otra mitad de la MISMA
+# feature (context/70 etapa B) — el doble de minutos por cero cobertura extra.
+echo ""
+echo "[run_production_batch_test.sh] === alimentador desde órdenes (agregación, filtros de estado, add-ons, alcance) ==="
+harness_run "$SCRIPT_DIR/production_demand_test.php"
 
 echo ""
 echo "[run_production_batch_test.sh] TODO OK."

@@ -111,6 +111,44 @@ export interface CreateProductionBatchPayload {
   lines: ProductionBatchLineInput[]
 }
 
+/**
+ * De qué orden salió cuánto de un producto de la cola. Es la trazabilidad del
+ * armado: sin esto la demanda consolidada es un número que el cocinero no
+ * puede auditar contra sus comandas.
+ */
+export interface OrderDemandSource {
+  orderId: string
+  /** `null` en órdenes viejas sin correlativo — la UI muestra el id corto. */
+  orderNumber: number | null
+  qty: number
+}
+
+export interface OrderDemandLine {
+  itemId: string
+  itemName: string
+  qty: number
+  sources: OrderDemandSource[]
+}
+
+/**
+ * La cola de órdenes pendientes de una sucursal, agregada por producto — el
+ * alimentador del lote (context/70, etapa B).
+ *
+ * Es una FOTO del instante `takenAt`, no un vivo: un pedido que entra después
+ * NO muta un lote ya armado. El operador vuelve a traer si quiere.
+ */
+export interface OrderDemand {
+  outletId: string
+  /** Hora del comercio (naive `Y-m-d H:i:s`) — usar los helpers de format-date. */
+  takenAt: string
+  orderCount: number
+  /** Líneas de texto libre (sin producto de catálogo) que quedaron afuera. */
+  skippedFreeText: number
+  /** `true` si la cola superó el techo de la query y viene incompleta. */
+  truncated: boolean
+  lines: OrderDemandLine[]
+}
+
 export interface ProductionBatchListFilters {
   status?: ProductionBatchStatus
   outletId?: string

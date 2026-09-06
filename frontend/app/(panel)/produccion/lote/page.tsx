@@ -18,6 +18,24 @@
  *    inventario (D1 de context/70): sin `onHand` no hay faltante, hay
  *    necesidad total. Un 0 ahí diría "no te falta nada" sobre algo que el
  *    sistema no sabe.
+ *
+ * ── Traer de órdenes pendientes ─────────────────────────────────────────────
+ *
+ * El botón "Traer de órdenes pendientes" es el atajo del negocio: en vez de
+ * tipear los platos del turno, se precargan desde la cola del KDS ya sumados
+ * ("no 100 g de pollo en una comanda y 150 en otra: 250 g para toda la cola").
+ *
+ * Es una FOTO, no un vivo (D2 de context/70). Lo que llega es la cola del
+ * INSTANTE en que se apretó el botón, con su hora a la vista; las líneas
+ * quedan editables y un pedido que entre después NO muta el lote ya armado —
+ * el operador vuelve a traer si quiere. Por eso no hay ninguna suscripción
+ * realtime colgada de esto: un lote que se recalcula solo mientras el cocinero
+ * decide cuánto cocinar es peor que uno viejo, porque cambia sin que nadie lo
+ * pida y el número que se estaba mirando deja de ser el que se va a producir.
+ *
+ * Si ya había líneas cargadas se PREGUNTA antes de tocarlas (reemplazar o
+ * sumar): pisar en silencio el trabajo manual del operador sería la peor de
+ * las dos opciones elegida por él sin enterarse.
  */
 
 import * as React from "react"
@@ -26,6 +44,7 @@ import {
   Check,
   ChevronsUpDown,
   ClipboardList,
+  ListPlus,
   Loader2,
   Plus,
   Printer,
@@ -66,6 +85,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 
@@ -77,13 +101,17 @@ import { useItems } from "@/hooks/use-items"
 import {
   useConfirmProductionBatch,
   useCreateProductionBatch,
+  useOrderDemand,
   useProductionBatchEstimate,
 } from "@/hooks/use-production-batches"
 import { formatQty } from "@/lib/format-qty"
+import { formatTime } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 import { printProductionBatchSheet } from "@/lib/hardware/printers/print-production-batch"
 import type { ItemKind } from "@/lib/types/item"
 import type {
+  OrderDemand,
+  OrderDemandSource,
   ProductionNeedIngredient,
   ProductionBatchLineInput,
 } from "@/lib/types/production-batch"
@@ -105,16 +133,33 @@ interface DraftLine {
   itemName: string | null
   /** String, no number: es lo que hay en el input mientras se tipea. */
   qty: string
+  /**
+   * De qué órdenes salió esta línea, si vino de "Traer de órdenes pendientes".
+   * Se BORRA en cuanto el operador toca el producto o la cantidad: a partir de
+   * ahí el desglose ya no describe la línea, y mostrarlo mentiría sobre de
+   * dónde salió el número. No se persiste en el lote — es información del
+   * momento de armado (D3 de context/70).
+   */
+  sources?: OrderDemandSource[]
 }
 
 function newLine(): DraftLine {
   return { key: Math.random().toString(36).slice(2), itemId: null, itemName: null, qty: "" }
 }
 
+function newKey(): string {
+  return Math.random().toString(36).slice(2)
+}
+
 /** Coma o punto: el operador escribe "2,5" y "2.5" indistintamente. */
 function parseQty(raw: string): number {
   const n = Number(raw.replace(",", "."))
   return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+/** Una línea vacía del formulario: ni producto ni cantidad. */
+function isBlank(line: DraftLine): boolean {
+  return !line.itemId && parseQty(line.qty) <= 0
 }
 
 export default function ProductionBatchPage() {
@@ -131,6 +176,12 @@ export default function ProductionBatchPage() {
   const [lines, setLines] = React.useState<DraftLine[]>([newLine()])
   const [confirmOpen, setConfirmOpen] = React.useState(false)
 
+  // La FOTO de la cola que se trajo (D2): metadatos para mostrarla y para
+  // avisar de lo que quedó afuera. `null` = todavía no se trajo nada.
+  const [snapshot, setSnapshot] = React.useState<OrderDemand | null>(null)
+  const [mergeOpen, setMergeOpen] = React.useState(false)
+  const [pendingDemand, setPendingDemand] = React.useState<OrderDemand | null>(null)
+
   // Sucursal por defecto: la activa del bootstrap. Nunca "la primera de la
   // lista" — la dimensión del POS/panel sale del contexto, no se inventa.
   React.useEffect(() => {
@@ -142,9 +193,13 @@ export default function ProductionBatchPage() {
   const { data: locations } = useOutletLocations(outletId)
 
   // Cambiar de sucursal invalida los depósitos elegidos: son de la anterior.
+  // Y también la foto de la cola — las órdenes se filtran por sucursal (D4),
+  // así que un "traído a las 11:20" de otra sucursal sería una etiqueta falsa
+  // sobre las líneas que quedaron en pantalla.
   React.useEffect(() => {
     setLocationId(NO_LOCATION)
     setOutputLocationId(NO_LOCATION)
+    setSnapshot(null)
   }, [outletId])
 
   const validLines: ProductionBatchLineInput[] = React.useMemo(
@@ -194,8 +249,76 @@ export default function ProductionBatchPage() {
     [itemsData],
   )
 
+  /**
+   * Editar una línea la desliga de su origen: el desglose por pedido describía
+   * la cantidad que TRAJO la cola, no la que el operador dejó después.
+   */
   function updateLine(key: string, patch: Partial<DraftLine>) {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)))
+    setLines((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, ...patch, sources: undefined } : l)),
+    )
+  }
+
+  // ── Traer de órdenes pendientes ───────────────────────────────────────────
+  const orderDemand = useOrderDemand()
+
+  async function handleBringFromOrders() {
+    if (!outletId) return
+    try {
+      const demand = await orderDemand.mutateAsync(outletId)
+      if (demand.lines.length === 0) {
+        setSnapshot(demand)
+        toast.info("No hay nada pendiente de cocinar en esta sucursal")
+        return
+      }
+      // Si el operador ya venía cargando a mano, la decisión es suya.
+      if (lines.some((l) => !isBlank(l))) {
+        setPendingDemand(demand)
+        setMergeOpen(true)
+        return
+      }
+      applyDemand(demand, "replace")
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo traer la cola de órdenes")
+    }
+  }
+
+  function applyDemand(demand: OrderDemand, mode: "replace" | "append") {
+    setSnapshot(demand)
+    setLines((prev) => {
+      const brought: DraftLine[] = demand.lines.map((l) => ({
+        key: newKey(),
+        itemId: l.itemId,
+        itemName: l.itemName,
+        qty: String(l.qty),
+        sources: l.sources,
+      }))
+
+      if (mode === "replace") {
+        return brought
+      }
+
+      // Sumar: si el producto ya estaba cargado, se acumula sobre esa línea en
+      // vez de dejar dos filas del mismo plato — el lote agrega por producto,
+      // y dos líneas de milanesa serían el mismo número contado en dos lugares
+      // para el operador que lo mira.
+      const merged = prev.filter((l) => !isBlank(l)).map((l) => ({ ...l }))
+      for (const line of brought) {
+        const existing = merged.find((l) => l.itemId === line.itemId)
+        if (existing) {
+          existing.qty = String(parseQty(existing.qty) + parseQty(line.qty))
+          existing.sources = [...(existing.sources ?? []), ...(line.sources ?? [])]
+        } else {
+          merged.push(line)
+        }
+      }
+      return merged
+    })
+    toast.success(
+      demand.lines.length === 1
+        ? "1 producto traído de la cola"
+        : `${demand.lines.length} productos traídos de la cola`,
+    )
   }
 
   function removeLine(key: string) {
@@ -225,6 +348,7 @@ export default function ProductionBatchPage() {
       toast.success("Lote producido y stock actualizado")
       setLines([newLine()])
       setNote("")
+      setSnapshot(null)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo producir el lote")
     } finally {
@@ -416,7 +540,47 @@ export default function ProductionBatchPage() {
             </div>
 
             <div className="flex flex-col gap-3">
-              <Label>Platos del lote</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Platos del lote</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBringFromOrders}
+                  disabled={!outletId || orderDemand.isPending}
+                >
+                  {orderDemand.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ListPlus className="size-4" />
+                  )}
+                  Traer de órdenes pendientes
+                </Button>
+              </div>
+
+              {/* La FOTO, declarada (D2): qué se trajo, de cuándo, y qué quedó
+                  afuera. Sin la hora, el operador no tiene cómo saber si la
+                  cola que está mirando es de hace un minuto o de hace una
+                  hora. */}
+              {snapshot && (
+                <p className="text-xs text-muted-foreground">
+                  Cola al momento de traer: {formatTime(snapshot.takenAt)} ·{" "}
+                  {snapshot.orderCount === 1
+                    ? "1 pedido pendiente"
+                    : `${snapshot.orderCount} pedidos pendientes`}
+                  . Los pedidos que entren después no se suman solos.
+                  {snapshot.skippedFreeText > 0 && (
+                    <>
+                      {" "}
+                      {snapshot.skippedFreeText === 1
+                        ? "1 línea sin producto de catálogo"
+                        : `${snapshot.skippedFreeText} líneas sin producto de catálogo`}{" "}
+                      quedaron afuera: no tienen receta que explotar.
+                    </>
+                  )}
+                  {snapshot.truncated && " La cola es muy larga y vino incompleta."}
+                </p>
+              )}
+
               {lines.map((line) => (
                 <LineRow
                   key={line.key}
@@ -507,6 +671,57 @@ export default function ProductionBatchPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Ya había líneas cargadas: la decisión es del operador, no del código.
+          Reemplazar y sumar son las dos respuestas legítimas —"armé mal, traé
+          la cola" y "esto va además de lo que cargué"— y elegir una por él en
+          silencio le borraría trabajo o le duplicaría cantidades. */}
+      <AlertDialog
+        open={mergeOpen}
+        onOpenChange={(open) => {
+          setMergeOpen(open)
+          // Cancelar (o cerrar con Escape) descarta la foto: dejarla en state
+          // la haría reaparecer con datos viejos si el diálogo se reabriera.
+          if (!open) setPendingDemand(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Ya hay platos cargados</AlertDialogTitle>
+            <AlertDialogDescription>
+              La cola tiene{" "}
+              {pendingDemand?.lines.length === 1
+                ? "1 producto pendiente"
+                : `${pendingDemand?.lines.length ?? 0} productos pendientes`}
+              . ¿Reemplazo lo que hay en pantalla o lo sumo a lo que ya cargaste?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            {/* Las dos son acciones del diálogo, así que las dos son
+                `<AlertDialogAction>` — el cierre lo maneja Radix. "Sumar" va
+                `asChild` sobre un Button `outline` solo para que no compitan
+                dos botones primarios en el mismo footer. */}
+            <AlertDialogAction asChild>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (pendingDemand) applyDemand(pendingDemand, "append")
+                }}
+              >
+                Sumar
+              </Button>
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingDemand) applyDemand(pendingDemand, "replace")
+              }}
+            >
+              Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -615,9 +830,66 @@ function LineRow({
         aria-label="Cantidad"
       />
 
+      <LineOrigin line={line} />
+
       <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Quitar plato">
         <Trash2 className="size-4" />
       </Button>
+    </div>
+  )
+}
+
+/**
+ * De qué pedidos salió la cantidad de una línea traída de la cola (D3 de
+ * context/70). Tooltip y no una columna: es información de AUDITORÍA —"¿de
+ * dónde salieron estas 6 milanesas?"— que se consulta cuando un número
+ * sorprende, no en cada mirada a la pantalla.
+ *
+ * Si la línea también tiene cantidad cargada a mano (el operador sumó la cola
+ * sobre lo que ya había), el resto se declara en vez de repartirlo entre los
+ * pedidos: atribuirle a un pedido una cantidad que no pidió sería exactamente
+ * el error que este desglose existe para evitar.
+ */
+function LineOrigin({ line }: { line: DraftLine }) {
+  // `useBootstrap` es una query cacheada: pedirla acá no dispara request ni
+  // prop-drilling de `bootstrap` a través de `LineRow`. Las cantidades salen
+  // por `formatQty` como en todo el resto de la pantalla — el separador
+  // decimal es del tenant, no de JS.
+  const { data: bootstrap } = useBootstrap()
+  const sources = line.sources ?? []
+  if (sources.length === 0) {
+    // El hueco se reserva igual: sin esto, la fila de una línea con origen y
+    // la de una sin él tendrían el input de cantidad en posiciones distintas.
+    return <div className="w-16 shrink-0" aria-hidden />
+  }
+
+  const fromOrders = sources.reduce((acc, s) => acc + s.qty, 0)
+  const manual = parseQty(line.qty) - fromOrders
+
+  return (
+    <div className="w-16 shrink-0">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="secondary" tabIndex={0} className="cursor-default font-normal">
+            {sources.length === 1 ? "1 pedido" : `${sources.length} pedidos`}
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent align="end" className="max-w-64">
+          <ul className="flex flex-col gap-0.5">
+            {sources.map((s, i) => (
+              <li key={`${s.orderId}-${i}`} className="tabular-nums">
+                {s.orderNumber !== null ? `#${s.orderNumber}` : s.orderId.slice(0, 8)} ×{" "}
+                {formatQty(s.qty, bootstrap ?? null)}
+              </li>
+            ))}
+            {manual > 0.0001 && (
+              <li className="tabular-nums">
+                Cargado a mano × {formatQty(manual, bootstrap ?? null)}
+              </li>
+            )}
+          </ul>
+        </TooltipContent>
+      </Tooltip>
     </div>
   )
 }
