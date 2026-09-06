@@ -13,23 +13,12 @@
 import { Clock, DollarSign, Printer, User, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { formatTime } from "@/lib/format-date"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useOrderActions } from "@/hooks/use-order-actions"
+import { CancelOrderDialog } from "@/components/orders/cancel-order-dialog"
 import { type Order } from "@/hooks/use-orders"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { orderDestination, orderItemsSummary, orderTotal } from "@/lib/orders/order-display"
@@ -48,17 +37,8 @@ export function OrderCard({
   // Cobrar / Reimprimir / Cancelar viven en `useOrderActions` — las comparte
   // con `OrderDetailView` (diálogo de detalle de Lista/Mapa). Estaban
   // duplicadas en los dos componentes y cualquier fix se aplicaba en uno solo.
-  const {
-    cobrar,
-    isPaid,
-    reprint,
-    printing,
-    cancelOpen,
-    setCancelOpen,
-    cancelReason,
-    setCancelReason,
-    confirmCancel,
-  } = useOrderActions(order, onAfterAction)
+  const actions = useOrderActions(order, onAfterAction)
+  const { cobrar, isPaid, reprint, printing, setCancelOpen } = actions
 
   const hasItems = (order.items?.length ?? 0) > 0
   const total = orderTotal(order)
@@ -128,44 +108,11 @@ export function OrderCard({
         </Button>
       </div>
 
-      <AlertDialog
-        open={cancelOpen}
-        onOpenChange={(v) => {
-          setCancelOpen(v)
-          if (!v) setCancelReason("")
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Cancelar la orden #{order.orderNumber}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              La orden no se elimina: queda cancelada y sale de las pantallas operativas.
-              El motivo queda registrado en su historial.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {/* Motivo obligatorio — el backend rechaza la cancelación sin él. */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`cancel-reason-${order.id}`}>Motivo de la cancelación</Label>
-            <Textarea
-              id={`cancel-reason-${order.id}`}
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Ej.: el cliente se retiró, error de carga, faltó stock"
-              rows={3}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Volver</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmCancel}
-              disabled={cancelReason.trim() === ""}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Cancelar orden
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CancelOrderDialog
+        orderId={order.id}
+        orderNumber={order.orderNumber}
+        actions={actions}
+      />
     </div>
   )
 }

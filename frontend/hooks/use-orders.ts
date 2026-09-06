@@ -16,7 +16,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import {
+  posJson,
+  PosApiError,
+  type PosApiErrorDetails,
+} from "@/lib/api/pos-json"
 import { api } from "@/lib/api-client"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
@@ -253,53 +257,21 @@ export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
 ]
 
 /**
- * Detalles estructurados que el backend adjunta a un rechazo (`apiError(...,
- * $details)` → `error.details` en el envelope). Hoy los usa la anulación de
- * ítem para explicar POR QUÉ no se pudo: sin `windowMinutes`/`elapsedMinutes`
- * el cajero solo leería "no se pudo", que en una caja termina en una llamada
- * al encargado para averiguar qué pasó.
- */
-export interface OrderApiErrorDetails {
-  code?: string
-  windowMinutes?: number
-  elapsedMinutes?: number
-  [key: string]: unknown
-}
-
-/**
- * Error de una request de órdenes, con el `status` HTTP y los `details` del
- * envelope.
+ * `PosApiError`/`PosApiErrorDetails` bajo los nombres con los que este módulo
+ * los expuso siempre.
  *
- * Existe porque `new Error(message)` pierde justo lo que la UI necesita para
- * decir algo accionable: un 403 (falta el permiso) y un 422 (ventana de
- * anulación vencida) llegaban indistinguibles al call-site, que solo podía
- * repetir el texto del server. Extiende `Error`, así que todos los consumidores
- * que ya leen `err.message` siguen igual — la información extra es aditiva.
+ * El error y el lector del envelope vivían ACÁ y estaban duplicados —sin
+ * `status` ni `details`— en otros cuatro hooks del POS. Se movieron a
+ * `lib/api/pos-json.ts` para que "el rechazo del server explica qué hacer" sea
+ * una propiedad del POS y no de este archivo (ver el docblock de ese módulo).
+ *
+ * Los alias se mantienen y no se hace un rename masivo porque el nombre
+ * `OrderApiError` es correcto donde se usa: es el error de una request de
+ * ÓRDENES. Lo que cambió es de dónde sale la clase, no qué significa.
  */
-export class OrderApiError extends Error {
-  readonly status: number
-  readonly details: OrderApiErrorDetails | null
-
-  constructor(message: string, status: number, details: OrderApiErrorDetails | null = null) {
-    super(message)
-    this.name = "OrderApiError"
-    this.status = status
-    this.details = details
-  }
-}
-
-async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await posFetch(url, init)
-  const json = await res.json().catch(() => null)
-  if (!res.ok || !json?.ok) {
-    throw new OrderApiError(
-      json?.error?.message ?? `Error ${res.status}`,
-      res.status,
-      (json?.error?.details as OrderApiErrorDetails | undefined) ?? null,
-    )
-  }
-  return json.data as T
-}
+export type OrderApiErrorDetails = PosApiErrorDetails
+export const OrderApiError = PosApiError
+export type OrderApiError = PosApiError
 
 // ── Queries ───────────────────────────────────────────────────────────────────
 

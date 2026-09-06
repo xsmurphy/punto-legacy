@@ -116,6 +116,56 @@ export interface DrawerSummary {
   customersCount?: number
   /** Suma de payments no-return de la sesión (antes de sumar caja inicial/ingresos). Opcional: default 0. */
   salesTotal?: number
+  /**
+   * ANULACIONES de comanda del turno — líneas sacadas de una orden y órdenes
+   * canceladas enteras, con quién y por qué.
+   *
+   * NO entra en `total` ni en `subtotal`: la plata de un plato anulado nunca se
+   * cobró, así que no falta del cajón. Es información de CONTROL al lado del
+   * arqueo, no un componente del arqueo.
+   *
+   * ALCANCE: son las anulaciones de la SUCURSAL en la ventana de tiempo del
+   * turno, no las de esta caja — `pos_order_event` no tiene columna de caja.
+   * Se dice en pantalla, no se disimula (ver `DrawerService::getCancellations`).
+   *
+   * A ciegas viene en cero y sin filas: lo filtra el SERVIDOR
+   * (`drawerBlindSummary()`), no esta pantalla.
+   *
+   * Opcional: default vacío para tolerar un backend sin deployar.
+   */
+  cancellations?: DrawerCancellations
+}
+
+/** Una anulación del turno, tal como la devuelve `OrderCancellationQuery::rows`. */
+export interface DrawerCancellationRow {
+  eventId: string
+  at: string
+  orderId: string
+  orderNumber: number | null
+  spaceName: string | null
+  /** `item` = una línea; `order` = la orden entera. */
+  scope: "item" | "order"
+  /** `null` cuando `scope === "order"`. */
+  itemName: string | null
+  /** `null` cuando `scope === "order"`. */
+  qty: number | null
+  /** Líneas que se llevó la cancelación. `null` en grano ítem. */
+  itemCount: number | null
+  amount: number
+  reason: string | null
+  actorName: string | null
+  actorKind: "user" | "device" | "system"
+}
+
+export interface DrawerCancellations {
+  count: number
+  amount: number
+  /**
+   * Hasta 50 — el servidor corta ahí porque esto se imprime en un ticket de
+   * 80mm. `count` y `amount` son del turno ENTERO igual, así que el resumen no
+   * miente cuando la lista se corta.
+   */
+  rows: DrawerCancellationRow[]
 }
 
 export interface DrawerStatus {

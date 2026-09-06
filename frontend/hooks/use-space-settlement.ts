@@ -14,7 +14,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { posJson } from "@/lib/api/pos-json"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -69,15 +69,6 @@ export type RegisterSessionPaymentInput =
   | { sessionId: string; transactionId: string; kind: "items"; orderItemIds: string[] }
   | { sessionId: string; transactionId: string; kind: "amount"; amount: number }
   | { sessionId: string; transactionId: string; kind: "share"; shareCount: number; shareIndex: number }
-
-async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await posFetch(url, init)
-  const json = await res.json().catch(() => null)
-  if (!res.ok || !json?.ok) {
-    throw new Error(json?.error?.message ?? `Error ${res.status}`)
-  }
-  return json.data as T
-}
 
 // ── Fetchers imperativos ──────────────────────────────────────────────────────
 

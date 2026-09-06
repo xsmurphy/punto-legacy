@@ -992,7 +992,7 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           name="settingOrderItemCancelWindowMinutes"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Minutos para anular un ítem de comanda</FormLabel>
+              <FormLabel>Minutos para anular una comanda</FormLabel>
               <FormControl>
                 {/* Input numérico y NO MoneyInput: son minutos, no un monto —
                     el MoneyInput aplicaría los separadores y decimales de la
@@ -1014,10 +1014,13 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
                 />
               </FormControl>
               <FormDescription className="text-xs">
-                Cuánto tiempo tiene el cajero para sacar un ítem de una comanda
-                ya cargada. En 0 no hay límite. Pasado ese tiempo la anulación
-                la tiene que hacer un encargado con su usuario; el cajero ve el
-                motivo en pantalla, no un botón que falla sin explicación.
+                Cuánto tiempo tiene el cajero para deshacer algo de una
+                comanda ya cargada: sacar un ítem, cancelar la orden entera o
+                cancelar una mesa. En 0 no hay límite. Pasado ese tiempo la
+                anulación la tiene que hacer un encargado con su usuario; el
+                cajero ve el motivo en pantalla, no un botón que falla sin
+                explicación. La ventana se cuenta desde que se cargó el ítem,
+                se abrió la orden o se abrió la mesa, según el caso.
               </FormDescription>
               <FormMessage />
             </FormItem>

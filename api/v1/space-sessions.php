@@ -7,7 +7,10 @@
  *   GET  /v1/space-sessions?id=<uuid>                          → detalle
  *   POST /v1/space-sessions                                    → abre sesión (body: tableId, guests?, waiterId?)
  *   POST /v1/space-sessions?id=<uuid>&action=request-bill       → open → bill_requested
- *   POST /v1/space-sessions?id=<uuid>&action=cancel              → cancela (solo sin órdenes activas)
+ *   POST /v1/space-sessions?id=<uuid>&action=cancel              → cancela la sesión Y CASCADEA sobre sus órdenes vivas;
+ *                                                              exige `pos.order.item.cancel` del OPERADOR y la ventana
+ *                                                              del comercio (o `pos.order.item.cancel.late`) — ver
+ *                                                              `OrderCancelGate`
  *   POST /v1/space-sessions?id=<uuid>&action=close {transactionId?} → cierra (F0+F1: sin cobro; F2 lo llamará con transactionId)
  *   POST /v1/space-sessions?id=<uuid>&action=update {alias?, guests?, waiterId?} → edita la ocupación
  *   POST /v1/space-sessions?id=<uuid>&action=move   {targetSpaceId}  → mueve el espacio a otro espacio libre
@@ -39,6 +42,7 @@ $outletScope = $isPosApp ? $outletId : null;
 global $db;
 
 require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
+require_once __DIR__ . '/../lib/services/OrderCancelGate.php';
 $operator = \Punto\Api\Auth\OperatorContext::resolve($ctx);
 $svc      = new \Punto\Api\Spaces\SpaceSessionService($db, $operator);
 
@@ -84,6 +88,27 @@ switch ($method) {
         }
 
         if ($id !== null && $action === 'cancel') {
+            // Cancelar la mesa CASCADEA sobre todas sus órdenes vivas
+            // (`SpaceSessionService::cancel()`, decisión del owner
+            // 2026-07-19). O sea que este botón hace desaparecer comandas
+            // enteras, igual que `orders-core?action=status` con
+            // `status='cancelled'` — y hasta 2026-09-06 no pedía ningún
+            // permiso, así que gatear solo aquel dejaba este como el atajo
+            // obvio, justo en el flujo de mesa donde el comercio describió el
+            // problema. Mismo gate, misma clave, misma elevación: la ventana
+            // acá se cuenta desde `space_session.opened_at`.
+            //
+            // Se gatea la SESIÓN una vez y no cada orden de la cascada: la
+            // persona pidió cancelar la mesa. Un chequeo por orden podría
+            // dejar la cascada a medias —órdenes canceladas y mesa abierta—,
+            // que es peor que cualquiera de los dos extremos.
+            try {
+                \Punto\Api\Services\OrderCancelGate::assertCanCancelSpaceSession($ctx, $companyId, (string) $id);
+            } catch (\Punto\Api\Services\OrderCancelBlockedException $e) {
+                // 422 con `details` — mismo contrato que los otros dos granos,
+                // para que el POS use UN traductor de errores y no tres.
+                apiError($e->getMessage(), 422, $e->details());
+            }
             try {
                 apiOk($svc->cancel($companyId, (string) $id, $outletScope));
             } catch (\Throwable $e) {
