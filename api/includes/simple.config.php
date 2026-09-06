@@ -195,6 +195,12 @@ define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);
 define('API_PIX_SECRET',         $_ENV['API_PIX_SECRET']        ?? '');
 define('MAILGUN_TOKEN',          $_ENV['MAILGUN_TOKEN']         ?? '');
+// Resend — proveedor de email transaccional desde 2026-09-06 (elegido por
+// el owner). Reemplaza a Mailgun en `Notification::sendEmails()`, que nunca
+// llegó a funcionar. MAILGUN_* se conservan porque los lee el legacy y
+// borrarlos es un slice aparte. El remitente sale de EMAIL_FROM (dominio de
+// Punto, verificado con SPF/DKIM en Resend).
+define('RESEND_API_KEY',         $_ENV['RESEND_API_KEY']        ?? '');
 define('SENDGRID_SMTP_USER',     $_ENV['SENDGRID_SMTP_USER']    ?? '');
 define('SENDGRID_SMTP_PASS',     $_ENV['SENDGRID_SMTP_PASS']    ?? '');
 define('NCM_SMS_API_KEY',        $_ENV['NCM_SMS_API_KEY']       ?? '');

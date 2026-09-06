@@ -122,7 +122,8 @@ Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el 
 | `SENDGRID_API_KEY` | Email via SendGrid (API key) |
 | `SENDGRID_SMTP_USER` + `SENDGRID_SMTP_PASS` | Email via SendGrid SMTP (`Notification::sendSMTP`). Definidos en `app/` y `panel/includes/simple.config.php`. (agregado commit e51d5e7, 2026-06-05) |
 | `NCM_SMS_API_KEY` + `NCM_SMS_COMPANY_ID` | SMS via NCM (`Notification::sendNCMSMS`). Definidos en `app/` y `panel/includes/simple.config.php`. (agregado commit e51d5e7, 2026-06-05) |
-| `MAILGUN_TOKEN` | Email via Mailgun |
+| `RESEND_API_KEY` + `EMAIL_FROM` | **Email transaccional (canal vigente desde 2026-09-06).** Único punto de salida: `Notification::sendEmails()`. `EMAIL_FROM` es una casilla del dominio de Punto, verificado con SPF/DKIM en Resend — el nombre visible y el `reply_to` los pone cada llamada (una factura se manda a nombre del COMERCIO, no de Punto). Precedencia: `integration.resend` en `platform_config` le gana al env |
+| `MAILGUN_TOKEN` | ~~Email via Mailgun~~ — DEPRECADA. `sendEmails()` usaba `\MailgunClient` del namespace global y el alias vivía en otro archivo: nunca funcionó, fataleaba con 'Class not found'. Se conserva la constante porque la lee el legacy |
 | `INFOBIP_AUTH` | SMS/RCS via Infobip |
 | `BANCARD_CARD_API_TOKEN` | Pagos tarjeta |
 | `BANCARD_QR_API_TOKEN` | Pagos QR |
