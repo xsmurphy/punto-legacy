@@ -938,6 +938,32 @@ real del 2026-07-30, KuDE descargable).
 regla que ya rige las dos superficies del panel (`sifen_status` manda sobre
 `status`, `frontend/lib/einvoice/sifen-status.ts`) — acá falta aplicarla.
 
+### R5b — El mercado tolera días, no segundos (owner, 2026-09-06)
+
+*"En Paraguay es muy normal que la factura electrónica no llegue en el momento.
+Muchas veces se recibe recién uno o dos días después de haber sido emitida. Así
+que nos conviene mucho más validar bien las facturas y no apurarnos solo por
+querer entregarlas al cliente lo antes posible. Prefiero hacerlo bien."*
+
+Es un dato de MERCADO que no se deduce del código, y relaja varias cosas que
+por defecto uno diseñaría apretadas:
+
+- **Refuerza R1.** Si un cliente paraguayo no espera la factura en el momento,
+  el silencio durante la corrección no se lee como un problema: se lee como lo
+  normal. Nadie está mirando el teléfono esperando.
+- **Mata el escalamiento con plazo.** La variante "si no se corrige en N horas,
+  avisarle al cliente" se descarta: pondría una alarma sobre una demora que en
+  ese mercado es corriente.
+- **El outbox puede ser PACIENTE.** No hay razón para perseguir la entrega en
+  segundos. Aplica directo a la pregunta abierta [F1] de `context/57` (cuánto
+  tarda `getkude` sobre un documento recién aprobado): con esta tolerancia, el
+  backoff se puede estirar sin costo de producto, y estirar es más barato y más
+  confiable que reintentar rápido.
+- **Y ordena la prioridad entre correcto y rápido.** Ante la duda entre entregar
+  antes o entregar bien, gana bien. Cualquier diseño futuro que proponga
+  adelantar el envío ANTES de `sifen_status = Aprobado` —para "que llegue más
+  rápido"— contradice esto y la D3 de `context/57`.
+
 ### R5 [?] — El plazo legal es el que define la urgencia, y no lo sabemos
 
 Todo esto asume que el comercio tiene una ventana para reemitir. **Cuál es esa
@@ -966,6 +992,9 @@ normativa antes de fijar la urgencia del aviso de R2 y cualquier escalamiento.
   el turno ya cerró.
 - **Confiar solo en la pantalla** — es lo que hay hoy y es la razón de este
   plan: nadie entra todos los días a Facturación electrónica.
+- **Adelantar la entrega al cliente antes de `sifen_status = Aprobado`** — ver
+  R5b: el mercado tolera días y el owner prefiere correcto sobre rápido.
+  Entregar antes de la aprobación es mandar una factura que puede no valer.
 
 ## Preguntas abiertas para Factomate
 

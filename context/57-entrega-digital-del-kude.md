@@ -215,6 +215,10 @@ canal principal.
 - **[F1]** `getkude` sobre un documento recién aprobado: ¿cuánto tarda en estar
   disponible el PDF? Define el backoff de E2. Sin medirlo, el primer intento
   probablemente falle siempre y se pague un reintento de más en cada venta.
+  **Contexto de mercado que relaja esto (owner, 2026-09-06):** en Paraguay es
+  normal recibir la factura uno o dos días después de emitida, así que el
+  backoff puede ser PACIENTE — estirarlo sale gratis en experiencia y es más
+  barato y confiable que reintentar rápido. Ver `context/28` §R5b.
 - **[C1]** ¿El contador quiere el XML además del PDF? El KuDE es la
   representación gráfica; algunos contadores piden el XML firmado. No está en el
   alcance de E1.
