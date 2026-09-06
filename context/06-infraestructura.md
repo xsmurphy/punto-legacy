@@ -116,7 +116,7 @@ Con TTL corto (ej. 8h), una caja apagada un fin de semana queda inutilizable el 
 
 | Variable | Servicio |
 |----------|----------|
-| `EVOLUTION_API_URL` + `EVOLUTION_INSTANCE` + `EVOLUTION_API_KEY` | WhatsApp via Evolution API — único punto de salida: `api/lib/Notify/WhatsAppSender.php`. Consumidores: el OTP del signup (`SIGNUP_OTP=on`) y los avisos de vencimiento del job `plan-lifecycle` |
+| `EVOLUTION_API_URL` + `EVOLUTION_INSTANCE` + `EVOLUTION_API_KEY` | WhatsApp via Evolution API — único punto de salida: `api/lib/Notify/WhatsAppSender.php`. Consumidor ÚNICO: el OTP del signup (`SIGNUP_OTP=on`). **NO es un canal de notificaciones** (decisión del owner 2026-09-06): los avisos del job `plan-lifecycle` pasaron a EMAIL. Para mensajería a clientes finales la ruta es Kapso (Cloud API oficial), no Evolution — ver `context/57` §6 |
 | `PLAN_LIFECYCLE_NOTIFY` | ¿El job `plan-lifecycle` MANDA los avisos de vencimiento por WhatsApp, o solo loguea a quién avisaría? Vacío/ausente = dry-run (default deliberado: son mensajes a comercios reales). `1`/`on`/`true` = envía. Las ramas de vencimiento, bloqueo y recarga de créditos NO dependen de esta var — corren siempre |
 | `TWILIO_SID` + `TWILIO_AUTH_TOKEN` | SMS via Twilio |
 | `SENDGRID_API_KEY` | Email via SendGrid (API key) |

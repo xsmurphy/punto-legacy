@@ -413,6 +413,12 @@ datos son del cliente).
 
 ### D7 — Avisos a los 7 y 3 días, y al entrar en gracia (cerrada por el owner 2026-09-05)
 
+> **Canal: EMAIL, no WhatsApp (owner, 2026-09-06).** Se implementaron por
+> Evolution porque era lo único que había; el owner acotó su uso —"Evolution lo
+> usaría para otras cosas, no para notificaciones"— y además nunca habrían
+> salido: no hay instancia pareada en `evo.punto.la`. Email sí funciona (Resend,
+> dominio verificado el mismo día). Destinatario: `contactemail` del DUEÑO.
+
 Con un corte de venta tan filoso como el de D5, el producto que evita la
 cancelación es el aviso, no la gracia. Por eso van DENTRO de P2: entregar el
 corte sin la advertencia es la mitad que hace daño sin la mitad que la

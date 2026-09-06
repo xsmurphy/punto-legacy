@@ -95,10 +95,9 @@ namespace Punto\Api\Admin;
 
 require_once __DIR__ . '/CompanyAdminService.php';
 require_once __DIR__ . '/../Auth/RoleService.php';
-require_once __DIR__ . '/../Notify/WhatsAppSender.php';
 require_once __DIR__ . '/../Support/TenantLocale.php';
+require_once __DIR__ . '/../App/Services/Notification.php';
 
-use Punto\Api\Notify\WhatsAppSender;
 
 final class PlanLifecycleService
 {
@@ -384,10 +383,10 @@ final class PlanLifecycleService
             }
 
             try {
-                $owner = $this->ownerPhone($companyId);
+                $owner = $this->ownerEmail($companyId);
                 if ($owner === null) {
                     $skip++;
-                    $detail[] = ['companyId' => $companyId, 'kind' => $t['kind'], 'result' => 'sin teléfono de dueño'];
+                    $detail[] = ['companyId' => $companyId, 'kind' => $t['kind'], 'result' => 'sin email de dueño'];
                     continue;
                 }
 
@@ -397,19 +396,26 @@ final class PlanLifecycleService
                     $skip++;
                     $detail[] = ['companyId' => $companyId, 'kind' => $t['kind'], 'result' => 'dry-run'];
                     error_log(sprintf(
-                        '[plan-lifecycle] DRY-RUN aviso %s a %s (tel %s): %s',
+                        '[plan-lifecycle] DRY-RUN aviso %s a %s (%s): %s',
                         (string) $t['kind'],
                         $companyId,
-                        self::maskPhone($owner),
+                        self::maskEmail($owner),
                         $text
                     ));
                     continue;
                 }
 
-                $res = WhatsAppSender::send($owner, $text);
-                if (!$res['ok']) {
+                // `sendEmails()` devuelve true, o el motivo del fallo como
+                // string — nunca lanza (hay call-sites legacy que mandan mail
+                // como efecto lateral de una venta).
+                $res = \Punto\App\Services\Notification::sendEmails([
+                    'to'      => $owner,
+                    'subject' => $this->noticeSubject((string) $t['kind']),
+                    'data'    => ['message' => nl2br(htmlspecialchars($text, ENT_QUOTES, 'UTF-8'))],
+                ]);
+                if ($res !== true) {
                     $skip++;
-                    $detail[] = ['companyId' => $companyId, 'kind' => $t['kind'], 'result' => 'error: ' . (string) ($res['error'] ?? '')];
+                    $detail[] = ['companyId' => $companyId, 'kind' => $t['kind'], 'result' => 'error: ' . (string) $res];
                     continue;
                 }
 
@@ -438,14 +444,26 @@ final class PlanLifecycleService
      * sin orden sobre un tenant con dos dueños elegiría una fila distinta en
      * cada corrida — el bug que context/55 §8 documenta en el login.
      */
-    private function ownerPhone(string $companyId): ?string
+    /**
+     * Email del dueño del tenant — destinatario de los avisos.
+     *
+     * Era el TELÉFONO y los avisos salían por WhatsApp (Evolution). El owner
+     * acotó el uso de Evolution el 2026-09-06: no es un canal de
+     * notificaciones. Y era una decisión que además no funcionaba — no hay
+     * ninguna instancia pareada en `evo.punto.la`, así que ningún aviso podía
+     * salir. Email sí funciona (Resend, dominio verificado el mismo día).
+     *
+     * Al DUEÑO, no al cajero: un vencimiento de plan es del negocio. Ver
+     * `context/34` §F7 D7.
+     */
+    private function ownerEmail(string $companyId): ?string
     {
         $rows = $this->fetchRows(
-            "SELECT c.contactphone
+            "SELECT c.contactemail
                FROM contact c
               WHERE c.companyid = ?
                 AND c.type = 0
-                AND coalesce(c.contactphone, '') <> ''
+                AND coalesce(c.contactemail, '') <> ''
                 AND " . \RoleService::ownerRoleSql('c') . "
               ORDER BY (coalesce(c.main, '') = 'true') DESC, c.contactid
               LIMIT 1",
@@ -455,9 +473,31 @@ final class PlanLifecycleService
         if ($rows === []) {
             return null;
         }
-        $phone = trim((string) ($rows[0]['contactphone'] ?? ''));
+        $email = trim((string) ($rows[0]['contactemail'] ?? ''));
 
-        return $phone !== '' ? $phone : null;
+        return $email !== '' ? $email : null;
+    }
+
+    /** Asunto del aviso. Dice el estado, no el mecanismo. */
+    private function noticeSubject(string $kind): string
+    {
+        $app = defined('APP_NAME') ? APP_NAME : 'Punto';
+
+        return match ($kind) {
+            'grace' => $app . ' — tu plan venció',
+            default => $app . ' — tu plan está por vencer',
+        };
+    }
+
+    /** Email enmascarado para el log: basta para identificar, no para filtrar. */
+    private static function maskEmail(string $email): string
+    {
+        $at = strpos($email, '@');
+        if ($at === false || $at < 1) {
+            return '***';
+        }
+
+        return substr($email, 0, 1) . '***' . substr($email, $at);
     }
 
     /** Texto del aviso. El nombre del comercio vive en `config->>'companyName'`. */
@@ -765,11 +805,4 @@ final class PlanLifecycleService
         return $ids;
     }
 
-    /** Los logs del cron no son lugar para un teléfono completo de un comercio. */
-    private static function maskPhone(string $phone): string
-    {
-        $p = ltrim($phone, '+');
-
-        return strlen($p) <= 4 ? '****' : str_repeat('*', strlen($p) - 4) . substr($p, -4);
-    }
 }
