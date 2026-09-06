@@ -411,15 +411,24 @@ check('(F) devuelve el id del recibo que ejecutó la orden', $paymentId !== '',
 
 // El recibo REAL, leído de la tabla — no del JSON de respuesta. Type 5 y
 // supplierId poblado es la firma de `CreditPaymentService` en modo proveedor.
+//
+// OJO con el chequeo de "vino algo": `ncmExecute()` devuelve un
+// `CaseInsensitiveArray` (ArrayAccess), NO un `array` de PHP — `is_array()`
+// sobre él da FALSE aunque la fila exista, y este check fallaba con el recibo
+// correcto delante. Es el mismo footgun que documenta `lockOrder()` del
+// servicio. Se chequea por falsedad, que es el contrato real del wrapper.
 $rec = $paymentId !== ''
     ? ncmExecute('SELECT * FROM transaction WHERE transactionId = ?::uuid AND companyId = ?::uuid', [$paymentId, $companyId])
     : null;
+$recFound = $rec !== null && $rec !== false;
 check('(F) el recibo es un type=5 de PROVEEDOR (lo produjo CreditPaymentService)',
-    is_array($rec)
+    $recFound
         && (string) ($rec['transactionType'] ?? '') === '5'
         && (string) ($rec['supplierId'] ?? '') === SUPPLIER_ID
         && empty($rec['customerId']),
-    'rec=' . json_encode(is_array($rec) ? [$rec['transactionType'] ?? null, $rec['supplierId'] ?? null] : null),
+    'rec=' . json_encode($recFound
+        ? [$rec['transactionType'] ?? null, $rec['supplierId'] ?? null, $rec['customerId'] ?? null]
+        : null),
     $failures, $checks);
 
 check('(F) la imputación quedó en transaction_link con el monto de la línea',
@@ -513,6 +522,117 @@ check('(I) la factura tomada por la orden nueva sale marcada como comprometida',
 check('(I) la factura ya SALDADA no se ofrece',
     !isset($byId[$inv2]),
     'inv2 apareció en pendingInvoices pese a estar saldada', $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (I2) El DETALLE resuelve los nombres server-side
+//
+// La pantalla de detalle es donde alguien decide si aprueba un desembolso: si
+// la atribución llega como uuid, el dato que sostiene la feature es ilegible.
+// Los nombres los arma `find()` con joins a `contact`/`outlet`, no el front.
+// ═══════════════════════════════════════════════════════════════════════════
+$r = hit('GET', 'action=get&id=' . $orderB, [], $tokAprobador);
+check('(I2) el detalle de una orden responde 200', $r['status'] === 200,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+
+$det = is_array($r['data']['order'] ?? null) ? $r['data']['order'] : [];
+check('(I2) el detalle trae proveedor, sucursal y quién la creó, por NOMBRE',
+    ($det['supplierName'] ?? '') !== ''
+        && ($det['outletName'] ?? '') !== ''
+        && ($det['createdByName'] ?? '') !== '',
+    'order=' . json_encode([
+        $det['supplierName'] ?? null,
+        $det['outletName'] ?? null,
+        $det['createdByName'] ?? null,
+    ]), $failures, $checks);
+
+check('(I2) una orden ya ejecutada muestra quién la pagó y su recibo',
+    (string) ($det['status'] ?? '') === 'paid'
+        && ($det['paidByName'] ?? '') !== ''
+        && (string) ($det['paymentTransactionId'] ?? '') !== '',
+    'order=' . json_encode([
+        $det['status'] ?? null,
+        $det['paidByName'] ?? null,
+        $det['paymentTransactionId'] ?? null,
+    ]), $failures, $checks);
+
+check('(I2) el detalle trae las líneas con su saldo VIVO',
+    is_array($r['data']['lines'] ?? null) && count($r['data']['lines']) === 1,
+    'lines=' . json_encode($r['data']['lines'] ?? null), $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (K) Cancelar escala con el ESTADO — y el gate se decide sobre la fila
+//     LOCKEADA, no sobre una lectura previa
+//
+// Descartar un borrador alcanza con `create`; anular una orden ya APROBADA
+// revierte una decisión de autoridad y pide `approve`. El endpoint no elige el
+// gate leyendo el estado antes del lock: manda las dos capacidades y decide el
+// servicio adentro de la TX. Si volviera a decidirse afuera, entre la lectura y
+// el `FOR UPDATE` alguien podría aprobar la orden y este caso pasaría a 200.
+// ═══════════════════════════════════════════════════════════════════════════
+$invK = makePurchase($companyId, $outletId, $adminId, 30000.0);
+$r = hit('POST', '', [
+    'action'     => 'create',
+    'supplierId' => SUPPLIER_ID,
+    'outletId'   => $outletId,
+    'lines'      => [['transactionId' => $invK, 'amount' => 30000.0]],
+], $tokAprobador);
+$orderK = (string) ($r['data']['paymentOrderId'] ?? '');
+check('(K) setup: se crea la orden que va a quedar aprobada', $r['status'] === 200,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+
+$r = hit('POST', '', ['action' => 'cancel', 'id' => $orderK, 'reason' => 'prueba borrador'],
+    $tokPreparador);
+check('(K) en BORRADOR, cancelar alcanza con purchases.paymentorder.create',
+    $r['status'] === 200, 'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+
+// Ahora una orden que SÍ llega a aprobada, para el caso que importa.
+$invK2 = makePurchase($companyId, $outletId, $adminId, 30000.0);
+$r = hit('POST', '', [
+    'action'     => 'create',
+    'supplierId' => SUPPLIER_ID,
+    'outletId'   => $outletId,
+    'lines'      => [['transactionId' => $invK2, 'amount' => 30000.0]],
+], $tokAprobador);
+$orderK2 = (string) ($r['data']['paymentOrderId'] ?? '');
+$r = hit('POST', '', ['action' => 'approve', 'id' => $orderK2], $tokAprobador);
+check('(K) setup: la orden queda aprobada', $r['status'] === 200,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+
+$r = hit('POST', '', ['action' => 'cancel', 'id' => $orderK2, 'reason' => 'no corresponde'],
+    $tokPreparador);
+check('(K) cancelar una orden APROBADA con solo `create` → 403', $r['status'] === 403,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+check('(K) el 403 dice que hace falta la clave de aprobar',
+    str_contains($r['message'], 'purchases.paymentorder.approve'),
+    'msg=' . $r['message'], $failures, $checks);
+check('(K) la orden aprobada NO se canceló',
+    (string) (orderRow($orderK2)['status'] ?? '') === 'approved',
+    'status=' . json_encode(orderRow($orderK2)['status'] ?? null), $failures, $checks);
+
+$r = hit('POST', '', ['action' => 'cancel', 'id' => $orderK2, 'reason' => 'no corresponde'],
+    $tokAprobador);
+check('(K) con `approve`, cancelar la orden aprobada SÍ entra', $r['status'] === 200,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (L) El payload de líneas tiene tope
+//
+// `assertLinesPayable()` arma un `IN (?,?,…)` con un placeholder por línea
+// contra `transaction`, que está particionada. Sin tope, un payload absurdo se
+// traduce en una query de miles de binds por partición.
+// ═══════════════════════════════════════════════════════════════════════════
+$muchas = [];
+for ($i = 0; $i < 201; $i++) {
+    $muchas[] = ['transactionId' => sprintf('aaaaaaaa-bbbb-4ccc-8ddd-%012d', $i), 'amount' => 1.0];
+}
+$r = hit('POST', '', [
+    'action'     => 'create',
+    'supplierId' => SUPPLIER_ID,
+    'outletId'   => $outletId,
+    'lines'      => $muchas,
+], $tokAprobador);
+check('(L) más de 200 facturas en una orden → 422', $r['status'] === 422,
+    'status=' . $r['status'] . ' msg=' . $r['message'], $failures, $checks);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // (J) Lectura sin el permiso de vista

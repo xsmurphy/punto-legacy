@@ -274,6 +274,25 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
   },
   {
+    to: "/ordenes-pago",
+    title: "Órdenes de pago",
+    icon: FileCheck,
+    surface: "sidebar",
+    sidebarGroup: "compras",
+    // La clave de LECTURA, no la de crear: el ítem tiene que aparecerle también
+    // a quien solo mira las órdenes (y a quien las aprueba sin armarlas). El
+    // gate de creación vive en el botón "Nueva orden" de la propia pantalla.
+    requires: "purchases.paymentorder.view",
+    keywords: [
+      "orden de pago",
+      "payment order",
+      "autorizar pago",
+      "aprobar pago",
+      "proveedores",
+      "pagar facturas",
+    ],
+  },
+  {
     to: "/reports/expenses",
     title: "Movimientos de caja",
     icon: Banknote,

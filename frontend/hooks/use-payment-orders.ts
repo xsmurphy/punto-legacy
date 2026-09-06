@@ -76,8 +76,24 @@ export interface PaymentOrderLine {
   voided: boolean
 }
 
+/**
+ * Cabecera del detalle: la orden más los NOMBRES resueltos server-side.
+ *
+ * La atribución es el punto de la feature, así que el detalle la muestra con
+ * nombre y no con uuid. Cada `*Name` puede venir vacío si el contacto ya no
+ * existe — el render cae al id, que es peor pero sigue siendo el dato.
+ */
+export interface PaymentOrderDetailHeader extends PaymentOrder {
+  supplierName: string
+  outletName: string
+  createdByName: string
+  approvedByName: string
+  paidByName: string
+  cancelledByName: string
+}
+
 export interface PaymentOrderDetail {
-  order: PaymentOrder
+  order: PaymentOrderDetailHeader
   lines: PaymentOrderLine[]
 }
 

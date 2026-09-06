@@ -27,6 +27,9 @@
  *   execute           → `purchases.paymentorder.approve` + `finance.manage`
  *   cancel            → `purchases.paymentorder.create`  (borrador propio o ajeno)
  *                       `purchases.paymentorder.approve` si ya está APROBADA
+ *                       — el gate lo elige el SERVICIO contra la fila lockeada,
+ *                         no este archivo con una lectura previa; ver el bloque
+ *                         de `cancel` abajo
  *
  * `approve` está separada de `create` porque ES el punto de la feature:
  * segregación de tareas entre quien arma el pago y quien lo autoriza. Las tres
@@ -261,25 +264,25 @@ if ($action === 'cancel') {
     }
 
     // El permiso escala con el estado: descartar un borrador es deshacer carga;
-    // anular una orden aprobada revierte una decisión de autoridad. Se lee la
-    // fila (sin lock, solo para elegir el gate) — el servicio la vuelve a leer
-    // con FOR UPDATE dentro de su TX antes de tocar nada.
-    $row = ncmExecute(
-        'SELECT status FROM payment_order WHERE paymentorderid = ? AND companyid = ? LIMIT 1',
-        [$id, $companyId]
-    );
-    if (!$row) {
-        apiError('Orden de pago no encontrada', 404);
-    }
-    if ((string) $row['status'] === 'approved') {
-        if (!hasPermission('purchases.paymentorder.approve')) {
-            apiError('No tenés permiso para esta acción (requiere: purchases.paymentorder.approve)', 403);
-        }
-    } elseif (!hasPermission('purchases.paymentorder.create')) {
+    // anular una orden aprobada revierte una decisión de autoridad.
+    //
+    // El estado NO se lee acá para elegir el gate. Antes se hacía con un SELECT
+    // sin lock y era un agujero real: entre esa lectura y el `FOR UPDATE` del
+    // servicio, otra sesión podía aprobar la orden, y alguien con solo `create`
+    // terminaba cancelando una orden APROBADA (el servicio acepta los dos
+    // estados, así que nada más lo frenaba). Se mandan las dos capacidades y la
+    // decisión la toma el servicio contra la fila ya lockeada — el estado que
+    // elige el permiso es exactamente el que se va a cancelar.
+    //
+    // Cortar antes por falta de LAS DOS sigue valiendo: quien no tiene ninguna
+    // no puede cancelar nada, y eso no depende del estado.
+    $canCancelDraft    = hasPermission('purchases.paymentorder.create');
+    $canCancelApproved = hasPermission('purchases.paymentorder.approve');
+    if (!$canCancelDraft && !$canCancelApproved) {
         apiError('No tenés permiso para esta acción (requiere: purchases.paymentorder.create)', 403);
     }
 
-    apiOk($svc->cancel($id, $companyId, $userId, $reason));
+    apiOk($svc->cancel($id, $companyId, $userId, $reason, $canCancelDraft, $canCancelApproved));
 }
 
 apiError('Acción no soportada', 422);

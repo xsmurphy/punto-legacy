@@ -97,6 +97,9 @@ final class PaymentOrderService
     /** Tipo de documento en `document_sequence` (context/37). NO es fiscal. */
     public const DOC_TYPE = 'orden_pago';
 
+    /** Tope de facturas por orden — ver `normalizeLines()`. */
+    private const MAX_LINES = 200;
+
     /** Clave del ajuste por comercio en `company.config` (JSONB). */
     public const SETTING_SECOND_APPROVER = 'settingPaymentOrderRequireSecondApprover';
 
@@ -289,8 +292,33 @@ final class PaymentOrderService
             apiError('id inválido', 422);
         }
 
+        // Los NOMBRES se resuelven acá y no en el front. El detalle es la
+        // pantalla donde alguien decide si aprueba un desembolso: mostrar
+        // "createdby: 3f2a…" en vez de la persona convierte la atribución —el
+        // punto entero de la feature— en un dato ilegible. Y resolverlo en el
+        // cliente obligaría a bajar el padrón de contactos para leer una fila.
+        //
+        // `contactSecondName` NO es columna: la mig 25 la degradó al JSONB
+        // `contact.data`. Se lee con `->>` (NUNCA el operador `?` de jsonb, que
+        // PDO reescribe a placeholder), con la regla canónica de
+        // `ContactDisplayName` — el nombre de la persona y, si no hay, la razón
+        // social; nunca concatenados.
         $order = ncmExecute(
-            'SELECT * FROM payment_order WHERE paymentorderid = ? AND companyid = ? LIMIT 1',
+            "SELECT po.*,
+                    COALESCE(NULLIF(s.data->>'contactSecondName', ''), s.contactName) AS suppliername,
+                    o.outletName AS outletname,
+                    COALESCE(NULLIF(uc.data->>'contactSecondName', ''), uc.contactName) AS createdbyname,
+                    COALESCE(NULLIF(ua.data->>'contactSecondName', ''), ua.contactName) AS approvedbyname,
+                    COALESCE(NULLIF(up.data->>'contactSecondName', ''), up.contactName) AS paidbyname,
+                    COALESCE(NULLIF(ux.data->>'contactSecondName', ''), ux.contactName) AS cancelledbyname
+               FROM payment_order po
+               LEFT JOIN contact s  ON s.contactId  = po.supplierid   AND s.companyId = po.companyid
+               LEFT JOIN outlet  o  ON o.outletId   = po.outletid     AND o.companyId = po.companyid
+               LEFT JOIN contact uc ON uc.contactId = po.createdby    AND uc.companyId = po.companyid
+               LEFT JOIN contact ua ON ua.contactId = po.approvedby   AND ua.companyId = po.companyid
+               LEFT JOIN contact up ON up.contactId = po.paidby       AND up.companyId = po.companyid
+               LEFT JOIN contact ux ON ux.contactId = po.cancelledby  AND ux.companyId = po.companyid
+              WHERE po.paymentorderid = ? AND po.companyid = ? LIMIT 1",
             [$id, $companyId]
         );
         if (!$order) {
@@ -333,7 +361,17 @@ final class PaymentOrderService
             ];
         }
 
-        return ['order' => $this->shapeOrder($order), 'lines' => $lines];
+        return [
+            'order' => $this->shapeOrder($order) + [
+                'supplierName'    => (string) ($order['suppliername'] ?? ''),
+                'outletName'      => (string) ($order['outletname'] ?? ''),
+                'createdByName'   => (string) ($order['createdbyname'] ?? ''),
+                'approvedByName'  => (string) ($order['approvedbyname'] ?? ''),
+                'paidByName'      => (string) ($order['paidbyname'] ?? ''),
+                'cancelledByName' => (string) ($order['cancelledbyname'] ?? ''),
+            ],
+            'lines' => $lines,
+        ];
     }
 
     /**
@@ -456,6 +494,19 @@ final class PaymentOrderService
      */
     private function normalizeLines(array $lines): array
     {
+        // Tope duro ANTES de mirar el contenido. `assertLinesPayable()` arma un
+        // `IN (?,?,…)` con un placeholder por línea contra `transaction` —que
+        // está particionada—, así que un payload de miles de líneas se traduce
+        // en una query de miles de binds por partición. Ninguna orden de pago
+        // real tiene 200 facturas; el límite es contra el payload absurdo, no
+        // contra el uso.
+        if (count($lines) > self::MAX_LINES) {
+            apiError(
+                'Una orden de pago no puede tener más de ' . self::MAX_LINES . ' facturas',
+                422
+            );
+        }
+
         $merged = [];
         foreach ($lines as $line) {
             if (!is_array($line)) {
@@ -927,9 +978,29 @@ final class PaymentOrderService
      * (`DELETE /v1/credit-payments?id=…`, que revierte la imputación y el
      * asiento), no tachar el documento que lo autorizó. El trigger
      * `fn_payment_order_paid_immutable()` lo impide igual.
+     *
+     * ── Por qué el PERMISO se decide ACÁ y no en el endpoint ──────────────
+     *
+     * El permiso que hace falta depende del ESTADO: descartar un borrador es
+     * deshacer trabajo de carga (`create`), pero anular una orden ya APROBADA
+     * revierte una decisión de autoridad (`approve`). El endpoint no puede
+     * elegir el gate por su cuenta: tendría que leer el estado antes de que la
+     * fila esté lockeada, y entre esa lectura y el lock otra sesión puede
+     * aprobar la orden — con lo cual alguien que solo tiene `create` terminaría
+     * cancelando una orden aprobada. Ventana chica, agujero real.
+     *
+     * Por eso el endpoint pasa las DOS capacidades del usuario y la decisión se
+     * toma contra la fila que ya está bajo `FOR UPDATE`: el estado que se usa
+     * para elegir el permiso es exactamente el estado que se va a cancelar.
      */
-    public function cancel(string $id, string $companyId, string $userId, string $reason): array
-    {
+    public function cancel(
+        string $id,
+        string $companyId,
+        string $userId,
+        string $reason,
+        bool   $canCancelDraft,
+        bool   $canCancelApproved
+    ): array {
         global $db;
 
         $reason = trim($reason);
@@ -941,6 +1012,20 @@ final class PaymentOrderService
 
         $order = $this->lockOrder($id, $companyId);
         $this->assertStatus($order, ['draft', 'approved'], 'cancelar');
+
+        $locked  = (string) $order['status'];
+        $allowed = $locked === 'approved' ? $canCancelApproved : $canCancelDraft;
+        if (!$allowed) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiError(
+                $locked === 'approved'
+                    ? 'No tenés permiso para cancelar una orden ya aprobada '
+                      . '(requiere: purchases.paymentorder.approve)'
+                    : 'No tenés permiso para esta acción (requiere: purchases.paymentorder.create)',
+                403
+            );
+        }
 
         $db->Execute(
             "UPDATE payment_order
