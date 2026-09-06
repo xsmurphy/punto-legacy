@@ -1,17 +1,30 @@
 "use client"
 
 /**
- * Reporte de Anulaciones de ítems de comanda.
+ * Reporte de Anulaciones de comanda.
  *
- * Backend: GET /v1/reports/order-item-cancellations?from=&to=&outletId=
+ * Backend: GET /v1/reports/order-cancellations?from=&to=&outletId=
  * → { rows: [...], totals: { count, amount } }
  *
- * QUÉ CONTESTA. Un ítem anulado no se borra: sale del total y queda tachado en
- * la comanda digital. Eso está bien para la operación del día, pero deja una
+ * QUÉ CONTESTA. Lo anulado no se borra: sale del total y queda tachado en la
+ * comanda digital. Eso está bien para la operación del día, pero deja una
  * pregunta abierta para el dueño —cuánto se anula, quién anula y por qué— que
  * hasta ahora había que reconstruir abriendo orden por orden. Cada fila es un
- * evento de anulación con su motivo y su autor; `amount` es la plata que ese
- * ítem habría sumado, o sea lo que dejó de cobrarse.
+ * evento de anulación con su motivo y su autor; `amount` es la plata que dejó
+ * de cobrarse.
+ *
+ * DOS GRANOS en la misma tabla, distinguidos por `scope`: una línea suelta
+ * ("2× Milanesa") y la orden ENTERA ("Orden completa · 8 ítems"). Hasta
+ * 2026-09-06 esta pantalla solo mostraba el primero — una comanda de ocho
+ * líneas cancelada de un click no aparecía en ninguna fila, que era justo el
+ * caso más grave. No se separaron en dos reportes porque la pregunta del dueño
+ * es UNA ("¿cuánto se anuló y quién?") y dos pantallas que la contestan a
+ * medias obligan a sumarlas a mano.
+ *
+ * Los montos ya vienen sin doble contar: si a una orden le anularon líneas una
+ * por una y después la cancelaron entera, el backend le resta a la fila de la
+ * orden lo que ya contaron las filas de ítem. Las filas SUMAN al total, sin
+ * aritmética de por medio acá.
  *
  * Date-scoped como el resto de los reportes. El filtro de sucursal va en el
  * panel de filtros del `<DataTable>` (context/14 §3) y solo aparece con más de
@@ -39,8 +52,8 @@ import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,
-  type OrderItemCancellationRow,
-  type OrderItemCancellationsResponse,
+  type OrderCancellationRow,
+  type OrderCancellationsResponse,
 } from "@/hooks/use-reports"
 import { formatDateTime } from "@/lib/format-date"
 import { formatInt, formatMoney } from "@/lib/format"
@@ -49,7 +62,7 @@ import { ACTOR_KIND_LABEL } from "@/lib/orders/order-display"
 /** Sentinel del `<Select>`: Radix no acepta `value=""` (context/20 §4). */
 const ALL_OUTLETS = "all"
 
-export default function OrderItemCancellationsReportPage() {
+export default function OrderCancellationsReportPage() {
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
   const [outletId, setOutletId] = React.useState<string>(ALL_OUTLETS)
@@ -66,14 +79,14 @@ export default function OrderItemCancellationsReportPage() {
     [range, outletId],
   )
 
-  const { data, isLoading, error } = useReport<OrderItemCancellationsResponse>(
-    "order-item-cancellations",
+  const { data, isLoading, error } = useReport<OrderCancellationsResponse>(
+    "order-cancellations",
     opts,
   )
   const rows = React.useMemo(() => data?.rows ?? [], [data])
   const totals = data?.totals
 
-  const columns = React.useMemo<ColumnDef<OrderItemCancellationRow>[]>(
+  const columns = React.useMemo<ColumnDef<OrderCancellationRow>[]>(
     () => [
       {
         accessorKey: "at",
@@ -107,19 +120,42 @@ export default function OrderItemCancellationsReportPage() {
         meta: { label: "Orden" },
       },
       {
-        accessorKey: "itemName",
-        header: "Artículo",
-        cell: ({ getValue }) => (
-          <span className="font-medium">{(getValue() as string) || "(sin nombre)"}</span>
-        ),
-        meta: { label: "Artículo" },
+        id: "what",
+        // `accessorFn` y no `accessorKey`: el buscador del DataTable filtra
+        // sobre este texto, y con `itemName` a secas una orden entera —donde es
+        // `null`— sería invisible para cualquier búsqueda.
+        accessorFn: (r) =>
+          r.scope === "order" ? "Orden completa" : r.itemName || "(sin nombre)",
+        header: "Qué se anuló",
+        cell: ({ row }) => {
+          const r = row.original
+          if (r.scope === "order") {
+            return (
+              <div className="flex flex-col">
+                <span className="font-medium">Orden completa</span>
+                <span className="text-xs text-muted-foreground">
+                  {r.itemCount === 1
+                    ? "1 ítem"
+                    : `${formatInt(r.itemCount ?? 0, bootstrap)} ítems`}
+                </span>
+              </div>
+            )
+          }
+          return <span className="font-medium">{r.itemName || "(sin nombre)"}</span>
+        },
+        meta: { label: "Qué se anuló" },
       },
       {
         accessorKey: "qty",
         header: "Cantidad",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{formatInt(Number(getValue()) || 0, bootstrap)}</span>
-        ),
+        cell: ({ row }) => {
+          const r = row.original
+          // La orden entera no tiene una cantidad propia: sus líneas son de
+          // productos distintos y sumarlas daría un número sin unidad. La
+          // cantidad de líneas ya se lee arriba, en "Orden completa".
+          if (r.scope === "order") return <span className="text-muted-foreground">—</span>
+          return <span className="tabular-nums">{formatInt(r.qty ?? 0, bootstrap)}</span>
+        },
         meta: { label: "Cantidad", className: "tabular-nums text-right" },
       },
       {
@@ -173,10 +209,10 @@ export default function OrderItemCancellationsReportPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink />
-          <h1 className="text-2xl font-semibold">Anulaciones de ítems</h1>
+          <h1 className="text-2xl font-semibold">Anulaciones de comanda</h1>
           <p className="text-sm text-muted-foreground">
-            Ítems sacados de una comanda ya cargada — cuánto se anuló, quién lo
-            hizo y con qué motivo.
+            Ítems sacados de una comanda y órdenes canceladas enteras — cuánto
+            se anuló, quién lo hizo y con qué motivo.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
@@ -194,7 +230,7 @@ export default function OrderItemCancellationsReportPage() {
 
       {!isLoading && totals && totals.count > 0 && (
         <StatsRow>
-          <StatTile label="Ítems anulados" value={formatInt(totals.count, bootstrap)} />
+          <StatTile label="Anulaciones" value={formatInt(totals.count, bootstrap)} />
           <StatTile
             label="Monto anulado"
             value={formatMoney(totals.amount, bootstrap)}
@@ -204,13 +240,13 @@ export default function OrderItemCancellationsReportPage() {
       )}
 
       <DataTable
-        tableId="report-order-item-cancellations"
+        tableId="report-order-cancellations"
         data={rows}
         columns={columns}
         getRowId={(r) => r.eventId}
         isLoading={isLoading}
         searchPlaceholder="Buscar por artículo, motivo, orden…"
-        exportFileName="anulaciones_de_items"
+        exportFileName="anulaciones_de_comanda"
         activeFilterCount={activeFilterCount}
         onClearFilters={() => setOutletId(ALL_OUTLETS)}
         filtersSlot={
@@ -235,7 +271,7 @@ export default function OrderItemCancellationsReportPage() {
         emptyMessage={
           <EmptyState
             icon={Ban}
-            title="Sin anulaciones de ítems"
+            title="Sin anulaciones de comanda"
             description="Ajustá el rango de fechas y volvé a consultar."
           />
         }

@@ -17,17 +17,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { posJson } from "@/lib/api/pos-json"
 import type { CustomerAddress } from "@/lib/types/contact"
-
-async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await posFetch(url, init)
-  const json = await res.json().catch(() => null)
-  if (!res.ok || !json?.ok) {
-    throw new Error(json?.error?.message ?? `Error ${res.status}`)
-  }
-  return json.data as T
-}
 
 /** Direcciones cargadas de un cliente — alimenta el selector de delivery del carrito. */
 export function useCustomerAddressesPos(customerId: string | undefined | null) {

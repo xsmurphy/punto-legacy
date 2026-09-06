@@ -37,6 +37,16 @@ final class DrawersService
 {
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
+    /**
+     * Tope de filas de anulaciones en el DETALLE de una caja. Mismo número que
+     * `Services\DrawerService::CANCELLATIONS_ROW_LIMIT` a propósito: es la
+     * misma lista, mirada desde el panel en vez de desde la caja, y si los dos
+     * topes divergieran el dueño vería listas de largo distinto para el mismo
+     * turno según por dónde entró. El detalle completo vive en el reporte por
+     * rango (`/reports/order-cancellations`), que tiene su propio tope de 500.
+     */
+    private const CANCELLATIONS_ROW_LIMIT = 50;
+
     /** @var array<string,float> Tolerancia por company — el listado la usa una vez por fila. */
     private array $toleranceCache = [];
 
@@ -113,6 +123,7 @@ final class DrawersService
             $isClosed = $r['closeDate'] !== '';
             $closeBound = $isClosed ? $r['closeDate'] : date('Y-m-d ', strtotime(TODAY)) . Date::END_OF_DAY;
             $t = $this->componentsFor($r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales, $roc);
+            $cancels = $this->cancellationsFor($r['openDate'], $closeBound, $r['outletId'], $companyId);
             $count = $this->cashCount($isClosed, $r['expected'], $r['closeAmount'], $r['openAmount'], $t, $tolerance);
 
             $rows[] = [
@@ -131,6 +142,12 @@ final class DrawersService
                 'expense'      => $t['expense'],
                 'income'       => $t['income'],
                 'return'       => $t['return'],
+                // Anulaciones de comanda del turno. NO tocan `sold` ni el
+                // arqueo: es plata que nunca entró, así que no falta del cajón.
+                // Va como par propio para que la columna del listado se pueda
+                // ordenar por el monto anulado, que es la pregunta del dueño.
+                'cancelCount'  => $cancels['count'],
+                'cancelAmount' => $cancels['amount'],
             ] + $count;
         }
 
@@ -165,6 +182,9 @@ final class DrawersService
         $registers = $this->nameMap('register', 'registerId', 'registerName', [$register], $companyId);
 
         $t = $this->componentsFor($openDate, $closeBound, $register, $companyId, null, $roc);
+        // Con detalle: es UNA caja y es la pantalla donde el dueño viene a
+        // mirar justamente esto. El tope acompaña al del cierre en vivo.
+        $cancels = $this->cancellationsFor($openDate, $closeBound, $outlet, $companyId, self::CANCELLATIONS_ROW_LIMIT);
 
         // Desglose por medio de pago — $roc scopeado al register de esta caja específica.
         // NonAddingSales::salesByPayment usa los tipos 0,5 (igual que la versión panel; la
@@ -208,6 +228,9 @@ final class DrawersService
             'expense'      => $t['expense'],
             'income'       => $t['income'],
             'return'       => $t['return'],
+            'cancelCount'  => $cancels['count'],
+            'cancelAmount' => $cancels['amount'],
+            'cancellations'=> $cancels['rows'],
             'payments'     => $payments,
             'countByMethod'=> $this->countByMethod(
                 $drawerId,
@@ -407,6 +430,71 @@ final class DrawersService
         global $db;
         $r = $db->Execute('DELETE FROM drawer WHERE drawerId = ? AND companyId = ?', [$drawerId, $companyId]);
         return $r !== false;
+    }
+
+    /**
+     * ANULACIONES de comanda del turno — el MISMO bloque que el cierre en vivo
+     * (`Services\DrawerService::getCancellations()`), acá para el histórico del
+     * panel.
+     *
+     * Vive por duplicado porque este servicio ES una implementación paralela
+     * del resumen (`context/modules/14-caja.md` regla 10): recalcula desde las
+     * tablas con rango `[open, closeBound]` en vez de leer `composeSummary()`.
+     * Lo que NO se duplica es la cuenta: el monto —y en particular la
+     * invariante anti-doble-conteo— sale de
+     * `Punto\Api\Orders\OrderCancellationQuery`, la misma clase que usan el
+     * vivo y el reporte por rango. Esa regla 10 documenta que el vivo y el
+     * histórico divergen apenas alguien toca uno solo; acá lo único propio es
+     * el SCOPE, que efectivamente difiere (este acota por los dos lados, el
+     * vivo no tiene techo).
+     *
+     * MISMA IMPRECISIÓN DECLARADA que en el vivo: el alcance es la SUCURSAL en
+     * la ventana del turno, no esta caja. `pos_order_event` no tiene columna de
+     * caja y `pos_order.registerid` no lo filtra nadie en todo el codebase
+     * (regla 16). Ver el docblock de `DrawerService::getCancellations()` para
+     * el argumento completo.
+     *
+     * `> openDate AND < closeBound`, exactamente el mismo par de comparadores
+     * con el que `componentsFor()` acota las extracciones de la misma caja —
+     * para que las dos mitades del cierre hablen del mismo turno.
+     *
+     * @param int $rowLimit 0 = solo los totales. El listado de cajas los pide
+     *        así: son hasta 1000 filas y cada una ya dispara sus propias
+     *        queries; traer el detalle de cada turno para pintar un número
+     *        sería pagar N listas que nadie abre. El detalle de UNA caja sí las
+     *        trae.
+     * @return array{count:int, amount:float, rows:list<array<string,mixed>>}
+     */
+    private function cancellationsFor(
+        string $openDate,
+        string $closeBound,
+        string $outletId,
+        string $companyId,
+        int $rowLimit = 0
+    ): array {
+        if ($openDate === '' || $closeBound === '' || $outletId === '' || $companyId === '') {
+            return ['count' => 0, 'amount' => 0.0, 'rows' => []];
+        }
+
+        // Binds y no `$roc`: el fragmento del caller scopea por el outlet de
+        // VISTA del que mira el reporte, y lo que corresponde acá es el outlet
+        // de la CAJA. Son el mismo valor cuando el panel está mirando esa
+        // sucursal y distintos en modo consolidado — donde usar el de vista
+        // significaría no filtrar por sucursal en absoluto y mezclar el turno
+        // de una caja con las anulaciones de todas las demás.
+        $where  = \Punto\Api\Orders\OrderCancellationQuery::WHERE_IS_CANCELLATION
+                . ' AND e.created_at > ? AND e.created_at < ? AND e.companyid = ? AND e.outletid = ?';
+        $params = [$openDate, $closeBound, $companyId, $outletId];
+
+        $totals = \Punto\Api\Orders\OrderCancellationQuery::totals($where, $params);
+
+        return [
+            'count'  => $totals['count'],
+            'amount' => $totals['amount'],
+            'rows'   => $rowLimit > 0
+                ? \Punto\Api\Orders\OrderCancellationQuery::rows($where, $params, $rowLimit)
+                : [],
+        ];
     }
 
     /** Vendido / vendido-en-efectivo / extracciones / ingresos / devoluciones para una caja [open, closeBound]. */

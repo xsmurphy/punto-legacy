@@ -1097,7 +1097,7 @@ final class OrderCoreService
         // una devolución o una nota de crédito (context/40), no una edición
         // silenciosa del registro.
         //
-        // Vive ACÁ y no en `OrderItemCancelGate` a propósito: el gate resuelve
+        // Vive ACÁ y no en `OrderCancelGate` a propósito: el gate resuelve
         // AUTORIZACIÓN (quién, y dentro de qué ventana), y esto es DOMINIO —
         // no hay permiso ni elevación por PIN que lo habilite, ni encargado que
         // pueda saltearlo. La UI ya no ofrece el botón (`canCancelOrderItem`),

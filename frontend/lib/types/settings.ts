@@ -60,9 +60,14 @@ export interface SettingsGeneral {
   /** Exigir órdenes y espacios cerrados para poder cerrar el turno. */
   drawerRequireClosedOrders: boolean
   /**
-   * Minutos durante los cuales el operador puede anular un ítem de una comanda
-   * por su cuenta. `0` = sin límite (default). Pasada la ventana la anulación
-   * queda para un encargado (permiso `pos.order.item.cancel.late`).
+   * Minutos durante los cuales el operador puede anular algo de una comanda por
+   * su cuenta — un ítem, la orden entera o la sesión de una mesa. `0` = sin
+   * límite (default). Pasada la ventana la anulación queda para un encargado
+   * (permiso `pos.order.item.cancel.late`).
+   *
+   * La clave conserva el `Item` del nombre por historia: la ventana empezó
+   * cubriendo solo el grano ítem. Renombrarla obligaría a migrar el JSONB de
+   * cada tenant para no cambiar nada de comportamiento.
    */
   settingOrderItemCancelWindowMinutes: number
   settingRemoveTaxes: boolean

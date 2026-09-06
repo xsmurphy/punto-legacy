@@ -1,15 +1,22 @@
 <?php
 /**
- * REST canónico (API compartida /api) — Anulaciones de ítems de comanda.
+ * REST canónico (API compartida /api) — Anulaciones de comanda.
  *
- *   GET /v1/reports/order-item-cancellations?from=&to=&outletId=
+ *   GET /v1/reports/order-cancellations?from=&to=&outletId=
  *       → { rows: [...], totals: { count, amount } }
  *
- * Qué contesta: qué líneas se borraron de una comanda, cuándo, por qué motivo,
- * cuánta plata representaban y QUIÉN las borró. Es el reporte que le da sentido
- * al motivo obligatorio y al arreglo de atribución de
- * `OrderCoreService::recordEvent()` — sin esta pantalla, el dato quedaría
- * guardado y nadie lo miraría.
+ * Qué contesta: qué se borró de una comanda —una línea suelta o la orden
+ * ENTERA—, cuándo, por qué motivo, cuánta plata representaba y QUIÉN lo hizo.
+ * Es el reporte que le da sentido al motivo obligatorio y al arreglo de
+ * atribución de `OrderCoreService::recordEvent()` — sin esta pantalla, el dato
+ * quedaría guardado y nadie lo miraría.
+ *
+ * Cubría solo el grano ÍTEM hasta 2026-09-06 (`order-item-cancellations`, el
+ * service filtraba `scope='item'`): una orden de ocho líneas cancelada entera
+ * no aparecía en ninguna fila, que era el caso más grave y el único invisible.
+ * La ruta se renombró junto con el alcance — la vieja NO se mantiene como
+ * alias: el único consumidor es la pantalla del panel, que viaja en el mismo
+ * deploy, y un alias sin dueño es una ruta que nadie vuelve a mirar.
  *
  * Auth: realms `panel` y `api` (lectura programática: API keys / MCP). Mismo
  * par que los demás reportes de esta carpeta. NO acepta `pos-app`: la caja no
@@ -72,5 +79,5 @@ try {
     apiError($e->getMessage(), 500);
 }
 
-$svc = new \Punto\Api\Reports\OrderItemCancellationsService();
+$svc = new \Punto\Api\Reports\OrderCancellationsService();
 apiOk($svc->report($from, $to, $roc));

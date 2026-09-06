@@ -86,6 +86,12 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
     drawer?.isClosed ? drawer.drawerId : null,
   )
   const countRows = detailData?.detail?.countByMethod ?? []
+  // Anulaciones del turno. `cancelCount`/`cancelAmount` vienen en la fila del
+  // LISTADO (así la columna del reporte se puede ordenar por monto anulado sin
+  // pedir N detalles); el detalle de cada una solo en `?id=`.
+  const cancelCount = drawer?.cancelCount ?? 0
+  const cancelAmount = parseNum(drawer?.cancelAmount ?? 0)
+  const cancelRows = detailData?.detail?.cancellations ?? []
 
   return (
     <Dialog
@@ -228,6 +234,55 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
                     </section>
                   </>
                 )}
+              </>
+            )}
+
+            {/* Anulaciones del turno — lo que se sacó de las comandas, quién y
+                por qué. Va DESPUÉS del arqueo y separado de "Movimientos" a
+                propósito: la plata anulada nunca entró al cajón, así que no es
+                un movimiento de caja y no se resta de ningún total. Es la
+                contracara de lo que se vendió, que es la pregunta que el dueño
+                trae a esta pantalla. */}
+            {cancelCount > 0 && (
+              <>
+                <Separator />
+                <section className="flex flex-col gap-1.5">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Anulaciones del turno
+                  </p>
+                  <div className="flex items-baseline justify-between gap-3 font-medium">
+                    <span>
+                      {cancelCount === 1 ? "1 anulación" : `${cancelCount} anulaciones`}
+                    </span>
+                    <span className="tabular-nums">{formatMoney(cancelAmount, bootstrap)}</span>
+                  </div>
+                  {cancelRows.map((c) => (
+                    <div key={c.eventId} className="flex items-start justify-between gap-3">
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate">
+                          {c.scope === "order"
+                            ? `Orden completa${c.orderNumber !== null ? ` #${c.orderNumber}` : ""}`
+                            : `${c.qty ?? 0} × ${c.itemName || "(sin nombre)"}`}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {[c.actorName, c.reason].filter(Boolean).join(" — ") ||
+                            "Sin motivo registrado"}
+                        </span>
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        {formatMoney(parseNum(c.amount), bootstrap)}
+                      </span>
+                    </div>
+                  ))}
+                  {/* La imprecisión se declara, no se disimula: `pos_order_event`
+                      no tiene columna de caja y `pos_order.registerid` no lo
+                      filtra nadie, así que acotar por caja daría un número que
+                      se ve más preciso y es más falso. */}
+                  <p className="text-xs text-muted-foreground">
+                    Incluye las anulaciones de toda la sucursal durante el turno,
+                    no solo las de esta caja.
+                  </p>
+                </section>
               </>
             )}
 
