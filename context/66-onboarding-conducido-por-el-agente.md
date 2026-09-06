@@ -184,6 +184,88 @@ en vez de persistir un progreso — un checklist guardado se desincroniza del
 estado real apenas alguien configura algo desde el panel en paralelo. No
 requiere tabla nueva.
 
+## §FE — configuración de facturación electrónica conducida por el bot (agregada 2026-09-06)
+
+**Pedido del owner (2026-09-06)**: que un tenant pueda pedirle al bot que le
+configure la facturación electrónica. Doble motivo: diferenciador frente a la
+competencia y acelera la implantación de cuentas nuevas para Punto como
+empresa. La feature VA — lo que sigue son las decisiones de cómo.
+
+### La restricción que define la arquitectura
+
+El agente del producto corre sobre OpenRouter (DeepSeek/Gemini,
+`context/17`). **El certificado P12, su contraseña y el CSC JAMÁS pasan por
+el contexto del modelo** — son secretos fiscales y el modelo es un tercero.
+Esto descarta de plano dos caminos que "salen solos":
+
+- Pedirle el CSC/contraseña por texto de chat. `redact-credentials.ts`
+  redacta la PERSISTENCIA en localStorage, no el viaje al modelo — el
+  secreto ya viajó a OpenRouter antes de redactarse.
+- Subir el .p12 por el flujo de adjuntos actual (`attachment-types.ts`):
+  los adjuntos del chat van al modelo (imágenes/PDF se procesan con IA).
+
+**Mecanismo cerrado (2026-09-06): tarjeta segura en el chat.** El bot
+registra una acción tipo `request_einvoice_secrets` y la UI renderiza una
+tarjeta con form + upload que postea DIRECTO a los endpoints de custodia
+(`FiscalSecretStore`, mig 195) con la sesión del operador — el modelo recibe
+solo el resultado booleano ("certificado cargado: sí/no", "CSC cargado:
+sí/no"). Mismo patrón de renderizado que la tarjeta de `confirmToken` que ya
+existe — es una tarjeta nueva, no un mecanismo de confirmación nuevo.
+
+### Lo que YA EXISTE (deploy 1c5e6045, 2026-09-06)
+
+Todo el backend self-service de FE quedó construido esta semana — el bot
+cablea, no construye:
+
+- Lookup en padrón por RUC: `GET /v1/settings?view=taxpayer`
+  (`TaxpayerLookupService`, cascada Factomate→padrón público, nunca lanza).
+- Escritura de RUC/razón social/CSC sobre la fuente de settings, gateada por
+  `settings.company.edit` — la UI de `einvoice-manager.tsx` ya la usa.
+- Provisioning idempotente (`EInvoiceProvisioningService`, checkpoints,
+  `ensureCertApplied()` re-aplica el cert custodiado al reprovisionar).
+- Custodia cifrada de P12/CSC (`FiscalSecretStore`, audit-before-decrypt).
+- Regla vigente que el bot HEREDA: la razón social sale del padrón o del
+  campo fiscal explícito, NUNCA del nombre de la empresa (los 3 fallbacks se
+  eliminaron 2026-09-06 — el bot no reintroduce el cuarto).
+
+### Acciones nuevas propuestas (mismo patrón que D4)
+
+- `set_fiscal_data` — RUC + razón social (autocompletada del padrón, el bot
+  la muestra y el usuario confirma) + timbrado. Permiso:
+  `settings.company.edit`.
+- `provision_einvoice` — dispara el provisioning y reporta los checkpoints.
+  Permiso: `einvoice.manage`.
+- Lectura `get_einvoice_setup` — deriva el estado (¿RUC? ¿cert? ¿CSC?
+  ¿provisionado? ¿caja con timbrado?) de los datos reales, patrón F4 del
+  checklist derivado. Sin tabla nueva.
+- Los SECRETOS no son acciones del agente — van por la tarjeta segura.
+
+Flujo objetivo: "quiero facturar electrónico" → bot pide RUC → muestra razón
+social del padrón → registra `set_fiscal_data` (confirmToken) → tarjeta
+segura para P12/CSC → `provision_einvoice` → verifica con
+`get_einvoice_setup` → guía la prueba de emisión.
+
+### Alcances
+
+- **Solo panel** — no es tarea de cajero; el route del POS no recibe estas
+  tools (mismo criterio que `get_setup_status`, F4).
+- **NO se exponen al MCP** (`context/58`): la key del MCP opera sin humano
+  delante y sin tarjeta segura posible; además configurar FE es un acto con
+  consecuencia fiscal que quiere un operador confirmando en pantalla.
+- El bot guía dónde CONSEGUIR el P12 y el CSC (Marangatu) — texto de ayuda,
+  sin secretos de por medio.
+
+### Arquitecturas rechazadas — no reintroducir
+
+- **Secretos por texto de chat o por adjuntos del agente** (ver arriba — la
+  redacción posterior no arregla el viaje al modelo).
+- **Bot que fabrica/inventa timbrado** — ya rechazado en este doc (§D4 /
+  `context/65`): el timbrado es un acto fiscal real, el bot lo PIDE, no lo
+  genera.
+- **Razón social desde el nombre de la empresa como fallback** — bug fiscal
+  eliminado 2026-09-06 en 3 lugares; el prompt del bot debe prohibirlo
+  explícito.
+
 ## Preguntas abiertas — no las resuelvo
 
 - Si el plan en bloque se confirma entero o el usuario puede desmarcar ítems
