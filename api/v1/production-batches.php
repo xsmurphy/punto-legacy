@@ -4,6 +4,9 @@
  *
  *   GET  /v1/production-batches                       → lista (filtros: status, outletId, from, to)
  *   GET  /v1/production-batches?id=<uuid>             → detalle (lote + líneas + necesidad si está en draft)
+ *   GET  /v1/production-batches?resource=order-demand&outletId=<uuid>
+ *                                                     → la cola de órdenes pendientes de esa sucursal,
+ *                                                       agregada por producto (alimentador del lote)
  *   POST /v1/production-batches?resource=estimate     → necesidad consolidada (LECTURA PURA, no escribe)
  *                                                       body: outletId, locationId?, lines:[{itemId, qty}]
  *   POST /v1/production-batches                       → crea el lote en draft + sus N órdenes hijas
@@ -28,6 +31,15 @@
  * BODY, no por el efecto: el servicio no escribe una fila. Como POST, cae
  * bajo la misma gate `production.manage` que el resto del módulo, lo cual es
  * deseable: la necesidad consolidada expone saldos de stock del comercio.
+ *
+ * POR QUÉ `order-demand` SÍ ES GET
+ * --------------------------------
+ * El contraste con `estimate` es exacto: su entrada es UN outletId, entra en
+ * la query string sin fragilidad y no hay nada sensible que esconder de un
+ * log. Además se gatea con `production.manage` aunque sea un GET: leer la cola
+ * entera agregada por producto es la puerta de entrada al lote, y la gate es
+ * ESTRICTAMENTE más restrictiva que la de `/v1/orders.php` (que no pide
+ * permiso alguno más allá del tenant), así que no abre ningún hueco.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -45,6 +57,25 @@ $svc = new \Punto\Api\Production\ProductionBatchService($db);
 
 switch ($method) {
     case 'GET':
+        // Alimentador del lote: de la cola de órdenes a las líneas
+        // {plato, cantidad} (context/70, etapa B). Es una FOTO del momento —
+        // ver el docblock de OrderDemandService.
+        if ($resource === 'order-demand') {
+            if (!hasPermission('production.manage')) {
+                apiError('No tenés permiso para esta acción (requiere: production.manage)', 403);
+            }
+            $outletId = (string) ($_GET['outletId'] ?? ($ctx['outletId'] ?? ''));
+            if ($outletId === '') {
+                apiError('outletId es requerido', 422);
+            }
+            try {
+                apiOk((new \Punto\Api\Orders\OrderDemandService())->pendingByItem($companyId, $outletId));
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
         if ($id !== null) {
             $batch = $svc->find($companyId, (string) $id);
             if ($batch === null) apiError('Lote de producción no encontrado', 404);
