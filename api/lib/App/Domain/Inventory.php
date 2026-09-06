@@ -183,6 +183,149 @@ final class Inventory
     }
 
     /**
+     * Explosión de VARIOS ítems a la vez, agregada por insumo.
+     *
+     * El agregador que faltaba. `explodeRecipe()`/`explodeRecipeDetailed()` ya
+     * agregan DENTRO de un ítem (dos ramas que llegan al mismo insumo suman),
+     * pero no hay nada que sume ENTRE ítems — y esa es la pregunta del negocio
+     * de la etapa B de `context/70-viandas.md`: "de 10 pedidos, cuánta pechuga
+     * necesito EN TOTAL". La sopa y los ñoquis llevan tomate cada uno; lo que
+     * hay que comprar es la suma.
+     *
+     * Vive acá, al lado del motor, y no en el servicio del lote, por la misma
+     * razón que `explodeRecipe()` es un agregador sobre
+     * `explodeRecipeDetailed()` y no una segunda recursión: las reglas de corte,
+     * la merma por nivel y el guard de ciclos se definen UNA vez. Un agregador
+     * escrito en el servicio sería una segunda definición de "qué consume esta
+     * producción", y el día que divergiera, la necesidad que se le muestra al
+     * cocinero dejaría de ser lo que la producción realmente descuenta.
+     *
+     * El guard de ciclos NO se comparte entre líneas: cada plato se explota con
+     * su propio `$visitados` (el default de `explodeRecipeDetailed`). Compartirlo
+     * haría que el segundo plato dejara de explotar todo insumo que el primero
+     * ya visitó — el bug sería una necesidad silenciosamente incompleta, que es
+     * peor que la circular que el guard viene a evitar.
+     *
+     * `stockLeaf` es función del ítem (sus flags), no de la rama que lo alcanzó,
+     * así que un mismo `itemId` no puede llegar como hoja de stock por un plato
+     * y como hoja de costeo por otro: keyear por `itemId` es seguro.
+     *
+     * `bySource` conserva de qué plato salió cuánto — sin eso, la necesidad
+     * consolidada es un número sin explicación ("2,4 kg de pechuga" y el
+     * cocinero no puede auditar de dónde salió).
+     *
+     * @param  list<array{itemId:string, qty:float}> $lines {plato, cantidad} × N
+     * @return list<array{itemId:string, qty:float, stockLeaf:bool, bySource:array<string,float>}>
+     *         Una entrada por insumo, ordenada por cantidad descendente.
+     */
+    public static function explodeBatch(array $lines, mixed $companyId, bool $waste = true): array
+    {
+        /** @var array<string,array{itemId:string,qty:float,stockLeaf:bool,bySource:array<string,float>}> $agg */
+        $agg = [];
+
+        foreach ($lines as $line) {
+            $parentId = (string) ($line['itemId'] ?? '');
+            $units    = (float) ($line['qty'] ?? 0);
+            if ($parentId === '' || $units <= 0) {
+                continue;
+            }
+
+            foreach (self::explodeRecipeDetailed($parentId, $companyId, $units, $waste) as $leaf) {
+                $id = (string) $leaf['itemId'];
+                if (!isset($agg[$id])) {
+                    $agg[$id] = [
+                        'itemId'    => $id,
+                        'qty'       => 0.0,
+                        'stockLeaf' => $leaf['stockLeaf'] === true,
+                        'bySource'  => [],
+                    ];
+                }
+                $agg[$id]['qty'] += (float) $leaf['qty'];
+                $agg[$id]['bySource'][$parentId] = ($agg[$id]['bySource'][$parentId] ?? 0.0) + (float) $leaf['qty'];
+            }
+        }
+
+        $out = array_values($agg);
+        usort($out, static fn (array $a, array $b): int => $b['qty'] <=> $a['qty']);
+
+        return $out;
+    }
+
+    /**
+     * Saldo de un CONJUNTO de ítems en una sucursal, opcionalmente acotado a un
+     * depósito — en UNA query.
+     *
+     * Misma definición de saldo que `onHand()` (`SUM(stockCount)` sobre el
+     * ledger, no el snapshot `stockOnHand` de la última fila, que se
+     * desincroniza con un movimiento cargado con fecha retroactiva). Existe para
+     * que el lote no haga un N+1 —una `onHand()` por insumo— y, sobre todo, para
+     * que no aparezca una TERCERA definición de saldo escrita en el servicio:
+     * D2 de `context/52` es un solo lector.
+     *
+     * Con `$locationId`, el saldo se mide contra ESE depósito usando el depósito
+     * EFECTIVO (`ledgerLocationId()`), que consolida las filas históricas con
+     * `locationid IS NULL` en el depósito por defecto de la sucursal. Sin esa
+     * consolidación, el mismo depósito físico aparecería partido en dos y el
+     * saldo del depósito por defecto saldría subvaluado — es el mismo cuidado
+     * que ya toma `onHandByLocation()`.
+     *
+     * Los ítems sin ninguna fila en el ledger NO vienen en el resultado (el
+     * GROUP BY no inventa filas). El caller decide qué significa la ausencia:
+     * para un insumo con control de inventario es saldo 0; para uno sin control
+     * es "no hay onHand", que no es lo mismo.
+     *
+     * @param  list<string> $itemIds
+     * @return array<string,float> itemId => saldo
+     */
+    public static function onHandFor(array $itemIds, mixed $outletId, ?string $locationId = null): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($v): string => (string) $v, $itemIds),
+            static fn (string $v): bool => $v !== '',
+        )));
+
+        if ($ids === [] || !$outletId) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $params       = $ids;
+        $params[]     = $outletId;
+
+        if ($locationId !== null && $locationId !== '') {
+            $locExpr  = self::ledgerLocationId();
+            $sql      = "SELECT s.itemId AS itemid, COALESCE(SUM(s.stockCount), 0) AS onhand
+                           FROM stock s"
+                      . self::ledgerLocationJoin() .
+                        "WHERE s.itemId IN ($placeholders)
+                            AND s.outletId = ?
+                            AND {$locExpr} = ?
+                          GROUP BY s.itemId";
+            $params[] = $locationId;
+        } else {
+            $sql = "SELECT s.itemId AS itemid, COALESCE(SUM(s.stockCount), 0) AS onhand
+                      FROM stock s
+                     WHERE s.itemId IN ($placeholders)
+                       AND s.outletId = ?
+                     GROUP BY s.itemId";
+        }
+
+        // forceObj=true → recordset, NO array: hay que iterar con
+        // `while (!$rs->EOF)`. Tratarlo como array devuelve [] siempre.
+        $rs  = ncmExecute($sql, $params, false, true);
+        $out = [];
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $out[(string) ($rs->fields['itemid'] ?? '')] = (float) ($rs->fields['onhand'] ?? 0);
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        return $out;
+    }
+
+    /**
      * La MISMA explosión que `explodeRecipe()`, sin aplanar: una entrada por
      * hoja alcanzada, con su profundidad y de qué ingrediente directo del
      * padre cuelga.

@@ -1,8 +1,9 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Factory, Plus, Trash2 } from "lucide-react"
+import { ClipboardList, Factory, Plus, Trash2 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Badge } from "@/components/ui/badge"
@@ -232,6 +233,14 @@ function ProduccionPageInner() {
         </div>
         {canManage && (
           <div className="flex items-center gap-2">
+            {/* La entrada al lote multi-plato vive acá y no en el sidebar: es
+                la misma tarea, para varios platos a la vez. */}
+            <Button variant="outline" asChild>
+              <Link href="/produccion/lote">
+                <ClipboardList className="size-4" />
+                Lote
+              </Link>
+            </Button>
             <Button variant="outline" onClick={() => setWasteDialogOpen(true)}>
               <Trash2 className="size-4" />
               Registrar merma

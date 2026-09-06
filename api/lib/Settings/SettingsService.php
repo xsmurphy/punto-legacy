@@ -144,9 +144,9 @@ final class SettingsService
             'settingPeriodCloseMonths' => max(1, min(12, (int) ($r['settingPeriodCloseMonths'] ?? 1))),
             // Ventana para anular un ítem de comanda, en minutos. 0 = sin
             // límite, y es el default: la feature nace apagada. Mismo clamp que
-            // OrderItemCancelGate::windowMinutes(), que es quien la hace
+            // OrderCancelGate::windowMinutes(), que es quien la hace
             // cumplir — si divergieran, el comercio guardaría un número que el
-            // gate reinterpreta. Ver context/24 y OrderItemCancelGate.
+            // gate reinterpreta. Ver context/24 y OrderCancelGate.
             'orderItemCancelWindowMinutes' => max(0, min(
                 self::MAX_ORDER_ITEM_CANCEL_WINDOW,
                 (int) ($r['settingOrderItemCancelWindowMinutes'] ?? 0)
@@ -284,7 +284,7 @@ final class SettingsService
             $record['settingPeriodCloseMonths'] = max(1, min(12, (int) $f['settingPeriodCloseMonths']));
         }
         // Ventana de anulación de ítems de comanda — mismo clamp que la lectura
-        // de general() y que OrderItemCancelGate, para que no haya forma de
+        // de general() y que OrderCancelGate, para que no haya forma de
         // guardar un valor que el gate después reinterprete. 0 = sin límite.
         if (array_key_exists('orderItemCancelWindowMinutes', $f)) {
             $record['settingOrderItemCancelWindowMinutes'] = max(0, min(

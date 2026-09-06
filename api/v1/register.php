@@ -13,7 +13,7 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterService.php';
 require_once __DIR__ . '/../lib/services/RegisterAdminService.php';
 require_once __DIR__ . '/../lib/services/ShiftCloseGate.php';
-require_once __DIR__ . '/../lib/services/OrderItemCancelGate.php';
+require_once __DIR__ . '/../lib/services/OrderCancelGate.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
 use Punto\Api\Services\RegisterAdminService;
@@ -282,8 +282,8 @@ if ($method === 'GET' && $resource === 'config') {
     // deshabilitar el botón de anular —y explicar por qué— antes de intentar un
     // request que sin conexión no puede salir. El backend NO delega en eso: el
     // gate se vuelve a evaluar server-side cuando la operación llega (ver
-    // `OrderItemCancelGate`), porque el reloj de la tablet no es autoridad.
-    $clean['orderItemCancelWindowMinutes'] = \Punto\Api\Services\OrderItemCancelGate::windowMinutes($companyId);
+    // `OrderCancelGate`), porque el reloj de la tablet no es autoridad.
+    $clean['orderItemCancelWindowMinutes'] = \Punto\Api\Services\OrderCancelGate::windowMinutes($companyId);
     apiOk(['config' => $clean]);
 }
 

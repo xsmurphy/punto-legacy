@@ -76,7 +76,7 @@ const GROUPS: ReportGroup[] = [
     items: [
       { title: "Equipo",    to: "/reports/users", implemented: true  },
       { title: "Auditoría", to: "/reports/audit", implemented: true  },
-      { title: "Anulaciones de ítems", to: "/reports/order-item-cancellations", implemented: true },
+      { title: "Anulaciones de comanda", to: "/reports/order-cancellations", implemented: true },
     ],
   },
 ]

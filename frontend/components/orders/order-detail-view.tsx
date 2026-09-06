@@ -19,24 +19,12 @@ import { Ban, ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-rea
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { ActionMenu } from "@/components/ui/action-menu"
 import { cn } from "@/lib/utils"
 import { formatRelativeShort, formatDateTime } from "@/lib/format-date"
@@ -45,6 +33,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useOrderActions } from "@/hooks/use-order-actions"
 import { CancelOrderItemDialog } from "@/components/orders/cancel-order-item-dialog"
+import { CancelOrderDialog } from "@/components/orders/cancel-order-dialog"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
@@ -93,17 +82,8 @@ export function OrderDetailView({
   const [courierPickerOpen, setCourierPickerOpen] = React.useState(false)
   // Mismas acciones que la card de la vista Cuadros — `useOrderActions` es la
   // única definición de Cobrar/Reimprimir/Cancelar.
-  const {
-    cobrar,
-    isPaid,
-    reprint,
-    printing,
-    cancelOpen,
-    setCancelOpen,
-    cancelReason,
-    setCancelReason,
-    confirmCancel,
-  } = useOrderActions(order, onAfterAction)
+  const actions = useOrderActions(order, onAfterAction)
+  const { cobrar, isPaid, reprint, printing, setCancelOpen } = actions
 
   // `events` (F-EVT-0) solo viene en el detalle — el listado no lo trae.
   // El resto (header, items, monto) ya está disponible en `order` (la lista
@@ -390,44 +370,11 @@ export function OrderDetailView({
         onSelect={handleAssignCourier}
       />
 
-      <AlertDialog
-        open={cancelOpen}
-        onOpenChange={(v) => {
-          setCancelOpen(v)
-          if (!v) setCancelReason("")
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>¿Cancelar la orden #{order.orderNumber}?</AlertDialogTitle>
-            <AlertDialogDescription>
-              La orden no se elimina: queda cancelada y sale de las pantallas operativas.
-              El motivo queda registrado en su historial.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          {/* Motivo obligatorio — el backend rechaza la cancelación sin él. */}
-          <div className="flex flex-col gap-2">
-            <Label htmlFor={`cancel-reason-detail-${order.id}`}>Motivo de la cancelación</Label>
-            <Textarea
-              id={`cancel-reason-detail-${order.id}`}
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Ej.: el cliente se retiró, error de carga, faltó stock"
-              rows={3}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Volver</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmCancel}
-              disabled={cancelReason.trim() === ""}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Cancelar orden
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <CancelOrderDialog
+        orderId={order.id}
+        orderNumber={order.orderNumber}
+        actions={actions}
+      />
     </div>
   )
 }

@@ -26,6 +26,9 @@ use Punto\Api\Services\RegisterLeaseService;
 
 final class DrawerService
 {
+    /** Tope de filas de anulaciones en el resumen del turno. Ver getCancellations(). */
+    private const CANCELLATIONS_ROW_LIMIT = 50;
+
     public function __construct(
         public readonly TenantContext $ctx,
     ) {}
@@ -132,6 +135,80 @@ final class DrawerService
             $inc->Close();
         }
         return ['total' => $totalIncome, 'tips' => $totalTips];
+    }
+
+    /**
+     * ANULACIONES de comanda del turno — líneas sacadas de una orden y órdenes
+     * canceladas enteras, con quién las hizo y con qué motivo.
+     *
+     * Es lo que el comercio pidió textual: *"¿va a figurar que se borraron esos
+     * productos? — Sí, en tu reporte vos vas a ver eso."* El reporte por rango
+     * del panel no alcanzaba, porque el dueño no lo abre: mira el cierre del
+     * turno. Acá está, en el mismo lugar donde ya mira la plata.
+     *
+     * ── IMPRECISIÓN DECLARADA: el alcance es la SUCURSAL, no esta caja ──────
+     *
+     * Estas son las anulaciones de TODA la sucursal en la ventana de tiempo del
+     * turno, no las de esta caja. No es una simplificación: es lo único que el
+     * schema permite decir con verdad.
+     *
+     *   - `pos_order_event` no tiene `drawerid` ni `registerid`. No hay por
+     *     dónde atarlo a una sesión de caja.
+     *   - `pos_order.registerid` existe pero NO LO FILTRA NADIE en todo el
+     *     codebase (`context/modules/14-caja.md` regla 16): la orden que abrió
+     *     la tablet pareada a la caja A la cobra la caja B, y el gate de cierre
+     *     de turno ya razona por sucursal por exactamente el mismo motivo.
+     *     Filtrar por esa columna daría un número que se ve más preciso y es
+     *     más falso.
+     *
+     * Se acota por rango de fechas del turno + outlet, igual que
+     * `Reports\DrawersService::componentsFor()` hace con las extracciones. Y se
+     * DICE en la pantalla, no se disimula: el cajero que ve tres anulaciones
+     * ajenas en su cierre tiene que poder entender por qué están ahí.
+     *
+     * `> $since` sin cota superior, igual que `getExpenses`/`getIncome`: en el
+     * turno EN CURSO el techo es ahora. El histórico —que sí tiene fecha de
+     * cierre— acota por los dos lados en `Reports\DrawersService`.
+     *
+     * El CÁLCULO del monto (que es la parte delicada: la invariante
+     * anti-doble-conteo cuando una orden tuvo ítems anulados uno por uno y
+     * después se canceló entera) NO vive acá: es
+     * `Punto\Api\Orders\OrderCancellationQuery`, compartida con el reporte del
+     * panel y con el histórico. Tres cuentas paralelas del mismo número es
+     * exactamente el problema que la regla 10 de `context/modules/14-caja.md`
+     * documenta para el resto de este servicio.
+     *
+     * Binds y no `Roc::build()`: ese helper lee la constante global
+     * `VIEW_OUTLET_ID` del request y la hace ganar sobre el argumento
+     * (view-scope del panel). En el camino de la caja eso significaría que el
+     * outlet del cierre lo decide un header, no el turno. Acá el outlet es el
+     * del drawer y no se negocia.
+     *
+     * @return array{count:int, amount:float, rows:list<array<string,mixed>>}
+     */
+    public function getCancellations(string $outletId, string $since): array
+    {
+        if ($outletId === '' || $since === '') {
+            return ['count' => 0, 'amount' => 0.0, 'rows' => []];
+        }
+
+        $where  = \Punto\Api\Orders\OrderCancellationQuery::WHERE_IS_CANCELLATION
+                . ' AND e.created_at > ? AND e.companyid = ? AND e.outletid = ?';
+        $params = [$since, $this->ctx->companyId, $outletId];
+
+        $totals = \Punto\Api\Orders\OrderCancellationQuery::totals($where, $params);
+
+        return [
+            'count'  => $totals['count'],
+            'amount' => $totals['amount'],
+            // Tope propio y mucho más bajo que el del reporte del panel: esto
+            // se imprime en un ticket de 80mm y se mira en una tablet. Un turno
+            // con más de 50 anulaciones ya contestó la pregunta que el dueño
+            // vino a hacer; el detalle completo está en el reporte por rango.
+            // `count` y `amount` salen del rango ENTERO igual, así que el
+            // resumen no miente cuando la lista se corta.
+            'rows'   => \Punto\Api\Orders\OrderCancellationQuery::rows($where, $params, self::CANCELLATIONS_ROW_LIMIT),
+        ];
     }
 
     /**
@@ -1137,8 +1214,12 @@ final class DrawerService
         $payments = $this->getPaymentBreakdown($registerId, $since, $drawerId);
         $products = $this->getSoldProducts($registerId, $since, $drawerId);
         $stats    = $this->getSaleStats($registerId, $since, $drawerId);
+        // El fetch va en el CALLER y no adentro de composeSummary() porque ese
+        // rollup es puro (sin DB) a propósito — mismo criterio que
+        // getExpenses/getIncome.
+        $cancels  = $this->getCancellations($outletId, $since);
 
-        return self::composeSummary($open, $expenses, $income, $payments, $products, $stats);
+        return self::composeSummary($open, $expenses, $income, $payments, $products, $stats, $cancels);
     }
 
     /**
@@ -1201,6 +1282,8 @@ final class DrawerService
      * @param array<int,array{name:string,qty:float,total:float}> $products
      * @param array{salesCount:int,customersCount:int} $stats Default 0/0 — opcional para
      *   tolerar callers viejos (ej. BFF legacy) que todavía no pasan `getSaleStats()`.
+     * @param array{count:int,amount:float,rows:list<array<string,mixed>>} $cancellations
+     *   Anulaciones de comanda del turno (`getCancellations()`). Default vacío.
      */
     /**
      * ¿Este medio de pago entra al cajón físico?
@@ -1441,7 +1524,7 @@ final class DrawerService
         return $out;
     }
 
-    public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = [], array $stats = []): array
+    public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = [], array $stats = [], array $cancellations = []): array
     {
         $cajaInicial   = (float) $open['drawerOpenAmount'];
         $expenseAmount = (float) $expenses['amount'];
@@ -1557,6 +1640,21 @@ final class DrawerService
             'salesCount'      => (int) ($stats['salesCount'] ?? 0),
             'customersCount'  => (int) ($stats['customersCount'] ?? 0),
             'salesTotal'      => $salesTotal,
+            // Anulaciones de comanda del turno. NO entran en `total` ni en
+            // `subtotal`: la plata de un plato anulado nunca se cobró, así que
+            // no falta del cajón y restarla desfasaría el arqueo. Es
+            // información de CONTROL, no un componente del arqueo — el número
+            // que el dueño mira al lado de lo que se vendió, que es lo que
+            // pidió. Por eso viaja como bloque propio y no como una fila más de
+            // `list`, que es el arqueo impreso.
+            //
+            // Default vacío para tolerar un caller que todavía no lo pasa
+            // (mismo criterio que `$products`/`$stats`).
+            'cancellations'   => [
+                'count'  => (int) ($cancellations['count'] ?? 0),
+                'amount' => (float) ($cancellations['amount'] ?? 0),
+                'rows'   => array_values($cancellations['rows'] ?? []),
+            ],
         ];
     }
 }

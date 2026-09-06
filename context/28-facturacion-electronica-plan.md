@@ -544,16 +544,77 @@ comercio. Si un tenant se va de Punto o quiere operar directo contra
 Factomate, necesita esa credencial — hace falta una forma de revelarla o
 resetearla. No es urgente para F7, pero es deuda si no se anota.
 
-### Certificado de firma — reglas no negociables
+### Certificado de firma — reglas
+
+> **CAMBIO DE DECISIÓN (owner, 2026-09-06): el certificado y el CSC AHORA SE
+> GUARDAN, cifrados.** La regla original era "pasa y se descarta". El owner la
+> revirtió por LOCK-IN: *"si algún día cambiamos de proveedor va a ser caótico
+> el traspaso"*. Con cientos de comercios, pedirle el `.pfx` a cada uno de nuevo
+> equivale a no poder migrar nunca — el costo de no guardarlos es quedar preso
+> del proveedor. Ver §Custodia abajo.
 
 El `.pfx` es la **identidad de firma digital del contribuyente**: quien lo
-tenga puede firmar documentos como él. Si el comercio lo sube desde Punto:
+tenga puede firmar documentos como él. Reglas que siguen vigentes:
 
-- Punto lo **reenvía a Factomate y lo descarta**. No se persiste en BD, ni en
-  disco, ni en caché, ni en un temporal. La contraseña tampoco.
 - **Nunca** al log — ni el archivo, ni la contraseña, ni un hash de ninguno de
   los dos.
 - El upload va por el backend, nunca del browser a Factomate.
+- Nunca vuelve al frontend: se sube, se guarda cifrado y se usa server-side. La
+  UI puede decir que hay uno cargado y cuándo, jamás devolverlo.
+
+### Custodia del certificado y del CSC (decisión 2026-09-06) — IMPLEMENTADA
+
+> **Implementada 2026-09-06** (mig 195). Columnas `cert_pfx_enc`,
+> `cert_password_enc`, `cert_uploaded_at`, `csc_secret_enc`, `csc_updated_at`
+> en `einvoice_account`. La única puerta a esas columnas es
+> `api/lib/EInvoice/FiscalSecretStore.php`, que audita cada LECTURA en
+> `tenant_audit` (`method='READ'`, `endpoint='/einvoice/secret/<clase>'`, y el
+> motivo en `meta.reason`) antes de descifrar — un `grep` por el nombre de
+> columna alcanza para verificar el invariante. Borrado explícito por
+> `POST /v1/einvoice?action=deleteCert` (no toca el certificado del lado del
+> proveedor: el comercio sigue facturando). La custodia se USA en
+> `ensureCertApplied()`, que re-sube el certificado guardado cuando se
+> reprovisiona el emisor.
+>
+> Hallazgo del camino: `FactomateProvider::updateTenant()` logueaba el body
+> entero, y ese body lleva `CSCProduccion`. El leak estaba LATENTE (la UI no
+> tenía input de CSC, así que el campo iba siempre vacío) y se habría activado
+> con el primer CSC cargado. Ahora usa `requestUnlogged` + línea redactada,
+> mismo criterio que `uploadCert()`.
+>
+> Y la RESPUESTA también: `exec()` logueaba el body de error crudo con el
+> argumento de que Factomate nunca eco-ea lo que mandamos — un supuesto sobre
+> el formato de error de un tercero que, si es falso, deja el CSC en texto
+> plano en el log Y en `last_error`, que es visible en el panel. `exec()` ahora
+> recibe los valores secretos del caller y los tacha antes de tocar cualquiera
+> de los dos caminos. Aplica al CSC y a la contraseña del certificado.
+
+Se guardan **por `CredentialVault`** (AES-256-GCM autenticado, clave en
+`APP_ENCRYPTION_KEY` — env, NO la base). Eso es lo que hace la decisión
+defendible: un dump de Postgres por sí solo no expone nada, hacen falta la base
+Y la clave.
+
+Lo que inclinó la balanza, además del lock-in: **el `.pfx` ya pasa por los
+servidores de Punto hoy** — el comercio lo sube por nuestra UI. Guardarlo
+cambia la RETENCIÓN, no si Punto alguna vez lo toca. La discusión no era
+"tocarlo o no", era "tenerlo cuando haga falta o pedirlo de nuevo".
+
+Condiciones que la decisión trae consigo, no negociables por separado:
+
+1. **Auditar cada LECTURA.** Descifrar un certificado se registra en
+   `tenant_audit`: quién, cuándo, para qué. Un secreto que se puede leer sin
+   dejar rastro es un secreto que no se sabe si se filtró.
+2. **Decírselo al comercio.** Es SU certificado. La UI de facturación
+   electrónica dice que Punto lo conserva cifrado para poder reconfigurar la
+   emisión sin volver a pedírselo. Enterarse por accidente es peor que la
+   custodia misma.
+3. **Poder borrarlo.** Si el comercio lo pide, se borra — y ahí sí vuelve a
+   hacer falta subirlo para reprovisionar.
+
+Límite honesto de esto: si se filtran juntos un dump de la base Y
+`APP_ENCRYPTION_KEY`, quedan expuestos todos los certificados. El vault sube
+mucho el piso, no lo vuelve imposible. La rotación de esa clave y quién tiene
+acceso al entorno pasan a ser parte del perímetro fiscal.
 
 Aparte, dato de ellos que conviene tener registrado: Factomate guarda el
 certificado cifrado (AES-256-CBC) pero **la contraseña solo en Base64, sin
@@ -561,7 +622,10 @@ cifrar** (`CertificateAcc`) — el propio manual lo señala y explica que es por
 un proceso de firma externo en Java que la lee así. No lo controlamos, pero
 son los certificados de nuestros tenants.
 
-Mismo criterio para `CSCProduccion` (secreto de SIFEN): pasa, no se guarda.
+Mismo criterio de custodia para `CSCProduccion` (secreto de SIFEN): se guarda
+cifrado. Su riesgo es MENOR que el del `.pfx` —es el código con el que se
+genera el QR del KuDE, no una llave de firma— así que la decisión ahí es
+todavía menos discutible.
 
 ### Riesgo en la API de ellos, a no replicar
 

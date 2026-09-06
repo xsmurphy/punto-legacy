@@ -23,7 +23,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { posJson } from "@/lib/api/pos-json"
 import type { SpaceWithState, SpaceShape, SpaceState } from "@/hooks/use-spaces"
 
 export interface PosSpaceSector {
@@ -51,15 +51,6 @@ export interface SpaceSession {
   note: string | null
   /** Sesión que absorbió a esta al unir cuentas. Solo en la origen de una fusión. */
   mergedInto: string | null
-}
-
-async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await posFetch(url, init)
-  const json = await res.json().catch(() => null)
-  if (!res.ok || !json?.ok) {
-    throw new Error(json?.error?.message ?? `Error ${res.status}`)
-  }
-  return json.data as T
 }
 
 // ── Queries ───────────────────────────────────────────────────────────────────

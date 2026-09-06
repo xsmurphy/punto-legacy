@@ -1903,6 +1903,63 @@ function ControlDeCajaPanel() {
               </div>
             )}
 
+            {/* Anulaciones del turno — el pedido textual del comercio: "¿va a
+                figurar que se borraron esos productos? — Sí, en tu reporte vos
+                vas a ver eso." El reporte por rango del panel no alcanzaba
+                porque el dueño no lo abre: mira el cierre.
+
+                Va DESPUÉS de los productos vendidos y ANTES de los totales, que
+                es donde se lee como contrapeso de lo que se vendió y no como un
+                componente del arqueo — no lo es: la plata anulada nunca entró
+                al cajón, así que no se resta de ningún total.
+
+                Solo se renderiza si hubo alguna. No viola la regla 10 de
+                context/14 (posiciones estables): esto es el RESUMEN del cierre,
+                una vista de lectura sin controles que la memoria muscular
+                busque — no la pantalla de venta. */}
+            {(summary.cancellations?.count ?? 0) > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Anulaciones del turno
+                </p>
+                <div className="divide-y divide-border">
+                  {(summary.cancellations?.rows ?? []).map((c) => (
+                    <div key={c.eventId} className="flex items-start justify-between gap-3 px-1 py-2 text-sm">
+                      <div className="flex min-w-0 flex-col">
+                        <span className="truncate">
+                          {c.scope === "order"
+                            ? `Orden completa${c.orderNumber !== null ? ` #${c.orderNumber}` : ""}`
+                            : `${c.qty ?? 0} × ${c.itemName || "(sin nombre)"}`}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                          {[c.actorName, c.reason].filter(Boolean).join(" — ") ||
+                            "Sin motivo registrado"}
+                        </span>
+                      </div>
+                      <span className="shrink-0 tabular-nums font-medium">
+                        {formatMoney(c.amount, fmtConfig)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 flex items-center justify-between px-1 text-sm font-medium">
+                  <span>Total anulado</span>
+                  <span className="tabular-nums">
+                    {formatMoney(summary.cancellations?.amount ?? 0, fmtConfig)}
+                  </span>
+                </div>
+                {/* La imprecisión se declara, no se disimula: el cajero que ve
+                    una anulación ajena en su cierre tiene que poder entender
+                    por qué está ahí. `pos_order_event` no tiene columna de caja
+                    y `pos_order.registerid` no lo filtra nadie — acotar por
+                    caja daría un número que se ve más preciso y es más falso. */}
+                <p className="mt-1 px-1 text-xs text-muted-foreground">
+                  Incluye las anulaciones de toda la sucursal durante este turno,
+                  no solo las de esta caja.
+                </p>
+              </div>
+            )}
+
             {/* Total de efectivo */}
             <div className="mt-2 flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
               <span className="text-sm font-bold uppercase">Total efectivo</span>

@@ -6,7 +6,9 @@
  *   GET  /v1/einvoice?resource=account          → estado del emisor (fiscal, timbrado, certificado, config)
  *   POST /v1/einvoice?action=provision          → F7: crea/retoma el emisor con los datos legales (white-label)
  *   POST /v1/einvoice?action=config             → guarda config de emisión (autoIssue/onlyWithTaxId/paymentMethodMap)
- *   POST /v1/einvoice?action=uploadCert         → sube el certificado de firma (.pfx base64 + contraseña; pasa, no se guarda)
+ *   POST /v1/einvoice?action=uploadCert         → sube el certificado de firma (.pfx base64 + contraseña) al emisor y lo deja en custodia cifrada
+ *   POST /v1/einvoice?action=deleteCert         → borra de Punto el certificado en custodia (el emisor lo conserva)
+ *   POST /v1/einvoice?action=csc                → guarda el CSC de producción (id + secreto) y lo aplica al emisor
  *   POST /v1/einvoice?action=testSet            → prueba de humo del certificado contra SIFEN (consulta de RUC)
  *   POST /v1/einvoice?action=test               → re-verifica la cuenta (auth + timbrado) y refresca el cache
  *   GET  /v1/einvoice?resource=paymentMethods   → proxy de códigos de medio de pago
@@ -21,8 +23,10 @@
  *   POST /v1/einvoice?action=reconcile           → reconcilia sifen_status contra GetAll (gateado einvoice.manage)
  *
  * Auth: panel para todo salvo `drain` (gateado por EINVOICE_DRAIN_SECRET, sin
- * realm — lo invoca el cron del sistema). Escritura de panel (POST account/test/
- * retry/cancel/reconcile) gateada por `einvoice.manage`; `documents`/`kude` son
+ * realm — lo invoca el cron del sistema). TODA escritura de panel está gateada
+ * por `einvoice.manage`: el chequeo está una sola vez, arriba del bloque POST,
+ * así que cubre también provision/uploadCert/deleteCert/csc/testSet — cualquier
+ * `action` nueva nace gateada. `documents`/`kude` son
  * lectura sin permiso especial (mismo criterio que el resto de vistas de
  * solo-lectura del panel — ver nota de `documentsForTransaction`). La cuenta
  * es SIEMPRE la de COMPANY_ID del contexto — nunca un id del request
@@ -32,8 +36,15 @@
  * alta del emisor la hace Punto con su credencial admin (env,
  * FACTOMATE_ADMIN_*) vía EInvoiceProvisioningService. Ninguna respuesta de
  * este endpoint incluye usuario/contraseña/identidad de login del proveedor
- * (getAccount ya los excluye del SELECT). El certificado y el secreto del
- * CSC pasan por acá hacia el proveedor y NO se persisten ni se loguean.
+ * (getAccount ya los excluye del SELECT).
+ *
+ * CUSTODIA (owner 2026-09-06, context/28 §Custodia): el certificado de firma y
+ * el secreto del CSC entran por acá, van al proveedor y quedan GUARDADOS
+ * CIFRADOS (`FiscalSecretStore`, mig 195) para poder reconfigurar la emisión
+ * sin volver a pedírselos al comercio. NINGUNA respuesta de este endpoint los
+ * devuelve: lo único que sale es si hay algo cargado y desde cuándo
+ * (`certStored`/`certUploadedAt`/`cscStored`/`cscUpdatedAt`). Cada lectura
+ * server-side queda auditada en `tenant_audit`.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -178,12 +189,39 @@ switch ($method) {
         if ($action === 'uploadCert') {
             // Directo de $_POST, NUNCA por validateHttp ni a un log: el
             // certificado es la identidad de firma del contribuyente y la
-            // contraseña lo abre. Pasan al proveedor y se descartan.
+            // contraseña lo abre. Pasan al proveedor y quedan en custodia
+            // cifrada (FiscalSecretStore) — nunca vuelven en una respuesta.
             $certBase64   = (string) ($_POST['certBase64'] ?? '');
             $certPassword = (string) ($_POST['certPassword'] ?? '');
 
             try {
                 apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->uploadCert($companyId, $certBase64, $certPassword));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'deleteCert') {
+            // Es SU certificado: si lo pide, Punto deja de custodiarlo. No se
+            // toca el del proveedor — el comercio sigue facturando.
+            try {
+                apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->deleteCert($companyId));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'csc') {
+            // Mismo criterio que uploadCert: el secreto sale de $_POST crudo y
+            // no pasa por validateHttp (que trimea/colapsa valores) ni por
+            // ningún log.
+            $cscId     = (string) ($_POST['cscId'] ?? '');
+            $cscSecret = (string) ($_POST['cscSecret'] ?? '');
+
+            try {
+                apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->saveCsc($companyId, $cscId, $cscSecret));
             } catch (\RuntimeException $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -248,7 +286,7 @@ switch ($method) {
             break;
         }
 
-        apiError('action inválida (esperado: provision|config|uploadCert|testSet|test|retry|cancel|reconcile)', 422);
+        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|cancel|reconcile)', 422);
         break;
 
     default:

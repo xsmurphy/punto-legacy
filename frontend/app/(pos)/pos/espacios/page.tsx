@@ -51,6 +51,7 @@ import {
 import { useCartStore } from "@/lib/cart/store"
 import { useSpaceSettlementStore } from "@/lib/spaces/settlement-store"
 import { usePersistedView } from "@/lib/ui/use-persisted-view"
+import { cancelErrorMessage } from "@/lib/orders/cancel-error"
 
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
@@ -238,8 +239,14 @@ export default function EspaciosPage() {
         // muestra ya no existe; si venía del menú, ya estaba cerrado.
         setSessionTable(null)
       } catch (err) {
+        // Cancelar una mesa CASCADEA sobre sus comandas, así que desde
+        // 2026-09-06 pasa por el mismo `OrderCancelGate` que anular un ítem:
+        // puede volver 403 (falta el permiso) o 422 (fuera de la ventana del
+        // comercio). El traductor compartido convierte eso en "pasaron N
+        // minutos... la tiene que cancelar un encargado", que es lo único que
+        // destraba al cajero — el `err.message` pelado no dice a quién llamar.
         toast.error("No se pudo cancelar la sesión", {
-          description: err instanceof Error ? err.message : String(err),
+          description: cancelErrorMessage(err, "session"),
         })
       }
     },

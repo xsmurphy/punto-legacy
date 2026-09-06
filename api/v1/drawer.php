@@ -72,6 +72,11 @@ function drawerIsBlind(string $registerId, string $companyId): bool
  * ciegas tiene que saber QUÉ contar — si no, no puede arquear y el modo pierde
  * sentido. Lo que el dueño decidió ocultar son los números, no la existencia
  * de las ventas con tarjeta.
+ *
+ * ALLOWLIST y no denylist: esta función CONSTRUYE la respuesta clave por clave
+ * en vez de sacarle claves a `$data`. Es lo que hace que agregar un bloque
+ * nuevo al resumen (como `cancellations`) no se filtre solo por olvidarse de
+ * excluirlo — el default de un campo que nadie nombró acá es no viajar.
  */
 function drawerBlindSummary(array $data): array
 {
@@ -94,6 +99,21 @@ function drawerBlindSummary(array $data): array
         'list'             => [],
         'paymentBreakdown' => [],
         'soldProducts'     => [],
+        // Las ANULACIONES del turno se filtran acá, en el SERVIDOR, igual que
+        // el resto de los montos — y por la misma razón por la que la mig 169
+        // trajo todo esto para este lado: hasta entonces el ocultamiento vivía
+        // en el front y se caía con las devtools abiertas
+        // (`context/modules/14-caja.md` regla 7). Sumar un bloque nuevo que se
+        // esconde solo en el cliente habría reabierto exactamente ese agujero,
+        // y este es más sensible que un total: nombra personas.
+        //
+        // Se vacía ENTERO —conteo, monto y filas— y no solo los montos. La
+        // cantidad de anulaciones del turno ya es un número del turno, que es
+        // justamente lo que el dueño decidió que este cajero no vea; y la lista
+        // sin montos seguiría diciendo qué se anuló y quién. El cajero a ciegas
+        // arquea, no audita: el control de anulaciones lo mira el dueño desde
+        // el panel, que es donde vive el reporte por rango.
+        'cancellations'    => ['count' => 0, 'amount' => 0.0, 'rows' => []],
     ];
 }
 

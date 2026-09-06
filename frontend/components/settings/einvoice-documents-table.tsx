@@ -85,6 +85,26 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
     // curso, esperá" cuando en realidad quedó huérfano.
     return <Badge variant="destructive">Trabado — revisar</Badge>
   }
+  if (doc.status === "error") {
+    // El MOTIVO al lado del badge, no escondido: el backend escribe
+    // `error_message` en castellano a propósito (markError — "regla fiscal
+    // violada... con el motivo en castellano") y esta tabla lo recibía en el
+    // payload desde el día uno SIN mostrarlo jamás (auditoría 2026-09-06).
+    // Para un módulo auto-administrable eso era un callejón: el comercio veía
+    // "Error", apretaba reintentar, veía "Error" de nuevo y llamaba a
+    // soporte. Con el motivo a la vista —"la caja X no tiene timbrado", "el
+    // cliente no tiene RUC"— la mayoría se resuelve sin llamar a nadie.
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="destructive">Error</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {doc.errorMessage ?? "El envío falló sin motivo registrado. Reintentá; si persiste, contactá a soporte."}
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
   switch (doc.status) {
     case "issued":
       // Emitido ≠ aceptado. Mientras SIFEN no se expida el documento está
@@ -103,8 +123,7 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
           </TooltipContent>
         </Tooltip>
       )
-    case "error":
-      return <Badge variant="destructive">Error</Badge>
+    // "error" se maneja arriba, ANTES del switch, con el motivo en tooltip.
     case "sending":
       return <Badge variant="outline">Enviando</Badge>
     case "skipped":

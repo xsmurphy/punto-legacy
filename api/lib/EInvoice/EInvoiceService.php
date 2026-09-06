@@ -50,22 +50,31 @@ final class EInvoiceService
 
         if (!$row) {
             return [
-                'configured'    => false,
-                'provisioned'   => false,
-                'status'        => 'unconfigured',
-                'fiscal'        => [],
-                'certUploaded'  => false,
-                'emitter'       => [],
-                'stamp'         => [],
-                'stampSyncedAt' => null,
-                'lastCheckAt'   => null,
-                'lastError'     => null,
-                'config'        => [],
+                'configured'     => false,
+                'provisioned'    => false,
+                'status'         => 'unconfigured',
+                'fiscal'         => [],
+                'certUploaded'   => false,
+                'certStored'     => false,
+                'certUploadedAt' => null,
+                'cscStored'      => false,
+                'cscUpdatedAt'   => null,
+                'emitter'        => [],
+                'stamp'          => [],
+                'stampSyncedAt'  => null,
+                'lastCheckAt'    => null,
+                'lastError'      => null,
+                'config'         => [],
             ];
         }
 
         $provisioning = $this->decodeJsonb($row['provisioning'] ?? null);
         $tenantId = $row['factomate_tenant_id'] ?? null;
+        // Custodia del certificado y del CSC (mig 195): lo ÚNICO que sale de
+        // esas columnas hacia afuera es si hay algo guardado y desde cuándo.
+        // El contenido no vuelve al frontend nunca — se lee solo server-side
+        // por FiscalSecretStore, que audita cada lectura.
+        $secrets = FiscalSecretStore::status($companyId);
 
         return [
             'configured'   => true,
@@ -76,7 +85,14 @@ final class EInvoiceService
             // Espejo del formulario legal (sin secretos — ver
             // EInvoiceProvisioningService::stripSecrets).
             'fiscal'       => $this->decodeJsonb($row['fiscal'] ?? null),
-            'certUploaded' => !empty($provisioning['certUploaded']),
+            // `certUploaded` = el PROVEEDOR lo tiene. `certStored` = PUNTO lo
+            // tiene en custodia. Son cosas distintas y las dos importan: el
+            // comercio puede borrar la custodia sin dejar de facturar.
+            'certUploaded'   => !empty($provisioning['certUploaded']),
+            'certStored'     => $secrets['certStored'],
+            'certUploadedAt' => $secrets['certUploadedAt'],
+            'cscStored'      => $secrets['cscStored'],
+            'cscUpdatedAt'   => $secrets['cscUpdatedAt'],
             'emitter'      => $this->decodeJsonb($row['emitter'] ?? null),
             // Timbrado vigente cacheado de BranchDocumentType/Get — la
             // fuente real del correlativo (lo lleva el proveedor).
@@ -228,10 +244,25 @@ final class EInvoiceService
      * @return array<string,mixed>
      * @throws \RuntimeException si la cuenta no está conectada (status != 'ok').
      */
-    public function clientByRuc(string $companyId, string $ruc): array
+    /**
+     * ¿El comercio tiene el emisor operativo? Pregunta barata y SIN
+     * excepción, para los callers que tienen una alternativa válida cuando la
+     * respuesta es que no.
+     *
+     * Existe por `TaxpayerLookupService`: "todavía no hay cuenta de FE" es el
+     * estado NORMAL de un comercio que está justo por crearla, y descubrirlo
+     * cachando la excepción de `clientByRuc()` dejaba una línea de error_log
+     * por cada consulta de RUC. Un estado esperado no es un error.
+     */
+    public function isConnected(string $companyId): bool
     {
         $row = ncmExecute('SELECT status FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        if (!$row || (string) ($row['status'] ?? '') !== 'ok') {
+        return $row && (string) ($row['status'] ?? '') === 'ok';
+    }
+
+    public function clientByRuc(string $companyId, string $ruc): array
+    {
+        if (!$this->isConnected($companyId)) {
             throw new \RuntimeException('La cuenta de facturación electrónica no está conectada.');
         }
 
@@ -1501,12 +1532,6 @@ final class EInvoiceService
             // Timbrado de la CAJA de la venta (F7): cada caja es un punto de
             // expedición (context/29 §1), así que el documento sale con el
             // timbrado de la caja que vendió — no con uno global. El mapa
-            // registerId → {fc, nc} lo arma el provisioning
-            // (EInvoiceProvisioningService::ensureStampsCreated); FC/FCR usan
-            // el id de tipo factura, NC el de nota de crédito. Fallback: el
-            // stamp cacheado global (cuentas manuales de F0, o venta sin
-            // registerId — panel sin caja).
-            $stamp  = $this->stampForDocument($companyId, $transactionId, $doctype, $account);
             $config = $this->decodeJsonb($account['account_config'] ?? null);
 
             // issuedDate: naive local de Asunción, mismo criterio que signDate
@@ -1517,6 +1542,12 @@ final class EInvoiceService
 
             $mapper = new SaleToInvoiceMapper();
             try {
+                // registerId → {fc, nc} lo arma el provisioning
+                // (EInvoiceProvisioningService::ensureStampsCreated); FC/FCR
+                // usan el id de tipo factura, NC el de nota de crédito.
+                // ADENTRO del try: una caja sin timbrado lanza y tiene que
+                // caer en el mismo markError legible que una regla del mapper.
+                $stamp   = $this->stampForDocument($companyId, $transactionId, $doctype, $account);
                 $payload = $mapper->build($sale, $stamp, $config, $issuedDate);
             } catch (\RuntimeException $e) {
                 // Regla fiscal violada o dato faltante — NUNCA se manda a Factomate
@@ -1582,12 +1613,29 @@ final class EInvoiceService
     }
 
     /**
-     * Resuelve el timbrado con el que se emite UN documento: el de la caja
-     * de la venta si el mapa del provisioning la conoce, el cacheado global
-     * si no. Devuelve el shape que espera SaleToInvoiceMapper ('Id').
+     * Resuelve el timbrado con el que se emite UN documento. Tres casos, y la
+     * diferencia entre el segundo y el tercero es FISCAL, no cosmética:
+     *
+     *   1. La caja de la venta está en el mapa del provisioning → su timbrado.
+     *   2. No hay mapa (cuenta manual de F0) o la venta no tiene caja (NC
+     *      emitida desde el panel) → el stamp cacheado global. Es el fallback
+     *      HISTÓRICO y sigue siendo válido: no hay otra caja a la que robarle
+     *      el punto de expedición.
+     *   3. HAY mapa y la venta SÍ tiene caja, pero esa caja no está en él
+     *      (caja sin timbrado) → **ERROR, nunca el fallback**. Hasta
+     *      2026-09-06 este caso caía en silencio al stamp global: una venta de
+     *      la "Segunda Caja" se emitía con el punto de expedición de la
+     *      principal — dos cajas alimentando la misma numeración, que es
+     *      exactamente el escenario de facturas duplicadas que el modelo
+     *      por-caja de `context/29` existe para impedir (auditoría
+     *      2026-09-06). El error es legible y cae en `markError`, así el
+     *      comercio ve QUÉ caja le falta timbrar en vez de emitir mal.
+     *
+     * Devuelve el shape que espera SaleToInvoiceMapper ('Id').
      *
      * @param array|\ArrayAccess $account Fila de einvoice_account (con provisioning y stamp).
      * @return array<string,mixed>
+     * @throws \RuntimeException caso 3 — caja conocida sin timbrado en el mapa.
      */
     private function stampForDocument(string $companyId, string $transactionId, string $doctype, $account): array
     {
@@ -1596,7 +1644,10 @@ final class EInvoiceService
 
         if ($stampMap !== []) {
             $tx = ncmExecute(
-                'SELECT registerId FROM transaction WHERE transactionId = ? AND companyId = ?',
+                'SELECT t.registerId, r.registerName
+                   FROM transaction t
+              LEFT JOIN register r ON r.registerId = t.registerId AND r.companyId = t.companyId
+                  WHERE t.transactionId = ? AND t.companyId = ?',
                 [$transactionId, $companyId]
             );
             $registerId = $tx ? trim((string) ($tx['registerId'] ?? '')) : '';
@@ -1604,6 +1655,14 @@ final class EInvoiceService
             $stampId = $stampMap[$registerId][$key] ?? null;
             if ($registerId !== '' && $stampId !== null && $stampId !== '') {
                 return ['Id' => $stampId];
+            }
+            if ($registerId !== '') {
+                $registerName = trim((string) ($tx['registerName'] ?? ''));
+                throw new \RuntimeException(sprintf(
+                    'La caja %s no tiene timbrado de %s cargado — cargalo en Sucursales → Cajas. El documento no se emite con el timbrado de otra caja.',
+                    $registerName !== '' ? '"' . $registerName . '"' : 'de esta venta',
+                    $key === 'nc' ? 'nota de crédito' : 'factura'
+                ));
             }
         }
 

@@ -81,6 +81,18 @@ export interface DrawerRow {
   expense: number | string
   income: number | string
   return: number | string
+  /**
+   * Anulaciones de comanda del turno — cuántas y por cuánta plata.
+   *
+   * NO forman parte del arqueo: la plata anulada nunca entró al cajón, así que
+   * no se resta de `sold` ni de `expectedAmount`. Es información de CONTROL al
+   * lado de la del dinero.
+   *
+   * ALCANCE: son las de la SUCURSAL en la ventana del turno, no las de esta
+   * caja — `pos_order_event` no tiene columna de caja. Se declara en la UI.
+   */
+  cancelCount: number
+  cancelAmount: number | string
 
   // ── Cuadre del arqueo (mig 164) ───────────────────────────────────────────
   // El backend resuelve el veredicto porque es el único que conoce la
@@ -136,6 +148,29 @@ export interface DrawerCountRow {
 export interface DrawerDetail extends DrawerRow {
   payments: { type: string; label: string; price: number | string }[]
   countByMethod: DrawerCountRow[]
+  /**
+   * El detalle de las anulaciones del turno (hasta 50 — mismo tope que el
+   * cierre en vivo del POS, para que el dueño vea la misma lista entre por
+   * donde entre). `cancelCount`/`cancelAmount` son del turno entero igual.
+   */
+  cancellations: DrawerCancellationRow[]
+}
+
+/** Una anulación del turno en el histórico. Mismo shape que en el cierre vivo. */
+export interface DrawerCancellationRow {
+  eventId: string
+  at: string
+  orderId: string
+  orderNumber: number | null
+  spaceName: string | null
+  scope: "item" | "order"
+  itemName: string | null
+  qty: number | null
+  itemCount: number | null
+  amount: number | string
+  reason: string | null
+  actorName: string | null
+  actorKind: "user" | "device" | "system"
 }
 
 /**
@@ -929,34 +964,50 @@ export interface AuditReportResponse {
   rows: AuditRow[]
 }
 
-// ── Anulaciones de ítems de comanda ───────────────────────────────────────────
+// ── Anulaciones de comanda ────────────────────────────────────────────────────
 
 /**
- * Fila del endpoint /v1/reports/order-item-cancellations — una anulación de un
- * ítem suelto de una orden (el evento `item → cancelled` de `pos_order_event`,
- * con el ítem y la orden ya resueltos server-side).
+ * Grano de la anulación. `item` = se sacó UNA línea de la comanda;
+ * `order` = se canceló la orden ENTERA, con todas las líneas que le quedaban.
  *
- * `amount` es lo que ese ítem habría sumado a la orden (qty × precio
- * congelado): es la plata que dejó de cobrarse, que es la pregunta que este
- * reporte contesta.
+ * Viene del backend y no se infiere de que `itemName` sea `null`: eso también
+ * le puede pasar a una línea vieja sin nombre.
  */
-export interface OrderItemCancellationRow {
+export type OrderCancellationScope = "item" | "order"
+
+/**
+ * Fila del endpoint /v1/reports/order-cancellations — un evento de anulación
+ * (`to_status='cancelled'` de `pos_order_event`), con la orden y —si aplica— la
+ * línea ya resueltas server-side.
+ *
+ * `amount` es la plata que dejó de cobrarse, que es la pregunta que este
+ * reporte contesta. Ojo con la aritmética: el backend ya aplica la invariante
+ * anti-doble-conteo (una línea aporta su plata a la anulación más TEMPRANA que
+ * la cubre — ver `Punto\Api\Orders\OrderCancellationQuery`), así que las filas
+ * SUMAN al total y no hay que descontar nada acá.
+ */
+export interface OrderCancellationRow {
   eventId: string
   at: string
   orderId: string
   orderNumber: number | null
   /** Espacio de la orden (mesa). `null` en mostrador, delivery y ecommerce. */
   spaceName: string | null
-  itemName: string
-  qty: number
+  scope: OrderCancellationScope
+  /** `null` cuando `scope === "order"`: no hay una línea que nombrar. */
+  itemName: string | null
+  /** `null` cuando `scope === "order"`: ahí la cantidad relevante es `itemCount`. */
+  qty: number | null
+  /** Líneas de primer nivel que se llevó la cancelación. `null` en grano ítem. */
+  itemCount: number | null
   amount: number
   reason: string | null
   actorName: string | null
   actorKind: "user" | "device" | "system"
 }
 
-export interface OrderItemCancellationsResponse {
-  rows: OrderItemCancellationRow[]
+export interface OrderCancellationsResponse {
+  rows: OrderCancellationRow[]
   totals: { count: number; amount: number }
 }
 
