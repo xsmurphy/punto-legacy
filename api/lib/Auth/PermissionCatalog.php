@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 8;
+    public const CURRENT_VERSION = 9;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -129,6 +129,38 @@ final class PermissionCatalog
             ['id' => 'inventory.item.delete',  'label' => 'Eliminar artículos',       'group' => 'Inventario'],
             ['id' => 'inventory.stock.adjust', 'label' => 'Ajustes de stock',         'group' => 'Inventario'],
             ['id' => 'inventory.transfer',     'label' => 'Transferencias entre sucursales', 'group' => 'Inventario'],
+
+            // ── Orden de pago a proveedor (context/modules/08-compras.md) ──
+            //
+            // El documento que AUTORIZA pagarle a un proveedor: se arma
+            // agrupando facturas de compra a crédito pendientes, alguien lo
+            // aprueba, y recién ahí se ejecuta llamando al pago que ya existe.
+            //
+            // `approve` está SEPARADA de `create` a propósito — es el punto
+            // entero de la feature. Segregación de tareas: el que arma el pago
+            // no es necesariamente el que lo autoriza. Fundirlas en una sola
+            // clave dejaría a la orden de pago como un paso burocrático sin
+            // control real.
+            //
+            // El gate DURO es esta clave y siempre aplica. Encima hay un
+            // ajuste por comercio (`settingPaymentOrderRequireSecondApprover`,
+            // APAGADO por default) que, prendido, impide además que quien creó
+            // la orden sea quien la aprueba. Apagado, el dueño que arma y
+            // aprueba solo trabaja sin fricción — mismo criterio de "nace
+            // apagado" que `settingDrawerRequireClosedOrders`.
+            //
+            // NINGUNA de las tres va al rol `device`: el POS no le compra a
+            // proveedores (el pago a proveedor ya está cerrado al realm
+            // `panel` en credit-payments.php) y el rol `device` es el mismo
+            // para todos los que agarran la tablet.
+            //
+            // `since` = 9 y claves NUEVAS: el caso seguro del backfill (nunca
+            // existieron, así que no pueden estar revocadas a propósito en
+            // ningún tenant — ver la advertencia del docblock de since()).
+            // Backfill a roles custom en la mig 197.
+            ['id' => 'purchases.paymentorder.view',    'label' => 'Ver órdenes de pago',      'group' => 'Compras', 'since' => 9],
+            ['id' => 'purchases.paymentorder.create',  'label' => 'Crear órdenes de pago',    'group' => 'Compras', 'since' => 9],
+            ['id' => 'purchases.paymentorder.approve', 'label' => 'Aprobar órdenes de pago',  'group' => 'Compras', 'since' => 9],
 
             ['id' => 'contacts.customer.view',   'label' => 'Ver clientes',           'group' => 'Contactos'],
             ['id' => 'contacts.customer.create', 'label' => 'Crear clientes',         'group' => 'Contactos'],

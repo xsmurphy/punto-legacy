@@ -98,6 +98,14 @@ final class RoleService
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',
             'contacts.supplier.view','contacts.supplier.manage',
             'contacts.user.view','contacts.user.manage',
+            // Órdenes de pago a proveedor. El Encargado recibe las TRES: ya
+            // tiene `finance.manage` (o sea, hoy ya puede pagarle a un
+            // proveedor directamente) y `reports.purchases.view`. `approve` va
+            // solo a manager/owner — es la clave que sostiene la segregación
+            // de tareas, y el comercio se la tilda a otro rol desde Ajustes →
+            // Roles si quiere abrirla. `cashier` no recibe ninguna, `device`
+            // tampoco (ver PermissionCatalog).
+            'purchases.paymentorder.view','purchases.paymentorder.create','purchases.paymentorder.approve',
             'reports.sales.view','reports.drawers.view','reports.audit.view','reports.expenses.view',
             'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
             'reports.schedule.view','reports.recurring.view',
