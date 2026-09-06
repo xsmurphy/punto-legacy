@@ -143,7 +143,17 @@ final class InventoryCountService
         return ['count' => (int) ($row['total'] ?? 0)];
     }
 
-    public function get(string $id, string $companyId): ?array
+    /**
+     * @param bool $blindMode ¿La PERSONA que pide esto cuenta a ciegas? Lo
+     *        resuelve `Punto\Api\Settings\StockCountMode::isBlind($ctx)` —
+     *        ÚNICO lugar del sistema que contesta esa pregunta— y llega acá ya
+     *        decidido. El servicio no lo re-deriva: si lo hiciera leyendo el
+     *        flag del comercio por su cuenta, el modo del panel y el de la caja
+     *        volverían a tener dos definiciones, que es exactamente lo que la
+     *        F2 vino a unificar. Sin argumento no hay default: quien llama
+     *        tiene que haber decidido, y decidir es consultar al resolver.
+     */
+    public function get(string $id, string $companyId, bool $blindMode): ?array
     {
         $session = ncmExecute(
             'SELECT ic.*, u1.contactname as "startedByName", u2.contactname as "finishedByName"
@@ -197,8 +207,10 @@ final class InventoryCountService
         // textualmente que "cada conteo finalizado debe quedar detallado en el
         // panel con sus diferencias". Ciego describe el momento de contar, no
         // el registro que queda.
-        $blind = StockCountSettings::forCompany($companyId)->blind()
-            && (int) $session['status'] === 1;
+        //
+        // Desde la F2 el modo lo decide la PERSONA (`StockCountMode`), no el
+        // comercio: `$blindMode` ya viene resuelto por quien llama.
+        $blind = $blindMode && (int) $session['status'] === 1;
 
         $items = [];
         if ($itemsRs) {
@@ -399,6 +411,99 @@ final class InventoryCountService
             'totalCostDelta'   => $totalCostDelta,
             'applied'          => !$recordOnly,
         ];
+    }
+
+    /**
+     * El stock TEÓRICO de una lista fija, para el conteo NO ciego de la caja
+     * (context/63 F2).
+     *
+     * ── Por qué es ONLINE y no baja al snapshot del POS ─────────────────────
+     *
+     * Decisión explícita de la F2, y las dos razones importan:
+     *
+     *   1. Un teórico VIEJO es peor que ninguno. El operador termina ajustando
+     *      lo que contó contra un número que ya no es cierto y firmando una
+     *      diferencia inventada. El conteo ciego no tiene ese problema
+     *      justamente porque no muestra nada — por eso la caída sin red es
+     *      "contá a ciegas", no "contá contra el último número que vimos".
+     *   2. El saldo se mueve con CADA venta de CUALQUIER caja. Mantenerlo
+     *      fresco en el snapshot sería sincronización continua de todo el
+     *      catálogo, que es exactamente lo que el bootstrap del POS evita.
+     *
+     * De ahí que el `stock: null` de `frontend/lib/pos-bff/reshape.ts` siga
+     * intacto: no es un TODO que esta fase resuelve, es una decisión que esta
+     * fase confirma.
+     *
+     * ── El mismo alcance y el mismo esperado que al aplicar ─────────────────
+     *
+     * Sale por `InventoryCountScope::forFixedList()` + `itemsQuery()`, que es
+     * literalmente el query con el que `submitFromRegister()` congela las
+     * líneas. No es una consulta paralela "para mostrar": si divergiera, el
+     * cajero vería un teórico y el ajuste se calcularía contra otro, que es la
+     * diferencia fantasma contra la que advierte el docblock de `itemsQuery()`.
+     *
+     * NO abre sesión de conteo ni gasta correlativo: es una lectura. La sesión
+     * sigue naciendo completa al confirmar, con el saldo del momento en que se
+     * aplica — el que vale para derivar el ajuste.
+     *
+     * @param  list<string> $itemIdsFallback la lista que conoce el device, por
+     *         si la del servidor se borró (mismo respaldo que submitFromRegister).
+     * @return array{listId: string, listName: string, items: list<array{itemId: string, expectedQty: float}>}
+     * @throws \InvalidArgumentException si no queda ningún artículo contable.
+     */
+    public function expectedForList(
+        string $companyId,
+        string $outletId,
+        string $listId,
+        string $listNameFallback,
+        array $itemIdsFallback,
+    ): array {
+        $settings = StockCountSettings::forCompany($companyId);
+        $list     = $settings->findList($listId);
+
+        if ($list !== null) {
+            $scopeItemIds = $list['itemIds'];
+            $listName     = $list['name'];
+        } else {
+            $scopeItemIds = array_values(array_filter(
+                array_map(static fn ($v) => strtolower(trim((string) $v)), $itemIdsFallback),
+                static fn (string $v) => $v !== ''
+            ));
+            $listName = $listNameFallback !== '' ? $listNameFallback : 'Lista eliminada';
+            if ($scopeItemIds === []) {
+                throw new \InvalidArgumentException(
+                    'La lista de conteo ya no existe y la consulta no trae los artículos'
+                );
+            }
+        }
+
+        $scope = InventoryCountScope::forFixedList(
+            $companyId,
+            $outletId,
+            $listId,
+            $listName,
+            $scopeItemIds,
+        );
+
+        [$sql, $params] = $scope->itemsQuery();
+        $rs = ncmExecute($sql, $params, false, true);
+
+        $items = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $row     = $rs->fields;
+                $items[] = [
+                    'itemId'      => (string) $row['itemid'],
+                    'expectedQty' => (float) $row['expectedqty'],
+                ];
+                $rs->MoveNext();
+            }
+        }
+
+        // El costo unitario NO viaja: la caja no valoriza la diferencia (eso es
+        // el detalle del panel) y mandarlo sería exponer el costo del artículo
+        // en una tablet del mostrador sin que ninguna pantalla lo use.
+        return ['listId' => $listId, 'listName' => $listName, 'items' => $items];
     }
 
     /**
@@ -724,8 +829,15 @@ final class InventoryCountService
         return (int) $db->Affected_Rows() > 0;
     }
 
-    public function list(string $companyId, ?string $outletId, ?int $status, int $limit, int $offset): array
-    {
+    /** @param bool $blindMode ver el docblock del parámetro homónimo en get(). */
+    public function list(
+        string $companyId,
+        ?string $outletId,
+        ?int $status,
+        int $limit,
+        int $offset,
+        bool $blindMode,
+    ): array {
         // Columnas CALIFICADAS con el alias `ic`, y el mismo alias en el COUNT.
         //
         // Sin calificar, este WHERE es válido para el COUNT (una sola tabla) y
@@ -779,7 +891,7 @@ final class InventoryCountService
         // publica su diferencia acumulada. Publicarla acá sería la puerta de
         // atrás — el cajero abre el listado y deduce el esperado del artículo
         // que acaba de cargar.
-        $blind = StockCountSettings::forCompany($companyId)->blind();
+        $blind = $blindMode;
 
         $rows = [];
         if ($rowsRs) {

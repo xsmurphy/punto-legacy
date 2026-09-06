@@ -210,15 +210,22 @@ try {
     setLista($companyId, [$itemA, $itemB]);
 
     // ═══════════════════════════════════════════════════════════════════════
-    // (A) F0 — stockCountBlind deja de ser letra muerta
+    // (A) F0 — el conteo respeta el modo ciego que le pasan
     // ═══════════════════════════════════════════════════════════════════════
-    echo "\n=== (A) F0: el conteo respeta stockCountBlind ===\n";
+    //
+    // Desde la F2 el modo lo resuelve `StockCountMode` a partir del flag del
+    // comercio Y del permiso de la persona, y llega al servicio ya decidido.
+    // Acá se ejercita la mitad de abajo —que el servicio no publique el
+    // esperado cuando le dicen que es ciego, y que al FINALIZAR lo publique
+    // igual— con el modo pasado a mano. Que el resolver decida bien es lo que
+    // verifica `stock_count_open_mode_test.php`, contra el endpoint real.
+    echo "\n=== (A) F0: el conteo respeta el modo ciego ===\n";
 
     setFlags($companyId, blind: false, recordOnly: false);
     $creado = $svc->create($companyId, $outletId, null, $adminId, 'arnés F0', [], true);
     $countId = (string) $creado['id'];
 
-    $verNoCiego = $svc->get($countId, $companyId);
+    $verNoCiego = $svc->get($countId, $companyId, blindMode: false);
     $primera    = $verNoCiego['items'][0] ?? [];
     check('(A1) con el flag APAGADO el esperado se publica',
         array_key_exists('expectedQty', $primera) && $primera['expectedQty'] !== null,
@@ -228,7 +235,7 @@ try {
         'blind no vino false: ' . json_encode($verNoCiego['session']['blind'] ?? null), $failures, $checks);
 
     setFlags($companyId, blind: true, recordOnly: false);
-    $verCiego = $svc->get($countId, $companyId);
+    $verCiego = $svc->get($countId, $companyId, blindMode: true);
     $todosNull = true;
     foreach ($verCiego['items'] as $it) {
         if ($it['expectedQty'] !== null || $it['difference'] !== null) { $todosNull = false; break; }
@@ -240,7 +247,7 @@ try {
         'blind no vino true', $failures, $checks);
 
     // El listado tampoco puede ser la puerta de atrás al esperado.
-    $lista = $svc->list($companyId, $outletId, 1, 50, 0);
+    $lista = $svc->list($companyId, $outletId, 1, 50, 0, blindMode: true);
     $filaEnProgreso = null;
     foreach ($lista['rows'] as $r) {
         if ($r['inventoryCountId'] === $countId) { $filaEnProgreso = $r; break; }
@@ -252,7 +259,7 @@ try {
     // Al FINALIZAR sí se ve todo: el owner pidió que cada conteo finalizado
     // quede detallado en el panel con sus diferencias.
     $svc->finish($countId, $companyId, $adminId);
-    $verFinal = $svc->get($countId, $companyId);
+    $verFinal = $svc->get($countId, $companyId, blindMode: true);
     check('(A4) finalizado, el esperado vuelve a verse aunque el flag siga encendido',
         ($verFinal['items'][0]['expectedQty'] ?? null) !== null,
         'expectedQty siguió null después de finalizar', $failures, $checks);

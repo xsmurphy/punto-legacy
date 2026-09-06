@@ -7,16 +7,35 @@
  * productos sueltos: el alcance es la lista (D3), y eso es lo que hace que el
  * conteo sea repetible turno a turno y comparable entre turnos.
  *
- * ── Es CIEGO, y eso ordena toda la pantalla ────────────────────────────────
+ * ── Dos modos, y el que manda lo decide el SERVIDOR ────────────────────────
  *
- * No se muestra el stock teórico en ningún lado, ni la diferencia, ni un total
- * valorizado. No es que se oculten: el servidor no los manda (D2). Si el
+ * CIEGO (default): no se muestra el stock teórico en ningún lado, ni la
+ * diferencia. No es que se oculten — el servidor no los manda (D2). Si el
  * cajero ve lo que el sistema espera, escribe lo que el sistema espera, y el
  * conteo deja de medir nada.
  *
- * Consecuencia práctica: la pantalla funciona SIN RED. Todo lo que necesita
- * —la lista, los nombres, los SKU— ya está en el snapshot del bootstrap, y el
- * resultado se encola. El esperado lo resuelve el servidor al aplicar.
+ * ABIERTO (F2): la persona tiene `inventory.count.open` y cuenta con el teórico
+ * y la diferencia a la vista, como en el panel. La pantalla NO evalúa ese
+ * permiso —ni lo conoce: no lleva prefijo `pos.` y no baja al dispositivo—;
+ * pregunta por el teórico y el modo es lo que conteste el servidor. Esa
+ * dirección importa: el filtrado del dato es del servidor, así que la respuesta
+ * y la decisión son la misma fuente.
+ *
+ * ── Sin red se cuenta a ciegas ─────────────────────────────────────────────
+ *
+ * El conteo CIEGO sigue siendo offline-nativo y no se toca: todo lo que
+ * necesita —la lista, los nombres, los SKU— ya está en el snapshot del
+ * bootstrap y el resultado se encola.
+ *
+ * El teórico del modo abierto es ONLINE por decisión de la F2, así que sin red
+ * el conteo ARRANCA CIEGO y se le dice al operador por qué, con esa palabra —
+ * no con un error genérico. Un teórico viejo sería peor que ninguno: el
+ * operador ajustaría lo contado contra un número que ya no es cierto y firmaría
+ * una diferencia inventada.
+ *
+ * Y el modo se resuelve UNA vez por lista: si la red se cae con el conteo ya
+ * cargado, los números que se mostraron SE QUEDAN. Borrarlos a mitad de camino
+ * dejaría al cajero contando bajo reglas que cambiaron sin que él hiciera nada.
  *
  * ── Reglas del POS que gobiernan el layout ─────────────────────────────────
  *
@@ -26,13 +45,16 @@
  * - Cantidades con `<NumericPad>`, nunca con un `<Input>` (§11): es la
  *   superficie de captura numérica del POS, con teclado físico incluido.
  * - El impedimento se dice en el CONTROL que impide (botón deshabilitado +
- *   motivo), nunca en una banda.
+ *   motivo), nunca en una banda. El MODO no es un impedimento sino un estado,
+ *   así que va en un indicador único del encabezado que existe siempre, con el
+ *   motivo en su tooltip — nada que aparezca y empuje el layout.
  */
 
 import * as React from "react"
 import { ClipboardCheck, Check } from "lucide-react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Select,
@@ -53,7 +75,7 @@ import { cn } from "@/lib/utils"
 
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
-import { useSubmitStockCount } from "@/hooks/use-stock-count"
+import { useStockCountExpected, useSubmitStockCount } from "@/hooks/use-stock-count"
 
 /** Fila de la lista: el ítem resuelto contra el catálogo del snapshot. */
 interface CountRow {
@@ -74,6 +96,16 @@ export default function ConteoPage() {
   const lists = React.useMemo(() => config?.stockCountLists ?? [], [config])
   const recordOnly = config?.stockCountRecordOnly === true
   const canCount = operatorPermissions.includes("pos.stock.count")
+  /**
+   * PISO de conteo ciego del comercio. NO decide el modo —eso lo hace el
+   * servidor, por persona— y por eso no se usa para mostrar ni esconder un
+   * número. Sirve solo para redactar el motivo cuando no hay red: es lo único
+   * que distingue "no hay teórico porque acá se cuenta a ciegas" de "no hay
+   * teórico porque se cayó la conexión".
+   *
+   * `undefined` = `/api` anterior a la F2 (el BFF ya lo normaliza a `true`).
+   */
+  const shopBlind = config?.stockCountBlind
 
   /**
    * El borrador del conteo en curso, atado a la lista para la que se cargó.
@@ -125,6 +157,61 @@ export default function ConteoPage() {
       .filter((i): i is NonNullable<typeof i> => i !== undefined)
       .map((i) => ({ itemId: i.id, name: i.name, sku: i.sku, uom: i.uom }))
   }, [activeList, items])
+
+  // ── Modo de conteo, resuelto contra el servidor (F2) ──────────────────────
+  //
+  // Se pide UNA vez por lista y no se refresca (ver `useStockCountExpected`).
+  // Mientras no haya respuesta la pantalla se comporta como ciega: mostrar
+  // números a medio resolver sería peor que no mostrarlos.
+  const expectedQuery = useStockCountExpected(
+    listId,
+    activeList?.itemIds ?? [],
+    canCount && Boolean(activeList) && Boolean(outlet),
+  )
+  const mode = expectedQuery.data
+  const isOpen = mode?.mode === "open"
+  const expected = mode?.mode === "open" ? mode.expected : null
+
+  /**
+   * Etiqueta y motivo del indicador de modo.
+   *
+   * El caso interesante es el de abajo: sin red no sabemos si ESTA persona
+   * habría contado abierto —el permiso lo evalúa el servidor y no baja al
+   * dispositivo—, pero sí sabemos el PISO del comercio, que sí baja en el
+   * bootstrap. Con el piso APAGADO todos cuentan abierto, así que la falta de
+   * red le sacó algo concreto y hay que decírselo. Con el piso PRENDIDO lo más
+   * probable es que contara a ciegas igual: se nombra la falta de conexión en
+   * el motivo, pero sin anunciarla como una pérdida que quizá no ocurrió.
+   */
+  const modeBadge: { label: string; reason: string } = (() => {
+    if (!mode) {
+      return { label: "Resolviendo modo", reason: "Estamos consultando en qué modo se cuenta." }
+    }
+    if (mode.mode === "open") {
+      return {
+        label: "Con stock teórico",
+        reason: "Vas a ver el stock teórico y la diferencia mientras cargás las cantidades.",
+      }
+    }
+    if (mode.reason === "offline" && shopBlind === false) {
+      return {
+        label: "Conteo ciego — sin conexión",
+        reason:
+          "Arrancó ciego: sin conexión no se puede traer el stock teórico. Contá igual — el conteo se registra y se envía cuando vuelva la conexión.",
+      }
+    }
+    if (mode.reason === "offline") {
+      return {
+        label: "Conteo ciego",
+        reason:
+          "En este comercio el stock teórico no se muestra mientras se cuenta. Además ahora no hay conexión para consultarlo.",
+      }
+    }
+    return {
+      label: "Conteo ciego",
+      reason: "En este comercio el stock teórico no se muestra mientras se cuenta.",
+    }
+  })()
 
   const countedCount = rows.filter((r) => r.itemId in counted).length
   const selected = rows.find((r) => r.itemId === selectedId) ?? null
@@ -256,6 +343,22 @@ export default function ConteoPage() {
           </p>
         </div>
 
+        {/* Indicador ÚNICO del modo, arriba de la toolbar y SIEMPRE presente:
+            no aparece ni desaparece, solo cambia de texto. El modo es un
+            ESTADO, no un impedimento, así que no va sobre el botón de
+            finalizar —ahí vive lo que bloquea— ni en una banda que empuje el
+            layout. El motivo va en el tooltip para que la línea no crezca. */}
+        <Tooltip>
+          {/* `span` envolvente por el mismo motivo que en el footer: el
+              trigger necesita una ref y `<Badge>` no la reenvía. */}
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Badge variant={isOpen ? "outline" : "secondary"}>{modeBadge.label}</Badge>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{modeBadge.reason}</TooltipContent>
+        </Tooltip>
+
         {lists.length > 1 && (
           <Select value={listId} onValueChange={setListId}>
             <SelectTrigger className="w-[220px]">
@@ -289,6 +392,20 @@ export default function ConteoPage() {
               {rows.map((row) => {
                 const qty = counted[row.itemId]
                 const isSelected = row.itemId === selectedId
+
+                // Teórico y diferencia solo existen en modo abierto. Un ítem
+                // que el servidor no devolvió (quedó fuera del alcance porque
+                // se dio de baja o perdió el control de stock) se marca como NO
+                // DISPONIBLE en vez de mostrarse en cero: cero es un dato, y
+                // acá no lo hay.
+                const exp = expected ? expected[row.itemId] : undefined
+                const expText = !isOpen
+                  ? ""
+                  : exp === undefined
+                    ? " · Teórico no disponible"
+                    : ` · Teórico ${exp}`
+                const diff = isOpen && exp !== undefined && qty !== undefined ? qty - exp : null
+
                 return (
                   <li key={row.itemId}>
                     {/* `h-16` y no el alto default: la fila se toca con el dedo
@@ -304,20 +421,42 @@ export default function ConteoPage() {
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate font-medium">{row.name}</p>
+                        {/* El teórico va acá, en la línea secundaria, y no en
+                            una columna propia: así el número CONTADO no cambia
+                            de posición entre un modo y el otro. */}
                         <p className="truncate text-sm text-muted-foreground">
                           {row.sku ?? "Sin SKU"}
+                          {expText}
                         </p>
                       </div>
-                      {/* Solo lo CONTADO. Nunca el esperado: el conteo es ciego. */}
-                      <span
-                        className={cn(
-                          "shrink-0 text-lg tabular-nums",
-                          qty === undefined ? "text-muted-foreground" : "font-semibold",
-                        )}
-                      >
-                        {qty === undefined ? "—" : qty}
-                        {qty !== undefined && row.uom ? ` ${row.uom}` : ""}
-                      </span>
+                      {/* Lo CONTADO arriba y la diferencia abajo. Las dos líneas
+                          existen siempre —la de abajo queda vacía en modo
+                          ciego— para que lo contado no se mueva verticalmente
+                          al cambiar de modo. */}
+                      <div className="flex shrink-0 flex-col items-end justify-center">
+                        <span
+                          className={cn(
+                            "text-lg tabular-nums",
+                            qty === undefined ? "text-muted-foreground" : "font-semibold",
+                          )}
+                        >
+                          {qty === undefined ? "—" : qty}
+                          {qty !== undefined && row.uom ? ` ${row.uom}` : ""}
+                        </span>
+                        <span
+                          className={cn(
+                            "h-5 text-sm tabular-nums",
+                            // Faltante en `destructive`; sobrante en el color
+                            // de texto normal. Token, no un color de paleta:
+                            // §5 de context/14 no admite `text-red-500`.
+                            diff !== null && diff < 0
+                              ? "text-destructive"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {diff === null ? "" : diff > 0 ? `+${diff}` : String(diff)}
+                        </span>
+                      </div>
                     </button>
                   </li>
                 )

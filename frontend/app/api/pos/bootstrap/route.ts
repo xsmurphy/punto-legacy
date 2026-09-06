@@ -184,6 +184,7 @@ interface UpstreamBootstrap {
    */
   stockCountLists?: Array<{ id: string; name: string; itemIds: string[] }>
   stockCountRecordOnly?: boolean
+  stockCountBlind?: boolean
   /**
    * Roster de la pantalla de bloqueo — proyección MÍNIMA (id/name/pinhash) de
    * los usuarios activos habilitados en la sucursal del contexto, servida por
@@ -430,6 +431,11 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
       }))
       .filter((l) => l.name !== "" && l.itemIds.length > 0),
     stockCountRecordOnly: bs.stockCountRecordOnly === true,
+    // Ausente = `/api` anterior a la F2 → se asume el piso PRENDIDO. Es el
+    // default recomendado (D2) y el comportamiento que ese `/api` ya tenía, así
+    // que un front nuevo contra un back viejo no promete un modo que el
+    // servidor no sabe resolver. Por eso `!== false` y no `=== true`.
+    stockCountBlind: bs.stockCountBlind !== false,
   }
 }
 

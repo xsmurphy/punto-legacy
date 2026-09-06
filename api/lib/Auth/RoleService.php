@@ -94,7 +94,15 @@ final class RoleService
             // abajo) y `device` ninguna — se evalúan contra el operador del PIN.
             'pos.order.item.cancel','pos.order.item.cancel.late',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
-            'inventory.stock.adjust','inventory.transfer',
+            // `inventory.count.open` (context/63 F2): el Encargado cuenta con
+            // el teórico a la vista. Va con `inventory.stock.adjust` —que ya
+            // tiene, acá al lado— por el mismo criterio del backfill de la mig
+            // 193: quien puede ajustar el inventario ya ve las existencias en
+            // el tab Stock, así que esconderlas MIENTRAS cuenta no protege
+            // nada. `cashier` NO la recibe (cuenta a ciegas, que es el default
+            // recomendado de la D2) y `device` tampoco: se evalúa contra el rol
+            // del operador del PIN, no contra el de la tablet.
+            'inventory.stock.adjust','inventory.count.open','inventory.transfer',
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',
             'contacts.supplier.view','contacts.supplier.manage',
             'contacts.user.view','contacts.user.manage',
