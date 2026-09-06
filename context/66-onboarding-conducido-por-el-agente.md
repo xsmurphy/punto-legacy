@@ -249,9 +249,13 @@ segura para P12/CSC → `provision_einvoice` → verifica con
 
 - **Solo panel** — no es tarea de cajero; el route del POS no recibe estas
   tools (mismo criterio que `get_setup_status`, F4).
-- **NO se exponen al MCP** (`context/58`): la key del MCP opera sin humano
-  delante y sin tarjeta segura posible; además configurar FE es un acto con
-  consecuencia fiscal que quiere un operador confirmando en pantalla.
+- **MCP: SUPERSEDIDA el mismo día** — el owner decidió (2026-09-06) que el
+  MCP también configura cuentas (`context/58 §Escritura por MCP`). Las
+  acciones de DATOS (`set_fiscal_data`, `provision_einvoice`) llegan al MCP
+  gratis por vivir en el catálogo; el humano confirma desde el chat de
+  Claude vía register/execute. Los SECRETOS siguen afuera del modelo en
+  ambos transportes: tarjeta segura en el panel, URL de subida de un solo
+  uso por MCP (M8 de `context/58`).
 - El bot guía dónde CONSEGUIR el P12 y el CSC (Marangatu) — texto de ayuda,
   sin secretos de por medio.
 

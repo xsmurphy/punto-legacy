@@ -71,6 +71,10 @@ explícitamente. Es la misma disciplina que ya evitó tres incidentes en el POS
 
 ### D5 [?] — Read-only en F1, y NUNCA más alcance que el agente propio
 
+> **Actualizada 2026-09-06**: el owner decidió que el MCP TAMBIÉN escribe
+> (setup de cuentas). La mitad "read-only" cae; la mitad "nunca más alcance
+> que el agente propio" queda como principio rector — ver §Escritura por MCP.
+
 El agente propio está acotado a propósito. Si el MCP existe para "hacer más",
 un modelo **externo y no auditado** —system prompt que no controlás, corriendo
 en la máquina del cliente— termina con más privilegio que el tuyo, que sí
@@ -526,6 +530,102 @@ puede comprobar donde haya Redis.
 trae hasta 5000 filas y todas viajan), límite de concurrencia por key más allá
 del `maxDuration = 60` del route, y scopes por key — el campo `meta` está listo
 pero hoy una key lee todo lo que su usuario puede.
+
+## §Escritura por MCP — setup de cuentas conducido por Claude (agregada 2026-09-06)
+
+**Decisión del owner (2026-09-06), reabre el alcance de D5**: el MCP debe
+permitir CONFIGURAR una cuenta, no solo leerla. Caso de uso que la motiva:
+Punto como empresa se conecta al MCP de un tenant nuevo, le pasa a Claude un
+archivo o los datos por mensaje, y Claude configura la cuenta entera —
+sucursales, cajas, timbrados, usuarios, productos, recetas, ajustes — en vez
+de hacerlo a mano. También aplica al tenant que se auto-configura con su
+propio Claude.
+
+### La arquitectura: el MISMO embudo del agente, ni un endpoint de escritura nuevo
+
+D5 decía "read-only y NUNCA más alcance que el agente propio". La primera
+mitad cae; la segunda es la clave de diseño y QUEDA: la escritura por MCP se
+expone como **dos tools que envuelven el embudo existente** de
+`context/66`/`context/59`:
+
+- `punto_register_actions` — envuelve `POST /v1/ai/confirm`
+  (`register_action`): recibe el lote `actions[]`, valida contra
+  `AI_CONFIRM_ALLOWED_ACTIONS`, devuelve `confirmToken` + resumen. NO ejecuta.
+- `punto_execute_actions` — envuelve `POST /v1/ai/execute` con el
+  `confirmToken`. Fallo parcial por acción, como ya está decidido.
+
+Con eso se hereda TODO lo que ya funciona y costó cerrar: catálogo único de
+acciones permitidas, permisos por acción vía `AgentActor::requiredPermission()`
+(la key no puede más que su dueño, D6 aplica solo), atribución en
+`tenant_audit` (F0 de `context/66`), confirmación en bloque, fallo parcial
+reportado por acción, y las validaciones de servicio real (ej.
+`RegisterAdminService::create()` y el constraint de punto de expedición de
+mig 143 — Claude no puede crear una caja fiscalmente inválida ni queriendo).
+
+**El humano en el loop no desaparece: se muda de lugar.** En el agente propio
+la confirmación es la tarjeta del chat de Punto; por MCP, el operador de
+Claude ve el resumen que devuelve `punto_register_actions` y decide llamar o
+no a `punto_execute_actions`. El servidor sigue exigiendo el token — un
+Claude que "se apura" sin registrar primero no puede ejecutar nada.
+
+### Qué se puede configurar = el catálogo de acciones, y crece por el catálogo
+
+Hoy: contactos, ítems, usuarios (roles existentes no-admin), categorías,
+marcas, etiquetas, sucursales, cajas (con timbrado — es DATO fiscal, no
+secreto: viaja por mensaje sin problema), importación tabular. Para llegar a
+"toda la cuenta" faltan acciones NUEVAS en el catálogo (mismo patrón D4 de
+`context/66`, cada una con permiso + validación + servicio real):
+
+- `update_settings` — ajustes del negocio (los de `SettingsService`). Es la
+  superficie más grande y la más sensible a validar campo por campo; no un
+  passthrough del JSONB.
+- `create_recipe` / recetas — el CRUD existe, falta la entrada del catálogo.
+- `set_fiscal_data` / `provision_einvoice` — ya propuestas en
+  `context/66 §FE`; al vivir en el catálogo, el MCP las hereda gratis.
+- Listas de precio, impuestos, plantillas de impresión — mismo camino,
+  priorizar por lo que el setup real de una cuenta necesita.
+
+### Lo que NO entra, y por qué
+
+- **Módulos.** El plan manda (`context/34` F7, D1 cerrada) — los módulos se
+  derivan del plan y el plan se asigna en `/admin`. Para el caso "Punto
+  configura al tenant nuevo", asignar el plan es el paso previo en `/admin`,
+  no una tool del MCP del tenant.
+- **Secretos (P12, contraseña, CSC).** Nunca por el contexto del modelo —
+  misma regla que `context/66 §FE`. Para el flujo MCP el camino propuesto es
+  una tool `punto_request_secret_upload` que devuelve una URL de subida de un
+  solo uso (expira, va a `FiscalSecretStore`): Claude le pasa el LINK al
+  operador, el archivo viaja del browser al backend sin tocar al modelo.
+- **Ventas.** D1 de `context/66` sigue: ventas no, ni por MCP.
+- **Crear roles nuevos** — misma exclusión vigente del catálogo.
+
+### Scope de la key: la escritura es opt-in
+
+Una key de solo-lectura sigue siendo el default (el contador de D9 no debe
+poder escribir jamás). La capacidad `setup`/escritura se marca al emitir la
+key y se muestra distinta en la UI de keys. D6 (⊆ permisos del dueño) aplica
+además del scope, no en su lugar.
+
+### Fases nuevas
+
+| Fase | Qué | Depende de |
+|---|---|---|
+| **M6 [?]** | `punto_register_actions` + `punto_execute_actions` en el transporte MCP (opt-in del realm `api` en `/v1/ai/confirm` y `/v1/ai/execute`) + scope de escritura en la key | M0 |
+| **M7 [?]** | Acciones nuevas del catálogo: `update_settings`, recetas, FE (`context/66 §FE`), listas de precio | M6 |
+| **M8 [?]** | `punto_request_secret_upload` (URL de un solo uso → `FiscalSecretStore`) | M6, mig 195 |
+
+### Arquitecturas rechazadas — no reintroducir
+
+- **Tools de escritura directas por entidad** (`punto_create_item`,
+  `punto_update_settings`, …) contra endpoints propios: duplica permisos,
+  validación y auditoría en un segundo camino que va a divergir del agente.
+  Todo pasa por el catálogo de acciones o no pasa.
+- **Ejecutar sin el paso register/confirm** "porque el operador ya es
+  Claude": el token es lo que hace que el lote auditado sea EXACTAMENTE lo
+  que se mostró, y lo que deja trazable el pedido (D2 de `context/66`).
+- **Passthrough de settings al JSONB.** `update_settings` valida campo por
+  campo contra el servicio; un modelo externo escribiendo claves arbitrarias
+  en `company.config` es una escalada esperando a pasar.
 
 ## Riesgos
 
