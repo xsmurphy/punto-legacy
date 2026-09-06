@@ -30,16 +30,27 @@ namespace Punto\Api\EInvoice;
  *   4. POST /api/BranchDocumentType → UN timbrado POR CAJA (FC + NC),
  *      checkpoint por caja + mapa registerId → ids (la emisión usa el
  *      timbrado de la caja de la venta — EInvoiceService::stampForDocument)
- *   5. sync del timbrado   → stamp cache + status 'ok'
+ *   5. certificado         → si hay uno en custodia y el proveedor todavía no
+ *      lo tiene, se re-sube solo (ver ensureCertApplied)
+ *   6. sync del timbrado   → stamp cache + status 'ok'
  *
  * La CONTRASEÑA del paso 1 se devuelve una sola vez y no es recuperable
  * (manual §2.4): la escritura al vault es lo INMEDIATO siguiente a la
  * respuesta, y si esa escritura falla el error incluye tenantId/userId
  * (nunca la contraseña) para poder pedir un reseteo a Factomate.
  *
- * El secreto del CSC y el certificado de firma PASAN, no se persisten
- * (regla del plan §Certificado). En `fiscal` queda el espejo del formulario
- * SIN secretos, para re-mostrar en la UI y reanudar.
+ * ── Custodia del certificado y del CSC (owner, 2026-09-06) ─────────────────
+ *
+ * La regla anterior era que el `.pfx` y el `CSCProduccion` pasaran al
+ * proveedor y se descartaran. El owner la revirtió por LOCK-IN: pedirle el
+ * certificado de nuevo a cada comercio para migrar de proveedor equivale a no
+ * poder migrar nunca. Ahora se guardan CIFRADOS, en `FiscalSecretStore` —
+ * que es la única puerta a esas columnas y audita cada lectura en
+ * `tenant_audit`. Ver context/28 §Custodia y la mig 195.
+ *
+ * Lo que NO cambió: ni el certificado, ni su contraseña, ni el secreto del CSC
+ * vuelven al frontend ni tocan un log. En `fiscal` sigue quedando el espejo
+ * del formulario SIN secretos, para re-mostrar en la UI y reanudar.
  */
 final class EInvoiceProvisioningService
 {
@@ -116,6 +127,7 @@ final class EInvoiceProvisioningService
             $this->ensureFiscalApplied($companyId, $fiscal, $company, $environment, $login, $bearer, $tenantId);
             $this->ensureActivityCreated($companyId, $fiscal, $environment, $login, $bearer, $tenantId);
             $this->ensureStampsCreated($companyId, $stamps, $environment, $login, $bearer);
+            $this->ensureCertApplied($companyId, $environment, $login, $bearer, $tenantId);
 
             // Paso final: releer el timbrado desde Factomate (fuente real:
             // BranchDocumentType/Get) y marcar la cuenta operativa. Reusa
@@ -138,8 +150,15 @@ final class EInvoiceProvisioningService
     }
 
     /**
-     * Certificado de firma: pasa a Factomate y se descarta — jamás se
-     * persiste ni se loguea (ni el archivo ni la contraseña).
+     * Certificado de firma: se sube al proveedor y —desde el cambio de
+     * decisión de 2026-09-06— queda además en custodia cifrada
+     * (`FiscalSecretStore`), para poder reconfigurar la emisión sin volver a
+     * pedírselo al comercio. Nunca se loguea ni vuelve al frontend.
+     *
+     * El orden importa: primero el proveedor, después la custodia. Si
+     * Factomate rechaza el `.pfx` (contraseña equivocada, certificado vencido),
+     * guardarlo dejaría en custodia un archivo que no sirve para firmar y la
+     * UI diría "cargado" sobre algo que no lo está.
      *
      * @throws \RuntimeException
      */
@@ -157,8 +176,102 @@ final class EInvoiceProvisioningService
             throw new \RuntimeException((string) ($raw['Error'] ?? $raw['error'] ?? 'Factomate rechazó el certificado.'));
         }
 
+        // El checkpoint del PROVEEDOR se marca pase lo que pase con la
+        // custodia: el emisor ya tiene el certificado, y decir lo contrario
+        // haría que el comercio lo vuelva a subir sin necesidad (y que un
+        // re-provisioning lo re-suba de gusto). Si el vault falla —clave mal
+        // configurada, rotación a medias— se pierde la custodia, no el alta.
         $this->mergeProvisioning($companyId, ['certUploaded' => true]);
+
+        try {
+            FiscalSecretStore::storeCertificate($companyId, $certBase64, $certPassword);
+        } catch (\RuntimeException $e) {
+            // Nunca el archivo ni la contraseña en el mensaje: solo el motivo
+            // del vault.
+            error_log('[EInvoiceProvisioning] el certificado se registró en el emisor pero NO quedó en custodia para company '
+                . $companyId . ': ' . $e->getMessage());
+            throw new \RuntimeException(
+                'El certificado quedó registrado y ya podés emitir, pero Punto no pudo guardarlo cifrado '
+                . 'para reconfiguraciones futuras. Avisá a soporte de Punto.'
+            );
+        }
+
         return ['uploaded' => true];
+    }
+
+    /**
+     * Borra el certificado que Punto tiene en custodia. Es SU certificado: si
+     * lo pide, se borra.
+     *
+     * NO lo quita del proveedor — el comercio sigue facturando igual (ver
+     * `FiscalSecretStore::deleteCertificate`). Lo que se pierde es la
+     * capacidad de reconfigurar la emisión sin volver a pedírselo, y eso es
+     * exactamente lo que la UI le advierte antes de confirmar.
+     */
+    public function deleteCert(string $companyId): array
+    {
+        FiscalSecretStore::deleteCertificate($companyId);
+        return FiscalSecretStore::status($companyId);
+    }
+
+    /**
+     * Guarda el CSC de producción (SIFEN) y lo aplica al emisor. Existe como
+     * acción propia —y no solo como campo del alta— porque el CSC se emite en
+     * el Marangatu y suele conseguirse DESPUÉS de que el emisor ya está
+     * provisionado: sin esto, un comercio que se dio de alta sin CSC no tenía
+     * ninguna forma de cargarlo (`ensureFiscalApplied` ya está checkpointeado
+     * y no vuelve a correr).
+     *
+     * El secreto queda en custodia cifrada; el id, en `fiscal` (no es secreto).
+     *
+     * @throws \RuntimeException
+     */
+    public function saveCsc(string $companyId, string $cscId, string $cscSecret): array
+    {
+        $cscId     = trim($cscId);
+        $cscSecret = trim($cscSecret);
+        if ($cscId === '' || $cscSecret === '') {
+            throw new \RuntimeException('Cargá el identificador del CSC y su código de seguridad.');
+        }
+
+        [$environment, $tenantId, $login] = $this->requireProvisioned($companyId);
+        $bearer = $this->session->getBearer($companyId);
+
+        $fiscal = $this->accountFiscal($companyId);
+        $fiscal['cscId'] = $cscId;
+
+        // Payload COMPLETO del tenant: `PUT /api/Tenant` es un reemplazo, no
+        // un patch — mandar solo el CSC borraría RUC y razón social del emisor.
+        $tenant = $this->buildTenantPayload(
+            $tenantId,
+            $this->companyFiscal($companyId),
+            $fiscal,
+            $cscSecret
+        );
+        $raw = $this->provider->updateTenant($environment, $login, $bearer, $tenant);
+        if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
+            throw new \RuntimeException('No se pudo guardar el CSC: ' . (string) ($raw['Error'] ?? $raw['error']));
+        }
+
+        // El emisor ya lo tiene: el id se persiste igual, aunque la custodia
+        // falle (mismo criterio que uploadCert()).
+        ncmExecute(
+            'UPDATE einvoice_account SET fiscal = ?::jsonb, updated_at = now() WHERE companyid = ?',
+            [json_encode($this->stripSecrets($fiscal), JSON_UNESCAPED_UNICODE), $companyId]
+        );
+
+        try {
+            FiscalSecretStore::storeCscSecret($companyId, $cscSecret);
+        } catch (\RuntimeException $e) {
+            error_log('[EInvoiceProvisioning] el CSC se aplicó al emisor pero NO quedó en custodia para company '
+                . $companyId . ': ' . $e->getMessage());
+            throw new \RuntimeException(
+                'El CSC quedó aplicado y ya podés emitir, pero Punto no pudo guardarlo cifrado. '
+                . 'Avisá a soporte de Punto.'
+            );
+        }
+
+        return FiscalSecretStore::status($companyId);
     }
 
     /**
@@ -260,11 +373,62 @@ final class EInvoiceProvisioningService
             return;
         }
 
+        // El secreto del CSC sale del formulario si el comercio lo tipeó
+        // ahora; si no, del que quedó en custodia de un alta anterior. Antes
+        // se descartaba después de mandarlo, así que reanudar un provisioning
+        // sin re-tipearlo lo mandaba VACÍO y el emisor se quedaba sin CSC en
+        // silencio.
+        $cscSecret = (string) ($fiscal['cscSecret'] ?? '');
+        if ($cscSecret === '') {
+            $cscSecret = (string) (FiscalSecretStore::readCscSecret(
+                $companyId,
+                'Aplicar los datos fiscales del emisor (alta o reanudación del provisioning)'
+            ) ?? '');
+        }
+
+        $tenant = $this->buildTenantPayload($tenantId, $company, $fiscal, $cscSecret);
+
+        $raw = $this->provider->updateTenant($environment, $login, $bearer, $tenant);
+        if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
+            throw new \RuntimeException('No se pudieron guardar los datos fiscales: ' . (string) ($raw['Error'] ?? $raw['error']));
+        }
+
+        // El paso quedó hecho del lado del emisor: se marca ANTES de tocar la
+        // custodia, para que un fallo del vault no haga repetir el PUT.
+        $this->mergeProvisioning($companyId, ['fiscalApplied' => true]);
+
+        // Recién ahora se persiste: si el emisor no lo aceptó, no hay nada que
+        // custodiar. Y un fallo de custodia no puede tirar el alta — el emisor
+        // ya tiene el CSC; lo que se pierde es poder reaplicarlo solo.
+        if ((string) ($fiscal['cscSecret'] ?? '') !== '') {
+            try {
+                FiscalSecretStore::storeCscSecret($companyId, (string) $fiscal['cscSecret']);
+            } catch (\RuntimeException $e) {
+                error_log('[EInvoiceProvisioning] el CSC se aplicó al emisor pero NO quedó en custodia para company '
+                    . $companyId . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Payload de `PUT /api/Tenant`. Se arma en un solo lugar porque ese
+     * endpoint REEMPLAZA el tenant: cualquier caller que mande un subconjunto
+     * (por ejemplo "solo el CSC") le borraría al emisor el RUC y la razón
+     * social. Los dos callers —el alta y `saveCsc()`— pasan por acá.
+     *
+     * @param array{ruc:string,razonSocial:string,nombreFantasia:string} $company
+     * @param array<string,mixed> $fiscal
+     * @return array<string,mixed>
+     */
+    private function buildTenantPayload(int $tenantId, array $company, array $fiscal, string $cscSecret): array
+    {
         $tenant = [
-            'Id'           => $tenantId,
-            'Ruc'          => $company['ruc'],
-            'Name'         => $company['razonSocial'],
-            'TenancyName'  => $company['nombreFantasia'],
+            'Id'          => $tenantId,
+            'Ruc'         => $company['ruc'],
+            // Razón social del padrón — NUNCA el nombre de fantasía: SIFEN la
+            // valida contra el RUC (ver companyFiscal()).
+            'Name'        => $company['razonSocial'],
+            'TenancyName' => $company['nombreFantasia'],
         ];
         if (isset($fiscal['taxpayerType'])) {
             $tenant['TaxpayerType'] = (int) $fiscal['taxpayerType'];
@@ -272,24 +436,66 @@ final class EInvoiceProvisioningService
         if (isset($fiscal['regimeId'])) {
             $tenant['RegimeId'] = (int) $fiscal['regimeId'];
         }
-        // CSC de SIFEN (producción): el id se guarda en `fiscal`, el secreto
-        // solo pasa. En test no es requerido (manual §3.1).
+        // CSC de SIFEN (producción). NO es obligatorio para dar de alta el
+        // emisor (manual §2.1: "no requerido en modo desarrollo") pero sí para
+        // emitir en producción — el QR del KuDE se firma con él. Por eso el
+        // alta lo acepta vacío y la UI lo reclama antes de operar en prod.
         if (!empty($fiscal['cscId'])) {
             $tenant['IdCSCProduccion'] = (string) $fiscal['cscId'];
         }
-        if (!empty($fiscal['cscSecret'])) {
-            $tenant['CSCProduccion'] = (string) $fiscal['cscSecret'];
+        if ($cscSecret !== '') {
+            $tenant['CSCProduccion'] = $cscSecret;
         }
         if (!empty($fiscal['infoAdicional'])) {
             $tenant['InformacionAdicional'] = (string) $fiscal['infoAdicional'];
         }
 
-        $raw = $this->provider->updateTenant($environment, $login, $bearer, $tenant);
-        if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
-            throw new \RuntimeException('No se pudieron guardar los datos fiscales: ' . (string) ($raw['Error'] ?? $raw['error']));
+        return $tenant;
+    }
+
+    /**
+     * Re-sube el certificado en custodia si el emisor todavía no lo tiene.
+     *
+     * Es lo que vuelve ÚTIL la custodia y no solo un depósito: reprovisionar
+     * un emisor (o migrarlo mañana a otro proveedor) deja de exigirle al
+     * comercio que vaya a buscar el `.pfx` otra vez. Si no hay certificado
+     * guardado, no pasa nada — el paso es opcional y el comercio lo sube desde
+     * la pantalla cuando quiera.
+     *
+     * Nunca aborta el provisioning: un emisor SIN certificado sigue siendo un
+     * emisor válidamente creado. Lo que falla acá se avisa por `last_error`.
+     */
+    private function ensureCertApplied(string $companyId, string $environment, string $login, string $bearer, int $tenantId): void
+    {
+        if ($this->checkpoint($companyId, 'certUploaded')) {
+            return;
         }
 
-        $this->mergeProvisioning($companyId, ['fiscalApplied' => true]);
+        $cert = FiscalSecretStore::readCertificate(
+            $companyId,
+            'Re-aplicar el certificado de firma al emisor durante el provisioning'
+        );
+        if ($cert === null) {
+            return;
+        }
+
+        $raw = $this->provider->uploadCert(
+            $environment,
+            $login,
+            $bearer,
+            $tenantId,
+            $cert['certBase64'],
+            $cert['certPassword']
+        );
+        if (empty($raw['Success'] ?? $raw['success'] ?? false)) {
+            // Sin excepción: el mensaje del proveedor puede traer el detalle
+            // del certificado, y este paso no es condición del alta.
+            error_log('[EInvoiceProvisioning] no se pudo re-aplicar el certificado en custodia para company '
+                . $companyId . ': ' . (string) ($raw['Error'] ?? $raw['error'] ?? 'sin detalle'));
+            return;
+        }
+
+        $this->mergeProvisioning($companyId, ['certUploaded' => true]);
     }
 
     private function ensureActivityCreated(string $companyId, array $fiscal, string $environment, string $login, string $bearer, int $tenantId): void
@@ -423,8 +629,24 @@ final class EInvoiceProvisioningService
     }
 
     /**
-     * RUC y razón social del emisor — la fuente es Configuración del negocio,
-     * no el formulario de facturación electrónica (un solo lugar por dato).
+     * RUC y razón social del emisor — la fuente es `company.config`, un solo
+     * lugar por dato (la pantalla de facturación electrónica ahora los edita
+     * ahí mismo, pero escribiendo al MISMO destino).
+     *
+     * ── La razón social NO cae al nombre comercial ──────────────────────────
+     *
+     * Hasta 2026-09-06 esto hacía `$billing !== '' ? $billing : $name`, y era
+     * un bug FISCAL: "Balloon Party" y "BALLOON PARTY S.A." son cosas
+     * distintas, y SIFEN valida la razón social contra el padrón del RUC. Con
+     * `settingBillingName` vacío, Punto registraba el emisor con el nombre de
+     * fantasía y todo lo que saliera de ahí quedaba mal identificado.
+     *
+     * Un dato fiscal inventado es peor que un formulario incompleto: sin razón
+     * social el emisor NO se provisiona. Se pide, no se adivina.
+     *
+     * `nombreFantasia` sí puede caer a la razón social — es el nombre
+     * comercial, no lo valida nadie, y un emisor sin `TenancyName` no tiene
+     * sentido. La asimetría es a propósito.
      *
      * @return array{ruc:string,razonSocial:string,nombreFantasia:string}
      * @throws \RuntimeException si faltan, con el mensaje apuntando a dónde cargarlos.
@@ -444,19 +666,21 @@ final class EInvoiceProvisioningService
 
         if ($ruc === '') {
             throw new \RuntimeException(
-                'Falta el RUC del negocio — cargalo en Configuración antes de habilitar la facturación electrónica.'
+                'Falta el RUC del negocio — cargalo arriba, en Datos fiscales, antes de habilitar la facturación electrónica.'
             );
         }
-        if ($billing === '' && $name === '') {
+        if ($billing === '') {
             throw new \RuntimeException(
-                'Falta la razón social del negocio — cargala en Configuración antes de habilitar la facturación electrónica.'
+                'Falta la razón social del negocio, tal como figura en el padrón del RUC. '
+                . 'No alcanza con el nombre comercial: la SET valida la razón social contra el padrón. '
+                . 'Cargala arriba, en Datos fiscales.'
             );
         }
 
         return [
             'ruc'            => str_replace(' ', '', $ruc),
-            'razonSocial'    => $billing !== '' ? $billing : $name,
-            'nombreFantasia' => $name,
+            'razonSocial'    => $billing,
+            'nombreFantasia' => $name !== '' ? $name : $billing,
         ];
     }
 

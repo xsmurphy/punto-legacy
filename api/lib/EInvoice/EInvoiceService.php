@@ -50,22 +50,31 @@ final class EInvoiceService
 
         if (!$row) {
             return [
-                'configured'    => false,
-                'provisioned'   => false,
-                'status'        => 'unconfigured',
-                'fiscal'        => [],
-                'certUploaded'  => false,
-                'emitter'       => [],
-                'stamp'         => [],
-                'stampSyncedAt' => null,
-                'lastCheckAt'   => null,
-                'lastError'     => null,
-                'config'        => [],
+                'configured'     => false,
+                'provisioned'    => false,
+                'status'         => 'unconfigured',
+                'fiscal'         => [],
+                'certUploaded'   => false,
+                'certStored'     => false,
+                'certUploadedAt' => null,
+                'cscStored'      => false,
+                'cscUpdatedAt'   => null,
+                'emitter'        => [],
+                'stamp'          => [],
+                'stampSyncedAt'  => null,
+                'lastCheckAt'    => null,
+                'lastError'      => null,
+                'config'         => [],
             ];
         }
 
         $provisioning = $this->decodeJsonb($row['provisioning'] ?? null);
         $tenantId = $row['factomate_tenant_id'] ?? null;
+        // Custodia del certificado y del CSC (mig 195): lo ÚNICO que sale de
+        // esas columnas hacia afuera es si hay algo guardado y desde cuándo.
+        // El contenido no vuelve al frontend nunca — se lee solo server-side
+        // por FiscalSecretStore, que audita cada lectura.
+        $secrets = FiscalSecretStore::status($companyId);
 
         return [
             'configured'   => true,
@@ -76,7 +85,14 @@ final class EInvoiceService
             // Espejo del formulario legal (sin secretos — ver
             // EInvoiceProvisioningService::stripSecrets).
             'fiscal'       => $this->decodeJsonb($row['fiscal'] ?? null),
-            'certUploaded' => !empty($provisioning['certUploaded']),
+            // `certUploaded` = el PROVEEDOR lo tiene. `certStored` = PUNTO lo
+            // tiene en custodia. Son cosas distintas y las dos importan: el
+            // comercio puede borrar la custodia sin dejar de facturar.
+            'certUploaded'   => !empty($provisioning['certUploaded']),
+            'certStored'     => $secrets['certStored'],
+            'certUploadedAt' => $secrets['certUploadedAt'],
+            'cscStored'      => $secrets['cscStored'],
+            'cscUpdatedAt'   => $secrets['cscUpdatedAt'],
             'emitter'      => $this->decodeJsonb($row['emitter'] ?? null),
             // Timbrado vigente cacheado de BranchDocumentType/Get — la
             // fuente real del correlativo (lo lleva el proveedor).
@@ -228,10 +244,25 @@ final class EInvoiceService
      * @return array<string,mixed>
      * @throws \RuntimeException si la cuenta no está conectada (status != 'ok').
      */
-    public function clientByRuc(string $companyId, string $ruc): array
+    /**
+     * ¿El comercio tiene el emisor operativo? Pregunta barata y SIN
+     * excepción, para los callers que tienen una alternativa válida cuando la
+     * respuesta es que no.
+     *
+     * Existe por `TaxpayerLookupService`: "todavía no hay cuenta de FE" es el
+     * estado NORMAL de un comercio que está justo por crearla, y descubrirlo
+     * cachando la excepción de `clientByRuc()` dejaba una línea de error_log
+     * por cada consulta de RUC. Un estado esperado no es un error.
+     */
+    public function isConnected(string $companyId): bool
     {
         $row = ncmExecute('SELECT status FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        if (!$row || (string) ($row['status'] ?? '') !== 'ok') {
+        return $row && (string) ($row['status'] ?? '') === 'ok';
+    }
+
+    public function clientByRuc(string $companyId, string $ruc): array
+    {
+        if (!$this->isConnected($companyId)) {
             throw new \RuntimeException('La cuenta de facturación electrónica no está conectada.');
         }
 

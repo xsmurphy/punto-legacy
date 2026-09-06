@@ -11,6 +11,7 @@ import type {
   EInvoiceFiscalForm,
   EInvoicePaymentMethod,
   EInvoiceReconcileResult,
+  EInvoiceSecretStatus,
   EInvoiceTestResult,
 } from "@/lib/types/einvoice"
 
@@ -64,14 +65,45 @@ export function useSaveEinvoiceConfig() {
 }
 
 /**
- * Certificado de firma: el `.pfx` viaja en base64 y NO se persiste en
- * ningún lado (backend lo pasa al proveedor y lo descarta).
+ * Certificado de firma: el `.pfx` viaja en base64, el backend lo registra ante
+ * el emisor y lo guarda CIFRADO (decisión del owner 2026-09-06, context/28
+ * §Custodia). Nunca vuelve — la respuesta solo confirma la carga.
  */
 export function useUploadEinvoiceCert() {
   const qc = useQueryClient()
   return useMutation<{ uploaded: boolean }, Error, { certBase64: string; certPassword: string }>({
     mutationFn: (body) =>
       api.post<{ uploaded: boolean }>("/v1/einvoice?action=uploadCert", body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNT_KEY })
+    },
+  })
+}
+
+/**
+ * Borra de Punto el certificado en custodia. NO lo quita del emisor: el
+ * comercio sigue facturando, y lo que pierde es que Punto pueda reconfigurar
+ * la emisión sin volver a pedírselo.
+ */
+export function useDeleteEinvoiceCert() {
+  const qc = useQueryClient()
+  return useMutation<EInvoiceSecretStatus, Error, void>({
+    mutationFn: () => api.post<EInvoiceSecretStatus>("/v1/einvoice?action=deleteCert"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ACCOUNT_KEY })
+    },
+  })
+}
+
+/**
+ * Guarda el CSC de producción (id + código) y lo aplica al emisor. Acción
+ * propia y no un campo más del alta: el CSC se pide en el Marangatu y casi
+ * siempre llega DESPUÉS de que el emisor ya existe.
+ */
+export function useSaveEinvoiceCsc() {
+  const qc = useQueryClient()
+  return useMutation<EInvoiceSecretStatus, Error, { cscId: string; cscSecret: string }>({
+    mutationFn: (body) => api.post<EInvoiceSecretStatus>("/v1/einvoice?action=csc", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ACCOUNT_KEY })
     },
