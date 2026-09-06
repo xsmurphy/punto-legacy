@@ -3,26 +3,41 @@
 /**
  * Facturación Electrónica — configuración del comercio (F7, white-label).
  *
- * El comercio NUNCA ve al proveedor de FE, y NO re-tipea lo que Punto ya
- * tiene: el RUC y la razón social salen de Configuración del negocio, y los
- * timbrados de las CAJAS — cada caja es un punto de expedición (context/29
- * §1) y su timbrado se configura EN la caja (Sucursales → sucursal → Cajas
- * → editar), tenga o no el comercio este módulo. Acá solo se muestra el
- * estado (RegisterStampsSummary, solo lectura). Solo
- * se completa lo que no existe en otro lado (actividad económica, tipo de
- * contribuyente, email, CSC, certificado). Punto provisiona la cuenta por
- * detrás con su credencial admin (EInvoiceProvisioningService).
+ * El comercio NUNCA ve al proveedor de FE, y NO hay dos copias de ningún dato:
+ * los timbrados salen de las CAJAS — cada caja es un punto de expedición
+ * (context/29 §1) y su timbrado se configura EN la caja (Sucursales →
+ * sucursal → Cajas → editar), tenga o no el comercio este módulo; acá solo se
+ * muestra el estado (RegisterStampsSummary, solo lectura). Punto provisiona la
+ * cuenta por detrás con su credencial admin (EInvoiceProvisioningService).
+ *
+ * El RUC y la razón social SÍ se editan acá (2026-09-06: el owner activó el
+ * módulo, vio "RUC —" y no supo dónde cargarlo), pero escribiendo al MISMO
+ * destino de siempre — los ajustes de la empresa, vía `useUpdateSettings`. Un
+ * campo editable en dos pantallas no es una fuente duplicada mientras las dos
+ * escriban al mismo lado; duplicar sería guardarlo también acá.
  *
  * Dos estados:
- *   - Sin provisionar → formulario de alta (datos fiscales + timbrado).
- *   - Provisionado    → estado del emisor + certificado + emisión +
+ *   - Sin provisionar → formulario de alta (datos fiscales editables +
+ *                       actividad + CSC + estado de timbrados).
+ *   - Provisionado    → estado del emisor + certificado + CSC + emisión +
  *                       medios de pago + documentos.
  */
 
 import * as React from "react"
-import { CreditCard, Loader2, ShieldCheck, Upload } from "lucide-react"
+import { CreditCard, Loader2, Search, ShieldCheck, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -37,10 +52,12 @@ import { EmptyState } from "@/components/empty-state"
 import { EInvoiceDocumentsCard } from "@/components/settings/einvoice-documents-table"
 
 import {
+  useDeleteEinvoiceCert,
   useEinvoiceAccount,
   useEinvoicePaymentMethods,
   useProvisionEinvoice,
   useSaveEinvoiceConfig,
+  useSaveEinvoiceCsc,
   useTestEinvoiceConnection,
   useTestEinvoiceSet,
   useUploadEinvoiceCert,
@@ -48,7 +65,7 @@ import {
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { usePermission } from "@/hooks/use-permissions"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
-import { useSettings } from "@/hooks/use-settings"
+import { useSettings, useTaxpayerLookup, useUpdateSettings } from "@/hooks/use-settings"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import type { EInvoiceConfig, EInvoiceFiscalForm, EInvoiceStatus } from "@/lib/types/einvoice"
@@ -130,13 +147,19 @@ const EMPTY_FORM: EInvoiceFiscalForm = {
 }
 
 /**
- * RUC y razón social — solo LECTURA: la fuente es Configuración del negocio.
- * Si faltan, el link lleva a cargarlos ahí (un solo lugar por dato).
+ * RUC y razón social — SOLO LECTURA. Es la vista del emisor ya provisionado:
+ * cambiar el RUC de un emisor que ya existe ante la SET no es editar un
+ * ajuste, es otro emisor, así que acá se muestra y se manda a Configuración.
+ *
+ * La razón social NO cae al nombre comercial (bug fiscal corregido
+ * 2026-09-06): son datos distintos y la SET valida la razón social contra el
+ * padrón del RUC. Si falta, la tarjeta lo dice — antes el fallback la daba por
+ * cargada y nadie se enteraba.
  */
 function CompanyFiscalSummary() {
   const { data: settings, isLoading } = useSettings()
   const ruc = settings?.ruc?.trim() ?? ""
-  const billingName = settings?.billingName?.trim() || settings?.name?.trim() || ""
+  const billingName = settings?.billingName?.trim() ?? ""
   const missing = !isLoading && (ruc === "" || billingName === "")
 
   return (
@@ -152,7 +175,109 @@ function CompanyFiscalSummary() {
         </div>
       </dl>
       <p className="text-sm text-muted-foreground">
-        {missing ? "Faltan datos del negocio — completalos en " : "Estos datos salen de "}
+        {missing ? "Faltan datos fiscales del negocio — completalos en " : "Estos datos salen de "}
+        <Link href="/settings" className="underline underline-offset-2">
+          Configuración del negocio
+        </Link>
+        .
+      </p>
+    </div>
+  )
+}
+
+/**
+ * RUC y razón social EDITABLES en el alta.
+ *
+ * El owner activó el módulo, vio "RUC —" y no supo dónde cargarlo: mandarlo a
+ * otra pantalla en el medio del alta es pedirle que abandone el formulario.
+ * Ahora se cargan acá, pero **sin duplicar la fuente**: el submit del alta
+ * escribe al MISMO destino de siempre (`ruc`/`billingName` de los ajustes de
+ * la empresa, vía `useUpdateSettings`) antes de provisionar. No hay una
+ * segunda copia de estos datos en ningún lado.
+ *
+ * La razón social se puede traer del padrón con el RUC, y llega como
+ * SUGERENCIA editable: el padrón es la fuente correcta pero no es infalible, y
+ * el que responde ante la SET es el comercio.
+ */
+function CompanyFiscalFields({
+  ruc,
+  billingName,
+  onChange,
+  canEdit,
+}: {
+  ruc: string
+  billingName: string
+  onChange: (patch: { ruc?: string; billingName?: string }) => void
+  canEdit: boolean
+}) {
+  const lookup = useTaxpayerLookup()
+
+  function handleLookup() {
+    const value = ruc.trim()
+    if (value === "") {
+      toast.error("Escribí el RUC antes de buscarlo en el padrón.")
+      return
+    }
+    lookup.mutate(value, {
+      onSuccess: (found) => {
+        onChange({ ruc: found.ruc || value, billingName: found.name })
+        toast.success("Razón social traída del padrón.", {
+          description: "Revisala: si el padrón la tiene distinta, corregila antes de guardar.",
+        })
+      },
+      onError: (err) =>
+        toast.error("No se encontró ese RUC en el padrón", {
+          description: `${err.message} Podés cargar la razón social a mano.`,
+        }),
+    })
+  }
+
+  if (!canEdit) {
+    return <CompanyFiscalSummary />
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="ei-ruc">RUC</Label>
+          <div className="flex gap-2">
+            <Input
+              id="ei-ruc"
+              value={ruc}
+              onChange={(e) => onChange({ ruc: e.target.value })}
+              placeholder="80012345-6"
+              className="tabular-nums"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleLookup}
+              disabled={lookup.isPending}
+            >
+              {lookup.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Search className="size-4" />
+              )}
+              Buscar
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ei-billing-name">Razón social</Label>
+          <Input
+            id="ei-billing-name"
+            value={billingName}
+            onChange={(e) => onChange({ billingName: e.target.value })}
+            placeholder="Como figura en el padrón de la SET"
+          />
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        La razón social es el nombre legal del contribuyente, no el nombre comercial: la SET la
+        valida contra el padrón del RUC. Buscá el RUC para traerla y corregila si hace falta. Se
+        guarda junto con el alta, en{" "}
         <Link href="/settings" className="underline underline-offset-2">
           Configuración del negocio
         </Link>
@@ -240,19 +365,55 @@ function ProvisionForm({
   lastError: string | null
 }) {
   const provision = useProvisionEinvoice()
+  const updateSettings = useUpdateSettings()
+  // Los datos fiscales son de la EMPRESA, no de este formulario: se editan
+  // acá pero se guardan donde siempre vivieron (ver CompanyFiscalFields).
+  const canEditFiscal = usePermission("settings.company.edit")
+  const { data: settings } = useSettings()
+
   // Reanudación: si un alta anterior quedó a medias, el backend guardó el
   // formulario en `fiscal` y este estado lo pre-carga para reintentar.
   const [form, setForm] = React.useState<EInvoiceFiscalForm>(() => ({
     ...EMPTY_FORM,
     ...initial,
   }))
+  const [fiscalData, setFiscalData] = React.useState<{ ruc: string; billingName: string } | null>(
+    null,
+  )
+  // Los ajustes llegan asincrónicos; el estado local arranca en cuanto están y
+  // después manda lo que el usuario tipeó (no se pisa en cada refetch).
+  const ruc = fiscalData?.ruc ?? settings?.ruc ?? ""
+  const billingName = fiscalData?.billingName ?? settings?.billingName ?? ""
 
   function patch(p: Partial<EInvoiceFiscalForm>) {
     setForm((f) => ({ ...f, ...p }))
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function patchFiscal(p: { ruc?: string; billingName?: string }) {
+    setFiscalData({ ruc, billingName, ...p })
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Primero los datos de la empresa, después el alta: `provision()` los lee
+    // de `company.config` server-side, así que si se mandaran al revés el
+    // emisor se registraría con los viejos (o fallaría por faltantes).
+    if (
+      canEditFiscal &&
+      (ruc.trim() !== (settings?.ruc ?? "").trim() ||
+        billingName.trim() !== (settings?.billingName ?? "").trim())
+    ) {
+      try {
+        await updateSettings.mutateAsync({ ruc: ruc.trim(), billingName: billingName.trim() })
+      } catch (err) {
+        toast.error("No se pudieron guardar los datos fiscales", {
+          description: err instanceof Error ? err.message : undefined,
+        })
+        return
+      }
+    }
+
     provision.mutate(form, {
       onSuccess: () => toast.success("Facturación electrónica habilitada."),
       onError: (err) =>
@@ -276,7 +437,12 @@ function ProvisionForm({
             </Alert>
           )}
 
-          <CompanyFiscalSummary />
+          <CompanyFiscalFields
+            ruc={ruc}
+            billingName={billingName}
+            onChange={patchFiscal}
+            canEdit={canEditFiscal && canManage}
+          />
 
           <Separator />
 
@@ -342,6 +508,15 @@ function ProvisionForm({
             El código de actividad figura en tu constancia de RUC (padrón de la SET). El email
             identifica a tu emisor en el sistema fiscal — usá uno que no cambie.
           </p>
+
+          <Separator />
+
+          <CscFields
+            cscId={form.cscId ?? ""}
+            cscSecret={form.cscSecret ?? ""}
+            onChange={patch}
+            disabled={!canManage}
+          />
         </CardContent>
       </Card>
 
@@ -355,8 +530,13 @@ function ProvisionForm({
       )}
 
       <div>
-        <Button type="submit" disabled={provision.isPending || !canManage}>
-          {provision.isPending && <Loader2 className="size-4 animate-spin" />}
+        <Button
+          type="submit"
+          disabled={provision.isPending || updateSettings.isPending || !canManage}
+        >
+          {(provision.isPending || updateSettings.isPending) && (
+            <Loader2 className="size-4 animate-spin" />
+          )}
           Habilitar facturación electrónica
         </Button>
       </div>
@@ -474,7 +654,19 @@ function ProvisionedView({
 
       <RegisterStampsSummary />
 
-      <CertificateCard canManage={canManage} certUploaded={account.certUploaded} />
+      <CertificateCard
+        canManage={canManage}
+        certUploaded={account.certUploaded}
+        certStored={account.certStored}
+        certUploadedAt={account.certUploadedAt}
+      />
+
+      <CscCard
+        canManage={canManage}
+        cscId={String(fiscal.cscId ?? "")}
+        cscStored={account.cscStored}
+        cscUpdatedAt={account.cscUpdatedAt}
+      />
 
       <Card>
         <CardHeader>
@@ -526,18 +718,187 @@ function ProvisionedView({
   )
 }
 
+// ── CSC de SIFEN ────────────────────────────────────────────────────────────
+
+/**
+ * Los dos campos del CSC, compartidos por el alta y por la tarjeta del emisor
+ * ya provisionado.
+ *
+ * Estaban en el estado del formulario desde el día uno pero NUNCA se
+ * renderizaban: el alta mandaba los dos vacíos y `IdCSCProduccion` /
+ * `CSCProduccion` no se seteaban nunca del lado del emisor.
+ *
+ * Opcionales para PROVISIONAR, exigibles para emitir en PRODUCCIÓN: el manual
+ * de Factomate los marca como no requeridos en `PUT /api/Tenant` ("no
+ * requerido en modo desarrollo"), pero sin ellos el QR del KuDE no se puede
+ * firmar. La ayuda del campo lo dice con esas palabras, para que nadie
+ * descubra el faltante recién cuando la SET rechaza.
+ */
+function CscFields({
+  cscId,
+  cscSecret,
+  onChange,
+  disabled,
+  secretPlaceholder,
+}: {
+  cscId: string
+  cscSecret: string
+  onChange: (patch: { cscId?: string; cscSecret?: string }) => void
+  disabled: boolean
+  secretPlaceholder?: string
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label htmlFor="ei-csc-id">Identificador del CSC</Label>
+          <Input
+            id="ei-csc-id"
+            value={cscId}
+            onChange={(e) => onChange({ cscId: e.target.value })}
+            placeholder="Ej: 0001"
+            className="tabular-nums"
+            disabled={disabled}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ei-csc-secret">Código de seguridad (CSC)</Label>
+          {/* type="password" igual que la contraseña del certificado en esta
+              misma pantalla: es un secreto que se tipea una vez y no se
+              vuelve a mostrar. */}
+          <Input
+            id="ei-csc-secret"
+            type="password"
+            value={cscSecret}
+            onChange={(e) => onChange({ cscSecret: e.target.value })}
+            placeholder={secretPlaceholder}
+            autoComplete="off"
+            disabled={disabled}
+          />
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        El CSC lo emite la SET desde el Marangatu (Código de Seguridad del Contribuyente) y es lo
+        que firma el QR de tus facturas. No hace falta para dar de alta el emisor ni para probar,
+        pero sí para emitir en producción — si todavía no lo tenés, seguí sin él y cargalo después.
+      </p>
+    </div>
+  )
+}
+
+/**
+ * Tarjeta del CSC para el emisor YA provisionado. Existe porque el CSC se
+ * consigue casi siempre después del alta: sin esto, quien se dio de alta sin
+ * CSC no tenía dónde cargarlo nunca más (el paso fiscal del provisioning está
+ * checkpointeado y no vuelve a correr).
+ *
+ * El código guardado no se muestra — el backend no lo devuelve. Lo único que
+ * se sabe desde acá es si hay uno cargado y desde cuándo.
+ */
+function CscCard({
+  canManage,
+  cscId,
+  cscStored,
+  cscUpdatedAt,
+}: {
+  canManage: boolean
+  cscId: string
+  cscStored: boolean
+  cscUpdatedAt: string | null
+}) {
+  const saveCsc = useSaveEinvoiceCsc()
+  const { data: bootstrap } = useBootstrap()
+  const [draft, setDraft] = React.useState({ cscId, cscSecret: "" })
+  const savedAt = formatSyncedAt(cscUpdatedAt, bootstrap)
+
+  function handleSave() {
+    saveCsc.mutate(
+      { cscId: draft.cscId.trim(), cscSecret: draft.cscSecret },
+      {
+        onSuccess: () => {
+          toast.success("CSC guardado.")
+          setDraft((d) => ({ ...d, cscSecret: "" }))
+        },
+        onError: (err) => toast.error("No se pudo guardar el CSC", { description: err.message }),
+      },
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle>Código de seguridad (CSC)</CardTitle>
+            <CardDescription>
+              Con el CSC se firma el QR de tus facturas electrónicas.
+            </CardDescription>
+          </div>
+          {cscStored ? (
+            <Badge variant="secondary">Cargado</Badge>
+          ) : (
+            <Badge variant="outline">Falta para producción</Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <CscFields
+          cscId={draft.cscId}
+          cscSecret={draft.cscSecret}
+          onChange={(p) => setDraft((d) => ({ ...d, ...p }))}
+          disabled={!canManage}
+          secretPlaceholder={cscStored ? "Guardado — escribí uno nuevo para reemplazarlo" : undefined}
+        />
+        {savedAt && <p className="text-sm text-muted-foreground">Guardado el {savedAt}.</p>}
+        <div>
+          <Button type="button" onClick={handleSave} disabled={saveCsc.isPending || !canManage}>
+            {saveCsc.isPending && <Loader2 className="size-4 animate-spin" />}
+            {cscStored ? "Reemplazar CSC" : "Guardar CSC"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 // ── Certificado de firma ────────────────────────────────────────────────────
 
 /**
  * El `.pfx` es la identidad de firma digital del contribuyente. Se lee en el
- * browser, viaja en base64 al backend, que lo PASA al sistema fiscal y lo
- * descarta — nunca se persiste ni se loguea (ni el archivo ni la contraseña).
+ * browser, viaja en base64 al backend, que lo registra ante el sistema fiscal
+ * y lo guarda CIFRADO (decisión del owner 2026-09-06 — ver context/28
+ * §Custodia). Nunca vuelve al frontend ni toca un log: de acá para arriba lo
+ * único que se sabe es si hay uno guardado y desde cuándo.
+ *
+ * La pantalla se lo DICE al comercio, no lo deja implícito: es su certificado
+ * y enterarse por accidente sería peor que la custodia misma.
  */
-function CertificateCard({ canManage, certUploaded }: { canManage: boolean; certUploaded: boolean }) {
+function CertificateCard({
+  canManage,
+  certUploaded,
+  certStored,
+  certUploadedAt,
+}: {
+  canManage: boolean
+  certUploaded: boolean
+  certStored: boolean
+  certUploadedAt: string | null
+}) {
   const uploadCert = useUploadEinvoiceCert()
+  const deleteCert = useDeleteEinvoiceCert()
   const testSet = useTestEinvoiceSet()
+  const { data: bootstrap } = useBootstrap()
   const fileRef = React.useRef<HTMLInputElement>(null)
   const [password, setPassword] = React.useState("")
+  const storedAt = formatSyncedAt(certUploadedAt, bootstrap)
+
+  function handleDelete() {
+    deleteCert.mutate(undefined, {
+      onSuccess: () => toast.success("Punto ya no conserva tu certificado."),
+      onError: (err) =>
+        toast.error("No se pudo borrar el certificado", { description: err.message }),
+    })
+  }
 
   function handleUpload() {
     const file = fileRef.current?.files?.[0]
@@ -609,8 +970,10 @@ function CertificateCard({ canManage, certUploaded }: { canManage: boolean; cert
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
-          El archivo y su contraseña se usan solo para registrarlo ante el sistema fiscal — no
-          quedan guardados en Punto.
+          Punto conserva tu certificado cifrado para poder reconfigurar la emisión sin volver a
+          pedírtelo. Es tu certificado: podés borrarlo cuando quieras, y cada vez que Punto lo usa
+          queda registrado quién y cuándo.
+          {storedAt ? ` Guardado el ${storedAt}.` : ""}
         </p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" onClick={handleUpload} disabled={uploadCert.isPending || !canManage}>
@@ -630,6 +993,35 @@ function CertificateCard({ canManage, certUploaded }: { canManage: boolean; cert
               )}
               Probar contra la SET
             </Button>
+          )}
+          {certStored && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="outline" disabled={deleteCert.isPending || !canManage}>
+                  {deleteCert.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  Borrar de Punto
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Borrar el certificado guardado?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Vas a seguir facturando igual: el certificado ya está registrado ante el
+                    sistema fiscal y no se toca. Lo que se borra es la copia cifrada que guarda
+                    Punto, así que si más adelante hay que reconfigurar la emisión vamos a
+                    pedirte el archivo y su contraseña de nuevo.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDelete}>Borrar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           )}
         </div>
       </CardContent>

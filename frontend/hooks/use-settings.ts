@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type { SettingsFormValues, SettingsGeneral } from "@/lib/types/settings"
+import type { TaxpayerLookup } from "@/lib/types/einvoice"
 
 /** Una moneda con cotización configurable. ccode = código país (AR/BR/PY/...),
  *  code = código ISO 4217 (ARS/BRL/PYG/...), value = tasa al PYG. */
@@ -63,6 +64,24 @@ export function useUpdateSettings() {
       // (company name) y los formatters (currency, decimal, thousand).
       qc.invalidateQueries({ queryKey: ["bootstrap"] })
     },
+  })
+}
+
+/**
+ * Trae del padrón la razón social del RUC del PROPIO comercio.
+ *
+ * Es una mutación y no una query a propósito: se dispara con un botón, no al
+ * tipear. Consultar por keystroke pegaría contra un servicio externo en cada
+ * tecla y llenaría el log del backend de intentos a medio escribir.
+ *
+ * El resultado es una SUGERENCIA editable — el comercio puede corregirla antes
+ * de guardar. 404 = "no se encontró" y llega como Error; el caller lo muestra
+ * sin bloquear la carga a mano.
+ */
+export function useTaxpayerLookup() {
+  return useMutation<TaxpayerLookup, Error, string>({
+    mutationFn: (ruc) =>
+      api.get<TaxpayerLookup>(`/v1/settings?view=taxpayer&ruc=${encodeURIComponent(ruc)}`),
   })
 }
 

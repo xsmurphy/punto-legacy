@@ -47,7 +47,7 @@
  * - NO otorga la clave BASE. Un rol que salga de acá con `.late` y sin
  *   `pos.order.item.cancel` no puede anular nada: el gate exige la base
  *   SIEMPRE y `.late` solo levanta el límite de tiempo (ver
- *   `OrderItemCancelGate`). No es un descuido — mantiene las dos decisiones
+ *   `OrderCancelGate`). No es un descuido — mantiene las dos decisiones
  *   separadas, y en la práctica todo rol con `pos.sale.void` tiene también
  *   `pos.sale.create`, así que la 190 ya le dio la base.
  * - NO estampa `catalogVersion`: el mecanismo lazy es un aliado, no un riesgo.

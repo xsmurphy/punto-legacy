@@ -15,6 +15,10 @@
  * OBLIGATORIO (lo exige `OrderCoreService::updateStatus`, no solo esta UI), y
  * dejar ese estado suelto en cada componente es justamente la puerta por la
  * que se cuela un call-site que cancela sin pedirlo.
+ *
+ * El JSX del diálogo es `<CancelOrderDialog>` — estaba duplicado byte por byte
+ * en los dos componentes y se extrajo junto con este cambio, porque el error
+ * inline nuevo habría que haberlo escrito dos veces.
  */
 
 import * as React from "react"
@@ -27,6 +31,7 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 import { useCancelOrder, type Order } from "@/hooks/use-orders"
+import { cancelErrorMessage } from "@/lib/orders/cancel-error"
 
 export interface OrderActions {
   /** Vuelca la orden al carrito y navega a la caja para cobrarla. No-op si `isPaid`. */
@@ -46,6 +51,13 @@ export interface OrderActions {
   setCancelOpen: (open: boolean) => void
   cancelReason: string
   setCancelReason: (reason: string) => void
+  /**
+   * Rechazo del servidor ya traducido a copy accionable, o `null`. Se pinta
+   * INLINE en el diálogo y por eso el diálogo NO se cierra al fallar: el motivo
+   * tipeado sigue ahí para que un encargado tome la posta sin reescribirlo.
+   */
+  cancelError: string | null
+  cancelPending: boolean
   confirmCancel: () => void
 }
 
@@ -62,7 +74,14 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
 
   const [cancelOpen, setCancelOpen] = React.useState(false)
   const [cancelReason, setCancelReason] = React.useState("")
+  const [cancelError, setCancelError] = React.useState<string | null>(null)
   const [printing, setPrinting] = React.useState(false)
+
+  // El diálogo arranca limpio cada vez que se abre: un error de un intento
+  // anterior colgado acá sería peor que no mostrar nada.
+  React.useEffect(() => {
+    if (!cancelOpen) setCancelError(null)
+  }, [cancelOpen])
 
   const isPaid = order.saleTransactionId != null
 
@@ -73,22 +92,34 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
     router.push("/pos")
   }, [isPaid, loadFromOrder, order, onAfterAction, router])
 
+  /**
+   * Cancelar una orden puede REBOTAR desde 2026-09-06: el backend la gatea con
+   * `OrderCancelGate` (403 sin `pos.order.item.cancel`, 422 fuera de la ventana
+   * del comercio sin `.late`). Antes no rebotaba nunca, así que esto cerraba el
+   * diálogo de una y tiraba el error a un toast — el motivo ya tipeado se
+   * perdía y el mensaje pelado del servidor no decía a quién llamar.
+   *
+   * Ahora el cierre del diálogo ocurre SOLO en el éxito, y el rechazo se
+   * traduce con el mismo copy que la anulación de un ítem
+   * (`lib/orders/cancel-error.ts`) para que el cajero vea la salida real.
+   */
   const confirmCancel = React.useCallback(() => {
     const reason = cancelReason.trim()
     // El backend también lo rechaza; acá evitamos el round-trip.
     if (reason === "") return
+    setCancelError(null)
     cancelOrder.mutate(
       { orderId: order.id, reason },
       {
         onSuccess: () => {
           toast.success(`Orden #${order.orderNumber} cancelada`)
+          setCancelOpen(false)
+          setCancelReason("")
           onAfterAction?.()
         },
-        onError: (err) => toast.error("No se pudo cancelar la orden", { description: err.message }),
+        onError: (err) => setCancelError(cancelErrorMessage(err, "order")),
       },
     )
-    setCancelOpen(false)
-    setCancelReason("")
   }, [cancelReason, cancelOrder, order.id, order.orderNumber, onAfterAction])
 
   const reprint = React.useCallback(async () => {
@@ -120,6 +151,8 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
     setCancelOpen,
     cancelReason,
     setCancelReason,
+    cancelError,
+    cancelPending: cancelOrder.isPending,
     confirmCancel,
   }
 }

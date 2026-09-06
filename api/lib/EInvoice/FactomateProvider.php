@@ -378,9 +378,37 @@ final class FactomateProvider implements EInvoiceProvider
         ];
     }
 
+    /**
+     * `CSCProduccion` es un SECRETO de SIFEN y viaja en este body, así que la
+     * request no puede pasar por `request()`, que loguea el body entero. Hasta
+     * 2026-09-06 el campo nunca se llenaba (la UI no tenía input de CSC), o
+     * sea que el leak estaba latente: en cuanto alguien cargara el CSC, el
+     * código con el que se firma el QR del KuDE quedaba en texto plano en el
+     * log del backend.
+     *
+     * Se loguea la misma línea, con el secreto redactado — mismo criterio que
+     * `uploadCert()` y que el redactado de `postForm()`.
+     */
     public function updateTenant(string $environment, string $phone, string $bearer, array $tenant): array
     {
-        return $this->request('PUT', '/api/Tenant', $tenant, $bearer, $phone, $environment);
+        $redacted = $tenant;
+        if (isset($redacted['CSCProduccion'])) {
+            $redacted['CSCProduccion'] = '<redactado>';
+        }
+        error_log('[Factomate] PUT /api/Tenant body=' . json_encode($redacted, JSON_UNESCAPED_UNICODE));
+
+        // El CSC se declara secreto también para la RESPUESTA: si Factomate lo
+        // eco-ea al rechazarlo, se tacha antes del log y antes de `last_error`
+        // (que es visible en el panel). Ver exec().
+        return $this->requestUnlogged(
+            'PUT',
+            '/api/Tenant',
+            $tenant,
+            $bearer,
+            $phone,
+            $environment,
+            [(string) ($tenant['CSCProduccion'] ?? '')]
+        );
     }
 
     public function createActivity(string $environment, string $phone, string $bearer, int $tenantId, int $identifier, string $name): array
@@ -422,10 +450,17 @@ final class FactomateProvider implements EInvoiceProvider
     {
         $path = '/api/Tenant/' . $tenantId . '/UploadCert';
         error_log("[Factomate] POST $path body=<certificado redactado>");
-        return $this->requestUnlogged('POST', $path, [
-            'certBase64'   => $certBase64,
-            'certPassword' => $certPassword,
-        ], $bearer, $phone, $environment);
+        return $this->requestUnlogged(
+            'POST',
+            $path,
+            ['certBase64' => $certBase64, 'certPassword' => $certPassword],
+            $bearer,
+            $phone,
+            $environment,
+            // Mismo criterio que updateTenant(): un rechazo que eco-ee la
+            // contraseña del certificado no puede terminar en el log.
+            [$certPassword]
+        );
     }
 
     public function testSet(string $environment, string $phone, string $bearer, int $tenantId, string $ruc): array
@@ -540,7 +575,7 @@ final class FactomateProvider implements EInvoiceProvider
      * certificado de firma y su contraseña — ver uploadCert()). El caller es
      * responsable de loguear una línea redactada si quiere traza.
      */
-    private function requestUnlogged(string $method, string $path, array $jsonBody, string $bearer, string $phone, string $environment): array
+    private function requestUnlogged(string $method, string $path, array $jsonBody, string $bearer, string $phone, string $environment, array $secrets = []): array
     {
         $headers = [
             'Accept: application/json',
@@ -549,10 +584,15 @@ final class FactomateProvider implements EInvoiceProvider
             'Content-Type: application/json',
         ];
         $body = $jsonBody === [] ? '{}' : json_encode($jsonBody, JSON_UNESCAPED_UNICODE);
-        return $this->exec($path, $method, $headers, $body, $environment);
+        return $this->exec($path, $method, $headers, $body, $environment, $secrets);
     }
 
-    private function exec(string $path, string $method, array $headers, ?string $body, string $environment): array
+    /**
+     * @param array<int,string> $secrets Valores literales que NO pueden aparecer
+     *        en un log ni en un mensaje de error, aunque los devuelva el
+     *        proveedor. Ver el comentario del camino de error.
+     */
+    private function exec(string $path, string $method, array $headers, ?string $body, string $environment, array $secrets = []): array
     {
         $ch = curl_init($this->baseUrl($environment) . $path);
 
@@ -593,19 +633,28 @@ final class FactomateProvider implements EInvoiceProvider
             // forma práctica de destrabar un rechazo, porque los mensajes
             // de error de Factomate son engañosos (un FormatException
             // numérico aparece como un mensaje de negocio que no tiene
-            // nada que ver). Esto es la RESPUESTA de Factomate, no nuestro
-            // request — nunca contiene la contraseña ni el bearer que
-            // mandamos, así que loguearla entera acá es seguro.
-            error_log("[Factomate] $method $path failed HTTP $code: $resp");
+            // nada que ver).
+            //
+            // Antes esto se logueaba crudo, con el argumento de que la
+            // RESPUESTA de Factomate nunca contiene lo que mandamos. Es un
+            // supuesto sobre el formato de error de un tercero, y desde que
+            // `updateTenant()` manda el `CSCProduccion` por acá el costo de
+            // que sea falso es un secreto de SIFEN en texto plano en el log:
+            // una API REST que rechaza un campo y lo eco-ea en el mensaje
+            // ("CSCProduccion inválido: ...") es de lo más común. Los valores
+            // que el caller declaró como secretos se tachan antes de que el
+            // body toque un log o un mensaje.
+            $safeResp = self::scrub((string) $resp, $secrets);
+            error_log("[Factomate] $method $path failed HTTP $code: $safeResp");
 
             // El mensaje que SÍ persiste en einvoice_account.last_error (y
-            // es visible en el panel) se sanea: solo whitelist de claves
-            // conocidas, truncado a 300 — nunca el body crudo, por si algún
-            // endpoint llegara a eco-ear el request.
+            // es visible en el panel) se sanea doble: whitelist de claves
+            // conocidas, truncado a 300, y el mismo tachado — este camino
+            // llega al FRONTEND, así que es el más caro de los dos.
             $msg = '';
             foreach (['message', 'error', 'detail'] as $key) {
                 if (is_string($json[$key] ?? null) && $json[$key] !== '') {
-                    $msg = mb_substr($json[$key], 0, 300);
+                    $msg = mb_substr(self::scrub($json[$key], $secrets), 0, 300);
                     break;
                 }
             }
@@ -616,6 +665,24 @@ final class FactomateProvider implements EInvoiceProvider
         }
 
         return $json;
+    }
+
+    /**
+     * Tacha valores secretos de un texto que va a un log o a un mensaje de
+     * error. Se ignoran los strings muy cortos: tachar una cadena de 2
+     * caracteres reemplazaría fragmentos al azar de un mensaje legítimo y
+     * volvería el error ilegible sin proteger nada real.
+     *
+     * @param array<int,string> $secrets
+     */
+    private static function scrub(string $text, array $secrets): string
+    {
+        foreach ($secrets as $secret) {
+            if (is_string($secret) && strlen($secret) >= 4 && str_contains($text, $secret)) {
+                $text = str_replace($secret, '<redactado>', $text);
+            }
+        }
+        return $text;
     }
 
     /**

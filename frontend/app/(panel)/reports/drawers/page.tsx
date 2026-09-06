@@ -172,6 +172,31 @@ export default function DrawersReportPage() {
         meta: { label: "Cuadre" },
       },
       {
+        // Anulaciones del turno. Columna propia y `accessorKey` para que el
+        // sort agrupe los turnos con más plata anulada, que es la pregunta
+        // ("¿en qué turno se está anulando?"). NO entra en el arqueo: la plata
+        // anulada nunca llegó al cajón, así que no mueve `Esperado` ni
+        // `Cuadre`. El detalle —qué, quién y por qué— se lee abriendo la fila.
+        accessorKey: "cancelAmount",
+        header: "Anulado",
+        cell: ({ row }) => {
+          const r = row.original
+          const n = r.cancelCount ?? 0
+          if (n === 0) return <span className="text-muted-foreground">—</span>
+          return (
+            <div className="flex flex-col items-end">
+              <span className="tabular-nums">
+                {formatMoney(parseNum(r.cancelAmount), bootstrap)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {n === 1 ? "1 anulación" : `${n} anulaciones`}
+              </span>
+            </div>
+          )
+        },
+        meta: { label: "Anulado", className: "tabular-nums text-right" },
+      },
+      {
         id: "actions",
         header: "",
         cell: ({ row }) => (

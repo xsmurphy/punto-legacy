@@ -13,12 +13,11 @@
  *
  * ── Por qué el error se explica en vez de solo mostrarse ────────────────────
  *
- * En una caja, "no se pudo" sin decir qué falta es una llamada al encargado.
- * Los tres rechazos del backend se traducen a copy accionable: falta permiso,
- * motivo vacío, y —el que importa— ventana de anulación vencida, que dice
- * cuántos minutos pasaron, cuántos permite el comercio y que a partir de ahí
- * lo tiene que hacer un encargado. Mismo criterio que `recallBlockReason`
- * (`lib/kds/board.ts`).
+ * El copy de los rechazos NO vive acá: es `lib/orders/cancel-error.ts`, que lo
+ * comparte con la cancelación de la orden entera y la de la mesa. Los tres
+ * granos los gatea el MISMO `OrderCancelGate` del backend, con el mismo 422; si
+ * el copy viviera en cada diálogo, cambiar la política obligaría a acordarse de
+ * tres lugares.
  *
  * El error se pinta INLINE y no como toast: es la respuesta a lo que el
  * usuario acaba de hacer dentro de este diálogo, y el diálogo queda abierto
@@ -46,47 +45,8 @@ import {
   POS_REGISTER_CONFIG_DEFAULTS,
   usePosRegisterConfig,
 } from "@/hooks/use-pos-config"
-import {
-  OrderApiError,
-  useCancelOrderItem,
-  type OrderItem,
-} from "@/hooks/use-orders"
-
-/** "1 minuto" / "12 minutos" — el plural del copy, sin helper de formato. */
-function minutes(n: number): string {
-  const v = Math.max(0, Math.round(n))
-  return v === 1 ? "1 minuto" : `${v} minutos`
-}
-
-/**
- * Traduce el rechazo del backend a algo que el cajero pueda usar.
- *
- * Exportada para poder probarla sin montar el diálogo, y porque es la única
- * definición del copy de estos tres errores: si mañana otra superficie ofrece
- * la anulación, reusa esto en vez de reinventar los mensajes.
- */
-export function cancelItemErrorMessage(err: unknown): string {
-  if (err instanceof OrderApiError) {
-    const details = err.details
-    if (err.status === 403) {
-      return `${err.message} Esta anulación la tiene que hacer un encargado con su usuario.`
-    }
-    if (details?.code === "cancel_window_expired") {
-      const windowMinutes = details.windowMinutes
-      const elapsedMinutes = details.elapsedMinutes
-      if (typeof windowMinutes === "number" && typeof elapsedMinutes === "number") {
-        return (
-          `Pasaron ${minutes(elapsedMinutes)} desde que se cargó el ítem y el comercio ` +
-          `permite anularlo hasta ${minutes(windowMinutes)}. ` +
-          `A partir de ahí lo tiene que anular un encargado con su usuario.`
-        )
-      }
-      return `${err.message} Lo tiene que anular un encargado con su usuario.`
-    }
-    return err.message
-  }
-  return err instanceof Error ? err.message : "No se pudo anular el ítem."
-}
+import { useCancelOrderItem, type OrderItem } from "@/hooks/use-orders"
+import { cancelErrorMessage, minutes } from "@/lib/orders/cancel-error"
 
 export function CancelOrderItemDialog({
   item,
@@ -138,7 +98,7 @@ export function CancelOrderItemDialog({
           handleOpenChange(false)
           onCancelled?.()
         },
-        onError: (err) => setError(cancelItemErrorMessage(err)),
+        onError: (err) => setError(cancelErrorMessage(err, "item")),
       },
     )
   }

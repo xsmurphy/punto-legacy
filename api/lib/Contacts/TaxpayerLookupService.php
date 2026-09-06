@@ -57,8 +57,20 @@ final class TaxpayerLookupService
      */
     private function fromFactomate(string $companyId, string $ruc): ?array
     {
+        $einvoice = new \Punto\Api\EInvoice\EInvoiceService();
+
+        // Sin emisor operativo no hay a quién preguntarle: se va derecho al
+        // padrón público, sin log. Es el estado NORMAL de todo comercio que
+        // todavía no habilitó la facturación electrónica — incluido el que
+        // está consultando SU PROPIO RUC justo para habilitarla. Cachar la
+        // excepción de `clientByRuc()` para enterarse dejaba una línea de
+        // error en cada consulta: ruido que tapa los errores de verdad.
+        if (!$einvoice->isConnected($companyId)) {
+            return null;
+        }
+
         try {
-            $raw = (new \Punto\Api\EInvoice\EInvoiceService())->clientByRuc($companyId, $ruc);
+            $raw = $einvoice->clientByRuc($companyId, $ruc);
         } catch (\Throwable $e) {
             // Cuenta sin conectar, credencial vencida, endpoint que no existe:
             // todo cae al padrón público. Se loguea porque un 404 sistemático

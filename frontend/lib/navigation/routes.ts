@@ -228,6 +228,19 @@ export const PANEL_ROUTES: RouteEntry[] = [
     requires: "production.manage",
     keywords: ["produccion", "manufactura", "receta", "armado", "ensamble"],
   },
+  {
+    // Paleta y no sidebar: es una pantalla de un turno de cocina, no un módulo
+    // que se visita todo el día. El sidebar se mantiene mínimo a propósito y
+    // "Producción" ya está ahí — desde su header se llega en un clic.
+    to: "/produccion/lote",
+    title: "Lote de producción",
+    icon: Factory,
+    surface: "palette",
+    paletteGroup: "Operaciones",
+    paletteTitle: "Producción · Lote multi-plato",
+    requires: "production.manage",
+    keywords: ["lote", "produccion", "batch", "insumos", "necesidad", "viandas", "cocina"],
+  },
 
   // Compras y Gastos
   {
@@ -568,9 +581,9 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["audit", "log", "bitacora", "historial", "quien hizo"],
   },
   {
-    to: "/reports/order-item-cancellations",
-    title: "Anulaciones de ítems",
-    paletteTitle: "Reportes · Anulaciones de ítems",
+    to: "/reports/order-cancellations",
+    title: "Anulaciones de comanda",
+    paletteTitle: "Reportes · Anulaciones de comanda",
     icon: Ban,
     surface: "palette",
     paletteGroup: "Reportes",
@@ -578,7 +591,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     // pantalla no son ventas, son acciones de personas con su motivo escrito y
     // el nombre de quien las hizo. Un rol que puede ver el reporte de ventas no
     // debería por eso ver qué borró cada empleado y qué excusa puso. Es la
-    // misma clave que gatea el endpoint (`reports/order-item-cancellations.php`)
+    // misma clave que gatea el endpoint (`reports/order-cancellations.php`)
     // — si divergieran, la entrada aparecería en el menú y la pantalla moriría
     // con un 403.
     requires: "reports.audit.view",
@@ -587,6 +600,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
       "anulados",
       "cancelaciones",
       "items anulados",
+      "ordenes canceladas",
       "comanda",
       "mesa",
       "cancelled items",

@@ -194,6 +194,21 @@ responsable de la entrega, y esa responsabilidad es del emisor. Puede volver
 como **comodidad adicional** sobre un canal de push que ya cumpla, nunca como el
 canal principal.
 
+**Consentimiento de marketing: NO lo modela Punto (owner, 2026-09-06).** Se
+evaluó agregar un campo de opt-in en el alta de cliente y el owner lo descartó
+con dos argumentos que se sostienen: no hay forma de verificar si el cajero
+efectivamente preguntó, y lo que el comercio haga con los datos de SUS clientes
+es responsabilidad del comercio — Punto es procesador, no responsable del
+tratamiento. El teléfono se captura siempre, porque la entrega de facturas por
+WhatsApp es el destino previsto cuando Kapso esté.
+
+Matiz operativo que sobrevive a esa decisión y que decide el punto 2 de abajo:
+si el remitente es un número ÚNICO DE PUNTO, la degradación de calidad y los
+bloqueos de Meta caen sobre la infraestructura de Punto aunque la
+responsabilidad legal sea del comercio. Con número POR COMERCIO, la
+consecuencia cae donde está la decisión. No cambia quién responde por los
+datos; cambia quién absorbe el costo operativo de un envío sin opt-in.
+
 **Lo que falta para reabrirlo**, en orden:
 
 1. Confirmar con Kapso cómo factura exactamente la ventana de servicio y el
