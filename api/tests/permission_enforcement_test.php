@@ -109,6 +109,12 @@ const GATES_INDIRECTOS = [
     // El depósito es configuración de la sucursal que lo contiene, así que su
     // escritura pide el mismo permiso que la sucursal (ver el docblock ahí).
     "'location' => 'settings.outlet.manage',"               => ['settings.outlet.manage'],
+    // StockCountMode — la clave vive en una constante de clase y a
+    // `OperatorContext::can()` le llega como `self::PERMISSION_OPEN`, así que
+    // no hay literal que matchear en la llamada. Se declara por la definición
+    // de la constante: si alguien cambia el string, deja de matchear y el
+    // check de cobertura lo denuncia, que es justo el aviso que se busca.
+    "PERMISSION_OPEN = 'inventory.count.open'"              => ['inventory.count.open'],
     // items.php — itemsRequiredPermission()
     "return 'inventory.item.view';"                         => ['inventory.item.view'],
     "return 'inventory.stock.adjust';"                      => ['inventory.stock.adjust'],
@@ -214,7 +220,19 @@ foreach ($it as $f) {
         if (preg_match('/hasPermission\\(\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)
             || preg_match('/requirePermission\\(\\s*\\$\\w+\\s*,\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)
             // Dentro del array de `requireAnyPermission($ctx, ['a', 'b'])`.
-            || preg_match('/requireAnyPermission\\(\\s*\\$\\w+\\s*,\\s*\\[[^\\]]*[\'"]' . $lit . '[\'"]/s', $src)) {
+            || preg_match('/requireAnyPermission\\(\\s*\\$\\w+\\s*,\\s*\\[[^\\]]*[\'"]' . $lit . '[\'"]/s', $src)
+            // `OperatorContext::can($operator, 'clave', $companyId)` — la
+            // variante que DEVUELVE bool en vez de cortar con 403, para cuando
+            // el permiso decide entre dos caminos legítimos y no entre pasar y
+            // no pasar (elevación de encargado en `OrderCancelGate`, modo
+            // abierto vs ciego en `StockCountMode`). El filtro de archivos de
+            // arriba ya la reconoce como puerta de autorización desde que la
+            // agregaron; lo que faltaba era matchear su ARGUMENTO literal, así
+            // que un archivo cuyo único gate fuera esta vía entraba al scan y
+            // aun así reportaba sus claves como no gateadas. Es un hueco del
+            // arnés, no una excepción a declarar: el gate es tan real como los
+            // otros tres.
+            || preg_match('/can\\(\\s*\\$\\w+\\s*,\\s*[\'"]' . $lit . '[\'"]\\s*,/', $src)) {
             $gateados[$id][] = $rel;
         }
     }
