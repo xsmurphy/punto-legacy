@@ -20,7 +20,7 @@ use Punto\App\Domain\Inventory;
  * ── Qué NO reimplementa (D1 de context/70) ──────────────────────────────────
  *
  * Ni el consumo de stock ni el costeo. El lote es un PADRE: sus líneas son
- * `production_order` reales (`production_order.batchid`, mig 193) y se
+ * `production_order` reales (`production_order.batchid`, mig 194) y se
  * completan por el `ProductionService::complete()` que ya existe. Por eso el
  * COGS, el promedio ponderado del ledger, el `recipesnapshot` congelado, la
  * merma planificada por nivel, el correlativo `produccion` de cada orden y la

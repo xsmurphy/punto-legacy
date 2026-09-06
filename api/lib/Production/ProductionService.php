@@ -263,7 +263,7 @@ final class ProductionService
         $outputLocationId = !empty($data['outputLocationId']) ? (string) $data['outputLocationId'] : null;
         $mode             = (string) ($data['mode'] ?? 'draft');
         $note             = isset($data['note']) && $data['note'] !== '' ? (string) $data['note'] : null;
-        // Lote padre (mig 193, context/70 etapa B). NULL = orden suelta, que es
+        // Lote padre (mig 194, context/70 etapa B). NULL = orden suelta, que es
         // el 100% de las órdenes anteriores a esa migración y sigue siendo el
         // camino por defecto: nada de lo que hay debajo cambia de comportamiento
         // por esta columna. Se escribe en el INSERT y no con un UPDATE posterior
@@ -939,7 +939,7 @@ final class ProductionService
             'outputLocationId'  => $row['outputlocationid'] ?? null,
             'itemId'            => (string) ($row['itemid'] ?? ''),
             'itemName'          => $row['itemname'] ?? null,
-            // Lote padre (mig 193) o null si es una orden suelta.
+            // Lote padre (mig 194) o null si es una orden suelta.
             'batchId'           => $row['batchid'] ?? null,
             'qtyPlanned'        => (float) ($row['qtyplanned'] ?? 0),
             'qtyProduced'       => isset($row['qtyproduced']) ? (float) $row['qtyproduced'] : null,

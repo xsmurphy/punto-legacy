@@ -21,7 +21,7 @@
 #   bash api/tests/run_production_batch_test.sh
 #
 # Por defecto levanta su PROPIO Postgres descartable en Docker, aplica
-# schema + migraciones (necesita la 193, que crea `production_batch` y la
+# schema + migraciones (necesita la 194, que crea `production_batch` y la
 # columna `production_order.batchid`) + fixtures, corre el test, y lo destruye
 # al terminar. Para apuntar a un Postgres ya migrado/seedeado, exportá
 # POSTGRES_HOST/PORT/DB/USER/PASSWORD antes de llamar.
@@ -89,7 +89,7 @@ if [ -z "${POSTGRES_HOST:-}" ]; then
   docker exec -i "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
     < "$REPO_ROOT/db-schema-postgres.sql" >/dev/null
 
-  echo "[run_production_batch_test.sh] corriendo migrate.php (incluye la 193, production_batch)..."
+  echo "[run_production_batch_test.sh] corriendo migrate.php (incluye la 194, production_batch)..."
   php -d variables_order=EGPCS "$API_DIR/database/migrate.php"
 
   echo "[run_production_batch_test.sh] cargando fixtures (seed.sql de verify_chain)..."
