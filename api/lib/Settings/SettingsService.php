@@ -124,6 +124,16 @@ final class SettingsService
             // caja no cierra si la SUCURSAL tiene órdenes o espacios abiertos.
             // Apagado por default — ver Punto\Api\Services\ShiftCloseGate.
             'drawerRequireClosedOrders' => $this->truthy($r['settingDrawerRequireClosedOrders'] ?? null),
+            // Segregación de tareas en la orden de pago a proveedor (migs
+            // 196/197). Prendido, quien creó la orden no puede aprobarla.
+            // APAGADO por default y por el mismo motivo que el flag de arriba:
+            // el comercio de una sola persona —el dueño que arma y aprueba—
+            // tiene que poder trabajar sin fricción, y ninguna cuenta puede
+            // romperse el día del deploy. NO reemplaza al permiso
+            // `purchases.paymentorder.approve`, que es el gate duro y siempre
+            // aplica; esto es una restricción adicional encima.
+            // Ver PaymentOrderService::requiresSecondApprover().
+            'paymentOrderRequireSecondApprover' => $this->truthy($r['settingPaymentOrderRequireSecondApprover'] ?? null),
             'settingRemoveTaxes' => $this->truthy($r['settingRemoveTaxes'] ?? null),
             'paymentId'       => $this->truthy($r['settingPaymentMethodId'] ?? null),
             'creditLine'      => $this->truthy($r['settingForceCreditLine'] ?? null),
@@ -306,6 +316,10 @@ final class SettingsService
             'drawerEmail'        => 'settingDrawerEmail',
             'drawerBlind'        => 'settingDrawerBlind',
             'drawerRequireClosedOrders' => 'settingDrawerRequireClosedOrders',
+            // Ver el comentario en general(). `truthy()` en la lectura acepta
+            // 1/'1'/'true'/'yes', y PaymentOrderService::requiresSecondApprover()
+            // lo mismo — así que el 1/0 de este mapa es compatible con las dos.
+            'paymentOrderRequireSecondApprover' => 'settingPaymentOrderRequireSecondApprover',
             'settingRemoveTaxes' => 'settingRemoveTaxes',
             'paymentId'          => 'settingPaymentMethodId',
             'creditLine'         => 'settingForceCreditLine',

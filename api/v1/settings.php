@@ -163,6 +163,10 @@ if ($method === 'POST') {
     $boolMap = [
         'decimal', 'sellsoldout', 'itemSerialized', 'drawerEmail', 'drawerBlind',
         'drawerRequireClosedOrders',
+        // Segundo aprobador de la orden de pago a proveedor (migs 196/197).
+        // Sin esta línea el toggle de Ajustes se guarda "OK" y no persiste
+        // nada: este allowlist es el que decide qué llega a updateGeneral().
+        'paymentOrderRequireSecondApprover',
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
         'ignoreInternal', 'stockCountBlind', 'stockCountRecordOnly',
         'blockUsedDocNo', 'autoSendDocs',

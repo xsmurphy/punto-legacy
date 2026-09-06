@@ -60,6 +60,15 @@ export interface SettingsGeneral {
   /** Exigir órdenes y espacios cerrados para poder cerrar el turno. */
   drawerRequireClosedOrders: boolean
   /**
+   * Segregación de tareas en la orden de pago a proveedor: prendido, quien creó
+   * la orden no puede aprobarla. APAGADO por default — el comercio de una sola
+   * persona tiene que poder armar y aprobar sin fricción, y ninguna cuenta se
+   * rompe el día del deploy (mismo criterio que `drawerRequireClosedOrders`).
+   * NO reemplaza al permiso `purchases.paymentorder.approve`, que es el gate
+   * duro y siempre aplica; esto es una restricción adicional encima.
+   */
+  paymentOrderRequireSecondApprover: boolean
+  /**
    * Minutos durante los cuales el operador puede anular algo de una comanda por
    * su cuenta — un ítem, la orden entera o la sesión de una mesa. `0` = sin
    * límite (default). Pasada la ventana la anulación queda para un encargado

@@ -140,6 +140,7 @@ const settingsSchema = z.object({
   drawerEmail: z.boolean(),
   drawerBlind: z.boolean(),
   drawerRequireClosedOrders: z.boolean(),
+  paymentOrderRequireSecondApprover: z.boolean(),
   // Ventana de anulación de un ítem de comanda, en minutos. 0 = sin límite.
   // El backend clampea igual; acá se corta el negativo para que el form no
   // ofrezca un valor que el server va a reinterpretar.
@@ -226,6 +227,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
   pos: [
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
     "drawerEmail", "drawerBlind", "drawerRequireClosedOrders", "settingDrawerTolerance",
+    "paymentOrderRequireSecondApprover",
     "settingOrderItemCancelWindowMinutes",
     "blockUsedDocNo", "autoSendDocs",
     "stockCountBlind", "stockCountRecordOnly", "stockCountLists",
@@ -398,6 +400,7 @@ function SettingsPageInner() {
       drawerEmail: !!data.drawerEmail,
       drawerBlind: !!data.drawerBlind,
       drawerRequireClosedOrders: !!data.drawerRequireClosedOrders,
+      paymentOrderRequireSecondApprover: !!data.paymentOrderRequireSecondApprover,
       settingDrawerTolerance: Number(data.settingDrawerTolerance ?? 0) || 0,
       settingOrderItemCancelWindowMinutes:
         Number(data.settingOrderItemCancelWindowMinutes ?? 0) || 0,
@@ -1135,6 +1138,20 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           desc="Las ventas marcadas como internas no cuentan en KPIs y comisiones."
         />
       </Section>
+
+      {/* La sección vive en este tab —y no en uno propio— porque acá ya están
+          los parámetros OPERATIVOS del comercio que no son del mostrador
+          ("Cobranza", "Stock e inventario"). Un tab nuevo para un solo toggle
+          agregaría ruta, entrada de navegación y contrato de sección sin dar
+          nada a cambio. */}
+      <Section title="Pagos a proveedores">
+        <ToggleField
+          form={form}
+          name="paymentOrderRequireSecondApprover"
+          label="Exigir un segundo aprobador en las órdenes de pago"
+          desc="Quien arma la orden de pago no puede aprobarla: la autoriza otra persona. Apagado (por default), el dueño que arma y aprueba solo trabaja sin fricción. Esto es una restricción ADICIONAL: el permiso para aprobar sigue siendo el que manda, se prenda o no."
+        />
+      </Section>
     </div>
   )
 }
@@ -1470,6 +1487,7 @@ function emptyValues(): SettingsFormValues {
     drawerEmail: false,
     drawerBlind: false,
     drawerRequireClosedOrders: false,
+    paymentOrderRequireSecondApprover: false,
     settingDrawerTolerance: 0,
     settingOrderItemCancelWindowMinutes: 0,
     settingRemoveTaxes: false,
