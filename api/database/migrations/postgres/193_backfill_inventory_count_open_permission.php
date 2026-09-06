@@ -34,10 +34,18 @@
  * solo reconcilia roles SEED con default fijo (`manager`, `cashier`); los roles
  * CUSTOM (slug null) se devuelven sin tocar, por diseño. Un rol custom
  * "Encargado de depósito" al que le tildaron `inventory.stock.adjust` no
- * recibiría la clave nunca. Para `manager` el efecto es redundante con la
- * reconciliación lazy (la clave entra a `SEED_PERMISSIONS['manager']` en el
- * mismo commit, con `since` = 9), pero acá llega en el arranque en vez de en la
- * primera lectura de permisos.
+ * recibiría la clave nunca.
+ *
+ * Para `manager` los dos caminos coexisten y NO son equivalentes, así que vale
+ * dejar dicho qué hace cada uno: esta mig se la da solo si HOY tiene
+ * `inventory.stock.adjust`, mientras que la reconciliación lazy se la va a dar
+ * igual —en la primera lectura de permisos— por estar en
+ * `SEED_PERMISSIONS['manager']` con `since` = 9, incluso en el tenant que le
+ * revocó `inventory.stock.adjust` a mano. Es el comportamiento normal del
+ * mecanismo de seeds (un default nuevo entra a los roles seed salvo que lo
+ * revoquen DESPUÉS), no una excepción de esta clave: quien no quiera que su
+ * Encargado vea el teórico se la destilda en Ajustes → Roles, y de ahí en más
+ * no vuelve.
  *
  * Por qué NO revive revocaciones (el riesgo de la mig 148)
  * ---------------------------------------------------------

@@ -37,6 +37,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { ApiError } from "@/lib/api-client"
 import { enqueueOp, newOpId } from "@/lib/pos/pending-ops"
+import { useLockStore } from "@/lib/pos/lock-store"
 import type { StockCountPayload } from "@/lib/pos/local-register-state"
 
 export interface StockCountResult {
@@ -93,6 +94,24 @@ function isUnreachable(err: unknown): boolean {
  * peor que cualquiera de los dos modos estables: lo ya contado se cargó bajo
  * otras reglas. La clave incluye el `listId`, así que cambiar de lista (que ya
  * descarta el borrador) vuelve a resolver.
+ *
+ * ── …pero la clave lleva TAMBIÉN al operador, y eso no es opcional ─────────
+ *
+ * El `QueryClient` vive lo que vive la app, y `lock()` limpia el token y los
+ * permisos del operador pero NO el cache (`lib/pos/lock-store.ts`). Con una
+ * clave de solo `listId` + `gcTime: Infinity`, la secuencia es directa: el
+ * encargado con `inventory.count.open` abre la lista X y ve los teóricos → la
+ * tablet se bloquea → el cajero SIN la clave entra con su PIN a la misma
+ * lista → react-query le sirve el `{ mode: "open", expected }` cacheado y la
+ * pantalla le pinta los teóricos del otro. El servidor nunca se los mandó —el
+ * contrato de la API sigue intacto— pero la granularidad POR PERSONA, que es
+ * todo el punto de la F2, se pierde en el cliente.
+ *
+ * Se resuelve en la CLAVE y no limpiando el cache en `lock()` a propósito:
+ * una clave que incluye al operador hace el cruce imposible por construcción,
+ * mientras que un `removeQueries()` depende de que todo camino futuro de
+ * bloqueo se acuerde de llamarlo. `activeUser.id` (el match local del PIN) y
+ * no el token, que es null offline mientras la persona sigue identificada.
  */
 export type StockCountExpected =
   | { mode: "open"; expected: Record<string, number> }
@@ -101,14 +120,12 @@ export type StockCountExpected =
   /** No se pudo preguntar. Arranca ciego y hay que decirlo. */
   | { mode: "blind"; reason: "offline" }
 
-export function useStockCountExpected(
-  listId: string,
-  itemIds: string[],
-  enabled: boolean,
-) {
+export function useStockCountExpected(listId: string, enabled: boolean) {
+  const operatorId = useLockStore((s) => s.activeUser?.id ?? "")
+
   return useQuery<StockCountExpected>({
-    queryKey: ["pos", "stock-count-expected", listId],
-    enabled: enabled && listId !== "",
+    queryKey: ["pos", "stock-count-expected", operatorId, listId],
+    enabled: enabled && listId !== "" && operatorId !== "",
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
@@ -124,8 +141,11 @@ export function useStockCountExpected(
       }
 
       try {
+        // Solo el `listId`: la lista la resuelve el servidor contra la config
+        // del comercio. Mandarle los `itemIds` del snapshot como respaldo —lo
+        // que sí hace la MUTACIÓN, para no tirar un recuento ya hecho— acá no
+        // compra nada y haría crecer la URL con el tamaño de la lista.
         const params = new URLSearchParams({ action: "expected", listId })
-        if (itemIds.length > 0) params.set("itemIds", itemIds.join(","))
 
         const res = await posFetch(`/api/v1/inventory_count?${params.toString()}`)
         const json = (await res.json().catch(() => null)) as {

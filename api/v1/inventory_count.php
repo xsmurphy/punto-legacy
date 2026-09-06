@@ -11,7 +11,7 @@
  * POST { action: "bulkSetQty", id, rows: [{itemId, qty}] }
  * POST { action: "finish", id }
  * POST { action: "cancel", id }
- * GET  ?action=expected&listId=<id>[&itemIds=<uuid,uuid>]  ← realm pos-app
+ * GET  ?action=expected&listId=<id>  ← realm pos-app
  *      → { blind, items: [{itemId, expectedQty}] } — el stock TEÓRICO de una
  *        lista fija, para el conteo NO ciego de la caja (context/63 F2). Con
  *        `blind: true` la respuesta viene SIN `items`: el modo lo decide
@@ -124,24 +124,23 @@ if ($method === 'GET') {
             apiOk(['blind' => true, 'listId' => $listId, 'items' => []]);
         }
 
-        // Respaldo por si la lista se borró mientras el device la tenía en el
-        // snapshot — mismo criterio que `registerCount`.
-        $itemIdsFallback = [];
-        foreach (explode(',', (string) ($_GET['itemIds'] ?? '')) as $itemId) {
-            $itemId = strtolower(trim($itemId));
-            if (isValidUuid($itemId)) {
-                $itemIdsFallback[] = $itemId;
-            }
-        }
-
+        // SIN respaldo de `itemIds`, al revés que `registerCount` — y la
+        // asimetría es deliberada, no un olvido.
+        //
+        // Allá el respaldo existe porque el recuento físico YA OCURRIÓ: tirarlo
+        // porque el dueño editó la lista mientras la operación viajaba sería
+        // perder un hecho del mundo real. Acá no hay ningún hecho todavía; lo
+        // único que se pierde si la lista no está es la AYUDA de ver el
+        // teórico, y quedarse sin ella degrada al conteo ciego, que es el
+        // default recomendado (D2) y funciona igual.
+        //
+        // A cambio, la URL queda acotada (`action` + `listId`) en vez de
+        // crecer con la lista: una de 250 artículos serializada a query string
+        // pasa los 8 KB del buffer de headers de nginx, y el 414 resultante
+        // sería un modo de falla que aparece recién en el comercio que arma la
+        // lista más grande.
         try {
-            $res = $svc->expectedForList(
-                $companyId,
-                $outletId,
-                $listId,
-                mb_substr(trim((string) ($_GET['listName'] ?? '')), 0, 60),
-                $itemIdsFallback,
-            );
+            $res = $svc->expectedForList($companyId, $outletId, $listId);
         } catch (\InvalidArgumentException $e) {
             apiError($e->getMessage(), 422);
         }

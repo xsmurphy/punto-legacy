@@ -446,43 +446,36 @@ final class InventoryCountService
      * sigue naciendo completa al confirmar, con el saldo del momento en que se
      * aplica — el que vale para derivar el ajuste.
      *
-     * @param  list<string> $itemIdsFallback la lista que conoce el device, por
-     *         si la del servidor se borró (mismo respaldo que submitFromRegister).
+     * ── La lista sale del COMERCIO, sin respaldo del device ─────────────────
+     *
+     * `submitFromRegister()` sí acepta los `itemIds` que conoce el device, para
+     * no tirar un recuento físico ya hecho si el dueño editó la lista mientras
+     * la operación viajaba. Acá NO, y la asimetría es deliberada: en una
+     * lectura todavía no ocurrió ningún hecho, así que lo único que se pierde
+     * cuando la lista no está es la AYUDA de ver el teórico — y quedarse sin
+     * ella degrada al conteo ciego, que es el default recomendado (D2) y
+     * funciona igual. A cambio, la consulta no tiene que transportar la lista
+     * entera (ver el comentario del endpoint sobre el largo de la URL).
+     *
      * @return array{listId: string, listName: string, items: list<array{itemId: string, expectedQty: float}>}
-     * @throws \InvalidArgumentException si no queda ningún artículo contable.
+     * @throws \InvalidArgumentException si la lista ya no existe en el comercio.
      */
     public function expectedForList(
         string $companyId,
         string $outletId,
         string $listId,
-        string $listNameFallback,
-        array $itemIdsFallback,
     ): array {
-        $settings = StockCountSettings::forCompany($companyId);
-        $list     = $settings->findList($listId);
-
-        if ($list !== null) {
-            $scopeItemIds = $list['itemIds'];
-            $listName     = $list['name'];
-        } else {
-            $scopeItemIds = array_values(array_filter(
-                array_map(static fn ($v) => strtolower(trim((string) $v)), $itemIdsFallback),
-                static fn (string $v) => $v !== ''
-            ));
-            $listName = $listNameFallback !== '' ? $listNameFallback : 'Lista eliminada';
-            if ($scopeItemIds === []) {
-                throw new \InvalidArgumentException(
-                    'La lista de conteo ya no existe y la consulta no trae los artículos'
-                );
-            }
+        $list = StockCountSettings::forCompany($companyId)->findList($listId);
+        if ($list === null) {
+            throw new \InvalidArgumentException('La lista de conteo ya no existe');
         }
 
         $scope = InventoryCountScope::forFixedList(
             $companyId,
             $outletId,
             $listId,
-            $listName,
-            $scopeItemIds,
+            $list['name'],
+            $list['itemIds'],
         );
 
         [$sql, $params] = $scope->itemsQuery();
@@ -503,7 +496,7 @@ final class InventoryCountService
         // El costo unitario NO viaja: la caja no valoriza la diferencia (eso es
         // el detalle del panel) y mandarlo sería exponer el costo del artículo
         // en una tablet del mostrador sin que ninguna pantalla lo use.
-        return ['listId' => $listId, 'listName' => $listName, 'items' => $items];
+        return ['listId' => $listId, 'listName' => $list['name'], 'items' => $items];
     }
 
     /**
@@ -891,7 +884,7 @@ final class InventoryCountService
         // publica su diferencia acumulada. Publicarla acá sería la puerta de
         // atrás — el cajero abre el listado y deduce el esperado del artículo
         // que acaba de cargar.
-        $blind = $blindMode;
+        $blind = $blindMode; // ya resuelto por StockCountMode — ver el docblock del parámetro.
 
         $rows = [];
         if ($rowsRs) {

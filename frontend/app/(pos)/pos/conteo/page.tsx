@@ -69,6 +69,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { EmptyState } from "@/components/empty-state"
+import { formatQty } from "@/lib/format-qty"
 import { NumericPad } from "@/components/pos/numeric-pad"
 import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
 import { cn } from "@/lib/utils"
@@ -165,12 +166,22 @@ export default function ConteoPage() {
   // números a medio resolver sería peor que no mostrarlos.
   const expectedQuery = useStockCountExpected(
     listId,
-    activeList?.itemIds ?? [],
     canCount && Boolean(activeList) && Boolean(outlet),
   )
   const mode = expectedQuery.data
   const isOpen = mode?.mode === "open"
   const expected = mode?.mode === "open" ? mode.expected : null
+  /**
+   * ¿Todavía se está resolviendo, o ya no se va a resolver nunca?
+   *
+   * Sin esta distinción el indicador se queda clavado en "Resolviendo modo"
+   * cuando la query ni siquiera corre —el caso real es un device sin sucursal
+   * asignada, que no puede contar y por eso no pregunta—, y una etiqueta que
+   * promete un modo que no va a llegar miente peor que la etiqueta segura.
+   * `fetchStatus === "fetching"` es lo único que afirma que hay una consulta en
+   * vuelo; con la query deshabilitada es `"idle"`.
+   */
+  const resolvingMode = expectedQuery.fetchStatus === "fetching"
 
   /**
    * Etiqueta y motivo del indicador de modo.
@@ -185,7 +196,14 @@ export default function ConteoPage() {
    */
   const modeBadge: { label: string; reason: string } = (() => {
     if (!mode) {
-      return { label: "Resolviendo modo", reason: "Estamos consultando en qué modo se cuenta." }
+      return resolvingMode
+        ? { label: "Resolviendo modo", reason: "Estamos consultando en qué modo se cuenta." }
+        : {
+            // Fail-closed también en la etiqueta: sin respuesta, la pantalla se
+            // comporta como ciega, así que eso es lo que dice.
+            label: "Conteo ciego",
+            reason: "El stock teórico no se muestra mientras se cuenta.",
+          }
     }
     if (mode.mode === "open") {
       return {
@@ -347,7 +365,12 @@ export default function ConteoPage() {
             no aparece ni desaparece, solo cambia de texto. El modo es un
             ESTADO, no un impedimento, así que no va sobre el botón de
             finalizar —ahí vive lo que bloquea— ni en una banda que empuje el
-            layout. El motivo va en el tooltip para que la línea no crezca. */}
+            layout. El motivo va en el tooltip para que la línea no crezca.
+
+            Que la etiqueta cambie de ancho NO mueve ningún control (§10): el
+            bloque del título es `flex-1`, así que es él —y no el `<Select>` ni
+            el botón de pantalla completa— el que absorbe la diferencia. Los
+            hermanos de la derecha quedan anclados a su borde. */}
         <Tooltip>
           {/* `span` envolvente por el mismo motivo que en el footer: el
               trigger necesita una ref y `<Badge>` no la reenvía. */}
@@ -398,12 +421,17 @@ export default function ConteoPage() {
                 // se dio de baja o perdió el control de stock) se marca como NO
                 // DISPONIBLE en vez de mostrarse en cero: cero es un dato, y
                 // acá no lo hay.
+                // `formatQty` y no un `String(n)`: los separadores salen del
+                // tenant (§7 de context/14) y el tope de 3 decimales corta de
+                // paso el ruido binario de la resta — `2.4 - 2.1` en
+                // JavaScript es `0.30000000000000004`, y un cajero que lee eso
+                // en el mostrador no ve un decimal, ve un sistema roto.
                 const exp = expected ? expected[row.itemId] : undefined
                 const expText = !isOpen
                   ? ""
                   : exp === undefined
                     ? " · Teórico no disponible"
-                    : ` · Teórico ${exp}`
+                    : ` · Teórico ${formatQty(exp, config)}`
                 const diff = isOpen && exp !== undefined && qty !== undefined ? qty - exp : null
 
                 return (
@@ -454,7 +482,11 @@ export default function ConteoPage() {
                               : "text-muted-foreground",
                           )}
                         >
-                          {diff === null ? "" : diff > 0 ? `+${diff}` : String(diff)}
+                          {diff === null
+                            ? ""
+                            : diff > 0
+                              ? `+${formatQty(diff, config)}`
+                              : formatQty(diff, config)}
                         </span>
                       </div>
                     </button>

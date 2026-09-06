@@ -32,6 +32,8 @@ require_once __DIR__ . '/_harness.php';
  *       mismo comercio, con el flag prendido, ven cosas distintas según su rol.
  *   (E) El teórico que publica la caja es el MISMO que el ledger — si divergiera
  *       el cajero ajustaría contra un número y el servidor contra otro.
+ *   (F) Lista borrada: la LECTURA no tiene respaldo de `itemIds` (la MUTACIÓN
+ *       sí) y responde 422 sin filtrar ningún esperado.
  *
  * Uso (ver `run_stock_count_open_mode_test.sh` para levantar todo de cero):
  *   POSTGRES_HOST=... POSTGRES_PORT=... POSTGRES_DB=... POSTGRES_USER=... POSTGRES_PASSWORD=... \
@@ -231,7 +233,10 @@ try {
 
     setLista($companyId, [$itemA, $itemB]);
 
-    $query = 'action=expected&listId=' . LISTA_ID . '&itemIds=' . $itemA . ',' . $itemB;
+    // Solo el `listId`: la lista la resuelve el servidor. El endpoint NO acepta
+    // un respaldo de `itemIds` en la lectura (sí en la mutación) — ver el
+    // docblock de `expectedForList()`.
+    $query = 'action=expected&listId=' . LISTA_ID;
 
     // ═══════════════════════════════════════════════════════════════════════
     // (A) Fail-CLOSED
@@ -359,6 +364,25 @@ try {
         'totalCostDelta: ' . json_encode($fila), $failures, $checks);
 
     $svc->cancel($countId, $companyId);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (F) Lista borrada: la LECTURA no tiene respaldo, y degradar es correcto
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // `registerCount` SÍ acepta los `itemIds` del device, porque allá el
+    // recuento físico ya ocurrió y tirarlo sería perder un hecho del mundo
+    // real. Acá todavía no hay ningún hecho: lo único que se pierde es la
+    // AYUDA de ver el teórico, y quedarse sin ella es contar a ciegas — el
+    // default recomendado (D2). El front lo trata como modo, no como error.
+    echo "\n=== (F) la lista ya no existe: 422, y la caja cae a ciegas ===\n";
+
+    setBlind($companyId, false);
+    setLista($companyId, []); // decodeLists descarta la lista sin itemIds
+
+    $res = hitGet($query, '', $bearer, $tokEncargado);
+    check('(F1) lista borrada → 422 y sin esperado en el cuerpo',
+        $res['status'] === 422 && !str_contains((string) $res['json'], 'expectedQty'),
+        "status {$res['status']}: {$res['json']}", $failures, $checks);
 } finally {
     // Limpieza: sesiones y devices de esta corrida. El tenant fixture se
     // recarga entero en cada run del `.sh`, así que los conteos quedan.
