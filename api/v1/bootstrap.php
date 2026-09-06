@@ -439,13 +439,26 @@ if ($isRegisterDevice) {
     // viajar en el snapshot, no en una llamada que va a fallar justo cuando
     // hace falta.
     //
-    // Lo que NO baja es el flag `stockCountBlind`: en esta fase la caja cuenta
-    // SIEMPRE a ciegas, y el esperado no lo tiene aunque quiera (el ledger no
-    // viaja al POS). El día que exista el conteo no ciego (F2), ese flag va a
-    // significar algo acá; hoy mandarlo sería prometer un interruptor que no
-    // controla nada.
+    // Desde la F2 SÍ baja `stockCountBlind`, y significa una cosa precisa: el
+    // PISO del comercio. Prendido = "acá se cuenta a ciegas salvo que la
+    // persona tenga `inventory.count.open`"; apagado = todos cuentan con el
+    // teórico a la vista.
+    //
+    // No decide nada en la caja —el modo lo resuelve el servidor por PERSONA
+    // (`StockCountMode`) y el teórico se pide con `action=expected`— pero sin
+    // él la pantalla no puede distinguir los dos silencios que se parecen: "no
+    // hay teórico porque este comercio cuenta a ciegas" (normal, no se avisa
+    // nada) de "no hay teórico porque no hubo red" (hay que decirlo, y con esa
+    // palabra). Sin el flag, o se calla siempre o se avisa de más.
+    //
+    // Lo que sigue sin bajar es el PERMISO: `unlock-pin.php` filtra los del
+    // operador al prefijo `pos.` y `inventory.count.open` no lo tiene a
+    // propósito (gobierna también el panel). La caja no necesita conocerlo —
+    // pregunta y el servidor contesta, que es el orden correcto cuando el
+    // filtrado del dato es del servidor.
     $countSettings = \Punto\Api\Settings\StockCountSettings::forCompany(COMPANY_ID);
     $payload['stockCountLists']      = $countSettings->lists();
+    $payload['stockCountBlind']      = $countSettings->blind();
     // Para que la caja pueda decir la verdad al confirmar: "se va a ajustar el
     // stock" vs "queda registrado". El flag NO lo decide la caja — lo aplica
     // `finish()` server-side — pero sin bajarlo la pantalla no puede anticipar

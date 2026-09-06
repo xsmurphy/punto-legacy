@@ -11,6 +11,12 @@
  * POST { action: "bulkSetQty", id, rows: [{itemId, qty}] }
  * POST { action: "finish", id }
  * POST { action: "cancel", id }
+ * GET  ?action=expected&listId=<id>  ← realm pos-app
+ *      → { blind, items: [{itemId, expectedQty}] } — el stock TEÓRICO de una
+ *        lista fija, para el conteo NO ciego de la caja (context/63 F2). Con
+ *        `blind: true` la respuesta viene SIN `items`: el modo lo decide
+ *        `StockCountMode` y el esperado no viaja, no se manda para que la
+ *        pantalla lo esconda.
  * POST { action: "registerCount", listId, listName?, itemIds?,
  *        rows: [{itemId, qty}], countedAt?, note? }  ← realm pos-app
  *      La SUCURSAL y la CAJA NO viajan en el body: salen del contexto del
@@ -24,8 +30,8 @@
  * endpoint en un endpoint de caja: es la puerta del edificio, no la de cada
  * cuarto. Todo lo que existía sigue siendo panel-only y sigue exigiendo
  * `inventory.stock.adjust`; lo único que la caja puede hacer es
- * `registerCount`, y para eso necesita `pos.stock.count` evaluado contra el
- * OPERADOR del PIN.
+ * `registerCount` y el `action=expected` de la F2, y para eso necesita
+ * `pos.stock.count` evaluado contra el OPERADOR del PIN.
  *
  * Por qué así y no abriendo el embudo entero: bajo `pos-app`, `hasPermission()`
  * resuelve contra el rol `device`, que es el mismo para todos los que agarran
@@ -39,9 +45,11 @@
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/InventoryCountService.php';
 require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
+require_once __DIR__ . '/../lib/Settings/StockCountMode.php';
 
 use Punto\Api\Auth\OperatorContext;
 use Punto\Api\Services\InventoryCountService;
+use Punto\Api\Settings\StockCountMode;
 
 $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
@@ -71,12 +79,83 @@ function isValidUuid(string $s): bool
 }
 
 if ($method === 'GET') {
-    // Las lecturas son del panel. La caja no las necesita —cuenta a ciegas
-    // sobre una lista que ya trae del bootstrap— y dárselas sería la puerta de
-    // atrás al esperado que el modo ciego le esconde.
+    $action = (string) ($_GET['action'] ?? 'list');
+
+    // ── Teórico de una lista, para el conteo NO ciego de la caja (F2) ───────
+    //
+    // Única lectura abierta al realm `pos-app`, y la excepción está acotada a
+    // lo que la pantalla del mostrador necesita: el esperado de UNA lista fija,
+    // sin costos, sin sesiones ajenas, sin el listado de conteos. El resto de
+    // las lecturas sigue siendo del panel por el motivo de siempre — serían la
+    // puerta de atrás al esperado que el modo ciego esconde.
+    //
+    // Dos gates, y son dos preguntas distintas:
+    //   `pos.stock.count`      ¿esta persona puede contar desde la caja?
+    //   `inventory.count.open` ¿puede además VER el teórico mientras cuenta?
+    //
+    // El segundo NO se pregunta acá con un `if`: lo resuelve `StockCountMode`,
+    // el mismo que usa el panel unas líneas más abajo. Y cuando la respuesta es
+    // "ciego", los `items` NO se calculan ni se mandan — el filtrado es del
+    // servidor. Hasta la mig 169 el cierre de caja a ciegas se ocultaba solo en
+    // el frontend y se caía con las devtools abiertas (regla 7 de
+    // `context/modules/14-caja.md`); no se repite acá.
+    if ($action === 'expected') {
+        if ($realm !== 'pos-app') {
+            apiError('Esta acción es del conteo de la caja', 403);
+        }
+
+        OperatorContext::requirePermission($ctx, 'pos.stock.count');
+
+        $outletId = (string) ($ctx['outletId'] ?? '');
+        if (!isValidUuid($outletId)) {
+            apiError('Este dispositivo no tiene una sucursal asignada', 409);
+        }
+
+        $listId = trim((string) ($_GET['listId'] ?? ''));
+        if ($listId === '' || strlen($listId) > 64) {
+            apiError('listId inválido', 400);
+        }
+
+        // Fail-CLOSED: si el modo no se puede resolver, `isBlind()` devuelve
+        // true y la caja cuenta a ciegas. Es la dirección segura — el error que
+        // revela el esperado es una fuga; el que lo esconde de más solo obliga
+        // a contar sin ayuda, que es el default recomendado (D2).
+        if (StockCountMode::isBlind($ctx)) {
+            apiOk(['blind' => true, 'listId' => $listId, 'items' => []]);
+        }
+
+        // SIN respaldo de `itemIds`, al revés que `registerCount` — y la
+        // asimetría es deliberada, no un olvido.
+        //
+        // Allá el respaldo existe porque el recuento físico YA OCURRIÓ: tirarlo
+        // porque el dueño editó la lista mientras la operación viajaba sería
+        // perder un hecho del mundo real. Acá no hay ningún hecho todavía; lo
+        // único que se pierde si la lista no está es la AYUDA de ver el
+        // teórico, y quedarse sin ella degrada al conteo ciego, que es el
+        // default recomendado (D2) y funciona igual.
+        //
+        // A cambio, la URL queda acotada (`action` + `listId`) en vez de
+        // crecer con la lista: una de 250 artículos serializada a query string
+        // pasa los 8 KB del buffer de headers de nginx, y el 414 resultante
+        // sería un modo de falla que aparece recién en el comercio que arma la
+        // lista más grande.
+        try {
+            $res = $svc->expectedForList($companyId, $outletId, $listId);
+        } catch (\InvalidArgumentException $e) {
+            apiError($e->getMessage(), 422);
+        }
+
+        apiOk(['blind' => false] + $res);
+    }
+
+    // Las demás lecturas son del panel.
     requirePanelRealm($realm);
 
-    $action = (string) ($_GET['action'] ?? 'list');
+    // El modo de conteo de ESTA persona, resuelto una sola vez para las dos
+    // lecturas. Ver `StockCountMode` para la tabla de verdad completa: el flag
+    // `stockCountBlind` del comercio es el PISO y `inventory.count.open` la
+    // excepción por rol que lo levanta.
+    $blindMode = StockCountMode::isBlind($ctx);
 
     if ($action === 'list') {
         $outletId = isset($_GET['outletId']) && isValidUuid($_GET['outletId']) ? $_GET['outletId'] : null;
@@ -84,7 +163,7 @@ if ($method === 'GET') {
         $limit    = max(1, min(200, (int) ($_GET['limit']  ?? 50)));
         $offset   = max(0, (int) ($_GET['offset'] ?? 0));
 
-        $result = $svc->list($companyId, $outletId, $status, $limit, $offset);
+        $result = $svc->list($companyId, $outletId, $status, $limit, $offset, $blindMode);
         apiOk($result);
     }
 
@@ -94,7 +173,7 @@ if ($method === 'GET') {
             apiError('id inválido', 400);
         }
 
-        $data = $svc->get($id, $companyId);
+        $data = $svc->get($id, $companyId, $blindMode);
         if ($data === null) {
             apiError('Sesión no encontrada', 404);
         }

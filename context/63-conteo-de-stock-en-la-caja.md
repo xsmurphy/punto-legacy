@@ -1,9 +1,9 @@
 # 63 — Conteo de stock en la caja
 
-> Estado: **F0+F1 implementadas 2026-09-02** — conteo ciego en `/pos/conteo`,
-> offline-nativo, permiso `pos.stock.count` contra el operador del PIN (migs
-> 186/187). F2 (conteo no ciego) pendiente, depende de resolver el TODO
-> `stock: null` en `reshape.ts`. Fecha del plan original 2026-09-01. D1-D4 y
+> Estado: **F0+F1+F2 implementadas** — F0/F1 el 2026-09-02 (conteo ciego en
+> `/pos/conteo`, offline-nativo, permiso `pos.stock.count` contra el operador
+> del PIN, migs 186/187); **F2 el 2026-09-06** (conteo NO ciego, mig 193 —
+> ver §F2 abajo). Fecha del plan original 2026-09-01. D1-D4 y
 > D9 cerradas por el owner, no relitigar. El resto de este doc son
 > derivaciones técnicas de esas decisiones — implementación propuesta,
 > discutible en el cómo, no en el qué.
@@ -188,11 +188,31 @@ un allowlist en `ModulesService` del backend + `usePosModules()` + entrada en
   - Turno como dato de contexto (opcional): guardar en qué turno se hizo el
     conteo, sin que el conteo dependa de él ni lo condicione.
 
-- **F2 — Conteo NO ciego en la caja.** Depende de F1 completo. Requiere
-  resolver el TODO de `reshape.ts` (stock teórico por sucursal en el POS,
-  vía bootstrap o endpoint nuevo) y decidir qué pasa con ese número sin red,
-  porque no se puede refrescar en el momento. D2 (configurable) se cumple
-  del todo recién acá — F1 por sí sola solo cubre la mitad del interruptor.
+- **F2 — Conteo NO ciego en la caja. IMPLEMENTADA 2026-09-06.** Dos
+  decisiones del owner la reencuadraron respecto de lo que este plan preveía:
+
+  - **La granularidad se movió de COMERCIO a ROL.** Pedido textual del
+    cliente: *"le habilitás a un usuario que sea ciego y nuestro usuario tiene
+    libre"* — el modo lo decide la PERSONA. Permiso nuevo
+    `inventory.count.open` (mig 193, backfill a quien ya tiene
+    `inventory.stock.adjust`, nunca al rol `device`). `stockCountBlind` **no
+    se eliminó**: pasó a ser el PISO del comercio, y el permiso la excepción
+    que lo levanta. Tabla de verdad completa en el docblock de
+    `api/lib/Settings/StockCountMode.php`, **único** resolver, consumido por
+    el panel (`get`/`list`) y por la caja (`action=expected`) — el servicio ya
+    no re-deriva el modo, lo recibe resuelto. Bajo `pos-app` se evalúa contra
+    el operador del PIN (`OperatorContext`), no contra el rol `device`.
+  - **El teórico es ONLINE; sin red se cuenta a ciegas.** El `stock: null` de
+    `reshape.ts` **NO se resolvió, y no es un pendiente**: bajarlo al snapshot
+    sería sincronización continua de todo el catálogo, y un teórico VIEJO es
+    peor que ninguno (el operador ajusta contra un número que ya no es cierto
+    y firma una diferencia inventada). El conteo ciego sigue siendo
+    offline-nativo y no se tocó; el abierto pide el teórico al abrir la sesión
+    y sin red **arranca ciego**, dicho con esa palabra en el indicador de modo.
+
+  El filtrado lo hace el SERVIDOR: sin el permiso, `expectedQty` no viaja en
+  la respuesta (ni se calcula). Fail-closed en las dos capas. Arnés:
+  `api/tests/run_stock_count_open_mode_test.sh`.
 
 ## Preguntas abiertas para el owner
 
@@ -230,6 +250,29 @@ un allowlist en `ModulesService` del backend + `usePosModules()` + entrada en
   relevo, firma solo el saliente"). El conteo puede registrar en qué turno
   se hizo como dato de contexto, pero no depende de otro conteo ni lo
   condiciona.
+
+- **Bajar el stock teórico al snapshot del POS** (resolver el `stock: null` de
+  `reshape.ts:96` para que el conteo abierto funcione offline). Descartado en
+  la F2 y no es un TODO pendiente: el saldo se mueve con CADA venta de
+  CUALQUIER caja, así que mantenerlo fresco es sincronización continua de todo
+  el catálogo — justo lo que el bootstrap del POS evita— y un teórico viejo es
+  PEOR que ninguno: el operador ajusta contra un número que ya no es cierto y
+  firma una diferencia inventada. Sin red el conteo arranca CIEGO, que es un
+  modo válido y el default recomendado.
+
+- **Que la pantalla decida el modo con un flag que baja al dispositivo.** El
+  esperado se filtra en el SERVIDOR: sin `inventory.count.open`, `expectedQty`
+  no viaja. `inventory.count.open` no lleva prefijo `pos.` (gobierna también
+  el panel) y por eso `unlock-pin.php` no la baja: la caja pregunta y el
+  servidor contesta. Un flag que el cliente tiene que respetar se evade con
+  las devtools — es exactamente el bug del cierre de caja a ciegas que la mig
+  169 vino a cerrar.
+
+- **Dos resolvers del modo, uno para el panel y otro para la caja.** Hay UNO
+  (`StockCountMode`), y `InventoryCountService::get()/list()` lo reciben como
+  parámetro obligatorio, sin default. Si cada superficie lo derivara por su
+  cuenta, la que nadie revisa terminaría publicando el esperado que la otra
+  esconde.
 
 ## Docs relacionados
 

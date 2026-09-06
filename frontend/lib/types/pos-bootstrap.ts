@@ -132,6 +132,21 @@ export interface PosConfig {
    * confirmar; quien lo aplica es el servidor, que lee el flag por su cuenta.
    */
   stockCountRecordOnly?: boolean
+  /**
+   * PISO de conteo ciego del comercio (D2 + F2, context/63). Prendido = "acá se
+   * cuenta a ciegas salvo que la persona tenga `inventory.count.open`";
+   * apagado = todos cuentan con el stock teórico a la vista.
+   *
+   * NO decide el modo — el modo lo resuelve el servidor por PERSONA
+   * (`StockCountMode`) y llega en la respuesta de `action=expected`. Lo que
+   * este flag permite es distinguir dos silencios que se parecen: "no hay
+   * teórico porque este comercio cuenta a ciegas" (normal, no se avisa nada) de
+   * "no hay teórico porque no hubo red" (hay que decirlo, y con esa palabra).
+   *
+   * Ausente = `/api` anterior a la F2: se trata como piso PRENDIDO, que es el
+   * default recomendado y el comportamiento que ese `/api` ya tenía.
+   */
+  stockCountBlind?: boolean
 }
 
 /**

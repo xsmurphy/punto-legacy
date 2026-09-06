@@ -1067,11 +1067,17 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
       </Section>
 
       <Section title="Stock e inventario">
+        {/* F2 de context/63 — este flag dejó de ser absoluto y pasó a ser el
+            PISO del comercio: la excepción es el permiso `inventory.count.open`
+            por ROL. El copy lo dice para que el interruptor no prometa algo que
+            el permiso levanta; un dueño que lo prende y ve a su encargado
+            contando con el teórico a la vista tiene que poder entender por qué
+            sin abrir un ticket. */}
         <ToggleField
           form={form}
           name="stockCountBlind"
           label="Conteos de stock ciegos"
-          desc="El operador no ve el stock teórico mientras cuenta."
+          desc="El operador no ve el stock teórico mientras cuenta, salvo los roles con el permiso “Ver el stock teórico mientras cuenta” (Ajustes → Roles)."
         />
         {/* D9 de context/63. Hermano del anterior y ORTOGONAL a él: ciego es
             qué ve el que cuenta, esto es qué pasa al terminar. Se dejaron como

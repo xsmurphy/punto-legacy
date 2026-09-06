@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 8;
+    public const CURRENT_VERSION = 9;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -128,6 +128,41 @@ final class PermissionCatalog
             ['id' => 'inventory.item.edit',    'label' => 'Editar artículos',         'group' => 'Inventario'],
             ['id' => 'inventory.item.delete',  'label' => 'Eliminar artículos',       'group' => 'Inventario'],
             ['id' => 'inventory.stock.adjust', 'label' => 'Ajustes de stock',         'group' => 'Inventario'],
+
+            // ── Conteo NO ciego (context/63 F2) ───────────────────────────
+            //
+            // Mueve la granularidad del modo de conteo de COMERCIO a ROL. El
+            // pedido del cliente fue textual: "le habilitás a un usuario que
+            // sea ciego y nuestro usuario tiene libre" — o sea que quién ve el
+            // stock teórico mientras cuenta lo decide la persona, no el local.
+            //
+            // `stockCountBlind` sigue existiendo y sigue siendo el PISO del
+            // comercio; esta clave es la excepción que lo levanta. La tabla de
+            // verdad completa vive en `Punto\Api\Settings\StockCountMode`, que
+            // es el único que resuelve el modo para el panel y para la caja.
+            //
+            // No es un permiso de ESCRITURA: no autoriza a contar (eso son
+            // `inventory.stock.adjust` en el panel y `pos.stock.count` en la
+            // caja) ni a ajustar nada. Autoriza a VER un número mientras se
+            // cuenta, que es exactamente el eje que el conteo ciego protege.
+            //
+            // Sin prefijo `pos.` a propósito: gobierna las DOS superficies, y
+            // una clave `pos.*` sería mentirle al panel. Consecuencia asumida:
+            // `unlock-pin.php` no la baja al dispositivo, así que la caja no la
+            // conoce y el modo se lo dice el servidor en la respuesta — que es
+            // el orden correcto, porque el filtrado del esperado es del
+            // servidor y no de la pantalla.
+            //
+            // Se evalúa contra el rol del OPERADOR del PIN (`OperatorContext`)
+            // bajo `pos-app`, igual que `pos.stock.count`. Por eso NO va al
+            // seed de `device`: ese rol es el mismo para todos los que agarran
+            // la tablet.
+            //
+            // `since` = 9 y clave NUEVA: el caso seguro del backfill (nunca
+            // existió, así que no puede estar revocada a propósito en ningún
+            // tenant — ver la advertencia del docblock de since()).
+            ['id' => 'inventory.count.open',   'label' => 'Ver el stock teórico mientras cuenta', 'group' => 'Inventario', 'since' => 9],
+
             ['id' => 'inventory.transfer',     'label' => 'Transferencias entre sucursales', 'group' => 'Inventario'],
 
             ['id' => 'contacts.customer.view',   'label' => 'Ver clientes',           'group' => 'Contactos'],
