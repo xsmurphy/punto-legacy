@@ -19,6 +19,8 @@
  *   GET  /v1/einvoice?resource=documents&from=&to=&status=&search=&page=&pageSize= → listado paginado (panel)
  *   GET  /v1/einvoice?resource=kude&id=          → PDF (KuDE) del documento, stream binario
  *   POST /v1/einvoice?action=retry&id=           → reencola un documento en error → pending (gateado einvoice.manage)
+ *   POST /v1/einvoice?action=reissue&id=         → F7/N2: emite de nuevo un documento RECHAZADO por SIFEN — documento NUEVO,
+ *                                                  el rechazado queda como registro (gateado einvoice.manage)
  *   POST /v1/einvoice?action=cancel&id=          → anula un documento issued en SIFEN (gateado einvoice.manage, body: reason)
  *   POST /v1/einvoice?action=reconcile           → reconcilia sifen_status contra GetAll (gateado einvoice.manage)
  *
@@ -261,6 +263,27 @@ switch ($method) {
             break;
         }
 
+        if ($action === 'reissue') {
+            // N2 de context/28 §F7 — "corregir y emitir de nuevo": NO es un
+            // retry. Un rechazado por SIFEN está `issued`, así que reintentarlo
+            // emitiría el documento fiscal dos veces; esto encola un documento
+            // NUEVO y deja el rechazado como registro. No recibe ningún dato:
+            // la corrección se hizo antes en la ficha del cliente / la caja /
+            // el emisor, y el payload se reconstruye de ahí.
+            $id = (string) ($_GET['id'] ?? '');
+            if ($id === '') {
+                apiError('Falta id', 422);
+            }
+            try {
+                apiOk($svc->reissue($companyId, $id, $ctx['userId'] ?? null));
+            } catch (\RuntimeException $e) {
+                // 422 con el texto tal cual: los motivos ("ya fue reemitido",
+                // "no está rechazado") son accionables para el operador.
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
         if ($action === 'cancel') {
             $id = (string) ($_GET['id'] ?? '');
             if ($id === '') {
@@ -286,7 +309,7 @@ switch ($method) {
             break;
         }
 
-        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|cancel|reconcile)', 422);
+        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|reissue|cancel|reconcile)', 422);
         break;
 
     default:

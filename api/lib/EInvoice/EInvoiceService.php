@@ -533,12 +533,17 @@ final class EInvoiceService
         $rs = ncmExecute(
             "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
                     d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
-                    d.sifen_status, d.sifen_checked_at,
+                    d.sifen_status, d.sifen_checked_at, d.superseded_by,
                     -- El bulk crudo pesa y solo se usa para sacar el motivo del
                     -- RECHAZO: para un documento aprobado no se trae.
                     CASE WHEN d.sifen_status IS NOT NULL AND d.sifen_status NOT ILIKE '%aprobad%'
                          THEN d.sifen_result END AS sifen_result,
                     t.transactionTotal AS total, t.transactionCurrency AS currency,
+                    -- Para RUTEAR el arreglo de un rechazo (N2, context/28 §F7):
+                    -- el motivo manda a la ficha del cliente o al timbrado de la
+                    -- caja, y sin estos dos ids el panel solo podría describir
+                    -- el camino en vez de linkearlo.
+                    t.customerId AS contact_id, t.outletId AS outlet_id,
                     c.contactName AS client_name
                FROM einvoice_document d
                LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
@@ -575,8 +580,14 @@ final class EInvoiceService
                     // RECHAZO). Sin esto la UI podía decir "rechazado" sin
                     // decir por qué — inaccionable para el comercio.
                     'sifenReason'    => self::sifenReason($f['sifen_result'] ?? null),
+                    // Documento REEMPLAZADO por una reemisión (mig 201): sigue
+                    // en el listado como registro, pero ya no es accionable —
+                    // el panel lo pinta "Reemplazado" y no le ofrece reemitir.
+                    'supersededBy'   => $f['superseded_by'] ?? null,
                     'total'          => $f['total'] !== null ? (float) $f['total'] : null,
                     'currency'       => $f['currency'] ?? null,
+                    'contactId'      => $f['contact_id'] ?? null,
+                    'outletId'       => $f['outlet_id'] ?? null,
                     'clientName'     => $f['client_name'] ?? null,
                 ];
                 $rs->MoveNext();
@@ -655,6 +666,10 @@ final class EInvoiceService
                LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
                LEFT JOIN company co ON co.companyId = d.companyid
               WHERE d.companyid = ? AND d.transactionid = ?
+                -- El documento ACTIVO de la venta: si hubo una reemisión por
+                -- rechazo (mig 201), el reemplazado sigue existiendo como
+                -- registro y el comprador nunca tiene que ver ese.
+                AND d.superseded_by IS NULL
               ORDER BY d.created_at DESC LIMIT 1",
             [$companyId, $transactionId]
         );
@@ -761,7 +776,7 @@ final class EInvoiceService
     {
         $doc = ncmExecute(
             'SELECT einvoicedocid, sifen_status FROM einvoice_document
-              WHERE companyid = ? AND transactionid = ?
+              WHERE companyid = ? AND transactionid = ? AND superseded_by IS NULL
               ORDER BY created_at DESC LIMIT 1',
             [$companyId, $transactionId]
         );
@@ -831,6 +846,200 @@ final class EInvoiceService
         }
 
         return $this->documentById($companyId, $docId);
+    }
+
+    /**
+     * "Corregir y emitir de nuevo" — N2 de context/28 §F7. Reemplaza un
+     * documento RECHAZADO por SIFEN con uno NUEVO, y deja el rechazado como
+     * registro.
+     *
+     * NO es un reintento y no puede serlo: `retry()` reencola la misma fila y
+     * solo desde `error`; un rechazado está `issued` (el envío salió bien, lo
+     * que falló es el veredicto fiscal) y volver a mandarlo emitiría el
+     * documento fiscal DOS VECES — Factomate no reemite, cada `/Bulk` es un
+     * documento nuevo y el número lo pone la SET (`number => -1`).
+     *
+     * QUÉ SE CORRIGE, y esto es la línea que no se cruza: NADA de lo económico.
+     * Este método no recibe ni un monto ni un ítem. Lo que se corrige es la
+     * METADATA FISCAL —RUC/identidad del receptor, datos del emisor, timbrado
+     * de la caja— y se corrige EN SU PANTALLA (ficha del cliente, Sucursales →
+     * Cajas, Ajustes → Facturación electrónica) ANTES de llamar acá. La
+     * reemisión no toca un payload: encola un documento nuevo que el drainer
+     * reconstruye por el camino normal (`buildSaleArrayForMapper` +
+     * `stampForDocument`) leyendo los datos YA corregidos. Editar montos o
+     * ítems de una venta ya cobrada para que SIFEN acepte es falsear un
+     * comprobante.
+     *
+     * El rechazado NO se borra ni se marca `cancelled` (`cancel()` va contra un
+     * documento que SIFEN ACEPTÓ, es otra cosa): queda con `superseded_by`
+     * apuntando al nuevo. SIFEN también lo tiene — borrarlo de nuestro lado
+     * sería perder la trazabilidad.
+     *
+     * CONCURRENCIA: el guard real es el `WHERE superseded_by IS NULL` del
+     * UPDATE (mismo patrón CAS que el resto del outbox), no la validación
+     * previa. Dos clicks, o dos operadores, y el segundo recibe "ya fue
+     * reemitido" en vez de encolar un tercer documento. El orden UPDATE →
+     * INSERT tampoco es negociable: la fila vieja tiene que salir del índice
+     * único parcial (mig 201) antes de que entre la nueva, por eso el id del
+     * documento nuevo se pide ANTES y la FK de `superseded_by` es diferida.
+     *
+     * @param string|null $actorUserId usuario del panel que dispara la acción,
+     *        para la auditoría. Se pasa explícito desde el endpoint (que ya lo
+     *        resolvió en `apiAuthTenant`) en vez de leerlo de una constante
+     *        global; si viene null se cae a AUTHED_USER_ID.
+     * @throws \RuntimeException si el documento no existe, no es de la
+     *         company, no está rechazado por SIFEN, o ya fue reemitido.
+     */
+    public function reissue(string $companyId, string $docId, ?string $actorUserId = null): array
+    {
+        global $db;
+
+        $doc = ncmExecute(
+            'SELECT einvoicedocid, transactionid, doctype, status, sifen_status, sifen_result, superseded_by
+               FROM einvoice_document
+              WHERE einvoicedocid = ? AND companyid = ?',
+            [$docId, $companyId]
+        );
+        if (!$doc) {
+            throw new \RuntimeException('Documento no encontrado.');
+        }
+
+        if (($doc['superseded_by'] ?? null) !== null) {
+            throw new \RuntimeException(
+                'Este documento ya fue reemitido: hay un documento nuevo en su lugar. Actualizá el listado para verlo.'
+            );
+        }
+
+        // MISMO criterio que `sifenVerdict()` (el único del PHP, espejado en
+        // `documents()` y en el front) — no se inventa un cuarto.
+        if (self::sifenVerdict($doc['sifen_status'] ?? null) !== 'rejected') {
+            throw new \RuntimeException(
+                'Solo se puede emitir de nuevo un documento RECHAZADO por SIFEN. '
+                . 'Un documento aprobado ya vale, y uno sin confirmar todavía puede terminar aprobado — '
+                . 'emitir otro en cualquiera de esos dos casos duplicaría el documento fiscal.'
+            );
+        }
+
+        if ((string) ($doc['status'] ?? '') === 'cancelled') {
+            // Rechazado y además anulado: la anulación es la última decisión
+            // del comercio sobre ese comprobante. Si igual quiere facturar la
+            // venta, es una emisión nueva desde la venta, no una corrección de
+            // este documento.
+            throw new \RuntimeException('El documento está anulado — la reemisión es para rechazos de SIFEN, no para anulaciones.');
+        }
+
+        $transactionId = (string) $doc['transactionid'];
+        $doctype       = (string) $doc['doctype'];
+        $sifenReason   = self::sifenReason($doc['sifen_result'] ?? null);
+
+        $db->StartTrans();
+
+        // El id del documento nuevo se genera ANTES de insertarlo (patrón
+        // `SELECT gen_random_uuid()` del repo) porque el puntero se escribe
+        // primero — ver el comentario de concurrencia arriba y la mig 201.
+        $newId = (string) $db->GetOne('SELECT gen_random_uuid()');
+
+        $superseded = ncmExecute(
+            'UPDATE einvoice_document
+                SET superseded_by = ?, updated_at = now()
+              WHERE einvoicedocid = ? AND companyid = ? AND superseded_by IS NULL
+              RETURNING einvoicedocid',
+            [$newId, $docId, $companyId]
+        );
+        if (!$superseded) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('Este documento ya fue reemitido — no se encoló uno nuevo.');
+        }
+
+        // Arranca en `pending`, el estado inicial normal del outbox: de acá en
+        // adelante es un documento como cualquier otro (drainer, backoff,
+        // reconciliación). Sin `ON CONFLICT`: acá una colisión NO es un
+        // reintento idempotente sino una carrera perdida, y tiene que abortar
+        // la transacción entera en vez de dejar el documento viejo marcado
+        // como reemplazado por uno que nunca se insertó.
+        ncmExecute(
+            "INSERT INTO einvoice_document (einvoicedocid, companyid, transactionid, doctype, status)
+             VALUES (?, ?, ?, ?, 'pending')",
+            [$newId, $companyId, $transactionId, $doctype]
+        );
+
+        if (!$db->CompleteTrans()) {
+            throw new \RuntimeException(
+                'No se pudo emitir de nuevo: ' . ($db->FirstError() ?: 'la operación no se completó.')
+            );
+        }
+
+        $this->auditReissue($companyId, $docId, $newId, $sifenReason, $actorUserId);
+
+        // Best-effort, mismo criterio que `retry()`: si Factomate está caído el
+        // documento queda en cola para el drainer del cron. La venta no se toca.
+        $this->tryIssueInline($companyId, $transactionId, $doctype);
+
+        return $this->documentById($companyId, $newId);
+    }
+
+    /**
+     * Fila propia en `tenant_audit` para la reemisión. `apiAuthTenant()` ya
+     * audita el POST genérico, pero ahí el único dato es el id del documento
+     * VIEJO (`?id=`): cuál fue el reemplazo y por qué motivo de SIFEN se
+     * reemitió no quedarían en ningún lado, y esos son justamente los dos
+     * datos que hacen falta para reconstruir qué pasó con un documento fiscal.
+     *
+     * Best-effort (`tenantAudit` nunca lanza) — mismo criterio que el resto del
+     * módulo: la auditoría no puede tumbar la operación ya cometida.
+     */
+    private function auditReissue(
+        string $companyId,
+        string $oldDocId,
+        string $newDocId,
+        ?string $sifenReason,
+        ?string $actorUserId
+    ): void {
+        if (!function_exists('tenantAudit')) {
+            error_log(sprintf(
+                '[EInvoiceService] reemisión %s → %s de la company %s SIN auditar (sin bootstrap).',
+                $oldDocId,
+                $newDocId,
+                $companyId
+            ));
+            return;
+        }
+
+        $realm    = defined('AUTHED_REALM') ? (string) AUTHED_REALM : 'panel';
+        $userId   = $actorUserId !== null && $actorUserId !== ''
+            ? $actorUserId
+            : (defined('AUTHED_USER_ID') && AUTHED_USER_ID !== '' ? (string) AUTHED_USER_ID : null);
+        $outletId = defined('OUTLET_ID') && OUTLET_ID !== '' ? (string) OUTLET_ID : null;
+        $deviceId = defined('AUTHED_DEVICE_ID') && AUTHED_DEVICE_ID !== '' ? (string) AUTHED_DEVICE_ID : null;
+
+        // Mismo embudo que apiAuthTenant()/FiscalSecretStore: bajo `pos-app` la
+        // fila queda a nombre del operador del PIN, no de la terminal.
+        $actor = \Punto\Api\Auth\AuditActor::resolve(
+            $realm,
+            $companyId,
+            $userId,
+            $deviceId,
+            [
+                'reason'        => 'reemisión por rechazo de SIFEN',
+                'replacedDocId' => $oldDocId,
+                'newDocId'      => $newDocId,
+                'sifenReason'   => $sifenReason,
+            ]
+        );
+
+        tenantAudit(
+            [
+                'companyId' => $companyId,
+                'userId'    => $actor['userId'],
+                'outletId'  => $outletId,
+                'realm'     => $realm,
+            ],
+            'POST',
+            '/einvoice/reissue',
+            $oldDocId,
+            $actor['meta']
+        );
     }
 
     /**
@@ -996,6 +1205,14 @@ final class EInvoiceService
                 -- documento recién emitido pasa varios segundos en 'Pendiente'
                 -- (con Success:false, que NO es un rechazo) antes de resolverse.
                 AND (sifen_status IS NULL OR sifen_status NOT IN ('Aprobado', 'Rechazado'))
+                -- Un documento REEMPLAZADO (mig 201) ya no se persigue: su
+                -- veredicto fiscal quedó cerrado el día que el comercio emitió
+                -- el reemplazo. Sin esto, un rechazo cuyo `sifen_status` es un
+                -- string libre del proveedor ('FinalizadoERROR', que no está en
+                -- la lista de finales de arriba) vuelve a consultarse en cada
+                -- corrida para siempre, gastando cupo del LIMIT global que
+                -- comparten todos los tenants.
+                AND superseded_by IS NULL
               ORDER BY issued_at ASC NULLS LAST
               LIMIT ?",
             $params,
@@ -1237,8 +1454,9 @@ final class EInvoiceService
         $rs = ncmExecute(
             "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
                     d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
-                    d.sifen_status, d.sifen_checked_at, d.sifen_result,
+                    d.sifen_status, d.sifen_checked_at, d.sifen_result, d.superseded_by,
                     t.transactionTotal AS total, t.transactionCurrency AS currency,
+                    t.customerId AS contact_id, t.outletId AS outlet_id,
                     c.contactName AS client_name
                FROM einvoice_document d
                LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
@@ -1266,8 +1484,11 @@ final class EInvoiceService
             'sifenStatus'    => $rs['sifen_status'] ?? null,
             'sifenCheckedAt' => $rs['sifen_checked_at'] ?? null,
             'sifenReason'    => self::sifenReason($rs['sifen_result'] ?? null),
+            'supersededBy'   => $rs['superseded_by'] ?? null,
             'total'          => $rs['total'] !== null ? (float) $rs['total'] : null,
             'currency'       => $rs['currency'] ?? null,
+            'contactId'      => $rs['contact_id'] ?? null,
+            'outletId'       => $rs['outlet_id'] ?? null,
             'clientName'     => $rs['client_name'] ?? null,
         ];
     }
@@ -1364,10 +1585,18 @@ final class EInvoiceService
             return;
         }
 
+        // El predicado `WHERE superseded_by IS NULL` NO es opcional: desde la
+        // mig 201 el índice de idempotencia es PARCIAL (solo los documentos
+        // ACTIVOS — una reemisión deja la fila vieja como registro), y
+        // Postgres exige repetir el predicado del índice parcial en el
+        // conflict_target para poder inferirlo. Sin eso: "no unique or
+        // exclusion constraint matching the ON CONFLICT specification" en cada
+        // venta. La garantía es la misma de siempre: una venta encolada dos
+        // veces no duplica el documento.
         ncmExecute(
             "INSERT INTO einvoice_document (companyid, transactionid, doctype, status)
              VALUES (?, ?, ?, 'pending')
-             ON CONFLICT (companyid, transactionid, doctype) DO NOTHING",
+             ON CONFLICT (companyid, transactionid, doctype) WHERE superseded_by IS NULL DO NOTHING",
             [$companyId, $transactionId, $doctype]
         );
     }
@@ -1386,8 +1615,13 @@ final class EInvoiceService
         }
 
         $doc = ncmExecute(
+            // `superseded_by IS NULL`: una factura que se reemitió por rechazo
+            // (mig 201) NO es la factura de esa venta — la de verdad es su
+            // reemplazo. Colgar la NC del documento reemplazado la ataría a un
+            // comprobante que SIFEN no aceptó.
             "SELECT einvoicedocid FROM einvoice_document
               WHERE companyid = ? AND transactionid = ? AND status = 'issued' AND cdc IS NOT NULL
+                AND superseded_by IS NULL
               LIMIT 1",
             [$companyId, $parentId]
         );

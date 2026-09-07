@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -114,7 +114,20 @@ const outletSchema = z.object({
   priceListId: z.string().nullable(),
 })
 
+/** Tabs deep-linkeables por `?tab=`: cualquier otro valor cae en la ficha. */
+const OUTLET_TABS = ["general", "depositos", "cajas"] as const
+
 export default function OutletEditPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que contacts/[id]/page.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <OutletEditPageInner />
+    </React.Suspense>
+  )
+}
+
+function OutletEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
   // Modo create: el route param es la string literal "new" (Next dynamic
@@ -123,6 +136,7 @@ export default function OutletEditPage() {
   // caso — no hay nada que fetchear.
   const isNew = id === "new"
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data, isLoading, error } = useOutlet(isNew ? undefined : id)
   const create = useCreateOutlet()
   const update = useUpdateOutlet()
@@ -156,7 +170,14 @@ export default function OutletEditPage() {
     defaultValues: emptyValues(),
   })
 
-  const [activeTab, setActiveTab] = React.useState("general")
+  // `?tab=cajas` deja linkear DERECHO al timbrado de la caja desde otra
+  // pantalla — lo usa "Corregir y emitir de nuevo" de Facturación electrónica
+  // cuando SIFEN rechaza por timbrado (context/28 §F7 N2): mandar al operador
+  // a la sucursal y que busque solo la pestaña es media indicación.
+  const tabParam = searchParams.get("tab")
+  const [activeTab, setActiveTab] = React.useState(
+    (OUTLET_TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as string) : "general",
+  )
   // "depositos"/"cajas" quedan afuera del mapa: son listados propios (sin
   // campos del form), no hay nada ahí que pueda quedar "invisible".
   const { tabsWithErrors, onInvalid } = useFormTabErrors({

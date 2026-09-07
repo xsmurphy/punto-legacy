@@ -184,8 +184,22 @@ export interface EInvoiceDocument {
    * null si SIFEN no dio detalle o el documento no se reconcilió todavía.
    */
   sifenReason: string | null
+  /**
+   * Id del documento que REEMPLAZA a este tras una reemisión por rechazo
+   * (`context/28` §F7 N2, mig 201). No-null = el documento quedó solo como
+   * registro histórico: no se le ofrece emitir de nuevo y la pantalla lo pinta
+   * "Reemplazado". El activo de esa venta es el otro.
+   */
+  supersededBy: string | null
   total: number | null
   currency: string | null
+  /**
+   * Cliente y sucursal de la VENTA (no del documento) — el rechazo se corrige
+   * en la ficha del cliente o en el timbrado de la caja, y sin estos ids el
+   * panel solo podría describir el camino en vez de linkearlo.
+   */
+  contactId: string | null
+  outletId: string | null
   clientName: string | null
 }
 

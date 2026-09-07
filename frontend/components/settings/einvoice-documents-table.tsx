@@ -2,7 +2,8 @@
 
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { FileText, RefreshCw, Ban, Receipt } from "lucide-react"
+import Link from "next/link"
+import { FileText, RefreshCw, Ban, Receipt, FilePlus2, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
 import { DataTable } from "@/components/data-table/data-table"
@@ -28,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { EmptyState } from "@/components/empty-state"
 
@@ -36,6 +38,7 @@ import {
   useCancelEinvoiceDocument,
   useEinvoiceDocuments,
   useReconcileEinvoiceDocuments,
+  useReissueEinvoiceDocument,
   useRetryEinvoiceDocument,
 } from "@/hooks/use-einvoice"
 import { usePermission } from "@/hooks/use-permissions"
@@ -43,6 +46,7 @@ import { formatAmount, formatCurrencyAmount } from "@/lib/format-money"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatDateTime } from "@/lib/format-date"
 import { sifenVerdict } from "@/lib/einvoice/sifen-status"
+import { rejectionFix } from "@/lib/einvoice/rejection-fix"
 import type { EInvoiceDocument, EInvoiceDocumentStatus } from "@/lib/types/einvoice"
 import { CurrencyFlag } from "@/components/ui/country-flag"
 
@@ -58,6 +62,23 @@ const STATUS_LABEL: Record<EInvoiceDocumentStatus, string> = {
 function StatusCell({ doc }: { doc: EInvoiceDocument }) {
   const verdict = sifenVerdict(doc.sifenStatus)
 
+  if (doc.supersededBy) {
+    // Reemplazado por una reemisión (context/28 §F7 N2): un documento
+    // reemplazado SIEMPRE es uno rechazado, así que va ANTES de esa rama o
+    // seguiría gritando en rojo un problema que el comercio ya resolvió. Muted
+    // y no destructivo a propósito: sigue en el listado por trazabilidad —SIFEN
+    // también lo tiene— pero no pide ninguna acción.
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="secondary">Reemplazado</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          SIFEN lo rechazó y el comercio emitió un documento nuevo en su lugar. Queda como registro.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
   if (doc.status === "cancelled") {
     // Anulado por el comercio: es lo último que le pasó al documento y es
     // decisión propia, así que gana incluso sobre un rechazo previo de SIFEN.
@@ -143,6 +164,68 @@ function formatCreatedAt(iso: string | null): string {
 }
 
 /**
+ * Cuerpo del diálogo de reemisión: el MOTIVO del rechazo primero, y debajo el
+ * camino concreto para corregirlo (`lib/einvoice/rejection-fix.ts`).
+ *
+ * Por qué el link y no solo el texto: reemitir sin haber corregido la causa
+ * produce un segundo rechazo, y "andá a la ficha del cliente" con la ficha a un
+ * click es la diferencia entre que el comercio lo resuelva o llame a soporte.
+ * Componente aparte del diálogo porque `reissueTarget` puede ser null y así el
+ * doc entra tipado, sin encadenar optional chaining en cada línea.
+ */
+function ReissueBody({ doc }: { doc: EInvoiceDocument }) {
+  const fix = rejectionFix(doc.sifenReason)
+
+  // El emisor NO lleva link: esta tabla vive en la misma pantalla donde se
+  // configura (card Conexión, arriba), así que un botón que navega a donde ya
+  // estás es peor que una indicación clara.
+  const link =
+    fix.target === "client" && doc.contactId
+      ? { href: `/contacts/${doc.contactId}`, label: "Abrir la ficha del cliente" }
+      : fix.target === "stamp" && doc.outletId
+      ? { href: `/outlets/${doc.outletId}?tab=cajas`, label: "Abrir las cajas de la sucursal" }
+      : null
+
+  return (
+    <div className="space-y-4 py-2">
+      <Alert variant="destructive">
+        <AlertTitle>Motivo del rechazo</AlertTitle>
+        <AlertDescription>
+          {doc.sifenReason ?? "SIFEN rechazó el documento y no informó el motivo."}
+        </AlertDescription>
+      </Alert>
+
+      <div className="space-y-2">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Qué corregir
+        </p>
+        <p className="text-sm font-medium">{fix.title}</p>
+        <p className="text-sm text-muted-foreground">{fix.description}</p>
+        {fix.target === "client" && !doc.contactId && (
+          <p className="text-sm text-muted-foreground">
+            Esta venta no tiene cliente asociado, así que no hay ficha que corregir: revisá los datos
+            fiscales con los que se facturó antes de emitir de nuevo.
+          </p>
+        )}
+        {link && (
+          <Button variant="outline" size="sm" asChild>
+            <Link href={link.href}>{link.label}</Link>
+          </Button>
+        )}
+      </div>
+
+      {fix.warning && (
+        <Alert>
+          <AlertTriangle />
+          <AlertTitle>Revisá antes de emitir</AlertTitle>
+          <AlertDescription>{fix.warning}</AlertDescription>
+        </Alert>
+      )}
+    </div>
+  )
+}
+
+/**
  * Card "Documentos" — listado de la operación de facturación electrónica
  * (F2): documentos ya encolados/emitidos, no la conexión de la cuenta (esa
  * es la card "Conexión" de arriba, F0). Usa el <DataTable> reusable del
@@ -179,15 +262,28 @@ export function EInvoiceDocumentsCard() {
   const { data, isLoading } = useEinvoiceDocuments(filters)
   const retry = useRetryEinvoiceDocument()
   const cancel = useCancelEinvoiceDocument()
+  const reissue = useReissueEinvoiceDocument()
   const reconcile = useReconcileEinvoiceDocuments()
 
   const [cancelTarget, setCancelTarget] = React.useState<EInvoiceDocument | null>(null)
   const [cancelReason, setCancelReason] = React.useState("")
+  const [reissueTarget, setReissueTarget] = React.useState<EInvoiceDocument | null>(null)
 
   function handleRetry(doc: EInvoiceDocument) {
     retry.mutate(doc.id, {
       onSuccess: () => toast.success("Documento reencolado para reintento."),
       onError: (err) => toast.error("No se pudo reintentar", { description: err.message }),
+    })
+  }
+
+  function confirmReissue() {
+    if (!reissueTarget) return
+    reissue.mutate(reissueTarget.id, {
+      onSuccess: () => {
+        toast.success("Se encoló un documento nuevo. El anterior queda como registro.")
+        setReissueTarget(null)
+      },
+      onError: (err) => toast.error("No se pudo emitir de nuevo", { description: err.message }),
     })
   }
 
@@ -306,6 +402,18 @@ export function EInvoiceDocumentsCard() {
                   disabled: retry.isPending,
                 },
                 {
+                  // NO es "reintentar": un rechazado está `issued` y
+                  // reintentarlo emitiría el documento fiscal dos veces (ver
+                  // EInvoiceService::reissue). El label dice lo que realmente
+                  // pasa — primero se corrige, después se emite OTRO documento.
+                  label: "Corregir y emitir de nuevo",
+                  icon: FilePlus2,
+                  onSelect: () => setReissueTarget(doc),
+                  hidden: sifenVerdict(doc.sifenStatus) !== "rejected" || doc.supersededBy !== null,
+                  disabled: !canManage || reissue.isPending,
+                  reason: !canManage ? "Requiere el permiso de facturación electrónica" : undefined,
+                },
+                {
                   label: "Cancelar",
                   icon: Ban,
                   variant: "destructive",
@@ -319,7 +427,7 @@ export function EInvoiceDocumentsCard() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canManage, retry.isPending, bootstrap],
+    [canManage, retry.isPending, reissue.isPending, bootstrap],
   )
 
   return (
@@ -424,6 +532,34 @@ export function EInvoiceDocumentsCard() {
             </Button>
             <Button variant="destructive" onClick={confirmCancel} disabled={cancel.isPending}>
               Confirmar cancelación
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* "Corregir y emitir de nuevo" — N2 de context/28 §F7. NO es un
+          reintento: emite un documento NUEVO y deja el rechazado como
+          registro, así que confirma en Dialog (nunca un click directo de la
+          fila) y muestra ANTES el motivo y dónde se corrige. El botón no es
+          destructivo — reemitir es constructivo: lo destructivo sería dejar al
+          comercio sin comprobante válido. */}
+      <Dialog open={reissueTarget !== null} onOpenChange={(open) => { if (!open) setReissueTarget(null) }}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Corregir y emitir de nuevo</DialogTitle>
+            <DialogDescription>
+              Se emite un documento NUEVO, con número nuevo, y el rechazado queda como registro. Los
+              montos y los ítems de la venta no se tocan: se corrigen los datos fiscales, y el
+              documento nuevo se arma con los datos ya corregidos.
+            </DialogDescription>
+          </DialogHeader>
+          {reissueTarget && <ReissueBody doc={reissueTarget} />}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReissueTarget(null)}>
+              Volver
+            </Button>
+            <Button onClick={confirmReissue} disabled={reissue.isPending}>
+              Emitir de nuevo
             </Button>
           </DialogFooter>
         </DialogContent>
