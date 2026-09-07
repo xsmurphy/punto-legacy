@@ -655,7 +655,9 @@ final class TransactionsService
                     CASE WHEN sifen_status IS NOT NULL AND sifen_status NOT ILIKE '%aprobad%'
                          THEN sifen_result END AS sifen_result
                FROM einvoice_document
-              WHERE companyid = ? AND transactionid IN ($ph)
+              -- Solo el documento ACTIVO por venta: un rechazado reemplazado
+              -- (mig 201, superseded_by) es historia, no el estado del reporte.
+              WHERE companyid = ? AND superseded_by IS NULL AND transactionid IN ($ph)
               ORDER BY created_at DESC NULLS LAST, einvoicedocid DESC",
             array_merge([$companyId], $ids)
         );

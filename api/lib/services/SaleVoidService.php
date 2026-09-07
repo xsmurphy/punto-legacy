@@ -347,7 +347,11 @@ final class SaleVoidService
             // `FOR UPDATE` de esta transacción no queda colgado indefinido.
             $doctype = ((int) $tx['transactiontype']) === 0 ? 'FC' : 'FCR';
             $doc = ncmExecute(
-                "SELECT einvoicedocid FROM einvoice_document WHERE transactionid = ? AND companyid = ? AND doctype = ? AND status = 'issued' LIMIT 1",
+                // `superseded_by IS NULL`: desde la mig 201 una venta puede tener un
+                // documento RECHAZADO por SIFEN reemplazado por uno nuevo. El que
+                // se anula es el ACTIVO — cancelar el reemplazado sería operar
+                // contra un documento que SIFEN ya rechazó.
+                "SELECT einvoicedocid FROM einvoice_document WHERE transactionid = ? AND companyid = ? AND doctype = ? AND status = 'issued' AND superseded_by IS NULL LIMIT 1",
                 [$transactionId, $companyId, $doctype]
             );
             if ($doc) {

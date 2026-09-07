@@ -355,6 +355,7 @@ final class TransactionDetailService
             $eiDoc = ncmExecute(
                 "SELECT cdc FROM einvoice_document
                   WHERE companyid = ? AND transactionid = ? AND status = 'issued'
+                    AND superseded_by IS NULL
                     AND cdc IS NOT NULL
                   ORDER BY issued_at DESC NULLS LAST LIMIT 1",
                 [$companyId, $id]
