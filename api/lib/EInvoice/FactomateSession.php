@@ -41,6 +41,9 @@ final class FactomateSession
 {
     private const EXPIRY_MARGIN_SECONDS = 5 * 60;
     private const DEFAULT_TTL_SECONDS   = 24 * 60 * 60; // PhoneLogin documenta 24 h.
+    // TTL del bearer de contingencia (paso 1 directo, PhoneLogin caído) cuando
+    // el /Token no declara expiración propia. Corto a propósito — ver Camino 3.
+    private const STEP1_FALLBACK_TTL_SECONDS = 10 * 60;
 
     /**
      * Cache por request del bearer ADMIN (15 min de vida real, pero un
@@ -160,8 +163,39 @@ final class FactomateSession
 
         $password = CredentialVault::decrypt($passwordEnc);
         $step1 = $this->provider->token($environment, $login, $username, $password);
-        $step2 = $this->provider->phoneLogin($environment, $login, (string) $step1['token']);
-        return $this->persistBearer($companyId, $step2);
+        try {
+            $step2 = $this->provider->phoneLogin($environment, $login, (string) $step1['token']);
+            return $this->persistBearer($companyId, $step2);
+        } catch (\RuntimeException $e) {
+            // Camino 3 — CONTINGENCIA (2026-09-07): /api/account/PhoneLogin de
+            // Factomate devuelve HTTP 500 para CUALQUIER entrada (verificado
+            // en vivo: falla igual con el email, con un celular registrado,
+            // con uno inventado y hasta SIN el header — mientras el mismo
+            // token pasa 200 en GetUserInfo). Reclamado a su soporte.
+            //
+            // El bearer del PASO 1 (/Token con la credencial PROPIA del
+            // tenant) autentica los endpoints reales con la identidad
+            // correcta — verificado en vivo el mismo día: GetUserInfo,
+            // BranchDocumentType/Get y PaymentMethod/get → 200, y
+            // CreateExternal ya había funcionado con él. Se usa directo.
+            //
+            // SOLO acá, en la cadena con credencial propia: el fallback NO
+            // existe para la cadena admin, porque con un token del paso 1 la
+            // identidad ES la del dueño del token (se verificó que
+            // GetUserInfo con el bearer admin + phonenumber del tenant
+            // devuelve los datos del ADMIN) — usar el token admin para
+            // operaciones del tenant operaría con la identidad equivocada.
+            //
+            // El TTL respeta la expiración que el /Token declare y, si no
+            // declara, cae a 10 minutos — corto A PROPÓSITO: cuando
+            // Factomate arregle PhoneLogin, el próximo refresh vuelve solo a
+            // la cadena buena (paso 2, bearer de 24 h) sin tocar nada.
+            error_log("[FactomateSession] PhoneLogin caído para $companyId — contingencia con el bearer del paso 1 (TTL corto): " . $e->getMessage());
+            return $this->persistBearer($companyId, [
+                'token'     => (string) $step1['token'],
+                'expiresAt' => $step1['expiresAt'] ?? date('c', time() + self::STEP1_FALLBACK_TTL_SECONDS),
+            ]);
+        }
     }
 
     /** @param array{token:string,expiresAt:?string} $step2 */
