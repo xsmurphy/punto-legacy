@@ -51,8 +51,16 @@ final class NotificationOutbox
      * SQL y no PHP: el cálculo va adentro del mismo UPDATE que hace el claim,
      * así el nuevo `next_attempt_at` se escribe de forma atómica con el
      * incremento de `attempts` (ver `claim()`).
+     *
+     * Los casts a `double precision` son OBLIGATORIOS, no cosmética. Con
+     * argumentos enteros, `power()` es ambigua entre la variante float8 y la
+     * numeric — y `interval * numeric` NO existe como operador en Postgres.
+     * Resolver mal la sobrecarga acá no rompe el build ni el `php -l`: rompe
+     * en la primera corrida del cron, en producción, con la cola entera
+     * parada. Mismo tipo de falla que el `?` de jsonb contra PDO.
      */
-    private const BACKOFF_SQL = "least(interval '5 minutes' * power(3, attempts), interval '24 hours')";
+    private const BACKOFF_SQL =
+        "least(interval '5 minutes' * power(3::double precision, attempts::double precision), interval '24 hours')";
 
     /**
      * Encola una notificación. Idempotente por
