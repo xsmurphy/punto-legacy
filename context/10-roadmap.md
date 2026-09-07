@@ -2520,6 +2520,17 @@ no se duplican acá.
   igual — igual que la tenencia de caja), botón deshabilitado + tooltip, y
   avisos previos a los 7/3 días como los del plan (`context/34` D7). Encolado
   como slice.
+- **KuDE en PDF con PLANTILLA FIJA (owner 2026-09-07, decisión cerrada).**
+  El formato digital de la factura electrónica NO sale del document builder:
+  documento propio con plantilla fija (patrón `context/56` — la cotización ya
+  decidió igual y por la misma razón: el motor de hoja no pagina), espejo del
+  KuDE real de referencia (`context/refs/kude-ejemplo-balloon-party.pdf`),
+  generado bajo demanda y cacheado. Es lo que viaja por email (el envío YA
+  está implementado: `enqueueKudeEmail` + `NotificationOutbox` — la fila de
+  `context/57` en la tabla de docs está desactualizada) y lo que baja el
+  portal, con marca Punto en vez del PDF de Factomate. El TICKET en cambio sí
+  es del document builder, con los bloques CDC/QR/leyenda seleccionables
+  (slice `frontend/kude-impreso`, en curso).
 - **REABIERTA (owner 2026-09-07): la numeración fiscal debe ser la del
   EMISOR, no la de Factomate — el ticket debe ser la representación impresa
   de la factura electrónica.** Corrige la D6 de `context/42` y el
