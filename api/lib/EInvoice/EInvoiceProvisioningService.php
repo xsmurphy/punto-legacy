@@ -26,7 +26,8 @@ namespace Punto\Api\EInvoice;
  *
  *   1. createExternal      → factomate_tenant_id/user_id + credencial al vault
  *   2. PUT /api/Tenant     → datos fiscales (tipo contribuyente, CSC, textos)
- *   3. POST /api/Activity  → actividad económica SIFEN
+ *   3. POST /api/Activity  → UNA llamada por actividad económica SIFEN
+ *      (principal + secundarias), con checkpoint por código
  *   4. POST /api/BranchDocumentType → UN timbrado POR CAJA (FC + NC),
  *      checkpoint por caja + mapa registerId → ids (la emisión usa el
  *      timbrado de la caja de la venta — EInvoiceService::stampForDocument)
@@ -498,25 +499,65 @@ final class EInvoiceProvisioningService
         $this->mergeProvisioning($companyId, ['certUploaded' => true]);
     }
 
+    /**
+     * Actividades económicas del emisor — son VARIAS: la constancia de RUC
+     * trae una principal y las secundarias que el contribuyente declaró, y
+     * SIFEN las acepta todas (`POST /api/Activity` da de alta UNA por
+     * llamada, así que se llama una vez por actividad).
+     *
+     * Checkpoint POR CÓDIGO (`provisioning.activitiesCreated`), mismo criterio
+     * que los timbrados por caja: re-provisionar con una actividad nueva manda
+     * SOLO la que falta y no re-crea las que el emisor ya tiene. Se persiste
+     * después de CADA alta —no al final del loop— para que un fallo a mitad de
+     * camino no vuelva a mandar las anteriores.
+     *
+     * Retrocompat: las cuentas provisionadas antes de 2026-09-06 tienen el
+     * booleano `activityCreated`, que significaba "la única actividad ya
+     * está". Se interpreta como la PRIMERA de la lista (la principal), que es
+     * exactamente la que aquel formulario mandaba.
+     */
     private function ensureActivityCreated(string $companyId, array $fiscal, string $environment, string $login, string $bearer, int $tenantId): void
     {
-        if ($this->checkpoint($companyId, 'activityCreated')) {
+        $actividades = is_array($fiscal['actividades'] ?? null) ? $fiscal['actividades'] : [];
+        if ($actividades === []) {
             return;
         }
 
-        $raw = $this->provider->createActivity(
-            $environment,
-            $login,
-            $bearer,
-            $tenantId,
-            (int) $fiscal['actividadCodigo'],
-            (string) $fiscal['actividadNombre']
-        );
-        if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
-            throw new \RuntimeException('No se pudo registrar la actividad económica: ' . (string) ($raw['Error'] ?? $raw['error']));
+        $row  = ncmExecute('SELECT provisioning FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        $prov = json_decode((string) ($row['provisioning'] ?? '{}'), true);
+        $prov = is_array($prov) ? $prov : [];
+
+        $done = [];
+        foreach ((array) ($prov['activitiesCreated'] ?? []) as $codigo) {
+            $done[] = (int) $codigo;
+        }
+        if ($done === [] && !empty($prov['activityCreated'])) {
+            $done[] = (int) ($actividades[0]['codigo'] ?? 0);
         }
 
-        $this->mergeProvisioning($companyId, ['activityCreated' => true]);
+        foreach ($actividades as $actividad) {
+            $codigo = (int) ($actividad['codigo'] ?? 0);
+            if ($codigo <= 0 || in_array($codigo, $done, true)) {
+                continue;
+            }
+
+            $raw = $this->provider->createActivity(
+                $environment,
+                $login,
+                $bearer,
+                $tenantId,
+                $codigo,
+                (string) ($actividad['nombre'] ?? '')
+            );
+            if (empty($raw['Success'] ?? $raw['success'] ?? true) && !empty($raw['Error'] ?? $raw['error'] ?? '')) {
+                throw new \RuntimeException(
+                    "No se pudo registrar la actividad económica {$codigo}: " . (string) ($raw['Error'] ?? $raw['error'])
+                );
+            }
+
+            $done[] = $codigo;
+            $this->mergeProvisioning($companyId, ['activitiesCreated' => $done]);
+        }
     }
 
     /**
@@ -610,22 +651,76 @@ final class EInvoiceProvisioningService
             throw new \RuntimeException('Ingresá un email de facturación válido.');
         }
 
-        $actCodigo = (int) ($form['actividadCodigo'] ?? 0);
-        $actNombre = trim((string) ($form['actividadNombre'] ?? ''));
-        if ($actCodigo <= 0 || $actNombre === '') {
-            throw new \RuntimeException('La actividad económica (código y descripción) es obligatoria.');
+        return [
+            'email'         => $email,
+            'taxpayerType'  => isset($form['taxpayerType']) && is_numeric($form['taxpayerType']) ? (int) $form['taxpayerType'] : null,
+            'regimeId'      => isset($form['regimeId']) && is_numeric($form['regimeId']) ? (int) $form['regimeId'] : null,
+            'actividades'   => $this->normalizeActivities($form),
+            'cscId'         => trim((string) ($form['cscId'] ?? '')),
+            'cscSecret'     => (string) ($form['cscSecret'] ?? ''),
+            'infoAdicional' => trim((string) ($form['infoAdicional'] ?? '')),
+        ];
+    }
+
+    /**
+     * Lista de actividades económicas, normalizada y en orden: la PRIMERA es
+     * la principal. El orden ES el dato — no hay bandera aparte, igual que en
+     * la constancia de RUC.
+     *
+     * Retrocompat de ENTRADA: un formulario viejo (o el espejo `fiscal` de una
+     * cuenta anterior a 2026-09-06, que se re-manda al reanudar un alta a
+     * medias) trae el par suelto `actividadCodigo`/`actividadNombre`; se lee
+     * como lista de una. No se migra nada en la base: `fiscal` se reescribe
+     * entero en cada guardado, así que la fila queda con el shape nuevo la
+     * primera vez que el comercio guarda.
+     *
+     * Se deduplica por código porque el alta en el proveedor no es idempotente
+     * y dos filas con el mismo código serían dos POST /api/Activity iguales.
+     *
+     * @param array<string,mixed> $form
+     * @return array<int,array{codigo:int,nombre:string}>
+     * @throws \RuntimeException
+     */
+    private function normalizeActivities(array $form): array
+    {
+        $raw = [];
+        if (isset($form['actividades']) && is_array($form['actividades'])) {
+            foreach ($form['actividades'] as $fila) {
+                if (is_array($fila)) {
+                    $raw[] = $fila;
+                }
+            }
+        }
+        if ($raw === []) {
+            $raw[] = [
+                'codigo' => $form['actividadCodigo'] ?? 0,
+                'nombre' => $form['actividadNombre'] ?? '',
+            ];
         }
 
-        return [
-            'email'           => $email,
-            'taxpayerType'    => isset($form['taxpayerType']) && is_numeric($form['taxpayerType']) ? (int) $form['taxpayerType'] : null,
-            'regimeId'        => isset($form['regimeId']) && is_numeric($form['regimeId']) ? (int) $form['regimeId'] : null,
-            'actividadCodigo' => $actCodigo,
-            'actividadNombre' => $actNombre,
-            'cscId'           => trim((string) ($form['cscId'] ?? '')),
-            'cscSecret'       => (string) ($form['cscSecret'] ?? ''),
-            'infoAdicional'   => trim((string) ($form['infoAdicional'] ?? '')),
-        ];
+        $actividades = [];
+        $vistos = [];
+        foreach ($raw as $fila) {
+            $codigo = (int) ($fila['codigo'] ?? 0);
+            $nombre = trim((string) ($fila['nombre'] ?? ''));
+            if ($codigo <= 0 || $nombre === '') {
+                throw new \RuntimeException(
+                    'Cada actividad económica necesita código y descripción. '
+                    . 'Completá las que falten o quitá las filas que sobren.'
+                );
+            }
+            if (in_array($codigo, $vistos, true)) {
+                continue;
+            }
+            $vistos[] = $codigo;
+            $actividades[] = ['codigo' => $codigo, 'nombre' => $nombre];
+        }
+
+        if ($actividades === []) {
+            throw new \RuntimeException('La actividad económica principal (código y descripción) es obligatoria.');
+        }
+
+        return $actividades;
     }
 
     /**

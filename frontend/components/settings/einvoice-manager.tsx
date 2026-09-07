@@ -24,7 +24,7 @@
  */
 
 import * as React from "react"
-import { CreditCard, Loader2, Search, ShieldCheck, Trash2, Upload } from "lucide-react"
+import { CreditCard, Loader2, Plus, Search, ShieldCheck, Trash2, Upload } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -68,7 +68,12 @@ import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useSettings, useTaxpayerLookup, useUpdateSettings } from "@/hooks/use-settings"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
-import type { EInvoiceConfig, EInvoiceFiscalForm, EInvoiceStatus } from "@/lib/types/einvoice"
+import type {
+  EInvoiceActivity,
+  EInvoiceConfig,
+  EInvoiceFiscalForm,
+  EInvoiceStatus,
+} from "@/lib/types/einvoice"
 import Link from "next/link"
 
 function StatusBadge({ status }: { status: EInvoiceStatus }) {
@@ -139,11 +144,31 @@ export function EInvoiceManager() {
 const EMPTY_FORM: EInvoiceFiscalForm = {
   email: "",
   taxpayerType: 2,
-  actividadCodigo: "",
-  actividadNombre: "",
+  actividades: [{ codigo: "", nombre: "" }],
   cscId: "",
   cscSecret: "",
   infoAdicional: "",
+}
+
+/**
+ * Actividades del espejo guardado → filas del formulario. La PRIMERA es la
+ * principal: el orden es el dato.
+ *
+ * Retrocompat: una cuenta dada de alta antes de 2026-09-06 guardó una sola
+ * actividad en el par suelto `actividadCodigo`/`actividadNombre`; se lee como
+ * lista de una y al guardar queda con el shape nuevo.
+ */
+function activitiesFromFiscal(
+  fiscal: Partial<EInvoiceFiscalForm> | undefined,
+): EInvoiceActivity[] {
+  const list = fiscal?.actividades
+  if (Array.isArray(list) && list.length > 0) {
+    return list.map((a) => ({ codigo: a?.codigo ?? "", nombre: a?.nombre ?? "" }))
+  }
+  if (fiscal?.actividadCodigo || fiscal?.actividadNombre) {
+    return [{ codigo: fiscal.actividadCodigo ?? "", nombre: fiscal.actividadNombre ?? "" }]
+  }
+  return [{ codigo: "", nombre: "" }]
 }
 
 /**
@@ -195,9 +220,11 @@ function CompanyFiscalSummary() {
  * la empresa, vía `useUpdateSettings`) antes de provisionar. No hay una
  * segunda copia de estos datos en ningún lado.
  *
- * La razón social se puede traer del padrón con el RUC, y llega como
- * SUGERENCIA editable: el padrón es la fuente correcta pero no es infalible, y
- * el que responde ante la SET es el comercio.
+ * La razón social NO se tipea: es SOLO LECTURA y se completa únicamente con
+ * el botón Buscar (owner, 2026-09-06). Es un dato del padrón del RUC, no del
+ * teclado — la SET lo valida contra el padrón, así que un valor escrito a mano
+ * solo puede coincidir con el padrón o hacer fallar la emisión. Dejarlo
+ * editable "por las dudas" era invitar a la segunda.
  */
 function CompanyFiscalFields({
   ruc,
@@ -221,13 +248,14 @@ function CompanyFiscalFields({
     lookup.mutate(value, {
       onSuccess: (found) => {
         onChange({ ruc: found.ruc || value, billingName: found.name })
-        toast.success("Razón social traída del padrón.", {
-          description: "Revisala: si el padrón la tiene distinta, corregila antes de guardar.",
-        })
+        toast.success("Razón social traída del padrón.")
       },
+      // Sin escape a mano: la razón social sale del padrón o no sale (ver
+      // CompanyFiscalFields). Lo accionable es revisar el RUC o reintentar —
+      // el mensaje del backend ya dice si lo que falta es configuración.
       onError: (err) =>
-        toast.error("No se encontró ese RUC en el padrón", {
-          description: `${err.message} Podés cargar la razón social a mano.`,
+        toast.error("No pudimos traer la razón social", {
+          description: `${err.message} Revisá que el RUC esté completo (con dígito verificador) y volvé a buscar.`,
         }),
     })
   }
@@ -266,18 +294,21 @@ function CompanyFiscalFields({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="ei-billing-name">Razón social</Label>
+          {/* Campo DERIVADO: se completa con Buscar, nunca a mano (owner,
+              2026-09-06). bg-muted es la señal de que no se tipea acá. */}
           <Input
             id="ei-billing-name"
             value={billingName}
-            onChange={(e) => onChange({ billingName: e.target.value })}
-            placeholder="Como figura en el padrón de la SET"
+            readOnly
+            className="bg-muted"
+            placeholder="Se completa buscando el RUC"
           />
         </div>
       </div>
       <p className="text-sm text-muted-foreground">
         La razón social es el nombre legal del contribuyente, no el nombre comercial: la SET la
-        valida contra el padrón del RUC. Buscá el RUC para traerla y corregila si hace falta. Se
-        guarda junto con el alta, en{" "}
+        valida contra el padrón del RUC, así que sale del padrón y no se carga a mano — buscá el
+        RUC para traerla. Se guarda junto con el alta, en{" "}
         <Link href="/settings" className="underline underline-offset-2">
           Configuración del negocio
         </Link>
@@ -373,10 +404,14 @@ function ProvisionForm({
 
   // Reanudación: si un alta anterior quedó a medias, el backend guardó el
   // formulario en `fiscal` y este estado lo pre-carga para reintentar.
-  const [form, setForm] = React.useState<EInvoiceFiscalForm>(() => ({
-    ...EMPTY_FORM,
-    ...initial,
-  }))
+  const [form, setForm] = React.useState<EInvoiceFiscalForm>(() => {
+    const base: EInvoiceFiscalForm = { ...EMPTY_FORM, ...initial }
+    // El par viejo no se reenvía: la lista es la fuente y el backend reescribe
+    // `fiscal` entero (ver activitiesFromFiscal).
+    delete base.actividadCodigo
+    delete base.actividadNombre
+    return { ...base, actividades: activitiesFromFiscal(initial) }
+  })
   const [fiscalData, setFiscalData] = React.useState<{ ruc: string; billingName: string } | null>(
     null,
   )
@@ -391,6 +426,26 @@ function ProvisionForm({
 
   function patchFiscal(p: { ruc?: string; billingName?: string }) {
     setFiscalData({ ruc, billingName, ...p })
+  }
+
+  function patchActivity(index: number, p: Partial<EInvoiceActivity>) {
+    setForm((f) => ({
+      ...f,
+      actividades: f.actividades.map((a, i) => (i === index ? { ...a, ...p } : a)),
+    }))
+  }
+
+  function addActivity() {
+    setForm((f) => ({ ...f, actividades: [...f.actividades, { codigo: "", nombre: "" }] }))
+  }
+
+  /** La principal no se puede quitar: el emisor necesita al menos una. */
+  function removeActivity(index: number) {
+    setForm((f) =>
+      f.actividades.length <= 1
+        ? f
+        : { ...f, actividades: f.actividades.filter((_, i) => i !== index) },
+    )
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -477,36 +532,69 @@ function ProvisionForm({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-act-code">Actividad económica (código)</Label>
-              <Input
-                id="ei-act-code"
-                value={form.actividadCodigo === "" ? "" : String(form.actividadCodigo)}
-                onChange={(e) => {
-                  const digits = e.target.value.replace(/\D/g, "")
-                  patch({ actividadCodigo: digits === "" ? "" : Number(digits) })
-                }}
-                placeholder="Ej: 62010"
-                className="tabular-nums"
+          {/* Actividades económicas: la constancia de RUC trae una principal
+              y las secundarias que el contribuyente declaró, y la SET las
+              acepta todas. La primera fila es la principal — el orden es el
+              dato, no hay selector aparte. */}
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <Label>Actividades económicas</Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={addActivity}
                 disabled={!canManage}
-              />
+              >
+                <Plus className="size-4" />
+                Agregar actividad
+              </Button>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ei-act-name">Actividad económica (descripción)</Label>
-              <Input
-                id="ei-act-name"
-                value={form.actividadNombre}
-                onChange={(e) => patch({ actividadNombre: e.target.value })}
-                placeholder="Ej: Restaurantes y servicios de comida"
-                disabled={!canManage}
-              />
-            </div>
+
+            {form.actividades.map((actividad, index) => (
+              <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="shrink-0 sm:w-28">
+                  <Badge variant={index === 0 ? "default" : "secondary"}>
+                    {index === 0 ? "Principal" : "Secundaria"}
+                  </Badge>
+                </div>
+                <Input
+                  aria-label={`Código de la actividad ${index + 1}`}
+                  value={actividad.codigo === "" ? "" : String(actividad.codigo)}
+                  onChange={(e) => {
+                    const digits = e.target.value.replace(/\D/g, "")
+                    patchActivity(index, { codigo: digits === "" ? "" : Number(digits) })
+                  }}
+                  placeholder="Ej: 62010"
+                  className="tabular-nums sm:w-32"
+                  disabled={!canManage}
+                />
+                <Input
+                  aria-label={`Descripción de la actividad ${index + 1}`}
+                  value={actividad.nombre}
+                  onChange={(e) => patchActivity(index, { nombre: e.target.value })}
+                  placeholder="Ej: Restaurantes y servicios de comida"
+                  className="flex-1"
+                  disabled={!canManage}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Quitar la actividad ${index + 1}`}
+                  onClick={() => removeActivity(index)}
+                  disabled={!canManage || form.actividades.length === 1}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            ))}
           </div>
 
           <p className="text-sm text-muted-foreground">
-            El código de actividad figura en tu constancia de RUC (padrón de la SET). El email
-            identifica a tu emisor en el sistema fiscal — usá uno que no cambie.
+            Los códigos de actividad figuran en tu constancia de RUC (padrón de la SET): cargá la
+            principal y todas las secundarias que tengas declaradas. El email identifica a tu
+            emisor en el sistema fiscal — usá uno que no cambie.
           </p>
 
           <Separator />
@@ -590,6 +678,11 @@ function ProvisionedView({
   }
 
   const fiscal = account.fiscal
+  // Lista completa (principal + secundarias), con el fallback al par suelto de
+  // las cuentas dadas de alta antes de 2026-09-06. Se filtra lo vacío: el
+  // formulario nunca deja guardar una fila incompleta, pero el espejo puede
+  // venir de una cuenta vieja sin actividad cargada.
+  const actividades = activitiesFromFiscal(fiscal).filter((a) => a.codigo !== "" && a.nombre !== "")
   // El bootstrap ya está en cache (lo pide el layout del panel) — leerlo acá
   // no agrega request, y es el único lugar con el país/idioma del tenant.
   const { data: bootstrap } = useBootstrap()
@@ -619,9 +712,17 @@ function ProvisionedView({
           <CompanyFiscalSummary />
           <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
             <div className="flex items-baseline justify-between gap-3 sm:justify-start">
-              <dt className="text-xs text-muted-foreground">Actividad</dt>
-              <dd className="text-sm">
-                {fiscal.actividadCodigo ? `${fiscal.actividadCodigo} · ${fiscal.actividadNombre ?? ""}` : "—"}
+              <dt className="text-xs text-muted-foreground">
+                {actividades.length > 1 ? "Actividades" : "Actividad"}
+              </dt>
+              <dd className="flex flex-col gap-0.5 text-sm">
+                {actividades.length === 0
+                  ? "—"
+                  : actividades.map((a, i) => (
+                      <span key={`${a.codigo}-${i}`}>
+                        {a.codigo} · {a.nombre}
+                      </span>
+                    ))}
               </dd>
             </div>
             <div className="flex items-baseline justify-between gap-3 sm:justify-start">

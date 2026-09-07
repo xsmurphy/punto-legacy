@@ -35,6 +35,44 @@ final class TaxpayerLookupService
     private const TOTAL_TIMEOUT   = 10;
 
     /**
+     * Por qué la consulta es IMPOSIBLE para este comercio, o null si hay al
+     * menos una fuente que puede contestar.
+     *
+     * Existe porque `lookup()` devuelve `null` para dos cosas distintas —"ese
+     * RUC no está en el padrón" y "no hay padrón al cual preguntarle"— y los
+     * handlers HTTP contestaban las dos con "No se encontraron datos para ese
+     * RUC". Bug real de producción: un comercio sin `settingCountry` recibía
+     * "RUC no encontrado" por un RUC que existe, y no tenía forma de deducir
+     * que lo que faltaba era el país de su negocio.
+     *
+     * El chequeo vive acá y no en cada handler porque QUÉ fuentes existen es
+     * conocimiento de este servicio: si mañana se suma una tercera, los dos
+     * callers siguen contestando bien sin tocarlos.
+     */
+    public function unavailableReason(string $companyId): ?string
+    {
+        // Con facturación electrónica conectada siempre hay a quién
+        // preguntarle: el padrón del propio emisor no depende del país
+        // configurado en Punto.
+        if ((new \Punto\Api\EInvoice\EInvoiceService())->isConnected($companyId)) {
+            return null;
+        }
+
+        $country = \Punto\Api\Support\TenantLocale::country($companyId);
+        if ($country === null) {
+            return 'No podemos consultar el padrón porque falta el país del negocio: '
+                . 'cargalo en Configuración del negocio y volvé a buscar.';
+        }
+
+        if ($this->publicRegistryUrl($country) === '') {
+            return 'Todavía no hay consulta de padrón de contribuyentes para el país del negocio ('
+                . $country . '). Escribinos a soporte de Punto para cargar los datos fiscales.';
+        }
+
+        return null;
+    }
+
+    /**
      * @return array{ruc:string,name:string,status:?string,source:string}|null
      */
     public function lookup(string $companyId, string $ruc): ?array
@@ -127,17 +165,7 @@ final class TaxpayerLookupService
             return null;
         }
 
-        // Override de despliegue: si el entorno define un padrón, manda sobre
-        // el del catálogo, pero SOLO para el país que ese padrón atiende
-        // (mismo gate que TinService con Marangatu). Sin `TAXPAYER_LOOKUP_URL`
-        // seteada no pasa nada: se usa el del catálogo.
-        $envUrl     = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
-        $envCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? trim((string) TAXPAYER_LOOKUP_COUNTRY) : '';
-        if ($envUrl !== '' && $envCountry !== '') {
-            $baseUrl = $envCountry === $tenantCountry ? $envUrl : '';
-        } else {
-            $baseUrl = (string) (\Punto\Api\Support\CountryDefaults::taxpayerRegistryUrl($tenantCountry) ?? '');
-        }
+        $baseUrl = $this->publicRegistryUrl($tenantCountry);
 
         if ($baseUrl === '') {
             // Degradación VISIBLE: el lookup por padrón no existe para este
@@ -194,6 +222,25 @@ final class TaxpayerLookupService
             'status' => $this->firstString($row, ['estado', 'Estado', 'status']),
             'source' => 'padron',
         ];
+    }
+
+    /**
+     * URL del padrón público que atiende a ese país, o '' si no hay ninguno.
+     *
+     * Override de despliegue: si el entorno define un padrón, manda sobre el
+     * del catálogo, pero SOLO para el país que ese padrón atiende (mismo gate
+     * que TinService con Marangatu). Sin `TAXPAYER_LOOKUP_URL` seteada no pasa
+     * nada: se usa el del catálogo.
+     */
+    private function publicRegistryUrl(string $country): string
+    {
+        $envUrl     = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
+        $envCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? trim((string) TAXPAYER_LOOKUP_COUNTRY) : '';
+        if ($envUrl !== '' && $envCountry !== '') {
+            return $envCountry === $country ? $envUrl : '';
+        }
+
+        return (string) (\Punto\Api\Support\CountryDefaults::taxpayerRegistryUrl($country) ?? '');
     }
 
     /**

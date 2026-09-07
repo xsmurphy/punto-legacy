@@ -196,7 +196,15 @@ if ($resource === 'taxpayer') {
     if ($ruc === '') {
         apiError('Falta el RUC a consultar', 422);
     }
-    $taxpayer = (new \Punto\Api\Contacts\TaxpayerLookupService())->lookup(COMPANY_ID, $ruc);
+    // Mismo criterio que `/v1/settings?view=taxpayer`: si NINGUNA fuente
+    // puede contestar (sin país configurado y sin facturación electrónica),
+    // el 404 sería mentira — se responde 422 con qué falta configurar.
+    $lookup = new \Punto\Api\Contacts\TaxpayerLookupService();
+    $reason = $lookup->unavailableReason(COMPANY_ID);
+    if ($reason !== null) {
+        apiError($reason, 422);
+    }
+    $taxpayer = $lookup->lookup(COMPANY_ID, $ruc);
     if ($taxpayer === null) {
         apiError('No se encontraron datos para ese RUC', 404);
     }
