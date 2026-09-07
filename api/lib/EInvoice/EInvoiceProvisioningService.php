@@ -334,7 +334,7 @@ final class EInvoiceProvisioningService
         // del usuario que Factomate crea. Sin él, el emisor queda registrado
         // pero nadie puede autenticarse en su nombre (bug 2026-09-07, Balloon
         // Party — el alta salió sin teléfono y el PhoneLogin devolvía 500).
-        $ownerPhone = $this->ownerPhone($companyId);
+        $ownerPhone = EmitterIdentity::ownerPhone($companyId);
         if ($ownerPhone === '') {
             throw new \RuntimeException(
                 'El dueño del comercio no tiene celular cargado — es la identidad de acceso ' .
@@ -351,8 +351,11 @@ final class EInvoiceProvisioningService
         ]);
 
         // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir.
-        // phone_enc guarda la identidad de login del usuario: su email
-        // (UserName = Email en CreateExternal, manual §2.2).
+        // Se escriben las DOS identidades del emisor (mig 205): `login_enc`
+        // el UserName/email —que es el header `phonenumber` de toda llamada
+        // y el usuario de /Token— y `phone_enc` el CELULAR del dueño, que es
+        // lo único que acepta PhoneLogin. Antes las dos salían de `phone_enc`
+        // y cada corrección rompía a la otra; ver `EmitterIdentity`.
         // El `catch (DbQueryException)` NO es decorativo: desde 2026-08-22 un
         // error de SQL sale por excepción y ya NO vuelve como `['error' => msg]`,
         // así que sin él el `if` de abajo —y con él el código FT- de
@@ -371,9 +374,12 @@ final class EInvoiceProvisioningService
                     'factomate_user_id'   => $created['userId'],
                     'username'            => $created['email'],
                     'password_enc'        => CredentialVault::encrypt($created['password']),
+                    // Identidad de LOGIN (header `phonenumber` + /Token) = el
+                    // UserName, que para CreateExternal es el email.
+                    'login_enc'           => CredentialVault::encrypt((string) $created['email']),
                     // Identidad de PhoneLogin = el CELULAR del dueño, no el
                     // email (corregido 2026-09-07 — el email solo autentica a
-                    // la cuenta admin). El email queda en `username`.
+                    // la cuenta admin).
                     'phone_enc'           => CredentialVault::encrypt($ownerPhone),
                     'token_enc'           => null,
                     'token_expires_at'    => null,
@@ -648,6 +654,7 @@ final class EInvoiceProvisioningService
         $remote = $this->provider->stamps($environment, $login, $bearer);
         $items = $remote['Items'] ?? $remote['items'] ?? [];
         $map = [];
+        $series = [];
         foreach ($stamps as $stamp) {
             foreach ((array) $items as $item) {
                 if (!is_array($item) || !empty($item['Deleted'] ?? $item['deleted'] ?? null)) {
@@ -661,10 +668,25 @@ final class EInvoiceProvisioningService
                 }
                 $docType = (int) ($item['DocumentTypeId'] ?? 0);
                 $key = $docType === 5 ? 'nc' : 'fc';
-                $map[$stamp['registerId']][$key] = $item['Id'] ?? null;
+                $stampId = $item['Id'] ?? null;
+                $map[$stamp['registerId']][$key] = $stampId;
+
+                // La SERIE del timbrado, indexada por su Id. El documento la
+                // declara (`series`) y hasta ahora se mandaba un 'AA' cableado
+                // que no tenía nada que ver con el talonario — los que crea
+                // este mismo método van con `Serie: ''`.
+                //
+                // Se guarda ACÁ y no se pide en la emisión porque la respuesta
+                // remota ya está en la mano: leerla por documento agregaría una
+                // llamada HTTP por factura, que es justo lo que el caché de
+                // `stampDetails` existe para evitar. Mapa aparte y no dentro de
+                // `stampMap` para no cambiarle el shape a sus lectores.
+                if ($stampId !== null && $stampId !== '') {
+                    $series[(string) $stampId] = (string) ($item['Serie'] ?? $item['serie'] ?? '');
+                }
             }
         }
-        $this->mergeProvisioning($companyId, ['stampMap' => $map]);
+        $this->mergeProvisioning($companyId, ['stampMap' => $map, 'stampSeries' => $series]);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -920,14 +942,16 @@ final class EInvoiceProvisioningService
     private function requireProvisioned(string $companyId): array
     {
         $row = ncmExecute(
-            'SELECT environment, factomate_tenant_id, phone_enc FROM einvoice_account WHERE companyid = ?',
+            'SELECT environment, factomate_tenant_id FROM einvoice_account WHERE companyid = ?',
             [$companyId]
         );
         $tenantId = $row['factomate_tenant_id'] ?? null;
         if (!$row || $tenantId === null || (int) $tenantId <= 0) {
             throw new \RuntimeException('Completá primero los datos del emisor.');
         }
-        $login = CredentialVault::decrypt((string) ($row['phone_enc'] ?? ''));
+        // El header `phonenumber` de las llamadas lleva la identidad de
+        // LOGIN (el email), no el celular — ver `EmitterIdentity`.
+        $login = EmitterIdentity::login($companyId);
         return [(string) ($row['environment'] ?? 'test'), (int) $tenantId, $login];
     }
 
@@ -940,24 +964,14 @@ final class EInvoiceProvisioningService
     }
 
     /**
-     * Celular del DUEÑO del comercio (contact type=0 con rol de dueño, el más
-     * antiguo — el que registró la cuenta), sin '+' (convención de storage).
-     * Es la identidad de PhoneLogin del emisor en Factomate.
+     * Identidad de LOGIN del emisor — el header `phonenumber` de las
+     * llamadas. Sale de `EmitterIdentity`, que es el único lugar que sabe
+     * distinguirla del CELULAR de PhoneLogin (mig 205). `ownerPhone()`
+     * también se mudó allá: lo necesitan el alta y la reparación, y tenerlo
+     * duplicado garantizaba que un día divergieran.
      */
-    private function ownerPhone(string $companyId): string
-    {
-        $row = ncmExecute(
-            'SELECT contactphone FROM contact c
-              WHERE companyid = ? AND type = 0 AND ' . \RoleService::ownerRoleSql('c') . '
-              ORDER BY contactdate LIMIT 1',
-            [$companyId]
-        );
-        return trim((string) ($row['contactphone'] ?? ''));
-    }
-
     private function accountLogin(string $companyId): string
     {
-        $row = ncmExecute('SELECT phone_enc FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        return CredentialVault::decrypt((string) ($row['phone_enc'] ?? ''));
+        return EmitterIdentity::login($companyId);
     }
 }
