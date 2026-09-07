@@ -21,6 +21,12 @@ namespace Punto\Api\EInvoice;
  * [
  *   'documentType' => ?int,             // 1 factura (default), 5 nota de crédito
  *   'associatedCdc' => ?string,         // CDC de la factura corregida — OBLIGATORIO si documentType=5
+ *   'fiscalNumber' => ?int,             // correlativo CONGELADO en la venta (transaction.invoiceNo,
+ *                                       // mig 145). OBLIGATORIO para factura — ver resolveDocumentNumber().
+ *   'fiscalAuth'   => ?string,          // timbrado congelado de la venta (transaction.invoiceAuth).
+ *                                       // El mapper NO lo manda en el payload: la coherencia contra el
+ *                                       // timbrado provisionado la valida EInvoiceService, que es quien
+ *                                       // tiene el dato remoto. Viaja acá solo para mensajes de error.
  *   'total'      => float,              // total del documento, CON IVA incluido
  *   'currency'   => string,             // 'PYG'; cualquier otra aborta la emisión
  *   'operationCondition' => 0|1,        // 0 contado, 1 crédito
@@ -208,7 +214,10 @@ final class SaleToInvoiceMapper
             // Typo "aditionalInformation" (una sola 'd') es de la API de Factomate,
             // no se corrige. Obligatorio, string vacío cuando no aplica.
             'aditionalInformation'  => '',
-            'number'                => -1, // SIEMPRE -1: numera la SET, no configurable.
+            // El NÚMERO LO PONE EL EMISOR — o sea nosotros. Ver
+            // resolveDocumentNumber() para la historia completa de por qué
+            // acá decía "SIEMPRE -1" y por qué era falso.
+            'number'                => $this->resolveDocumentNumber($sale, $config, $documentType),
             'series'                => (string) ($config['series'] ?? 'AA'),
             // issuedDate (NO issueDate): naive YYYY-MM-DDTHH:MM:SS en hora local
             // de Asunción, mismo criterio que signDate de la cancelación.
@@ -283,6 +292,102 @@ final class SaleToInvoiceMapper
         }
 
         return $payload;
+    }
+
+    /**
+     * El `number` del documento electrónico. **Lo pone el EMISOR** — es el
+     * mismo correlativo que la caja ya congeló en la venta y que salió
+     * impreso en el ticket (`transaction.invoiceNo`, mig 145).
+     *
+     * ── La historia, porque el comentario que había acá era falso ─────────
+     *
+     * Hasta 2026-09-07 esta línea decía `'number' => -1, // SIEMPRE -1:
+     * numera la SET, no configurable`. Las dos afirmaciones eran falsas:
+     *
+     *   - **No numeraba la SET, numeraba FACTOMATE.** El correlativo lo
+     *     llevaba el `CurrentNumber` de la fila `BranchDocumentType` del
+     *     proveedor (verificado contra la API real el 2026-07-30: el
+     *     timbrado estaba en 53 y el CDC emitido terminó en `…0000054`).
+     *     En SIFEN estándar el número lo pone el emisor y el CDC se deriva
+     *     de él.
+     *   - **Sí es configurable.** El propio `context/28` documenta que
+     *     `number` acepta un correlativo propio; se eligió `-1` en la
+     *     decisión del 2026-07-28 y esa decisión quedó REVERTIDA por el
+     *     owner el 2026-09-07: *"desde el inicio nosotros tenemos que ser
+     *     dueños de la numeración. Factomate no debe llevar la
+     *     numeración"*.
+     *
+     * El motivo de fondo es que el comprobante impreso es la representación
+     * impresa de la factura electrónica: tiene que llevar EL MISMO número.
+     * Con `-1` el número lo decidía el proveedor después de que el ticket ya
+     * estaba en la mano del cliente.
+     *
+     * ── Formato ──────────────────────────────────────────────────────────
+     *
+     * Correlativo ENTERO PELADO (`NNNNNNN` sin ceros a la izquierda y sin
+     * el prefijo `EEE-PPP`): establecimiento y punto de expedición salen
+     * SIEMPRE del timbrado del lado de Factomate (la fila
+     * `BranchDocumentType` que el provisioning creó con el `EEE-PPP` de la
+     * caja). Fuente: `context/28` §Numeración, que lo documenta explícito
+     * — *"un correlativo propio, pero solo la parte NNNNNNN de
+     * EEE-PPP-NNNNNNN"*. Coincide además con `context/29` §1: los 7 dígitos
+     * son FORMATO y el correlativo se guarda entero.
+     *
+     * Si algún día se comprobara que la API espera el string completo
+     * `001-001-0000054`, el cambio es de UNA línea acá (armarlo con
+     * `DocumentNumber::format()` + el `EEE-PPP` del timbrado remoto) — no
+     * se toca nada aguas arriba. Queda pendiente confirmarlo contra la API
+     * real: la cuenta DEV está caída (PhoneLogin 500) al momento de
+     * escribir esto.
+     *
+     * ── Los tres casos ───────────────────────────────────────────────────
+     *
+     *   1. **Kill-switch de emergencia** `config.legacyAutoNumbering` →
+     *      `-1`. NO tiene UI y no es un modo soportado: existe solo para
+     *      poder volver al comportamiento anterior sin un deploy si la
+     *      numeración propia resultara rechazada en producción. Se setea a
+     *      mano en `einvoice_account.config`.
+     *   2. **Nota de crédito** → `-1` POR AHORA, y es una limitación
+     *      declarada, no un olvido: el `invoiceNo` de una devolución sale
+     *      de `document_sequence` doctype `nota_credito` con scope OUTLET
+     *      (`ReturnService`), no de un talonario por punto de expedición, y
+     *      la transacción type=6 ni siquiera congela timbrado. Mandarlo
+     *      como número fiscal declararía ante SIFEN un correlativo de otra
+     *      rama de numeración. Se resuelve cuando aterrice la F3 de
+     *      `context/40` (numeración de NC como doctype propio con rango de
+     *      timbrado). Hasta entonces la NC la numera Factomate — que es
+     *      exactamente lo que hoy ya pasa.
+     *   3. **Factura (FC/FCR)** → el número congelado. Sin número válido se
+     *      ABORTA: caer a `-1` en silencio reintroduciría la numeración del
+     *      proveedor justo en el caso que nadie mira (una venta vieja sin
+     *      B1, un dato corrupto), y el ticket impreso y el documento fiscal
+     *      quedarían con números distintos sin que nada lo delate.
+     *
+     * @param array<string,mixed> $sale
+     * @param array<string,mixed> $config
+     * @throws \RuntimeException si la factura no trae un correlativo congelado válido.
+     */
+    private function resolveDocumentNumber(array $sale, array $config, int $documentType): int
+    {
+        if (!empty($config['legacyAutoNumbering'])) {
+            return -1;
+        }
+
+        if ($documentType === self::DOC_NOTA_CREDITO) {
+            return -1;
+        }
+
+        $raw = $sale['fiscalNumber'] ?? null;
+        $number = is_numeric($raw) ? (int) $raw : 0;
+        if ($number <= 0) {
+            throw new \RuntimeException(
+                'La venta no tiene número de comprobante propio congelado, así que no se puede emitir el ' .
+                'documento electrónico con el mismo número que salió impreso en el ticket. ' .
+                'Revisá que la caja tenga timbrado y numeración cargados.'
+            );
+        }
+
+        return $number;
     }
 
     /**

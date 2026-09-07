@@ -271,7 +271,48 @@ documento (el camión se define a la mañana siguiente). Botón "Emitir a
 SIFEN" en el detalle, que valida los campos exigidos por el motivo y recién
 ahí encola. Emitir en el create rompería el flujo interno que hoy funciona.
 
-### D6 — CERRADA por R0: la numeración interna NO se toca
+### D6 — CORREGIDA 2026-09-07: la numeración fiscal la pone el EMISOR
+
+> **Corrección del owner (2026-09-07).** La premisa de la que colgaba todo lo
+> de abajo era falsa. Textual: *"desde el inicio nosotros tenemos que ser
+> dueños de la numeración. Factomate no debe llevar la numeración"*.
+>
+> El `number => -1` **no hacía que numerara la SET, hacía que numerara
+> FACTOMATE** (su `CurrentNumber` por fila `BranchDocumentType`, verificado
+> el 2026-07-30: el timbrado estaba en 53 y el CDC emitido terminó en
+> `…0000054`). Y sí es configurable: el propio `context/28` §Numeración
+> documenta que `/Bulk` acepta el correlativo del emisor. En SIFEN estándar
+> numera el emisor y el CDC se deriva de ese número.
+>
+> Lo que cambia para la FACTURA (implementado, ver `context/28`
+> §"Numeración del emisor"): el documento electrónico sale con el
+> correlativo que la caja ya congeló en la venta, el mismo que salió impreso
+> en el ticket — el impreso es la representación impresa de la factura
+> electrónica, tienen que llevar el mismo número.
+>
+> **Lo que NO cambia para la REMISIÓN, y por eso el resto de esta sección
+> sigue en pie:** el `docnumber` interno del documento de remisión (scope
+> outlet) sigue sin tocarse, no hay mig ni backfill, y la vieja R5 sigue
+> muerta. Lo que cae es el *motivo* que se dio ("la numeración fiscal la
+> asigna la SET"), no la conclusión. Cuando la remisión se emita de verdad
+> va a necesitar su propio correlativo por punto de expedición —igual que
+> hoy lo necesita la nota de crédito, ver abajo—, y ese es trabajo del
+> slice de emisión, no de éste.
+>
+> **La nota de crédito quedó como límite declarado del slice de la
+> factura**: su `invoiceNo` sale de `document_sequence` doctype
+> `nota_credito` con scope OUTLET (`ReturnService`) y la transacción type=6
+> ni siquiera congela timbrado, así que mandarlo como número fiscal
+> declararía un correlativo de otra rama de numeración. La NC la sigue
+> numerando Factomate hasta que aterrice la **F3 de `context/40`**
+> (numeración de NC como doctype propio con rango de timbrado). Está
+> documentado en `SaleToInvoiceMapper::resolveDocumentNumber()`, no es un
+> olvido.
+
+<details>
+<summary>Texto original de D6 (2026-09-04) — se conserva por la historia</summary>
+
+#### D6 — CERRADA por R0: la numeración interna NO se toca
 
 El miedo original era que SIFEN exigiera renumerar `document_remision` por
 punto de expedición. R0 lo disolvió: **el número fiscal lo asigna la
@@ -288,6 +329,8 @@ desde el PANEL — ¿contra el punto de expedición de qué caja sale? Opciones:
 una caja designada por sucursal para documentos de backoffice, o un punto de
 expedición propio de la sucursal. Es la única decisión de numeración real
 del slice.
+
+</details>
 
 ### Fases
 

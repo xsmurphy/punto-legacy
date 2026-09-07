@@ -1963,6 +1963,16 @@ final class EInvoiceService
                 // ADENTRO del try: una caja sin timbrado lanza y tiene que
                 // caer en el mismo markError legible que una regla del mapper.
                 $stamp   = $this->stampForDocument($companyId, $transactionId, $doctype, $account);
+                // El número lo ponemos NOSOTROS (context/28 §Numeración del
+                // emisor). Antes de mandarlo hay que estar seguro de dos
+                // cosas que el mapper no puede ver porque no habla con
+                // Factomate: que el timbrado congelado en la venta es el
+                // mismo que el provisionado para este punto de expedición, y
+                // que el rango del talonario del lado de ELLOS no pisa
+                // nuestro correlativo. Las dos lanzan RuntimeException y caen
+                // en el markError de abajo — el documento queda en `error`
+                // ANTES de salir, no rebotado por SIFEN.
+                $this->assertNumberingCoherence($companyId, $account, $stamp, $sale, $doctype, $config);
                 $payload = $mapper->build($sale, $stamp, $config, $issuedDate);
             } catch (\RuntimeException $e) {
                 // Regla fiscal violada o dato faltante — NUNCA se manda a Factomate
@@ -2082,6 +2092,244 @@ final class EInvoiceService
         }
 
         return $this->decodeJsonb($account['stamp'] ?? null);
+    }
+
+    /**
+     * Los dos guards de la numeración propia. Corren ANTES de mandar nada:
+     * un documento mal numerado no se manda a que SIFEN lo rechace, se marca
+     * `error` con el motivo en castellano y el comercio lo ve.
+     *
+     * **(A) Coherencia del timbrado.** El correlativo que mandamos pertenece
+     * a UN talonario: el de la caja que vendió, congelado en
+     * `transaction.invoiceAuth` (mig 145). Del otro lado, Factomate emite
+     * contra la fila `BranchDocumentType` que el provisioning creó con el
+     * `EEE-PPP` de esa misma caja. Si esos dos timbrados no son el mismo
+     * —la caja renovó talonario y nadie re-provisionó, o el mapa quedó
+     * apuntando a la fila de otra caja— el número que mandamos es de una
+     * rama de numeración y el documento sale por otra. SIFEN lo rechazaría
+     * (o peor: lo aceptaría duplicando un correlativo ajeno).
+     *
+     * **(B) Pre-flight del rango.** Nuestra base está limpia —cero
+     * documentos emitidos por este pipeline— pero el talonario del lado de
+     * ELLOS puede tener historia de otros canales (el owner emitió pruebas
+     * vía n8n contra la misma cuenta). Si el emisor ya usó hasta el 53 y
+     * nuestra caja arranca en el 1, los primeros 53 documentos serían
+     * duplicados. Se lee el `CurrentNumber` del timbrado remoto UNA vez por
+     * timbrado y se exige que nuestro correlativo lo supere.
+     *
+     * Por qué acá y no en el provisioning: el pre-flight compara contra un
+     * número NUESTRO, y al provisionar todavía no hay ninguno (no se vendió
+     * nada). Acá el dato existe y es el real — el correlativo del documento
+     * que está por salir. Además el fallo cae natural en el outbox: el
+     * documento espera en `error` con reintento, y la VENTA no se entera
+     * (el ticket interno ya salió, `context/08` §53).
+     *
+     * El resultado se cachea en `provisioning.numberingPreflight[<stampId>]`
+     * para no pagar una llamada a Factomate por documento: lo que se está
+     * comprobando es el arranque del talonario, y eso se comprueba una vez.
+     *
+     * @param array|\ArrayAccess $account Fila de einvoice_account.
+     * @param array<string,mixed> $stamp  ['Id' => id del BranchDocumentType].
+     * @param array<string,mixed> $sale   Shape de SaleToInvoiceMapper (fiscalNumber/fiscalAuth).
+     * @param array<string,mixed> $config Config de la cuenta.
+     * @throws \RuntimeException con el mensaje que ve el comercio.
+     */
+    private function assertNumberingCoherence(
+        string $companyId,
+        $account,
+        array $stamp,
+        array $sale,
+        string $doctype,
+        array $config
+    ): void {
+        // Kill-switch de emergencia: si la cuenta volvió a la numeración del
+        // proveedor, no hay número nuestro que validar (ver
+        // SaleToInvoiceMapper::resolveDocumentNumber, caso 1).
+        if (!empty($config['legacyAutoNumbering'])) {
+            return;
+        }
+
+        // Nota de crédito: hoy la numera Factomate (caso 2 del mapper, F3 de
+        // context/40). Sin número propio no hay nada que verificar.
+        if ($doctype === 'NC') {
+            return;
+        }
+
+        $stampId = (string) ($stamp['Id'] ?? '');
+        if ($stampId === '') {
+            // stampForDocument ya cubre esto; defensivo por si alguien cambia
+            // el orden de las llamadas.
+            throw new \RuntimeException('No hay timbrado con el que emitir este documento.');
+        }
+
+        $number = is_numeric($sale['fiscalNumber'] ?? null) ? (int) $sale['fiscalNumber'] : 0;
+        if ($number <= 0) {
+            // El mensaje canónico lo da el mapper; acá solo se evita seguir.
+            throw new \RuntimeException(
+                'La venta no tiene número de comprobante propio congelado — no se puede verificar la numeración.'
+            );
+        }
+        $frozenAuth = trim((string) ($sale['fiscalAuth'] ?? ''));
+
+        $remote = $this->remoteStampRow($companyId, $account, $stampId);
+
+        // ── (A) coherencia del timbrado ──────────────────────────────────
+        $remoteAuth = trim((string) ($remote['StampNumber'] ?? ''));
+        if ($frozenAuth === '') {
+            throw new \RuntimeException(
+                'La venta no tiene timbrado congelado, así que no se puede comprobar que su número pertenezca ' .
+                'al talonario con el que se emitiría (timbrado ' . ($remoteAuth !== '' ? $remoteAuth : 'desconocido') . '). ' .
+                'Cargá el timbrado de la caja y volvé a emitir.'
+            );
+        }
+        if ($remoteAuth !== '' && $remoteAuth !== $frozenAuth) {
+            throw new \RuntimeException(sprintf(
+                'La venta se emitió con el timbrado %s pero el punto de expedición configurado en el emisor ' .
+                'usa el timbrado %s. El documento no se manda con un número de otro talonario — revisá el ' .
+                'timbrado de la caja y volvé a conectar la facturación electrónica.',
+                $frozenAuth,
+                $remoteAuth
+            ));
+        }
+
+        // ── (B) pre-flight del rango, una vez por timbrado ────────────────
+        $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
+        $done = is_array($provisioning['numberingPreflight'] ?? null) ? $provisioning['numberingPreflight'] : [];
+        if (!empty($done[$stampId]['ok'])) {
+            return;
+        }
+
+        if (!array_key_exists('CurrentNumber', $remote) || !is_numeric($remote['CurrentNumber'])) {
+            throw new \RuntimeException(
+                'No se pudo leer el último número usado del timbrado en el emisor, así que no hay forma de ' .
+                'saber si la numeración de la caja lo pisa. No se emite hasta poder verificarlo.'
+            );
+        }
+        $lastUsed = (int) $remote['CurrentNumber'];
+
+        if ($number <= $lastUsed) {
+            throw new \RuntimeException(sprintf(
+                'El timbrado %s ya tiene documentos emitidos hasta el número %d en el emisor, y esta venta ' .
+                'lleva el %d. Emitirla duplicaría un comprobante. Configurá la numeración de la caja para que ' .
+                'el próximo comprobante sea el %d o mayor (Sucursales → Cajas) y volvé a intentar.',
+                $frozenAuth,
+                $lastUsed,
+                $number,
+                $lastUsed + 1
+            ));
+        }
+
+        $this->setProvisioningLeaf($companyId, 'numberingPreflight', $stampId, [
+            'ok'          => true,
+            'lastUsed'    => $lastUsed,
+            'firstNumber' => $number,
+            'at'          => date('c'),
+        ]);
+    }
+
+    /**
+     * Fila del timbrado (`BranchDocumentType`) tal como la ve Factomate,
+     * cacheada en `provisioning.stampDetails[<stampId>]`.
+     *
+     * Se cachea porque los dos guards de `assertNumberingCoherence()` la
+     * necesitan en CADA documento y el dato que leen —número de timbrado y
+     * arranque del talonario— no cambia salvo re-provisioning. Sin caché
+     * sería una llamada HTTP a Factomate por factura.
+     *
+     * **INVARIANTE del que depende el caché**: renovar el talonario de una
+     * caja crea una fila `BranchDocumentType` NUEVA, con `Id` nuevo, y el
+     * `stampMap` del provisioning pasa a apuntar a ese Id — o sea que un
+     * timbrado renovado entra por una clave de caché distinta y se
+     * re-verifica solo. El caché no se invalida por tiempo justamente
+     * porque el Id es el que cambia. Si algún día Factomate permitiera
+     * EDITAR el `StampNumber` de una fila existente, esta entrada quedaría
+     * mintiendo y habría que invalidarla en el re-provisioning.
+     *
+     * @param array|\ArrayAccess $account
+     * @return array<string,mixed>
+     * @throws \RuntimeException si no se puede leer o el timbrado no está.
+     */
+    private function remoteStampRow(string $companyId, $account, string $stampId): array
+    {
+        $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
+        $cache = is_array($provisioning['stampDetails'] ?? null) ? $provisioning['stampDetails'] : [];
+        if (is_array($cache[$stampId] ?? null) && $cache[$stampId] !== []) {
+            return $cache[$stampId];
+        }
+
+        $bearer = $this->session->getBearer($companyId);
+        [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+        $raw = $this->provider->stamps($environment, $phone, $bearer);
+        $items = $raw['Items'] ?? $raw['items'] ?? [];
+
+        $found = null;
+        foreach ((array) $items as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            // Un timbrado dado de baja (borrado lógico, `Deleted`) no sirve
+            // para emitir — mismo criterio que extractStamp().
+            if (!empty($item['Deleted'] ?? $item['deleted'] ?? null)) {
+                continue;
+            }
+            if ((string) ($item['Id'] ?? '') === $stampId) {
+                $found = $item;
+                break;
+            }
+        }
+
+        if ($found === null) {
+            throw new \RuntimeException(
+                'El timbrado con el que esta caja debería emitir ya no existe (o está dado de baja) en el emisor. ' .
+                'Volvé a conectar la facturación electrónica para regenerarlo.'
+            );
+        }
+
+        $this->setProvisioningLeaf($companyId, 'stampDetails', $stampId, $found);
+
+        return $found;
+    }
+
+    /**
+     * Escribe UNA hoja de `einvoice_account.provisioning`, en el camino
+     * `<bucket>.<key>`, sin leer-modificar-escribir.
+     *
+     * Por qué no el `mergeProvisioning()` de EInvoiceProvisioningService (que
+     * hace `provisioning || ?::jsonb`): ese merge es **superficial**, así que
+     * para agregar un timbrado al caché hay que mandar el sub-objeto ENTERO,
+     * y el sub-objeto entero se arma en PHP desde una foto de `provisioning`
+     * leída al empezar a procesar el documento. Dos `drain()` concurrentes
+     * sobre la misma company y timbrados distintos leen dos fotos, cada una
+     * sin la entrada de la otra, y el segundo UPDATE borra lo que cacheó el
+     * primero. No es un riesgo fiscal —el pre-flight es idempotente y volver
+     * a verificarlo es seguro— pero anula el "una vez por timbrado" y hace
+     * que un mal momento de Factomate reaparezca como error de emisión.
+     *
+     * Acá el valor se calcula DENTRO de la misma sentencia: el `||` solo
+     * garantiza que el bucket exista (preservándolo si ya estaba, porque
+     * `jsonb_set` no crea niveles intermedios) y el `jsonb_set` toca
+     * únicamente la hoja. Un solo statement, sin ventana entre lectura y
+     * escritura.
+     *
+     * @param string $bucket Clave de primer nivel ('numberingPreflight', 'stampDetails').
+     * @param string $key    Clave de segundo nivel (el id del timbrado).
+     * @param mixed  $value  Valor de la hoja, serializable a JSON.
+     */
+    private function setProvisioningLeaf(string $companyId, string $bucket, string $key, mixed $value): void
+    {
+        ncmExecute(
+            "UPDATE einvoice_account
+                SET provisioning = jsonb_set(
+                      COALESCE(provisioning, '{}'::jsonb)
+                        || jsonb_build_object(?::text, COALESCE(provisioning -> ?::text, '{}'::jsonb)),
+                      ARRAY[?::text, ?::text],
+                      ?::jsonb,
+                      true
+                    ),
+                    updated_at = now()
+              WHERE companyid = ?",
+            [$bucket, $bucket, $bucket, $key, json_encode($value, JSON_UNESCAPED_UNICODE), $companyId]
+        );
     }
 
     private function markError(string $docId, int $attemptsBefore, string $message): void
@@ -2266,8 +2514,13 @@ final class EInvoiceService
         }
 
         $tx = ncmExecute(
+            // invoiceNo + invoiceAuth (mig 145): el correlativo y el timbrado
+            // CONGELADOS al emitir la venta. Son los que salieron impresos en
+            // el ticket y los que viajan al documento electrónico — el
+            // comprobante impreso es la representación impresa de la factura
+            // electrónica, tienen que llevar el MISMO número.
             "SELECT transactionType, transactionTotal, transactionDiscount, transactionCurrency, transactionDueDate,
-                    customerId, transactionPaymentType, meta
+                    customerId, transactionPaymentType, invoiceNo, invoiceAuth, meta
                FROM transaction WHERE transactionId = ? AND companyId = ?",
             [$transactionId, $companyId]
         );
@@ -2411,6 +2664,13 @@ final class EInvoiceService
             'items'               => $items,
             'client'              => $client,
             'payments'            => $paymentLines,
+            // Número y timbrado del EMISOR (nosotros). Se pasan crudos: la
+            // regla de qué se manda como `number` vive en UN solo lugar
+            // (SaleToInvoiceMapper::resolveDocumentNumber), y la coherencia
+            // del timbrado contra el provisionado en Factomate la valida
+            // assertNumberingCoherence() acá, que es quien tiene el dato remoto.
+            'fiscalNumber'        => isset($tx['invoiceNo']) && is_numeric($tx['invoiceNo']) ? (int) $tx['invoiceNo'] : null,
+            'fiscalAuth'          => trim((string) ($tx['invoiceAuth'] ?? '')),
         ];
 
         if ($operationCondition === 1) {
