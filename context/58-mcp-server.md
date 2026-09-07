@@ -611,7 +611,7 @@ además del scope, no en su lugar.
 | Fase | Qué | Depende de |
 |---|---|---|
 | **M6** | `punto_register_actions` + `punto_execute_actions` en el transporte MCP (opt-in del realm `api` en `/v1/ai/confirm` y `/v1/ai/execute`, `apiWrite: true` en `apiAuthTenant()`) + scope `read`/`write` en `meta` de la key (inmutable: se revoca y reemite) + selector y badge en la UI de keys | ✅ **HECHA 2026-09-06** (merge `mcp/m6-write`) |
-| **M7 [?]** | Acciones nuevas del catálogo: `update_settings`, recetas, FE (`context/66 §FE`), listas de precio | M6 |
+| **M7** | Acciones FE del catálogo: `set_fiscal_data` (solo RUC — la razón social la trae el padrón server-side), `provision_einvoice` (secretos RECHAZADOS en el registro), lecturas `lookup_taxpayer` + `get_einvoice_setup` (esta última abrió el realm `api` por GET recortado a `einvoice.php?resource=account` y `register.php?resource=listAll`, nada más) | ✅ **HECHA 2026-09-07** (merge `api/m7-fe-actions`). Pendientes de la idea original: `update_settings`, recetas, listas de precio |
 | **M8 [?]** | `punto_request_secret_upload` (URL de un solo uso → `FiscalSecretStore`) | M6, mig 195 |
 
 ### Arquitecturas rechazadas — no reintroducir

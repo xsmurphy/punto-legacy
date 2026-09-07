@@ -158,11 +158,7 @@ eso, la factura ya está emitida (`context/28`).
 
 | Fase | Qué | Esfuerzo | Depende de |
 |---|---|---|---|
-| **E0** | `notification_outbox` (mig) + `NotificationOutbox::enqueue/claim/drain` con CAS, idempotencia y backoff. Sin adapters todavía | M | — |
-| **E1** | Adjuntos en `Notification::sendEmails()` (D5) + `EmailAdapter` | S | E0 |
-| **E2** | Enganche en la reconciliación (D3) + plantilla del cuerpo del mail (D6) | S | E1, `getkude` verificado |
-| **E3** | Job en el `crond` de la imagen del API, al lado del drain de FE | S | E0 |
-| **E4** | Reenvío manual desde el panel (D8) + columna "enviado" en el DataTable de FE | S | E2 |
+| ~~E0-E4~~ | **HECHAS 2026-09-07** (mig 202 + merge `api/kude-email`). E0: `NotificationOutbox` (claim CAS `FOR UPDATE SKIP LOCKED`, backoff base 3 desde 5 min con techo 24 h — casts `::double precision` obligatorios, `power()` entera es ambigua y rompe el cron; al reencolar, una fila `error` se REARMA y el reenvío manual rearma también `sent`). E1: `EmailAdapter` + `KudeEmailBuilder` sobre el `sendEmails()` de Resend (adjuntos ya estaban; `reply_to` = casilla del comercio SIEMPRE, punto.la no recibe). E2: enganche en `reconcileDocument()` solo al llegar Aprobado (doc activo, no superseded — mig 201) y solo si `contact.email` existe. E3: `notification-drain` cada 5 min en el crond con advisory lock. E4: `action=sendKude` + columna de entrega en el DataTable. `NotificationSkipped` = terminal sin reintento (doc anulado/reemplazado, email inválido); el getkude no listo REINTENTA, nunca error. | — | — |
 
 Orden: E0 → E1 → E3 → E2 → E4. E3 antes que E2 a propósito: un outbox sin
 consumidor es el error que ya se cometió con la cola de OCR (`_handoff` del

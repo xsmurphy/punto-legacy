@@ -228,7 +228,16 @@ cablea, no construye:
   campo fiscal explícito, NUNCA del nombre de la empresa (los 3 fallbacks se
   eliminaron 2026-09-06 — el bot no reintroduce el cuarto).
 
-### Acciones nuevas propuestas (mismo patrón que D4)
+### Acciones nuevas propuestas (mismo patrón que D4) — IMPLEMENTADAS 2026-09-07 (merge `api/m7-fe-actions`)
+
+> Como quedó de verdad: `set_fiscal_data` lleva SOLO el RUC — la razón social
+> la resuelve el execute contra el padrón server-side (el modelo no puede
+> inyectarla) y el timbrado quedó FUERA (vive en la caja: `create_register`).
+> `provision_einvoice` RECHAZA en el registro cualquier payload con
+> cscId/cscSecret/certificado. Lecturas: `lookup_taxpayer` (para mostrar la
+> razón social antes de confirmar) y `get_einvoice_setup` (panel Y MCP).
+> Las dos escrituras están en `POS_BLOCKED_ACTIONS`.
+
 
 - `set_fiscal_data` — RUC + razón social (autocompletada del padrón, el bot
   la muestra y el usuario confirma) + timbrado. Permiso:
