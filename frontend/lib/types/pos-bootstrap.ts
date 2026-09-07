@@ -322,10 +322,28 @@ export interface PosAddonOption {
   isDefault: boolean
   /** Fija: marcada y no se puede desmarcar (implica isDefault). */
   isLocked: boolean
-  /** Cuántas veces se puede repetir la misma opción (≥ 1). */
-  maxQty: number
+  /**
+   * Cuántas veces se puede repetir la misma opción (≥ 1). `null` = sin tope
+   * propio (mig 203): el techo lo pone el grupo — su `maxSelect` cuando
+   * `qtyMode === "quantity"` — o no hay ninguno.
+   *
+   * Puede llegar como `number` desde un bootstrap cacheado ANTES de la mig
+   * 203; el modal trata `undefined` igual que un tope de 1, que es el valor
+   * que esas filas tenían.
+   */
+  maxQty: number | null
   sort: number
 }
+
+/**
+ * Qué cuentan `minSelect`/`maxSelect` de un grupo (mig 203, context/41).
+ *
+ * - `"options"` — opciones DISTINTAS elegidas. Modo histórico y default.
+ * - `"quantity"` — la SUMA de cantidades del grupo: "caja surtida de 100
+ *   empanadas, repartilas entre los sabores que quieras". La variedad no se
+ *   topea, el total sí.
+ */
+export type PosAddonQtyMode = "options" | "quantity"
 
 /** Grupo de add-ons de un ítem. Ver `PosItem.addonGroups`. */
 export interface PosAddonGroup {
@@ -335,6 +353,12 @@ export interface PosAddonGroup {
   minSelect: number
   /** null = sin tope. */
   maxSelect: number | null
+  /**
+   * Ver `PosAddonQtyMode`. Puede faltar en un bootstrap cacheado previo a la
+   * mig 203 — el modal lo lee con `=== "quantity"`, así que ausente cae solo
+   * al modo histórico sin un default explícito que mantener sincronizado.
+   */
+  qtyMode?: PosAddonQtyMode
   sort: number
   options: PosAddonOption[]
 }

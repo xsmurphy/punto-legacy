@@ -35,13 +35,13 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useCategoryBrandMaps, resolveCategoryName, resolveBrandName } from "@/lib/catalog/resolve-names"
 import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { usePosUIStore } from "@/lib/ui/store"
-import { searchItems } from "@/lib/catalog/search"
+import { LIST_FILTER_THRESHOLD, searchItems } from "@/lib/catalog/search"
 import { formatMoney } from "@/lib/format-money"
 import { formatQty } from "@/lib/format-qty"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
-import { SearchX, Info } from "lucide-react"
+import { SearchX, Info, Search } from "lucide-react"
 import { ProductInfoDialog } from "@/components/register/product-info-dialog"
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -73,6 +73,18 @@ export function ProductSearchDialog({
 
   // Estado de vista de hijos de un grupo (null = vista de resultados normal).
   const [viewingGroup, setViewingGroup] = React.useState<PosItem | null>(null)
+  /**
+   * Filtro DENTRO de la vista de grupo (owner 2026-09-07: "dentro de grupos de
+   * productos o combos tiene que haber un buscador, porque muchas veces los
+   * listados son muy largos").
+   *
+   * Estado propio y no el `query` de arriba: ese es el que TRAJO al cajero
+   * hasta este grupo y sigue vivo al volver atrás. Reusarlo dejaría la lista de
+   * hijos pre-filtrada por el término del grupo apenas se entra —"Empanadas"
+   * escondería todo hijo que no repita esa palabra en el nombre—, que es lo
+   * contrario de entrar a un grupo para ver qué tiene.
+   */
+  const [groupFilter, setGroupFilter] = React.useState("")
   // Ficha de producto abierta desde el avatar de una fila. `null` = cerrada.
   const [infoItem, setInfoItem] = React.useState<PosItem | null>(null)
 
@@ -98,9 +110,27 @@ export function ProductSearchDialog({
     [viewingGroup, items],
   )
 
+  /** El buscador del grupo solo aparece si la lista es larga de verdad. */
+  const showGroupFilter = groupChildItems.length > LIST_FILTER_THRESHOLD
+
+  /**
+   * `searchItems` y no un `includes` a mano: dentro del grupo el cajero busca
+   * igual que afuera —por nombre O por SKU, sin acentos, con los que empiezan
+   * con el término primero— y una segunda implementación de "buscar" es la que
+   * después se comporta distinto sin que nadie lo note.
+   */
+  const visibleGroupChildren = React.useMemo(
+    () =>
+      groupFilter.trim()
+        ? searchItems(groupChildItems, groupFilter.trim(), 200)
+        : groupChildItems,
+    [groupChildItems, groupFilter],
+  )
+
   function handleSelect(item: PosItem) {
     if (item.isGroup) {
       setViewingGroup(item)
+      setGroupFilter("")
       return
     }
     addCatalogItem(item)
@@ -112,7 +142,16 @@ export function ProductSearchDialog({
 
   return (
     <>
-    <Dialog open={open} onOpenChange={(v) => { if (!v) setViewingGroup(null); onOpenChange(v) }}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          setViewingGroup(null)
+          setGroupFilter("")
+        }
+        onOpenChange(v)
+      }}
+    >
       {/* Command palette top-aligned, gemelo del buscador de clientes — y
           hasta el 2026-09-01 el ÚNICO de los dos que nunca se enteró del
           teclado virtual. Pisaba el centrado del primitive con `top-[10vh]
@@ -179,15 +218,36 @@ export function ProductSearchDialog({
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
             {viewingGroup ? (
               <>
-                <div className="flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setViewingGroup(null)}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    ← Volver
-                  </button>
-                  <span className="text-sm font-medium">{viewingGroup.name}</span>
+                <div className="flex flex-col gap-2 px-4 py-3 border-b border-border shrink-0">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setViewingGroup(null); setGroupFilter("") }}
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      ← Volver
+                    </button>
+                    <span className="text-sm font-medium">{viewingGroup.name}</span>
+                  </div>
+                  {/* Buscador del grupo. Sin autofocus, por la misma razón que
+                      el input de arriba en táctil: subiría el teclado del OS
+                      encima de la lista que el cajero acaba de abrir. */}
+                  {showGroupFilter && (
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                        aria-hidden
+                      />
+                      <Input
+                        value={groupFilter}
+                        onChange={(e) => setGroupFilter(e.target.value)}
+                        placeholder={`Buscar en ${viewingGroup.name}`}
+                        aria-label={`Buscar en ${viewingGroup.name}`}
+                        autoComplete="off"
+                        className="h-11 pl-9"
+                      />
+                    </div>
+                  )}
                 </div>
                 {groupChildItems.length === 0 ? (
                   <EmptyState
@@ -196,9 +256,16 @@ export function ProductSearchDialog({
                     description="Este grupo no tiene artículos asociados."
                     showMarquee={false}
                   />
+                ) : visibleGroupChildren.length === 0 ? (
+                  <EmptyState
+                    icon={SearchX}
+                    title="Sin resultados"
+                    description={`Ningún artículo de ${viewingGroup.name} coincide con "${groupFilter.trim()}".`}
+                    showMarquee={false}
+                  />
                 ) : (
                   <ul role="listbox" aria-label={`Artículos de ${viewingGroup.name}`} className="overflow-y-auto py-1">
-                    {groupChildItems.map((item) => (
+                    {visibleGroupChildren.map((item) => (
                       <ProductResultRow
                         key={item.id}
                         item={item}

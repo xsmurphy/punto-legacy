@@ -178,6 +178,35 @@ INSERT INTO "addon_group_option" (optionid, groupid, itemid, pricedelta, isdefau
     ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f604', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f603', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f602', 2000, FALSE, FALSE, 3, 0)
 ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta, maxqty = EXCLUDED.maxqty;
 
+-- Caja surtida — grupo POR CANTIDAD (mig 203, verify_addon_stock.php casos
+-- 7-11). Es el caso del owner: "elegí cuántas de cada sabor, el total son
+-- 100", con el tope sobre la SUMA del grupo y sin tope propio por opción.
+--
+--   VERIFY-ADDON-BOX (60.000, sin stock propio)
+--     └── grupo qtyMode='quantity', minSelect=6, maxSelect=6 (exacto)
+--           ├── opción A → VERIFY-ADDON-FLAVOR-A (trackeable, maxQty NULL, +500)
+--           └── opción B → VERIFY-ADDON-FLAVOR-B (trackeable, maxQty NULL, +0)
+--
+-- Seis y no cien para que el arnés no tenga que sembrar cien unidades de
+-- stock: lo que se prueba es la REGLA (suma dentro del rango, exceso 422,
+-- faltante 422), y esa no cambia con el número. Los dos sabores difieren en
+-- `priceDelta` a propósito — uno recarga y el otro no (D2), así el caso del
+-- precio total distingue Σ(delta × qty) de "delta × cantidad de opciones".
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f611', 'Verify caja surtida', 'VERIFY-ADDON-BOX', 60000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'combo_dinamico'),
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f612', 'Verify sabor A', 'VERIFY-ADDON-FLAVOR-A', 500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f613', 'Verify sabor B', 'VERIFY-ADDON-FLAVOR-B', 500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
+ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory, itemprice = EXCLUDED.itemprice;
+
+INSERT INTO "addon_group" (groupid, companyid, itemid, "name", minselect, maxselect, qtymode, "sort", "status") VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f614', '0ea6c5d8-57e5-4226-8140-ec914deec024', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f611', 'Sabores', 6, 6, 'quantity', 0, TRUE)
+ON CONFLICT (groupid) DO UPDATE SET minselect = EXCLUDED.minselect, maxselect = EXCLUDED.maxselect, qtymode = EXCLUDED.qtymode;
+
+INSERT INTO "addon_group_option" (optionid, groupid, itemid, pricedelta, isdefault, islocked, maxqty, "sort") VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f615', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f614', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f612', 500, FALSE, FALSE, NULL, 0),
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f616', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f614', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f613', 0, FALSE, FALSE, NULL, 1)
+ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta, maxqty = EXCLUDED.maxqty;
+
 -- Producción directa (verify_production_cogs.php, fix 2026-08-19): un
 -- insumo trackeable (su costo real lo pone el script vía manageStock(), acá
 -- solo se seedea el item) y un ítem de producción directa (itemtrackinventory

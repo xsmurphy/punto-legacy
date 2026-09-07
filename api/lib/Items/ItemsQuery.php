@@ -267,6 +267,12 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                          'name', ag.\"name\",
                          'minSelect', ag.minselect,
                          'maxSelect', ag.maxselect,
+                         -- Qué cuentan minSelect/maxSelect: opciones distintas
+                         -- ('options') o la SUMA de cantidades del grupo
+                         -- ('quantity', la caja surtida — mig 203). Viaja
+                         -- embebido como el resto del grupo: el modal del POS
+                         -- tiene que poder validar el tope SIN RED.
+                         'qtyMode', ag.qtymode,
                          'sort', ag.\"sort\",
                          'options', COALESCE((
                               SELECT json_agg(

@@ -15,6 +15,13 @@ import { api } from "@/lib/api-client"
  * — NO inventar campos, el SELECT de esa función es la fuente de verdad.
  */
 
+/**
+ * Qué cuentan `minSelect`/`maxSelect` (mig 203, context/41). `"options"` =
+ * opciones distintas elegidas (histórico); `"quantity"` = la SUMA de
+ * cantidades del grupo — la caja surtida de 100 empanadas.
+ */
+export type AddonQtyMode = "options" | "quantity"
+
 export interface AddonOption {
   id: string
   itemId: string
@@ -23,7 +30,8 @@ export interface AddonOption {
   priceDelta: number
   isDefault: boolean
   isLocked: boolean
-  maxQty: number
+  /** `null` = sin tope propio: manda el del grupo (mig 203). */
+  maxQty: number | null
   sort: number
 }
 
@@ -32,6 +40,7 @@ export interface AddonGroup {
   name: string
   minSelect: number
   maxSelect: number | null
+  qtyMode: AddonQtyMode
   sort: number
   status: boolean
   options: AddonOption[]
@@ -43,7 +52,8 @@ export interface AddonGroupOptionInput {
   priceDelta?: number
   isDefault?: boolean
   isLocked?: boolean
-  maxQty?: number
+  /** `null` = sin tope propio. Omitirlo deja que el server elija por modo. */
+  maxQty?: number | null
   sort?: number
 }
 
@@ -51,6 +61,7 @@ export interface AddonGroupInput {
   name: string
   minSelect?: number
   maxSelect?: number | null
+  qtyMode?: AddonQtyMode
   sort?: number
   status?: boolean
   options?: AddonGroupOptionInput[]

@@ -1839,14 +1839,28 @@ final class SaleService
             //
             // Invariante que se preserva acá: padre + hijas = exactamente lo
             // que el cliente cobró. Se le resta al padre la suma de los deltas
-            // unitarios, que es justo lo que se le reparte a las hijas.
-            $unitDeltaSum = 0.0;
-            foreach ($validated['lines'] as $line) {
-                $optQty = (float) ($line['qty'] ?? 0);
-                if ($optQty > 0) {
-                    $unitDeltaSum += (float) $line['priceDelta'] / $optQty;
-                }
-            }
+            // POR UNIDAD DEL PADRE, que es justo lo que se le reparte a las
+            // hijas.
+            //
+            // `validateSelections` ya devuelve esa suma: cada
+            // `line['priceDelta']` viene multiplicado por la qty de SU opción
+            // (dos quesos = 2 × 500), y `$validated['priceDelta']` los suma.
+            // Es exactamente lo que el cliente le sumó al `unitPrice` de la
+            // línea — `addonsDelta()` en `frontend/lib/cart/store.ts` hace
+            // `Σ priceDelta × qty`, y `rebuildSelectionsFromOrder` despeja la
+            // base con el mismo criterio.
+            //
+            // BUG CORREGIDO 2026-09-07 (destapado por el caso 7 de
+            // verify_addon_stock.php, grupo por cantidad): esto dividía cada
+            // delta por su `qty` antes de sumarlo, o sea le restaba al padre el
+            // delta de UNA unidad de la opción en vez del de todas. Con qty=1
+            // los dos números coinciden y por eso pasó desapercibido; con qty>1
+            // el padre se quedaba con plata que además ya estaba en la hija:
+            // el detalle sumaba MÁS que el total cobrado y `enrichWithTaxes`
+            // liquidaba IVA sobre ese exceso (`transactionTax`/`toTaxObj`
+            // inflados, ticket que no cierra contra la caja). Una caja surtida
+            // de 100 empanadas lo vuelve el caso NORMAL, no el borde.
+            $unitDeltaSum = (float) $validated['priceDelta'];
 
             if ($unitDeltaSum > 0) {
                 $parentUnitPrice = (float) ($sD['price'] ?? 0) - $unitDeltaSum;
