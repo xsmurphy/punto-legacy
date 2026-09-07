@@ -337,7 +337,7 @@ final class EInvoiceProvisioningService
         $ownerPhone = EmitterIdentity::ownerPhone($companyId);
         if ($ownerPhone === '') {
             throw new \RuntimeException(
-                'El dueño del comercio no tiene celular cargado — es la identidad de acceso ' .
+                'El dueño del comercio no tiene un celular válido cargado — es la identidad de acceso ' .
                 'del emisor ante el proveedor. Cargalo en su ficha de usuario y reintentá.'
             );
         }

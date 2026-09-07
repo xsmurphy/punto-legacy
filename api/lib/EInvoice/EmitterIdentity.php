@@ -132,7 +132,7 @@ final class EmitterIdentity
         $ownerPhone = self::ownerPhone($companyId);
         if ($ownerPhone === '') {
             throw new \RuntimeException(
-                'El dueño del comercio no tiene celular cargado — es la identidad de acceso del emisor ' .
+                'El dueño del comercio no tiene un celular válido cargado — es la identidad de acceso del emisor ' .
                 'ante el proveedor de facturación electrónica. Cargalo en su ficha de usuario y reintentá.'
             );
         }
@@ -164,7 +164,14 @@ final class EmitterIdentity
               ORDER BY contactdate LIMIT 1',
             [$companyId]
         );
-        return ltrim(trim((string) ($row['contactphone'] ?? '')), '+');
+        $phone = ltrim(trim((string) ($row['contactphone'] ?? '')), '+');
+        // Solo dígitos o nada: `contactphone` puede traer un EMAIL (el alta
+        // legacy por email lo guardaba ahí sin validar — hallazgo 2026-09-07).
+        // Mandarle un email a Factomate como celular es exactamente el bug
+        // que esta clase existe para impedir; ante un valor no numérico se
+        // devuelve vacío y el caller corta con su error legible ("cargá el
+        // celular del dueño"), que es la acción correcta también para este caso.
+        return preg_match('/^\d{6,15}$/', $phone) === 1 ? $phone : '';
     }
 
     // ── Internos ────────────────────────────────────────────────────────
