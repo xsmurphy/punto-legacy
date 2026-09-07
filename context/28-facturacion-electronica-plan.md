@@ -37,7 +37,11 @@ API.
 La guía real de integración (escrita desde una implementación en
 producción, con las minas ya pisadas) vive fuera de este repo:
 `/Users/xstian/Dropbox/Automate/Agent/context/09-integracion-factomate.md`
-+ `factomate-endpoints.md` en la misma carpeta. Es la fuente de verdad para
++ `factomate-endpoints.md` + `manual-tenant-abm.md` (manual ABM oficial,
+actualizado por soporte 2026-09-07 — su §2 zanjó la cadena de auth: las
+credenciales del tenant son email+contraseña de CreateExternal vía /Token,
+SIN teléfono en el contrato; la versión nueva suma §3.4 baja/recuperación
+lógica del Tenant, útil para limpiar un alta fallida) en la misma carpeta. Es la fuente de verdad para
 todo lo que sigue — este doc resume lo relevante para Punto, no la
 reemplaza.
 
