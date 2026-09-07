@@ -65,6 +65,35 @@ final class EInvoiceProvisioningService
     }
 
     /** Entorno donde se provisionan los emisores nuevos — global, no elección del tenant. */
+    /**
+     * Upsert de `einvoice_account.fiscal`. Un `status = 'ok'` nunca se
+     * degrada: reintentar el form de un emisor ya provisionado actualiza sus
+     * datos, no lo devuelve a "alta en proceso".
+     */
+    private function upsertFiscal(string $companyId, string $environment, string $fiscalJson): void
+    {
+        $existing = ncmExecute(
+            'SELECT companyid FROM einvoice_account WHERE companyid = ?',
+            [$companyId]
+        );
+        if (!$existing) {
+            ncmExecute(
+                "INSERT INTO einvoice_account (companyid, provider, environment, status, fiscal)
+                 VALUES (?, 'factomate', ?, 'provisioning', ?::jsonb)",
+                [$companyId, $environment, $fiscalJson]
+            );
+            return;
+        }
+        ncmExecute(
+            "UPDATE einvoice_account
+                SET fiscal = ?::jsonb,
+                    status = CASE WHEN status = 'ok' THEN 'ok' ELSE 'provisioning' END,
+                    updated_at = now()
+              WHERE companyid = ?",
+            [$fiscalJson, $companyId]
+        );
+    }
+
     public static function defaultEnvironment(): string
     {
         $env = defined('EINVOICE_DEFAULT_ENVIRONMENT') ? (string) EINVOICE_DEFAULT_ENVIRONMENT : 'test';
@@ -80,8 +109,20 @@ final class EInvoiceProvisioningService
      */
     public function provision(string $companyId, array $form): array
     {
-        $fiscal = $this->validateForm($form);
         $environment = self::defaultEnvironment();
+
+        // El BORRADOR se persiste antes que cualquier throw — validación,
+        // credencial admin, lo que sea. Sin esto, un alta que fallaba en la
+        // validación tiraba TODO lo tipeado: el usuario recargaba la página y
+        // el formulario volvía vacío (incidente Balloon Party 2026-09-06,
+        // donde el fallo ni siquiera era de este form sino del país en
+        // blanco). El shape crudo del form ES el shape que hidrata el
+        // formulario (`initial={account.fiscal}`), así que la reanudación
+        // funciona igual que con el fiscal validado; el upsert de más abajo lo
+        // reescribe normalizado apenas la validación pasa.
+        $this->upsertFiscal($companyId, $environment, json_encode($this->stripSecrets($form), JSON_UNESCAPED_UNICODE));
+
+        $fiscal = $this->validateForm($form);
 
         if (!FactomateSession::hasAdminCredentials($environment)) {
             // Sin credencial admin no hay white-label. Mensaje para el
@@ -93,29 +134,10 @@ final class EInvoiceProvisioningService
             );
         }
 
-        // Fila local primero: es el checkpoint raíz. El secreto del CSC nunca
-        // entra en `fiscal` (pasa directo a Factomate en el paso 2).
-        $fiscalJson = json_encode($this->stripSecrets($fiscal), JSON_UNESCAPED_UNICODE);
-        $existing = ncmExecute(
-            'SELECT companyid, factomate_tenant_id, provisioning, status FROM einvoice_account WHERE companyid = ?',
-            [$companyId]
-        );
-        if (!$existing) {
-            ncmExecute(
-                "INSERT INTO einvoice_account (companyid, provider, environment, status, fiscal)
-                 VALUES (?, 'factomate', ?, 'provisioning', ?::jsonb)",
-                [$companyId, $environment, $fiscalJson]
-            );
-        } else {
-            ncmExecute(
-                "UPDATE einvoice_account
-                    SET fiscal = ?::jsonb,
-                        status = CASE WHEN status = 'ok' THEN 'ok' ELSE 'provisioning' END,
-                        updated_at = now()
-                  WHERE companyid = ?",
-                [$fiscalJson, $companyId]
-            );
-        }
+        // Fila local con el fiscal ya VALIDADO (pisa el borrador crudo de
+        // arriba): es el checkpoint raíz. El secreto del CSC nunca entra en
+        // `fiscal` (pasa directo a Factomate en el paso 2).
+        $this->upsertFiscal($companyId, $environment, json_encode($this->stripSecrets($fiscal), JSON_UNESCAPED_UNICODE));
 
         try {
             $company = $this->companyFiscal($companyId);
