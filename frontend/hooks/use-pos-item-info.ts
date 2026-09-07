@@ -212,16 +212,6 @@ export function usePosItemInfo(itemId: string | null) {
 
 // ── Producibles ahora ──────────────────────────────────────────────────────
 
-/** El insumo que topea la producción: el de menor capacidad de la receta. */
-export interface PosProducibleLimiting {
-  itemId: string
-  itemName: string
-  /** Saldo del insumo en la sucursal de esta caja. */
-  onHand: number | null
-  neededPerUnit: number
-  unitsSupported: number | null
-}
-
 export interface PosProducible {
   hasRecipe: boolean
   /**
@@ -231,7 +221,11 @@ export interface PosProducible {
    * sale ni una".
    */
   capacity: number | null
-  limiting: PosProducibleLimiting | null
+  // Sin `limiting` ni `ingredients` A PROPÓSITO: para el realm pos-app el
+  // server los stripea (`api/v1/production.php` — la receta nunca se expone en
+  // el POS, owner 2026-09-07). Tiparlos y parsearlos acá sería documentar un
+  // campo que este realm jamás recibe, y el primer refactor distraído lo
+  // "arreglaría" pintándolo.
 }
 
 function normalizeProducible(raw: unknown): PosProducible {
@@ -242,20 +236,9 @@ function normalizeProducible(raw: unknown): PosProducible {
   // device no conoce su propio outletId acá, y pedirlo para filtrar una lista
   // de un elemento sería inventarse una dimensión que el backend ya resolvió.
   const outlet = (outlets[0] ?? {}) as Record<string, unknown>
-  const limitingRaw = outlet.limiting as Record<string, unknown> | null | undefined
   return {
     hasRecipe: src.hasRecipe === true,
     capacity: toNullableNumber(outlet.capacity),
-    limiting:
-      limitingRaw === null || limitingRaw === undefined
-        ? null
-        : {
-            itemId: String(limitingRaw.itemId ?? ""),
-            itemName: typeof limitingRaw.itemName === "string" ? limitingRaw.itemName : "",
-            onHand: toNullableNumber(limitingRaw.onHand),
-            neededPerUnit: toNumber(limitingRaw.neededPerUnit, 0),
-            unitsSupported: toNullableNumber(limitingRaw.unitsSupported),
-          },
   }
 }
 

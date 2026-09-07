@@ -99,7 +99,25 @@ switch ($method) {
                 $scopeIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
             }
             try {
-                apiOk($svc->producible($companyId, $itemId, $scopeIds));
+                $out = $svc->producible($companyId, $itemId, $scopeIds);
+                // Realm `pos-app`: viaja SOLO el número. `limiting` e
+                // `ingredients` son la RECETA (qué insumo, cuánto lleva por
+                // unidad) y la receta nunca se expone en el POS — decisión del
+                // owner 2026-09-07, es secreto comercial del negocio. El corte
+                // va ACÁ, en el server, y no escondiendo el bloque en la UI:
+                // esconderlo en la pantalla y mandarlo igual en el payload es
+                // exactamente el bug del control de caja a ciegas pre-mig 169
+                // (regla 7 de context/modules/14-caja.md) — se caía con las
+                // devtools abiertas. El panel (realm `panel`) sigue recibiendo
+                // el desglose completo: ahí la receta ya es visible por
+                // permiso de catálogo.
+                if ($isDevice) {
+                    foreach ($out['outlets'] as &$o) {
+                        unset($o['limiting'], $o['ingredients']);
+                    }
+                    unset($o);
+                }
+                apiOk($out);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }

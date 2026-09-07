@@ -273,9 +273,23 @@ export function ProductInfoDialog({ item, onClose }: Props) {
 
             {/* ── Composición del combo fijo ("Despliegue de Combos", tester
                 2026-08-19) ─────────────────────────────────────────────────
-                Receta cerrada (`item_compound`), sin elección del cliente —
-                cacheada offline igual que el resto de esta ficha. */}
-            {(item?.compoundItems?.length ?? 0) > 0 && (
+                Cerrada (`item_compound`), sin elección del cliente — cacheada
+                offline igual que el resto de esta ficha.
+
+                SOLO para `kind === "combo_fijo"`, en whitelist y no en
+                blacklist (decisión del owner 2026-09-07): `item_compound`
+                guarda dos cosas de naturaleza distinta — la composición de un
+                combo (agrupado de productos vendibles, mostrable: es lo que el
+                cliente compra) y la RECETA de una producción (ingredientes +
+                cantidades exactas = secreto comercial del negocio). Este
+                bloque pintaba cualquier `compoundItems` sin mirar el tipo, así
+                que la receta de una producción directa se veía con cantidades
+                desde cualquier caja. La receta NUNCA se muestra en el POS —
+                vive en el panel, gateada por permiso de catálogo. Whitelist
+                porque esconder de más es reversible; haber mostrado de más no:
+                un kind futuro con compounds arranca oculto hasta que alguien
+                decida lo contrario. */}
+            {item?.kind === "combo_fijo" && (item?.compoundItems?.length ?? 0) > 0 && (
               <div className="flex flex-col gap-2">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Composición del combo
@@ -420,13 +434,17 @@ export function ProductInfoDialog({ item, onClose }: Props) {
                           </span>
                         ) : null}
                       </p>
-                      {producible.data?.limiting && (
-                        <p className="text-sm text-muted-foreground">
-                          Limita {producible.data.limiting.itemName}:{" "}
-                          {formatQty(producible.data.limiting.onHand, config)} en stock,{" "}
-                          {formatQty(producible.data.limiting.neededPerUnit, config)} por unidad.
-                        </p>
-                      )}
+                      {/* El insumo LIMITANTE no existe en esta pantalla
+                          (owner 2026-09-07): nombrar el ingrediente que corta
+                          —y cuánto lleva por unidad— es revelar la receta, y
+                          la receta nunca se expone en el POS. El corte no es
+                          solo visual: el endpoint STRIPEA `limiting` e
+                          `ingredients` para el realm pos-app
+                          (`api/v1/production.php`), así que este componente
+                          ni recibe el dato — lección de la mig 169: lo que el
+                          server manda, las devtools lo muestran. El desglose
+                          completo vive en la ficha del PANEL
+                          (`producible-card.tsx`). */}
                     </div>
                   )}
                 </div>
