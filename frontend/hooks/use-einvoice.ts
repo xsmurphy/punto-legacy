@@ -174,6 +174,21 @@ export function useRetryEinvoiceDocument() {
 }
 
 /**
+ * "Corregir y emitir de nuevo" (F7/N2) — NO es un retry: el rechazado está
+ * `issued` y reintentarlo emitiría el documento fiscal dos veces. El backend
+ * encola un documento NUEVO y deja el rechazado como registro, reconstruyendo
+ * el payload desde los datos YA corregidos (ficha del cliente, timbrado de la
+ * caja, emisor). Por eso no manda body: no hay nada que editar acá.
+ */
+export function useReissueEinvoiceDocument() {
+  const qc = useQueryClient()
+  return useMutation<EInvoiceDocument, Error, string>({
+    mutationFn: (id) => api.post<EInvoiceDocument>(`/v1/einvoice?action=reissue&id=${encodeURIComponent(id)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DOCUMENTS_KEY }),
+  })
+}
+
+/**
  * Anula un documento `issued` en SIFEN — irreversible. El motivo es
  * obligatorio (ver EInvoiceService::cancel — largo mín/máx sin verificar).
  */
