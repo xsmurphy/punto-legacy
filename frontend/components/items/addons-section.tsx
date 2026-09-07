@@ -15,6 +15,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { MoneyInput } from "@/components/ui/money-input"
 import { EmptyState } from "@/components/empty-state"
@@ -65,6 +72,7 @@ import {
   useReplaceItemAddons,
   type AddonGroup,
   type AddonGroupInput,
+  type AddonQtyMode,
 } from "@/hooks/use-item-addons"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatMoney } from "@/lib/format"
@@ -100,7 +108,8 @@ interface DraftOption {
   priceDelta: number
   isDefault: boolean
   isLocked: boolean
-  maxQty: number
+  /** `null` = sin tope propio de la opción; manda el del grupo (mig 203). */
+  maxQty: number | null
 }
 
 interface DraftGroup {
@@ -108,6 +117,12 @@ interface DraftGroup {
   name: string
   minSelect: number
   maxSelect: number | null
+  /**
+   * Qué cuentan `minSelect`/`maxSelect` (mig 203): opciones distintas
+   * (`"options"`, histórico) o la SUMA de cantidades del grupo
+   * (`"quantity"`, la caja surtida). Ver `AddonQtyMode`.
+   */
+  qtyMode: AddonQtyMode
   status: boolean
   options: DraftOption[]
 }
@@ -124,6 +139,8 @@ function toDraft(groups: AddonGroup[]): DraftGroup[] {
     name: g.name,
     minSelect: g.minSelect,
     maxSelect: g.maxSelect,
+    // Grupo guardado antes de la mig 203 → modo histórico.
+    qtyMode: g.qtyMode ?? "options",
     status: g.status,
     options: g.options.map((o) => ({
       clientId: nextClientId(),
@@ -143,6 +160,7 @@ function toInput(groups: DraftGroup[]): AddonGroupInput[] {
     name: g.name.trim(),
     minSelect: g.minSelect,
     maxSelect: g.maxSelect,
+    qtyMode: g.qtyMode,
     sort: gi,
     status: g.status,
     options: g.options.map((o, oi) => ({
@@ -165,6 +183,13 @@ function validateDraft(groups: DraftGroup[], itemId: string): string | null {
     if (g.maxSelect !== null && g.maxSelect < Math.max(g.minSelect, 1)) {
       return `"${g.name}": el máximo debe ser mayor o igual al mínimo (y al menos 1)`
     }
+    // Un grupo por cantidad sin mínimo NI máximo no topea nada: el cajero
+    // podría cargar cualquier número. Es válido en el modelo (cantidad libre),
+    // pero casi siempre es un grupo a medio configurar — se avisa acá y no en
+    // el server, que no puede saber la intención.
+    if (g.qtyMode === "quantity" && g.minSelect === 0 && g.maxSelect === null) {
+      return `"${g.name}": un grupo por cantidad necesita un mínimo o un máximo total`
+    }
     for (const o of g.options) {
       if (o.itemId === itemId) {
         return `"${g.name}": una opción no puede ser el propio producto`
@@ -172,8 +197,8 @@ function validateDraft(groups: DraftGroup[], itemId: string): string | null {
       if (o.priceDelta < 0) {
         return `"${g.name}": el precio adicional no puede ser negativo`
       }
-      if (o.maxQty < 1) {
-        return `"${g.name}": la cantidad máxima debe ser al menos 1`
+      if (o.maxQty !== null && o.maxQty < 1) {
+        return `"${g.name}": la cantidad máxima debe ser al menos 1 (vacío = sin tope)`
       }
     }
   }
@@ -214,6 +239,9 @@ export function AddonsSection({
         name: "",
         minSelect: newGroupPreset.minSelect,
         maxSelect: newGroupPreset.maxSelect,
+        // Modo histórico por default: un grupo nuevo se comporta como los que
+        // el comercio ya conoce hasta que elija lo contrario.
+        qtyMode: "options",
         status: true,
         options: [],
       },
@@ -250,7 +278,9 @@ export function AddonsSection({
               priceDelta: 0,
               isDefault: false,
               isLocked: false,
-              maxQty: 1,
+              // Sin tope propio en un grupo por cantidad — el techo es el del
+              // grupo y repetirlo por opción es lo que se desincroniza.
+              maxQty: g.qtyMode === "quantity" ? null : 1,
             },
           ],
         }
@@ -415,6 +445,7 @@ function GroupBlock({
   onRemoveOption: (optionClientId: string) => void
 }) {
   const { data: bootstrap } = useBootstrap()
+  const byQuantity = group.qtyMode === "quantity"
 
   return (
     <Card className="border-dashed">
@@ -431,9 +462,43 @@ function GroupBlock({
               className="h-9"
             />
           </div>
+          {/* Modo del grupo (mig 203). Cambia QUÉ significan Mín/Máx, así que
+              va antes de ellos y sus etiquetas se re-rotulan abajo — dos
+              números con el mismo nombre y distinto significado según un
+              control que quedó atrás es cómo se configura mal una caja. */}
+          <div className="flex w-44 flex-col gap-1.5">
+            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              El límite cuenta
+            </Label>
+            <Select
+              value={group.qtyMode}
+              onValueChange={(v) => {
+                const qtyMode = v as AddonQtyMode
+                onUpdate({
+                  qtyMode,
+                  // Pasar a "por cantidad" libera el tope de cada opción: el
+                  // techo pasa a ser el del grupo. Dejar el 1 histórico haría
+                  // que una caja de 100 aceptara una sola unidad por sabor —
+                  // un grupo recién configurado que no funciona.
+                  options:
+                    qtyMode === "quantity"
+                      ? group.options.map((o) => (o.maxQty === 1 ? { ...o, maxQty: null } : o))
+                      : group.options.map((o) => (o.maxQty === null ? { ...o, maxQty: 1 } : o)),
+                })
+              }}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="options">Opciones distintas</SelectItem>
+                <SelectItem value="quantity">Unidades en total</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex w-20 flex-col gap-1.5">
             <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Mín
+              {byQuantity ? "Mín. total" : "Mín"}
             </Label>
             <Input
               value={String(group.minSelect)}
@@ -447,7 +512,7 @@ function GroupBlock({
           </div>
           <div className="flex w-24 flex-col gap-1.5">
             <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Máx
+              {byQuantity ? "Máx. total" : "Máx"}
             </Label>
             <Input
               value={group.maxSelect === null ? "" : String(group.maxSelect)}
@@ -503,6 +568,12 @@ function GroupBlock({
           </AlertDialog>
         </div>
 
+        <p className="text-sm text-muted-foreground">
+          {byQuantity
+            ? "El cajero elige cuántas unidades de cada opción y el total del grupo tiene que caer dentro del mínimo y el máximo. Para una caja surtida de 100, poné 100 en los dos."
+            : "El cajero elige cuáles opciones quiere; el mínimo y el máximo cuentan opciones distintas, no unidades."}
+        </p>
+
         {group.options.length === 0 ? (
           <div className="rounded-md border border-dashed bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
             Sin opciones en este grupo. Agregá una abajo.
@@ -516,7 +587,7 @@ function GroupBlock({
                   <TableHead className="w-32 text-right">Precio adicional</TableHead>
                   <TableHead className="w-20 text-center">Fijo</TableHead>
                   <TableHead className="w-24 text-center">Por defecto</TableHead>
-                  <TableHead className="w-20 text-center">Cant. máx</TableHead>
+                  <TableHead className="w-24 text-center">Cant. máx</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -552,12 +623,22 @@ function GroupBlock({
                       />
                     </TableCell>
                     <TableCell>
+                      {/* Vacío = sin tope propio: el techo de la opción es el
+                          del grupo (mig 203). En una caja de 100 es lo normal
+                          — escribir 100 en cada sabor duplica el tope en doce
+                          lugares que después no se actualizan juntos. */}
                       <Input
-                        value={String(o.maxQty)}
+                        value={o.maxQty === null ? "" : String(o.maxQty)}
                         onChange={(e) => {
-                          const n = parseInt(e.target.value, 10)
+                          const raw = e.target.value.trim()
+                          if (raw === "") {
+                            onUpdateOption(o.clientId, { maxQty: null })
+                            return
+                          }
+                          const n = parseInt(raw, 10)
                           onUpdateOption(o.clientId, { maxQty: Number.isFinite(n) ? Math.max(1, n) : 1 })
                         }}
+                        placeholder="Sin tope"
                         inputMode="numeric"
                         className="h-8 text-center text-xs tabular-nums"
                       />

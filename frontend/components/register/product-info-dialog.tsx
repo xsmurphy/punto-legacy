@@ -324,11 +324,20 @@ export function ProductInfoDialog({ item, onClose }: Props) {
                       <p className="text-sm font-medium">
                         {g.name}
                         <span className="ml-1.5 font-normal text-muted-foreground">
-                          {g.minSelect > 0
-                            ? g.minSelect === g.maxSelect
-                              ? `· elegí ${g.minSelect}`
-                              : `· elegí entre ${g.minSelect} y ${g.maxSelect ?? "sin tope"}`
-                            : "· opcional"}
+                          {/* En un grupo por cantidad (mig 203) el límite es
+                              de UNIDADES, no de opciones: "elegí 100" leería
+                              como cien sabores distintos. */}
+                          {g.qtyMode === "quantity"
+                            ? g.minSelect > 0 && g.minSelect === g.maxSelect
+                              ? `· ${g.minSelect} unidades en total`
+                              : g.maxSelect !== null
+                                ? `· hasta ${g.maxSelect} unidades en total`
+                                : "· cantidad libre"
+                            : g.minSelect > 0
+                              ? g.minSelect === g.maxSelect
+                                ? `· elegí ${g.minSelect}`
+                                : `· elegí entre ${g.minSelect} y ${g.maxSelect ?? "sin tope"}`
+                              : "· opcional"}
                         </span>
                       </p>
                       <ul className="flex flex-col gap-0.5 pl-3">

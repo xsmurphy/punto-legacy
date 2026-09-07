@@ -27,6 +27,34 @@ function normalize(s: string): string {
     .trim()
 }
 
+/**
+ * ¿El texto contiene la consulta, ignorando mayúsculas y acentos?
+ *
+ * Filtro de listas CORTAS ya en pantalla —opciones de un grupo de add-ons, los
+ * artículos de un grupo de productos— donde no hay relevancia que ordenar: o
+ * la fila entra o no entra. Vive acá y no en cada componente para que la
+ * normalización sea UNA (buscar "jamon" tiene que encontrar "Jamón" en todos
+ * los buscadores del POS, no solo en los que se acordaron de hacer NFD).
+ *
+ * Consulta vacía = todo pasa: el caller no tiene que ramificar.
+ */
+export function matchesText(haystack: string, query: string): boolean {
+  const q = normalize(query)
+  if (!q) return true
+  return normalize(haystack).includes(q)
+}
+
+/**
+ * A partir de cuántas filas una lista del POS gana su propio buscador
+ * (pedido del owner 2026-09-07: "dentro de grupos de productos o combos tiene
+ * que haber un buscador, porque muchas veces los listados son muy largos").
+ *
+ * Por debajo del umbral el input es ruido: el cajero ve la lista entera de un
+ * vistazo y un campo de texto arriba solo le roba espacio y le sube el teclado
+ * del OS en tablet.
+ */
+export const LIST_FILTER_THRESHOLD = 8
+
 // ── Items ─────────────────────────────────────────────────────────────────────
 
 /**

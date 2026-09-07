@@ -55,6 +55,9 @@ $TEMPLATE_ID  = '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7d';
 global $db;
 $failures = [];
 
+// Caja surtida (mig 203) — grupo qtyMode='quantity', ver seed.sql.
+$BOX_ITEM = 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f611'; // VERIFY-ADDON-BOX
+
 // ── Caso 1: add-ons embebidos en el ítem (mismo SELECT que bootstrap/bulk-get/delta) ──
 
 $sql = buildItemsSelectSql('i.itemId = ? AND i.companyId = ?');
@@ -89,6 +92,31 @@ if ($row === null) {
                 echo "[verify_offline_resolution] OK caso 1: addonGroups viaja embebido en el ítem (mismo SELECT que bootstrap/bulk-get/delta) — el modal de add-ons no necesita una segunda llamada\n";
             }
         }
+    }
+
+    // El grupo por CANTIDAD (mig 203) tiene que viajar con su `qtyMode`, o el
+    // modal offline no puede validar el tope: sin el campo cae al modo
+    // histórico y una caja de 6 se leería como "hasta 6 SABORES distintos",
+    // dejando pasar una caja de cualquier tamaño sin red.
+    $boxSql = buildItemsSelectSql('i.itemId = ? AND i.companyId = ?');
+    $boxRs  = ncmExecute($boxSql, [$BOX_ITEM, $PY_COMPANY], false, true);
+    $boxRow = ($boxRs && is_object($boxRs) && !$boxRs->EOF) ? presentItem($boxRs->fields) : null;
+    $boxGroup = is_array($boxRow['addonGroups'] ?? null) ? ($boxRow['addonGroups'][0] ?? null) : null;
+
+    if ($boxGroup === null) {
+        $failures[] = 'Caso 1c: VERIFY-ADDON-BOX no trajo su grupo embebido — revisar el seed de la caja surtida';
+    } elseif (($boxGroup['qtyMode'] ?? null) !== 'quantity') {
+        $failures[] = "Caso 1c: qtyMode esperado 'quantity' en el grupo de la caja surtida — llegó "
+            . json_encode($boxGroup['qtyMode'] ?? null)
+            . ' (sin este campo el modal offline topea variedad en vez de unidades)';
+    // `??` NO sirve acá: trata `null` como ausente, que es justamente el valor
+    // que se está verificando. El chequeo tiene que ser array_key_exists.
+    } elseif (!array_key_exists('maxQty', $boxGroup['options'][0] ?? [])
+        || $boxGroup['options'][0]['maxQty'] !== null) {
+        $failures[] = 'Caso 1c: maxQty de una opción sin tope propio tiene que viajar como null — llegó '
+            . json_encode($boxGroup['options'][0] ?? null);
+    } else {
+        echo "[verify_offline_resolution] OK caso 1c: el grupo por cantidad viaja con qtyMode y maxQty=null — el tope de la caja se valida sin red\n";
     }
 
     if (!array_key_exists('hasAddons', $row) || $row['hasAddons'] !== true) {
