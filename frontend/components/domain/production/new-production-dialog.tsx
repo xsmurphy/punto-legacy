@@ -46,7 +46,9 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useCreateProductionOrder, useProductionCapacity } from "@/hooks/use-production"
 import { useWasteReasons } from "@/hooks/use-waste-reasons"
 import { formatInt } from "@/lib/format"
+import { formatQty } from "@/lib/format-qty"
 import type { ItemKind } from "@/lib/types/item"
+import type { ProductionCapacity } from "@/lib/types/production"
 
 const NO_LOCATION = "__none__"
 const PRODUCIBLE_KINDS: ItemKind[] = ["produccion_previa", "produccion_directa"]
@@ -401,26 +403,18 @@ function RecipePreview({
   qty,
   bootstrap,
 }: {
-  capacity: { capacity: number | null; ingredients: Array<{
-    itemId: string
-    qtyPerUnit: number
-    onHand: number | null
-    wastePercent: number
-    tracked: boolean
-  }> } | null
+  // El tipo sale de `@/lib/types/production`, no de una copia inline: la forma
+  // la define el server y una copia acá se desactualiza en silencio (pasó con
+  // `wastePercent`, que ya no existe — la merma viene aplicada en
+  // `neededPerUnit`, nivel por nivel).
+  capacity: ProductionCapacity | null
   loading: boolean
   qty: number
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
-  // itemName no viene en la respuesta de capacity — resolvemos por id vía
-  // el listado de items ya cacheado por react-query (sin request extra si
-  // ya se consultó antes en la sesión).
-  const { data: allItems } = useItems({})
-  const nameById = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const it of allItems?.items ?? []) map.set(it.itemId, it.itemName)
-    return map
-  }, [allItems])
+  // `itemName` ahora viaja en la respuesta. Antes se resolvía contra el listado
+  // completo de ítems del tenant solo para poner un nombre al lado de un id —
+  // un catálogo entero en memoria por un string.
 
   if (loading) {
     return (
@@ -450,29 +444,31 @@ function RecipePreview({
         </p>
         <Badge variant={isEnough ? "secondary" : "destructive"}>
           {capacity.capacity === null
-            ? "Capacidad ilimitada"
+            ? "Sin insumos con control de stock"
             : `Capacidad: ${formatInt(capacity.capacity, bootstrap)} u.`}
         </Badge>
       </div>
       <div className="space-y-1">
         {capacity.ingredients.map((ing) => {
-          const need = ing.qtyPerUnit * qty
+          // `neededPerUnit` ya trae la merma planificada aplicada por nivel:
+          // multiplicar por las unidades alcanza, no hay que sumarle nada.
+          const need = ing.neededPerUnit * qty
           const enough = !ing.tracked || ing.onHand === null || ing.onHand >= need
           return (
             <div
               key={ing.itemId}
               className="flex items-center justify-between text-sm"
             >
-              <span className="min-w-0 truncate">{nameById.get(ing.itemId) ?? ing.itemId}</span>
+              <span className="min-w-0 truncate">{ing.itemName || ing.itemId}</span>
               <span
                 className={cn(
                   "shrink-0 tabular-nums",
                   enough ? "text-muted-foreground" : "text-destructive",
                 )}
               >
-                {formatInt(need, bootstrap)}
+                {formatQty(need, bootstrap)}
                 {ing.tracked && ing.onHand !== null && (
-                  <> / {formatInt(ing.onHand, bootstrap)} disp.</>
+                  <> / {formatQty(ing.onHand, bootstrap)} disp.</>
                 )}
               </span>
             </div>

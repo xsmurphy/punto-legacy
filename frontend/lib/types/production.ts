@@ -38,18 +38,65 @@ export interface ProductionOrder {
   completedAt: string | null
 }
 
+/**
+ * Un insumo del desglose: una HOJA de la explosión de la receta, o sea algo que
+ * la operación realmente descuenta. Un semielaborado con stock propio aparece
+ * como tal (no se re-explota); una sub-preparación sin stock propio no aparece
+ * — sí sus insumos.
+ */
 export interface ProductionCapacityIngredient {
   itemId: string
-  qtyPerUnit: number
+  itemName: string
+  /** Saldo en la sucursal. `null` = sin control de inventario: DESCONOCIDO, no cero. */
   onHand: number | null
-  wastePercent: number
+  /**
+   * Cuánto consume UNA unidad del producto, con la merma planificada ya
+   * aplicada nivel por nivel. No hay un `wastePercent` escalar a propósito: una
+   * hoja alcanzada por dos ramas compone dos mermas distintas y ese número no
+   * existiría.
+   */
+  neededPerUnit: number
+  /** Cuántas unidades del producto soporta ESTE insumo. `null` = no limita. */
+  unitsSupported: number | null
+  /** El que corta. Ante un empate, el primero de la receta. */
+  limiting: boolean
   tracked: boolean
 }
 
-export interface ProductionCapacity {
-  /** null = receta sin insumos con control de stock → capacidad ilimitada. */
+/** Nivel 1 de la receta — la base de `ingredientAdjustments` al completar. */
+export interface ProductionDirectIngredient {
+  itemId: string
+  itemName: string
+  /** Consumo teórico por unidad planificada, con merma (lo que descuenta el server). */
+  neededPerUnit: number
+  tracked: boolean
+}
+
+export interface RecipeCapacityResult {
+  /**
+   * Unidades completas que salen con el stock de HOY.
+   * `null` = ningún insumo con control de stock limita, o sea que no hay número
+   * que dar. NO es 0: 0 significa "no se puede producir ni una".
+   */
   capacity: number | null
+  limiting: ProductionCapacityIngredient | null
   ingredients: ProductionCapacityIngredient[]
+}
+
+export interface ProductionCapacity extends RecipeCapacityResult {
+  directIngredients: ProductionDirectIngredient[]
+}
+
+/** Una sucursal en la respuesta de "producibles ahora". */
+export interface ProducibleOutlet extends RecipeCapacityResult {
+  outletId: string
+  outletName: string
+}
+
+export interface ProducibleNow {
+  /** false = el ítem no tiene receta: la sección no se renderiza. */
+  hasRecipe: boolean
+  outlets: ProducibleOutlet[]
 }
 
 export interface IngredientAdjustment {

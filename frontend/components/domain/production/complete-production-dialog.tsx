@@ -23,7 +23,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 
-import { useItems } from "@/hooks/use-items"
 import { useCompleteProductionOrder, useProductionCapacity } from "@/hooks/use-production"
 import { useWasteReasons } from "@/hooks/use-waste-reasons"
 import type { ProductionOrder } from "@/lib/types/production"
@@ -39,20 +38,19 @@ interface Props {
 /**
  * Completar orden: qtyProduced (default = plan), unidades con merma + motivo,
  * y ajuste opcional de la cantidad REAL consumida por insumo
- * (ingredientAdjustments) — pisa el cálculo teórico (qtyPerUnit × plan
- * ajustado por %merma) cuando el usuario mide el consumo real.
+ * (ingredientAdjustments) — pisa el cálculo teórico cuando el usuario mide el
+ * consumo real.
+ *
+ * Los ajustes se indexan por insumo DIRECTO (nivel 1 de la receta): es lo que
+ * `ProductionService::complete()` recorre. Por eso acá se usa
+ * `capacity.directIngredients` y no `capacity.ingredients`, que son las HOJAS
+ * de la explosión — un ajuste tecleado contra una hoja de tercer nivel sería un
+ * no-op silencioso.
  */
 export function CompleteProductionDialog({ open, onOpenChange, order }: Props) {
   const complete = useCompleteProductionOrder()
   const { data: capacity } = useProductionCapacity(order.itemId, order.outletId)
   const { data: wasteReasonsData } = useWasteReasons()
-  const { data: allItems } = useItems({})
-
-  const nameById = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const it of allItems?.items ?? []) map.set(it.itemId, it.itemName)
-    return map
-  }, [allItems])
 
   const [qtyProduced, setQtyProduced] = React.useState(String(order.qtyPlanned))
   const [wasteUnits, setWasteUnits] = React.useState("0")
@@ -154,22 +152,28 @@ export function CompleteProductionDialog({ open, onOpenChange, order }: Props) {
             </div>
           )}
 
-          {capacity && capacity.ingredients.length > 0 && (
+          {capacity && capacity.directIngredients.length > 0 && (
             <div className="space-y-2 rounded-md border p-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Consumo real de insumos (opcional)
               </p>
               <p className="text-xs text-muted-foreground">
-                Por default se consume lo teórico (cantidad × plan, ajustado por % de
-                merma del insumo). Completá acá solo si mediste un consumo distinto.
+                Por default se consume lo teórico (cantidad × plan, ajustado por el
+                % de merma del insumo). Completá acá solo si mediste un consumo
+                distinto.
               </p>
               <div className="space-y-2">
-                {capacity.ingredients.map((ing) => {
-                  const theoretical = ing.qtyPerUnit * order.qtyPlanned * (1 + ing.wastePercent / 100)
+                {capacity.directIngredients.map((ing) => {
+                  // `neededPerUnit` YA viene con la merma aplicada por el
+                  // server, con la fórmula de rendimiento (`need / (1 - w/100)`)
+                  // que es la que después descuenta `complete()`. Acá se
+                  // calculaba a mano como `× (1 + w/100)`: con 20% de merma el
+                  // placeholder sugería 12 donde se consumen 12,5.
+                  const theoretical = ing.neededPerUnit * order.qtyPlanned
                   return (
                     <div key={ing.itemId} className="flex items-center gap-2">
                       <span className="min-w-0 flex-1 truncate text-sm">
-                        {nameById.get(ing.itemId) ?? ing.itemId}
+                        {ing.itemName || ing.itemId}
                       </span>
                       <Input
                         type="number"

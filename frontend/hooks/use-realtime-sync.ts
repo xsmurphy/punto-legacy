@@ -32,6 +32,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
     // add-ons de un producto no invalidaba el modal de selección abierto
     // en otra caja/browser (hallazgo del audit 2026-08-16).
     ["item-addons"], ["pos", "item-addons"],
+    // Números DERIVADOS del stock: "producibles ahora" de la ficha y la
+    // capacidad del diálogo de producción. `manageStock()` es el único punto
+    // que mueve stock y publica SIEMPRE entity 'item' (venta, compra, ajuste,
+    // conteo, merma), así que este es el evento que los invalida. Estaban solo
+    // bajo 'production': una VENTA que consumía los insumos dejaba la ficha
+    // mostrando cuántas se podían hacer antes de venderlas.
+    ["producible-now"], ["production-capacity"],
   ],
   // pos-bootstrap: use-pos-bootstrap.ts embeda los clientes con staleTime 5min
   // (ver route.ts `/api/pos/bootstrap`) — sin esto, editar un cliente en admin
@@ -158,7 +165,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // Endpoints que antes quedaban mudos por el default viejo del mapa
   // (context/15, hallazgo C) — ahora publican solo, sumados sus queryKeys.
   return:            [["returns-for-parent"], ["transactions"], ["pos-transactions"], ["reports"]],
-  production:        [["production-orders"], ["production-capacity"], ["waste-events"]],
+  production:        [["production-orders"], ["production-capacity"], ["producible-now"], ["waste-events"]],
   waste:             [["waste-events"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
   // el front más allá del canje inline del carrito): no hay listado

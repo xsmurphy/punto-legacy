@@ -9,9 +9,13 @@
 
 import { resolveNumberLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
+// `undefined` además de `null`: es lo que devuelve `useBootstrap().data` en el
+// primer render, y era la única de las tres funciones de formato que no lo
+// aceptaba (`formatMoney`/`formatInt` sí) — cada caller de UI tenía que
+// escribir `bootstrap ?? null`. Se arregla en el helper, no en el call-site.
 export function formatQty(
   value: number | null | undefined,
-  config: TenantLocaleConfig | null,
+  config: TenantLocaleConfig | null | undefined,
 ): string {
   const n = typeof value === "number" && Number.isFinite(value) ? value : 0
   // El separador de miles sale del resolver único (`config.thousand`, o el
