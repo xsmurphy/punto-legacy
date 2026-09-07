@@ -330,32 +330,18 @@ final class EInvoiceProvisioningService
         $adminBearer = $this->session->getAdminBearer($environment);
         $adminLogin  = $this->session->getAdminLogin($environment);
 
-        // El celular del DUEÑO es obligatorio: es la identidad de PhoneLogin
-        // del usuario que Factomate crea. Sin él, el emisor queda registrado
-        // pero nadie puede autenticarse en su nombre (bug 2026-09-07, Balloon
-        // Party — el alta salió sin teléfono y el PhoneLogin devolvía 500).
-        $ownerPhone = EmitterIdentity::ownerPhone($companyId);
-        if ($ownerPhone === '') {
-            throw new \RuntimeException(
-                'El dueño del comercio no tiene un celular válido cargado — es la identidad de acceso ' .
-                'del emisor ante el proveedor. Cargalo en su ficha de usuario y reintentá.'
-            );
-        }
-
         $created = $this->provider->createExternal($environment, $adminLogin, $adminBearer, [
             'razonSocial'    => $company['razonSocial'],
             'nombreFantasia' => $company['nombreFantasia'],
             'email'          => $fiscal['email'],
             'ruc'            => $company['ruc'],
-            'phone'          => $ownerPhone,
         ]);
 
-        // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir.
-        // Se escriben las DOS identidades del emisor (mig 205): `login_enc`
-        // el UserName/email —que es el header `phonenumber` de toda llamada
-        // y el usuario de /Token— y `phone_enc` el CELULAR del dueño, que es
-        // lo único que acepta PhoneLogin. Antes las dos salían de `phone_enc`
-        // y cada corrección rompía a la otra; ver `EmitterIdentity`.
+        // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir
+        // (manual §2.4: viaja en claro UNA vez). username+password_enc son la
+        // credencial REAL del tenant (auth por /Token, confirmado por soporte
+        // 2026-09-07); `login_enc` espeja el UserName para el header
+        // `phonenumber` (mig 205, ver EmitterIdentity).
         // El `catch (DbQueryException)` NO es decorativo: desde 2026-08-22 un
         // error de SQL sale por excepción y ya NO vuelve como `['error' => msg]`,
         // así que sin él el `if` de abajo —y con él el código FT- de
@@ -380,7 +366,11 @@ final class EInvoiceProvisioningService
                     // Identidad de PhoneLogin = el CELULAR del dueño, no el
                     // email (corregido 2026-09-07 — el email solo autentica a
                     // la cuenta admin).
-                    'phone_enc'           => CredentialVault::encrypt($ownerPhone),
+                    // Vacío a propósito: la auth del tenant va por /Token con
+                    // username+password (manual §2.2). El celular solo lo
+                    // necesita el fallback admin (PhoneLogin) y lo resuelve
+                    // EmitterIdentity::phone() con self-healing al usarlo.
+                    'phone_enc'           => null,
                     'token_enc'           => null,
                     'token_expires_at'    => null,
                 ],

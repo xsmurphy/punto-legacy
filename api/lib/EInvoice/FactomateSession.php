@@ -136,75 +136,64 @@ final class FactomateSession
 
         $environment = (string) ($row['environment'] ?? 'test');
 
-        // DOS identidades, no una (mig 205 / EmitterIdentity):
-        //   $login → el UserName (email). Header `phonenumber` de /Token.
-        //   $phone → el CELULAR del dueño. Es lo ÚNICO que acepta PhoneLogin
-        //            (verificado 2026-09-07: con el email devuelve 500).
-        // Antes las dos salían de `phone_enc` y cada fix rompía a la otra.
+        // La cadena CORRECTA, confirmada por soporte de Factomate
+        // (2026-09-07) y por el manual ABM (§2.2/§2.4): CreateExternal
+        // devuelve email (UserName) + contraseña generada UNA sola vez, y
+        // ESAS credenciales —que guardamos cifradas desde el alta— son las
+        // que autentican al tenant vía /Token. No hay teléfono en ningún
+        // lado del contrato; el PhoneLogin con bearer admin que usábamos de
+        // camino principal era la puerta equivocada (500 permanente: ese
+        // usuario no tiene celular, ni el manual lo contempla).
         $login = EmitterIdentity::login($companyId);
 
-        // Camino 1 — cadena ADMIN (white-label): PhoneLogin con el bearer
-        // admin, sin contraseña del tenant.
-        $adminError = null;
+        // Camino PRINCIPAL — credencial PROPIA del tenant: /Token
+        // (grant_type=password) con username=email y la contraseña del
+        // vault; el header phonenumber lleva el UserName. El bearer que
+        // devuelve autentica los endpoints reales con la identidad correcta
+        // (verificado en vivo 2026-09-07: GetUserInfo, BranchDocumentType/Get
+        // y PaymentMethod/get → 200).
+        $passwordEnc = (string) ($row['password_enc'] ?? '');
+        $username    = (string) ($row['username'] ?? '');
+        $ownError    = null;
+        if ($passwordEnc !== '' && $username !== '') {
+            try {
+                $password = CredentialVault::decrypt($passwordEnc);
+                $step1 = $this->provider->token($environment, $login, $username, $password);
+                return $this->persistBearer($companyId, [
+                    'token'     => (string) $step1['token'],
+                    // Si /Token no declara expiración, TTL corto a propósito:
+                    // renovar barato es mejor que descubrir tarde que venció.
+                    'expiresAt' => $step1['expiresAt'] ?? date('c', time() + self::STEP1_FALLBACK_TTL_SECONDS),
+                ]);
+            } catch (\RuntimeException $e) {
+                $ownError = $e->getMessage();
+                error_log("[FactomateSession] /Token con credencial propia falló para $companyId: $ownError");
+            }
+        }
+
+        // Fallback — cadena ADMIN (white-label) con PhoneLogin. Queda como
+        // último recurso para una cuenta sin credencial propia utilizable
+        // (contraseña perdida/reseteada a destiempo). PhoneLogin exige el
+        // CELULAR del dueño (EmitterIdentity::phone, con self-healing).
         if (self::hasAdminCredentials($environment)) {
             try {
                 $adminBearer = $this->getAdminBearer($environment);
                 $step2 = $this->provider->phoneLogin($environment, EmitterIdentity::phone($companyId), $adminBearer);
                 return $this->persistBearer($companyId, $step2);
             } catch (\RuntimeException $e) {
-                // No se cae directo: si la cuenta tiene credencial propia
-                // (F0 manual), el camino legacy todavía puede autenticarla.
-                $adminError = $e->getMessage();
-                error_log("[FactomateSession] cadena admin falló para $companyId: $adminError");
+                error_log("[FactomateSession] cadena admin (fallback) falló para $companyId: " . $e->getMessage());
+                throw new \RuntimeException(
+                    'No se pudo autenticar con Factomate. Credencial propia: '
+                    . ($ownError ?? 'ausente') . ' | Admin: ' . $e->getMessage()
+                );
             }
         }
 
-        // Camino 2 — LEGACY: credencial propia de la cuenta (vault).
-        $passwordEnc = (string) ($row['password_enc'] ?? '');
-        $username    = (string) ($row['username'] ?? '');
-        if ($passwordEnc === '' || $username === '') {
-            throw new \RuntimeException(
-                $adminError !== null
-                    ? "No se pudo autenticar con Factomate (admin): $adminError"
-                    : 'La credencial admin de Factomate no está configurada y la cuenta no tiene credencial propia.'
-            );
-        }
-
-        $password = CredentialVault::decrypt($passwordEnc);
-        $step1 = $this->provider->token($environment, $login, $username, $password);
-        try {
-            $step2 = $this->provider->phoneLogin($environment, EmitterIdentity::phone($companyId), (string) $step1['token']);
-            return $this->persistBearer($companyId, $step2);
-        } catch (\RuntimeException $e) {
-            // Camino 3 — CONTINGENCIA (2026-09-07): /api/account/PhoneLogin de
-            // Factomate devuelve HTTP 500 para CUALQUIER entrada (verificado
-            // en vivo: falla igual con el email, con un celular registrado,
-            // con uno inventado y hasta SIN el header — mientras el mismo
-            // token pasa 200 en GetUserInfo). Reclamado a su soporte.
-            //
-            // El bearer del PASO 1 (/Token con la credencial PROPIA del
-            // tenant) autentica los endpoints reales con la identidad
-            // correcta — verificado en vivo el mismo día: GetUserInfo,
-            // BranchDocumentType/Get y PaymentMethod/get → 200, y
-            // CreateExternal ya había funcionado con él. Se usa directo.
-            //
-            // SOLO acá, en la cadena con credencial propia: el fallback NO
-            // existe para la cadena admin, porque con un token del paso 1 la
-            // identidad ES la del dueño del token (se verificó que
-            // GetUserInfo con el bearer admin + phonenumber del tenant
-            // devuelve los datos del ADMIN) — usar el token admin para
-            // operaciones del tenant operaría con la identidad equivocada.
-            //
-            // El TTL respeta la expiración que el /Token declare y, si no
-            // declara, cae a 10 minutos — corto A PROPÓSITO: cuando
-            // Factomate arregle PhoneLogin, el próximo refresh vuelve solo a
-            // la cadena buena (paso 2, bearer de 24 h) sin tocar nada.
-            error_log("[FactomateSession] PhoneLogin caído para $companyId — contingencia con el bearer del paso 1 (TTL corto): " . $e->getMessage());
-            return $this->persistBearer($companyId, [
-                'token'     => (string) $step1['token'],
-                'expiresAt' => $step1['expiresAt'] ?? date('c', time() + self::STEP1_FALLBACK_TTL_SECONDS),
-            ]);
-        }
+        throw new \RuntimeException(
+            $ownError !== null
+                ? "No se pudo autenticar con Factomate (credencial propia): $ownError"
+                : 'La cuenta no tiene credencial propia y la credencial admin de Factomate no está configurada.'
+        );
     }
 
     /** @param array{token:string,expiresAt:?string} $step2 */
