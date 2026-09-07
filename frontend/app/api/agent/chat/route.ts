@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
 import { buildReadTools } from "@/lib/agent/read-tools"
+import { buildEinvoiceSetupTool } from "@/lib/agent/einvoice-setup"
 import { buildSetupStatusTool } from "@/lib/agent/setup-status"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
@@ -192,6 +193,11 @@ export async function POST(req: Request) {
     `Cuando el usuario pida ayuda para configurar su negocio, diga que la cuenta es nueva o recién arranca, o pregunte qué le falta, llamá primero "get_setup_status": devuelve el estado real de la configuración en ese momento. Nunca supongas qué le falta ni le pidas que te lo cuente si podés leerlo.\n` +
     `Con el checklist en mano: seguí el ORDEN que devuelve (empezá por "nextStep", que es el primer pendiente de la cadena de dependencias) y, antes de registrar ninguna acción, pedile en UN solo mensaje corto los datos que faltan — cada ítem pendiente los lista en su campo "missing". Ese es el paso que hace la diferencia: si te piden "creá 2 usuarios y 2 cajas", primero pedís los nombres de las personas y el número de autorización de cada caja, y recién con esos datos llamás register_action con el lote completo. Nunca inventes un dato faltante para completar un payload.\n` +
     `Un ítem con "agentActions" vacío es algo que VOS no podés hacer, no algo que el sistema no soporte: decile en una línea dónde se hace (el campo "where" lo trae) y seguí con el resto. Un ítem en estado "no se pudo leer" no es un pendiente: decí que ese punto no lo pudiste verificar, nunca lo reportes como faltante.\n\n` +
+    `## Configurar la facturación electrónica\n` +
+    `Cuando el usuario pida configurar la facturación electrónica o pregunte si ya puede facturar, llamá primero "get_einvoice_setup" y seguí el orden que devuelve. Tres reglas que no se negocian:\n` +
+    `1) La RAZÓN SOCIAL nunca la escribís vos. Pedile el identificador tributario del comercio, consultalo con "lookup_taxpayer", mostrale la razón social que devolvió el padrón y pedile que la confirme. Después registrá "set_fiscal_data" con SOLO el ruc: el servidor vuelve a consultar el padrón y guarda esa razón social. NUNCA uses el nombre comercial del negocio como razón social, ni la deduzcas, ni la corrijas — si el padrón no encuentra el número, decíselo y pedile que verifique la constancia.\n` +
+    `2) El certificado de firma (.p12), su contraseña y el CSC son SECRETOS: no se los pidas por el chat, no los aceptes como adjunto y no los pongas en ningún payload. Decile que los carga él en Ajustes → Facturación electrónica, y ofrecele ayuda para conseguirlos en el portal de la autoridad tributaria.\n` +
+    `3) El alta del emisor ("provision_einvoice") necesita el identificador tributario ya cargado y al menos una caja activa con su autorización para facturar y su punto de expedición. Si falta la caja, resolvé eso primero con "create_register" — pedile el número de autorización, nunca lo inventes.\n\n` +
     `## Formato de salida — nunca degenerar\n` +
     `NUNCA emitas bloques de código vacíos (\`\`\` sin contenido o con solo "{}"). NUNCA repitas el mismo párrafo o resumen dos veces en la misma respuesta. NUNCA digas frases como "si el sistema falla te guiaré manualmente" ni inventes pasos alternativos — si una tool falla, reportá el error real que devolvió.\n\n` +
     `## Errores y reintentos — nunca narrarlos\n` +
@@ -296,6 +302,12 @@ export async function POST(req: Request) {
       // además el estado de configuración de la cuenta no les sirve para nada y
       // ensancharía la superficie de esa key sin motivo.
       ...buildSetupStatusTool({ apiUrl, dataHeaders, authHeader }),
+      // `get_einvoice_setup` (M7 de context/58 + context/66 §FE) sí va TAMBIÉN
+      // en el MCP, a diferencia de la de arriba: el caso de uso que M7 vino a
+      // habilitar es configurar la facturación electrónica POR MCP, y ahí el
+      // modelo del cliente necesita leer en qué punto está antes de registrar
+      // `set_fiscal_data` o `provision_einvoice`. Ver el docblock del archivo.
+      ...buildEinvoiceSetupTool({ apiUrl, dataHeaders, authHeader }),
       ...makeActionTools(authHeader, apiUrl),
     },
   })

@@ -18,16 +18,31 @@ use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
 use Punto\Api\Services\RegisterAdminService;
 
+$method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource   = (string) ($_GET['resource'] ?? '');
+
 // MULTI-REALM (A7): la caja vive dentro del panel; acepta el realm panel
 // además de pos-app.
-$ctx        = apiAuthTenant(['panel', 'pos-app']);
+//
+// El realm `api` entra SOLO al listado de cajas, y solo por GET: es de donde
+// `get_einvoice_setup` saca qué caja tiene timbrado cargado, que es el
+// prerequisito del alta del emisor (`registerStamps()` la exige). El timbrado
+// es DATO fiscal y no un secreto —`context/58` lo dice explícito al listar qué
+// se puede configurar por MCP—, así que exponerlo a la key del propio comercio
+// no abre nada que su dueño no vea en el panel.
+//
+// El resto del archivo NO recibe el realm: `GET` sin `resource` devuelve la
+// numeración de la caja del CONTEXTO, y una API key no tiene caja (registerId
+// vacío) — contestarle algo ahí sería inventarle una dimensión que no tiene
+// (`context/08`: nunca resolver una dimensión faltante con "la primera activa").
+$ctx        = apiAuthTenant(
+    $method === 'GET' && $resource === 'listAll' ? ['panel', 'pos-app', 'api'] : ['panel', 'pos-app']
+);
 $companyId  = $ctx['companyId'];
 $registerId = $ctx['registerId'];
 $outletId   = $ctx['outletId'];
 
 $svc        = new RegisterService(TenantContext::fromAuth($ctx));
-$method     = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$resource   = (string) ($_GET['resource'] ?? '');
 
 // GET ?resource=listAll — lista todas las cajas del tenant.
 // Multi-realm: el panel admin lo usa para CRUD; el POS lo usa para que el

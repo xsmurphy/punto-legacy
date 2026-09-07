@@ -1067,6 +1067,15 @@ foreach ([
     'update_outlet'   => 'settings.outlet.manage',
     'create_register' => 'settings.register.manage',
     'assign_role'     => 'contacts.user.manage',
+    // FE (M7 de context/58 + context/66 §FE). `set_fiscal_data` escribe la
+    // identidad fiscal del comercio sobre los ajustes —mismo permiso que el
+    // form de Configuración del negocio— y `provision_einvoice` da de alta el
+    // emisor ante el proveedor, que ya tiene clave propia desde que existe la
+    // pantalla. Las dos son de dueño: un cajero con el rol de encargado tiene
+    // `settings.company.edit` en el seed, así que sin el bloqueo por realm
+    // "cargá el RUC" habría funcionado desde el mostrador.
+    'set_fiscal_data'    => 'settings.company.edit',
+    'provision_einvoice' => 'einvoice.manage',
 ] as $accion => $claveEsperada) {
     check("agente: $accion exige $claveEsperada",
         ($mapaAccionPermiso[$accion] ?? null) === $claveEsperada,
@@ -1075,6 +1084,20 @@ foreach ([
     check("agente: $accion está bloqueada en la caja",
         in_array($accion, $bloqueadasEnCaja, true),
         'configurar el comercio es tarea de dueño desde el panel, no de cajero en el mostrador',
+        $failures, $checks);
+}
+
+// Los SECRETOS fiscales no son acciones del agente y el registro del lote es
+// donde se corta. El chequeo mira la FUENTE porque el efecto no se puede
+// observar de otra forma: si `provision_einvoice` aceptara un `cscSecret`, el
+// secreto ya habría viajado al proveedor del modelo antes de llegar acá, y la
+// única señal sería que el alta funcionó.
+$confirmSrcFe = (string) file_get_contents(dirname(__DIR__) . '/v1/ai/confirm.php');
+foreach (['cscSecret', 'certBase64', 'certPassword'] as $secreta) {
+    check("agente: /v1/ai/confirm rechaza el payload que traiga $secreta",
+        str_contains($confirmSrcFe, "'$secreta'"),
+        'el CSC y el certificado se cargan en Ajustes → Facturación electrónica, nunca por el chat: '
+            . 'un secreto fiscal que pasa por el contexto del modelo ya se filtró',
         $failures, $checks);
 }
 

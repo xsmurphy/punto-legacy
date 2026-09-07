@@ -64,6 +64,28 @@ const AI_CONFIRM_ALLOWED_ACTIONS = [
     'update_outlet',
     'create_register',
     'assign_role',
+    // Facturación electrónica (M7 de `context/58` + `context/66 §FE`). Las dos
+    // son de DUEÑO y se bloquean en la caja igual que las de arriba. Los
+    // SECRETOS (certificado .p12, su contraseña, el CSC) NO son acciones del
+    // agente y nunca van a serlo: viajan por la tarjeta segura del panel o por
+    // la URL de subida de un solo uso del MCP (M8), sin pasar por el modelo.
+    'set_fiscal_data',
+    'provision_einvoice',
+];
+
+/**
+ * Claves que un payload de FE NO puede traer, con el motivo que el modelo le
+ * repite al usuario.
+ *
+ * No alcanza con que `execute` las ignore: el rechazo tiene que ser VISIBLE en
+ * el registro del lote. Si el modelo le pidió al comercio su CSC por chat, ese
+ * secreto ya viajó al proveedor del modelo — lo único que todavía se puede
+ * hacer es que la acción falle diciendo dónde se carga de verdad, para que
+ * nadie construya el hábito de dictárselo.
+ */
+const AI_EINVOICE_SECRET_KEYS = [
+    'cscId', 'cscSecret', 'csc',
+    'cert', 'certBase64', 'certPassword', 'certificado', 'p12', 'pfx',
 ];
 
 /**
@@ -230,6 +252,60 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
             }
             if (empty(trim((string) ($payload['roleName'] ?? '')))) {
                 apiError('roleName es obligatorio', 400);
+            }
+            break;
+
+        case 'set_fiscal_data':
+            // SOLO el RUC. La razón social NO viene en el payload y NO la
+            // decide el modelo: sale del padrón, que es la fuente que SIFEN
+            // valida al emitir. Los tres fallbacks "razón social = nombre de
+            // la empresa" se eliminaron el 2026-09-06 por ser un bug FISCAL
+            // ("Balloon Party" ≠ "BALLOON PARTY S.A."), y una acción del
+            // agente que aceptara el nombre por payload sería el cuarto.
+            if (empty(trim((string) ($payload['ruc'] ?? '')))) {
+                apiError('Falta el RUC del comercio', 400);
+            }
+            foreach (['billingName', 'razonSocial', 'businessName'] as $prohibida) {
+                if (array_key_exists($prohibida, $payload)) {
+                    apiError(
+                        'La razón social no se carga a mano: se trae del padrón a partir del RUC. '
+                        . 'Mandá solo el RUC.',
+                        400
+                    );
+                }
+            }
+            break;
+
+        case 'provision_einvoice':
+            // El email es el único campo que `validateForm()` exige además de
+            // las actividades, y se valida acá para que el modelo pueda
+            // repreguntarlo ANTES de que el usuario confirme una tarjeta que
+            // iba a fallar. El resto de las reglas (dedupe de actividades,
+            // RUC/razón social/timbrados leídos de la cuenta) son del servicio
+            // y no se replican: una segunda copia se queda vieja.
+            $email = trim((string) ($payload['email'] ?? ''));
+            if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                apiError('Falta un email de facturación válido', 400);
+            }
+            if (!is_array($payload['actividades'] ?? null) || $payload['actividades'] === []) {
+                apiError('Falta la actividad económica principal (código y descripción)', 400);
+            }
+            foreach ($payload['actividades'] as $actividad) {
+                if (!is_array($actividad)
+                    || (int) ($actividad['codigo'] ?? 0) <= 0
+                    || trim((string) ($actividad['nombre'] ?? '')) === '') {
+                    apiError('Cada actividad económica necesita código y descripción', 400);
+                }
+            }
+            foreach (AI_EINVOICE_SECRET_KEYS as $secreta) {
+                if (array_key_exists($secreta, $payload)) {
+                    apiError(
+                        'El CSC y el certificado de firma no se cargan por el asistente: son secretos fiscales '
+                        . 'y no pueden pasar por el chat. Se cargan en Ajustes → Facturación electrónica, '
+                        . 'donde viajan directo al servidor. Registrá la acción sin esos datos.',
+                        400
+                    );
+                }
             }
             break;
 

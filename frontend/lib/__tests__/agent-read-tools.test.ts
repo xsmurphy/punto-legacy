@@ -31,13 +31,16 @@ const ctx = {
 describe("catálogo de tools de lectura", () => {
   const tools = buildReadTools(ctx)
 
-  it("expone las 21 tools, todas con nombre de lectura o presentación", () => {
+  it("expone las 22 tools, todas con nombre de lectura o presentación", () => {
     const names = Object.keys(tools)
     // 20 al extraer el catálogo + `get_sales_kpis` (2026-08-31), que expone el
-    // widget donde el backend calcula el ticket promedio.
-    expect(names).toHaveLength(21)
+    // widget donde el backend calcula el ticket promedio + `lookup_taxpayer`
+    // (2026-09-07, M7): la consulta al padrón de contribuyentes, que es lo que
+    // impide que la razón social del comercio la escriba el modelo.
+    expect(names).toHaveLength(22)
     // Si alguna vez entra una `create_*`/`update_*`/`delete_*` acá, es que se
-    // movió una mutación al catálogo read-only. Ver D5.
+    // movió una mutación al catálogo read-only. Ver D5. `lookup_*` no matchea a
+    // propósito: consulta un padrón externo y no escribe nada.
     const mutantes = names.filter((n) => /^(create|update|delete|set|post|import)_/.test(n))
     expect(mutantes).toEqual([])
   })

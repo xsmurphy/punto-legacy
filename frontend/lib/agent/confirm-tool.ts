@@ -32,6 +32,24 @@ import { postConfirm, postExecute, WRITE_ACTIONS } from "./confirm-api"
  * confirmToken, así el modelo recibe el "te falta el timbrado" a tiempo para
  * repreguntarlo en vez de mostrar un resumen que iba a fallar.
  *
+ * FACTURACIÓN ELECTRÓNICA (2026-09-07, M7 de `context/58` + `context/66 §FE`):
+ * `set_fiscal_data` y `provision_einvoice` completan el otro tramo del
+ * onboarding — el que hoy frena a un comercio nuevo antes de poder vender. Las
+ * dos son PANEL-ONLY por el mismo motivo que las cuatro de arriba.
+ *
+ * Dos reglas que el catálogo hace cumplir por forma, no por prompt:
+ *
+ *   - La RAZÓN SOCIAL no existe como campo del payload. Sale del padrón, y el
+ *     servidor la vuelve a consultar al ejecutar en vez de confiar en la que el
+ *     modelo mostró minutos antes. El fallback "razón social = nombre de la
+ *     empresa" fue un bug fiscal eliminado en tres lugares el 2026-09-06 (SIFEN
+ *     valida la razón social contra el padrón del RUC): darle un campo al
+ *     modelo sería el cuarto.
+ *   - Los SECRETOS (certificado .p12, su contraseña, el CSC) tampoco tienen
+ *     campo, y `/v1/ai/confirm` rechaza el payload que los traiga. El agente
+ *     corre sobre un proveedor externo: un secreto fiscal que entra al contexto
+ *     del modelo ya se filtró, y redactarlo después no lo devuelve.
+ *
  * `update_outlet` es PARCIAL por diseño: manda SOLO los campos que cambian y el
  * backend deja el resto de la sucursal como estaba. La regla no es cosmética —
  * `itemsTaxIncluded` (IVA incluido vs. añadido) es un campo de la sucursal, y
@@ -52,7 +70,7 @@ const payloadSchema = z.object({
   name: z.string().optional().describe("Nombre (contacto, ítem, categoría, marca, etiqueta, usuario, sucursal, caja). En update_outlet es el nombre NUEVO de la sucursal — la sucursal a modificar se indica con outletName o id"),
   type: z.number().int().optional().describe("contacto: 1=cliente, 2=proveedor"),
   phone: z.string().optional(),
-  email: z.string().optional(),
+  email: z.string().optional().describe("Email del contacto o de la sucursal. En provision_einvoice es el email de FACTURACIÓN del comercio, al que llegan las notificaciones del emisor"),
   note: z.string().optional(),
   // Dirección default del contacto (create_contact / update_contact). El
   // backend la crea junto con el contacto — no es un paso aparte. `lat`/`lng`
@@ -89,6 +107,17 @@ const payloadSchema = z.object({
   expeditionPoint: z.string().optional().describe("create_register: establecimiento y punto de expedición de la caja, formato EEE-PPP (ej. 001-001). OBLIGATORIO. Dos cajas NO pueden tener el mismo punto de expedición con el mismo timbrado — si el usuario abre varias cajas, pedile uno distinto para cada una"),
   initialInvoiceNumber: z.string().optional().describe("create_register: número desde el que esta caja empieza a facturar. Sale del TIMBRADO que autorizó la SET, no lo elegís vos: si el timbrado habilita el rango 2336-5000, acá va 2336. Mandalo TAL COMO viene, con los ceros de adelante si los tiene ('00002336'), porque esos ceros son los dígitos que se imprimen en la factura. Si el usuario no lo menciona, dejalo vacío: la caja arranca en 1, que es lo habitual. Preguntalo si dice que el talonario continúa una numeración anterior"),
   lastInvoiceNumber: z.string().optional().describe("create_register: última factura del rango autorizado por el timbrado (ej. 5000). También sale del timbrado. Sirve para que la caja deje de emitir al agotarse el talonario en lugar de facturar fuera de rango. Opcional: vacío significa sin tope declarado"),
+  // ── Facturación electrónica (M7 de context/58, context/66 §FE) ──────────
+  // `ruc` es el del PROPIO comercio y no el de un contacto — ese va en `tin`.
+  // La razón social NO tiene campo acá a propósito: la trae el padrón, y darle
+  // uno al modelo es reabrir el bug fiscal que se cerró el 2026-09-06.
+  ruc: z.string().optional().describe("set_fiscal_data: identificador tributario del PROPIO comercio (el que va a emitir las facturas), tal como figura en su constancia. Consultalo antes con lookup_taxpayer y mostrale al usuario la razón social que devuelve el padrón para que la confirme: esa razón social NO se manda en el payload, la vuelve a traer el servidor del padrón al ejecutar. NUNCA la tipees vos ni uses el nombre comercial del negocio"),
+  taxpayerType: z.number().int().optional().describe("provision_einvoice: tipo de contribuyente según la constancia (persona física o jurídica). Si el usuario no lo sabe, omitilo"),
+  actividades: z
+    .array(z.object({ codigo: z.number().int(), nombre: z.string() }))
+    .optional()
+    .describe("provision_einvoice: actividades económicas de la constancia de RUC, con su código y su descripción. La PRIMERA es la principal — el orden ES el dato. Pedíselas al usuario tal como figuran en la constancia: no las inventes ni las deduzcas del rubro del negocio"),
+  infoAdicional: z.string().optional().describe("provision_einvoice: información adicional que el comercio quiere que salga en sus documentos. Opcional"),
   sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
   mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),
   mapping: z.record(z.string(), z.string()).nullish().describe("tabular_import: mapeo campo→columna, o null para auto"),
@@ -107,7 +136,9 @@ const actionItemSchema = payloadSchema.extend({
     // La lista sale de `WRITE_ACTIONS` (confirm-api.ts) para no tener una copia
     // más: la comparten estas tools y las del server MCP.
     WRITE_ACTIONS.join(" | ") + ". " +
-    "update_outlet modifica una sucursal EXISTENTE (nombre, dirección, teléfono, email, descripción): mandá SOLO los campos que cambian — los que omitas quedan como están, y los que mandes vacíos se ignoran"
+    "update_outlet modifica una sucursal EXISTENTE (nombre, dirección, teléfono, email, descripción): mandá SOLO los campos que cambian — los que omitas quedan como están, y los que mandes vacíos se ignoran. " +
+    "set_fiscal_data carga la identidad fiscal del comercio (mandá SOLO ruc: la razón social la trae el padrón). " +
+    "provision_einvoice da de alta al comercio como emisor electrónico (email + actividades): antes tiene que estar cargado el RUC y tiene que haber al menos una caja con timbrado, y el certificado y el CSC se cargan aparte en Ajustes"
   ),
 })
 
@@ -161,7 +192,7 @@ export function makeActionTools(
   return {
     register_action: tool({
       description:
-        "Registra un LOTE de una o más acciones mutantes (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario; crear o editar una sucursal; crear una caja; o importación tabular) para que el usuario las confirme JUNTAS. NO las ejecuta: devuelve un confirmToken. Si el usuario pidió varios ítems (ej. 'creá Sprite, Coca Zero y Coca Cola'), agrupá TODAS las acciones en un solo llamado con actions=[...] — nunca llames register_action varias veces para un mismo pedido. La UI muestra el resumen como tarjeta — no lo repitas en texto. Recién cuando el usuario confirme, llamá execute_action con ese confirmToken.",
+        "Registra un LOTE de una o más acciones mutantes (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario; crear o editar una sucursal; crear una caja; cargar los datos fiscales del comercio o darlo de alta como emisor electrónico; o importación tabular) para que el usuario las confirme JUNTAS. NO las ejecuta: devuelve un confirmToken. Si el usuario pidió varios ítems (ej. 'creá Sprite, Coca Zero y Coca Cola'), agrupá TODAS las acciones en un solo llamado con actions=[...] — nunca llames register_action varias veces para un mismo pedido. La UI muestra el resumen como tarjeta — no lo repitas en texto. Recién cuando el usuario confirme, llamá execute_action con ese confirmToken.",
       inputSchema: z.object({
         actions: z.array(actionItemSchema).min(1).describe("Lote de acciones a confirmar juntas (mínimo 1)"),
         summary: z.string().describe("Resumen legible del LOTE completo para mostrar al usuario (ej. 'Crear 3 productos: Sprite, Coca Zero, Coca Cola')"),
