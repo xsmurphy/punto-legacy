@@ -57,11 +57,36 @@ final class EInvoiceProvisioningService
 {
     private EInvoiceProvider $provider;
     private FactomateSession $session;
+    /** Proveedor inyectado por un arnés (null en producción) — ver provision(). */
+    private ?EInvoiceProvider $injected;
 
     public function __construct(?EInvoiceProvider $provider = null)
     {
+        $this->injected = $provider;
         $this->provider = $provider ?? new FactomateProvider();
         $this->session  = new FactomateSession($this->provider);
+    }
+
+    /**
+     * Con qué proveedor se da de alta ESTE emisor.
+     *
+     * El de la fila si ya existe (un emisor no cambia de motor porque se
+     * flipeó una env var); si no, el default de
+     * `EInvoiceProviderFactory::defaultName()`.
+     *
+     * El default se CONSULTA, no se relee de la env var: es exactamente la
+     * misma pregunta que se hace el factory en el camino de emisión, y dos
+     * lecturas separadas del mismo `EINVOICE_DEFAULT_PROVIDER` son cómo
+     * terminan divergiendo — el alta creando el emisor en un motor y la
+     * emisión buscándolo en el otro.
+     */
+    private static function targetProvider(string $companyId): string
+    {
+        $row = ncmExecute('SELECT provider FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        $row = $row ?: [];
+        $existing = strtolower(trim((string) ($row['provider'] ?? '')));
+
+        return $existing !== '' ? $existing : EInvoiceProviderFactory::defaultName();
     }
 
     /** Entorno donde se provisionan los emisores nuevos — global, no elección del tenant. */
@@ -109,6 +134,21 @@ final class EInvoiceProvisioningService
      */
     public function provision(string $companyId, array $form): array
     {
+        // ── Ruteo por proveedor (mig 206) ────────────────────────────────
+        //
+        // Un emisor YA provisionado se re-provisiona con SU proveedor, no con
+        // el default: `provider` es el dato, `EINVOICE_DEFAULT_PROVIDER` solo
+        // decide con cuál nacen los nuevos. Al revés —default primero— el
+        // día que se flipee la env var, cualquier comercio que vuelva a
+        // guardar su formulario fiscal se daría de alta en el otro motor,
+        // con otro timbrado y otra numeración, sin pedirlo.
+        //
+        // El `$provider` inyectado (arneses) fuerza el camino de Factomate:
+        // es el único que simulan.
+        if ($this->injected === null && self::targetProvider($companyId) === EInvoiceProviderFactory::PROVIDER_FEPY) {
+            return (new FePyProvisioningService())->provision($companyId, $form);
+        }
+
         $environment = self::defaultEnvironment();
 
         // El BORRADOR se persiste antes que cualquier throw — validación,
@@ -120,9 +160,9 @@ final class EInvoiceProvisioningService
         // formulario (`initial={account.fiscal}`), así que la reanudación
         // funciona igual que con el fiscal validado; el upsert de más abajo lo
         // reescribe normalizado apenas la validación pasa.
-        $this->upsertFiscal($companyId, $environment, json_encode($this->stripSecrets($form), JSON_UNESCAPED_UNICODE));
+        $this->upsertFiscal($companyId, $environment, json_encode(self::stripSecrets($form), JSON_UNESCAPED_UNICODE));
 
-        $fiscal = $this->validateForm($form);
+        $fiscal = self::validateForm($form);
 
         if (!FactomateSession::hasAdminCredentials($environment)) {
             // Sin credencial admin no hay white-label. Mensaje para el
@@ -137,11 +177,11 @@ final class EInvoiceProvisioningService
         // Fila local con el fiscal ya VALIDADO (pisa el borrador crudo de
         // arriba): es el checkpoint raíz. El secreto del CSC nunca entra en
         // `fiscal` (pasa directo a Factomate en el paso 2).
-        $this->upsertFiscal($companyId, $environment, json_encode($this->stripSecrets($fiscal), JSON_UNESCAPED_UNICODE));
+        $this->upsertFiscal($companyId, $environment, json_encode(self::stripSecrets($fiscal), JSON_UNESCAPED_UNICODE));
 
         try {
-            $company = $this->companyFiscal($companyId);
-            $stamps  = $this->registerStamps($companyId);
+            $company = self::companyFiscal($companyId);
+            $stamps  = self::registerStamps($companyId);
 
             $tenantId = $this->ensureTenantCreated($companyId, $fiscal, $company, $environment);
             $bearer   = $this->session->getBearer($companyId);
@@ -187,6 +227,11 @@ final class EInvoiceProvisioningService
      */
     public function uploadCert(string $companyId, string $certBase64, string $certPassword): array
     {
+        // Ruteo por proveedor (mig 206) — mismo criterio que provision().
+        if ($this->injected === null && self::targetProvider($companyId) === EInvoiceProviderFactory::PROVIDER_FEPY) {
+            return (new FePyProvisioningService())->uploadCert($companyId, $certBase64, $certPassword);
+        }
+
         if (trim($certBase64) === '' || $certPassword === '') {
             throw new \RuntimeException('Falta el archivo del certificado o su contraseña.');
         }
@@ -204,7 +249,7 @@ final class EInvoiceProvisioningService
         // haría que el comercio lo vuelva a subir sin necesidad (y que un
         // re-provisioning lo re-suba de gusto). Si el vault falla —clave mal
         // configurada, rotación a medias— se pierde la custodia, no el alta.
-        $this->mergeProvisioning($companyId, ['certUploaded' => true]);
+        self::mergeProvisioning($companyId, ['certUploaded' => true]);
 
         try {
             FiscalSecretStore::storeCertificate($companyId, $certBase64, $certPassword);
@@ -251,6 +296,11 @@ final class EInvoiceProvisioningService
      */
     public function saveCsc(string $companyId, string $cscId, string $cscSecret): array
     {
+        // Ruteo por proveedor (mig 206) — mismo criterio que provision().
+        if ($this->injected === null && self::targetProvider($companyId) === EInvoiceProviderFactory::PROVIDER_FEPY) {
+            return (new FePyProvisioningService())->saveCsc($companyId, trim($cscId), trim($cscSecret));
+        }
+
         $cscId     = trim($cscId);
         $cscSecret = trim($cscSecret);
         if ($cscId === '' || $cscSecret === '') {
@@ -267,7 +317,7 @@ final class EInvoiceProvisioningService
         // un patch — mandar solo el CSC borraría RUC y razón social del emisor.
         $tenant = $this->buildTenantPayload(
             $tenantId,
-            $this->companyFiscal($companyId),
+            self::companyFiscal($companyId),
             $fiscal,
             $cscSecret
         );
@@ -280,7 +330,7 @@ final class EInvoiceProvisioningService
         // falle (mismo criterio que uploadCert()).
         ncmExecute(
             'UPDATE einvoice_account SET fiscal = ?::jsonb, updated_at = now() WHERE companyid = ?',
-            [json_encode($this->stripSecrets($fiscal), JSON_UNESCAPED_UNICODE), $companyId]
+            [json_encode(self::stripSecrets($fiscal), JSON_UNESCAPED_UNICODE), $companyId]
         );
 
         try {
@@ -305,6 +355,22 @@ final class EInvoiceProvisioningService
      */
     public function testSet(string $companyId): array
     {
+        // FE-PY no tiene una prueba de humo equivalente a /api/Consulta/Get:
+        // su verificación del certificado ocurre AL SUBIRLO (parsea el PKCS#12,
+        // rechaza vencidos y exige que el RUC de adentro sea el del emisor), y
+        // la consulta de RUC contra SIFEN vive en otro endpoint. Se responde el
+        // estado que ya se conoce en vez de dejar escapar una LogicException
+        // desde el provider, que en el panel sería un 500 sin explicación.
+        if ($this->injected === null && self::targetProvider($companyId) === EInvoiceProviderFactory::PROVIDER_FEPY) {
+            $hasCert = self::checkpoint($companyId, 'fepyCertUploaded');
+            return [
+                'ok' => $hasCert,
+                'message' => $hasCert
+                    ? 'El certificado está cargado y fue validado por el motor de facturación al subirlo.'
+                    : 'Todavía no hay certificado cargado en el motor de facturación.',
+            ];
+        }
+
         [$environment, $tenantId, $login] = $this->requireProvisioned($companyId);
         $bearer = $this->session->getBearer($companyId);
 
@@ -313,7 +379,7 @@ final class EInvoiceProvisioningService
         // de FE pide (email, actividades...), porque el RUC "no se re-tipea".
         // Leerlo del espejo hacía fallar la prueba con "no tiene RUC" en una
         // cuenta con el RUC perfectamente cargado (Balloon Party 2026-09-07).
-        $ruc = (string) ($this->companyFiscal($companyId)['ruc'] ?? '');
+        $ruc = (string) (self::companyFiscal($companyId)['ruc'] ?? '');
         if ($ruc === '') {
             throw new \RuntimeException('La cuenta no tiene RUC registrado — cargalo en Configuración del negocio.');
         }
@@ -402,13 +468,13 @@ final class EInvoiceProvisioningService
             );
         }
 
-        $this->mergeProvisioning($companyId, ['tenantCreated' => true]);
+        self::mergeProvisioning($companyId, ['tenantCreated' => true]);
         return $created['tenantId'];
     }
 
     private function ensureFiscalApplied(string $companyId, array $fiscal, array $company, string $environment, string $login, string $bearer, int $tenantId): void
     {
-        if ($this->checkpoint($companyId, 'fiscalApplied')) {
+        if (self::checkpoint($companyId, 'fiscalApplied')) {
             return;
         }
 
@@ -434,7 +500,7 @@ final class EInvoiceProvisioningService
 
         // El paso quedó hecho del lado del emisor: se marca ANTES de tocar la
         // custodia, para que un fallo del vault no haga repetir el PUT.
-        $this->mergeProvisioning($companyId, ['fiscalApplied' => true]);
+        self::mergeProvisioning($companyId, ['fiscalApplied' => true]);
 
         // Recién ahora se persiste: si el emisor no lo aceptó, no hay nada que
         // custodiar. Y un fallo de custodia no puede tirar el alta — el emisor
@@ -506,7 +572,7 @@ final class EInvoiceProvisioningService
      */
     private function ensureCertApplied(string $companyId, string $environment, string $login, string $bearer, int $tenantId): void
     {
-        if ($this->checkpoint($companyId, 'certUploaded')) {
+        if (self::checkpoint($companyId, 'certUploaded')) {
             return;
         }
 
@@ -534,7 +600,7 @@ final class EInvoiceProvisioningService
             return;
         }
 
-        $this->mergeProvisioning($companyId, ['certUploaded' => true]);
+        self::mergeProvisioning($companyId, ['certUploaded' => true]);
     }
 
     /**
@@ -594,7 +660,7 @@ final class EInvoiceProvisioningService
             }
 
             $done[] = $codigo;
-            $this->mergeProvisioning($companyId, ['activitiesCreated' => $done]);
+            self::mergeProvisioning($companyId, ['activitiesCreated' => $done]);
         }
     }
 
@@ -639,7 +705,7 @@ final class EInvoiceProvisioningService
                 );
             }
             $done[$stamp['registerId']] = true;
-            $this->mergeProvisioning($companyId, ['stampRegisters' => $done]);
+            self::mergeProvisioning($companyId, ['stampRegisters' => $done]);
         }
 
         // Mapa registerId → ids de timbrado del proveedor, matcheando por
@@ -680,7 +746,7 @@ final class EInvoiceProvisioningService
                 }
             }
         }
-        $this->mergeProvisioning($companyId, ['stampMap' => $map, 'stampSeries' => $series]);
+        self::mergeProvisioning($companyId, ['stampMap' => $map, 'stampSeries' => $series]);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -692,7 +758,25 @@ final class EInvoiceProvisioningService
      * @return array<string,mixed>
      * @throws \RuntimeException
      */
-    private function validateForm(array $form): array
+    // ── Piezas COMPARTIDAS entre proveedores ─────────────────────────────
+    //
+    // De acá para abajo, `validateForm`, `normalizeActivities`,
+    // `companyFiscal`, `registerStamps`, `stripSecrets`, `checkpoint` y
+    // `mergeProvisioning` pasaron de `private` a `public static` cuando entró
+    // `FePyProvisioningService` (mig 206). Es un cambio de visibilidad, no de
+    // comportamiento: ninguna usaba `$this` más que para llamarse entre
+    // ellas.
+    //
+    // Se comparten porque NO son de Factomate: validan el formulario fiscal
+    // del comercio, leen el RUC y la razón social de `company.config`, leen
+    // los timbrados de las CAJAS y manejan el protocolo de checkpoints sobre
+    // `einvoice_account.provisioning`. Todo eso vale igual contra cualquier
+    // motor, y duplicarlo significaría que dentro de un tiempo un proveedor
+    // valide el formulario con reglas distintas del otro — por ejemplo que
+    // uno acepte la razón social vacía, que es exactamente el bug fiscal que
+    // `companyFiscal()` documenta y cierra.
+
+    public static function validateForm(array $form): array
     {
         // El formulario pide SOLO lo que Punto no tiene en ningún otro lado.
         // RUC y razón social viven en Configuración del negocio
@@ -709,7 +793,7 @@ final class EInvoiceProvisioningService
             'email'         => $email,
             'taxpayerType'  => isset($form['taxpayerType']) && is_numeric($form['taxpayerType']) ? (int) $form['taxpayerType'] : null,
             'regimeId'      => isset($form['regimeId']) && is_numeric($form['regimeId']) ? (int) $form['regimeId'] : null,
-            'actividades'   => $this->normalizeActivities($form),
+            'actividades'   => self::normalizeActivities($form),
             'cscId'         => trim((string) ($form['cscId'] ?? '')),
             'cscSecret'     => (string) ($form['cscSecret'] ?? ''),
             'infoAdicional' => trim((string) ($form['infoAdicional'] ?? '')),
@@ -735,7 +819,7 @@ final class EInvoiceProvisioningService
      * @return array<int,array{codigo:int,nombre:string}>
      * @throws \RuntimeException
      */
-    private function normalizeActivities(array $form): array
+    public static function normalizeActivities(array $form): array
     {
         $raw = [];
         if (isset($form['actividades']) && is_array($form['actividades'])) {
@@ -800,7 +884,7 @@ final class EInvoiceProvisioningService
      * @return array{ruc:string,razonSocial:string,nombreFantasia:string}
      * @throws \RuntimeException si faltan, con el mensaje apuntando a dónde cargarlos.
      */
-    private function companyFiscal(string $companyId): array
+    public static function companyFiscal(string $companyId): array
     {
         $row = ncmExecute(
             "SELECT config->>'settingRUC' AS ruc,
@@ -841,7 +925,7 @@ final class EInvoiceProvisioningService
      * @return array<int,array{registerId:string,name:string,numero:string,establecimiento:string,puntoExpedicion:string,fechaInicio:string}>
      * @throws \RuntimeException si ninguna caja activa tiene timbrado completo.
      */
-    private function registerStamps(string $companyId): array
+    public static function registerStamps(string $companyId): array
     {
         $rs = ncmExecute(
             'SELECT registerId, registerName, data FROM register
@@ -908,13 +992,13 @@ final class EInvoiceProvisioningService
     }
 
     /** @param array<string,mixed> $fiscal */
-    private function stripSecrets(array $fiscal): array
+    public static function stripSecrets(array $fiscal): array
     {
         unset($fiscal['cscSecret']);
         return $fiscal;
     }
 
-    private function checkpoint(string $companyId, string $key): bool
+    public static function checkpoint(string $companyId, string $key): bool
     {
         $row = ncmExecute('SELECT provisioning FROM einvoice_account WHERE companyid = ?', [$companyId]);
         $p = json_decode((string) ($row['provisioning'] ?? '{}'), true);
@@ -922,7 +1006,7 @@ final class EInvoiceProvisioningService
     }
 
     /** @param array<string,mixed> $patch */
-    private function mergeProvisioning(string $companyId, array $patch): void
+    public static function mergeProvisioning(string $companyId, array $patch): void
     {
         ncmExecute(
             "UPDATE einvoice_account

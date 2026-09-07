@@ -45,7 +45,7 @@ namespace Punto\Api\EInvoice;
  * Margen de 5 minutos antes de la expiración real: evita usar un token
  * que expira a mitad de una request.
  */
-final class FactomateSession
+final class FactomateSession implements EInvoiceSession
 {
     private const EXPIRY_MARGIN_SECONDS = 5 * 60;
     private const DEFAULT_TTL_SECONDS   = 24 * 60 * 60; // PhoneLogin documenta 24 h.
@@ -107,6 +107,33 @@ final class FactomateSession
     {
         [$u, $p] = self::adminCredentials($environment);
         return $u !== '' && $p !== '';
+    }
+
+    /**
+     * Identidad de login del usuario del tenant + environment — la mitad
+     * `identity()` del contrato `EInvoiceSession`.
+     *
+     * El CUERPO es el que estaba en `EInvoiceService::phoneAndEnvironment()`,
+     * movido acá tal cual cuando entró el segundo proveedor (mig 206): ese
+     * método sabía cosas de Factomate (que el header `phonenumber` lleva el
+     * LOGIN y no el celular, y que `EmitterIdentity` repara las filas
+     * anteriores a la mig 205) que no tienen sentido para otro motor.
+     * `EInvoiceService` lo sigue llamando por el mismo nombre, delegando.
+     * Cero cambio de comportamiento para las cuentas de Factomate.
+     *
+     * NO devuelve el celular del dueño aunque el nombre del header lo
+     * sugiera: ese dato es la identidad de `PhoneLogin` y nada más (mig 205).
+     *
+     * @return array{0: string, 1: string} [$login, $environment]
+     * @throws \RuntimeException si falta (cuenta a medio provisionar).
+     */
+    public function identity(string $companyId): array
+    {
+        $row = ncmExecute('SELECT environment FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        if (!$row) {
+            throw new \RuntimeException('La cuenta de facturación electrónica no está configurada.');
+        }
+        return [EmitterIdentity::login($companyId), (string) ($row['environment'] ?? 'test')];
     }
 
     /**

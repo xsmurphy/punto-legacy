@@ -153,9 +153,37 @@ define('FACTOMATE_ADMIN_USERNAME_TEST', $_ENV['FACTOMATE_ADMIN_USERNAME_TEST'] ?
 define('FACTOMATE_ADMIN_PASSWORD_TEST', $_ENV['FACTOMATE_ADMIN_PASSWORD_TEST'] ?? '');
 define('FACTOMATE_ADMIN_USERNAME_PROD', $_ENV['FACTOMATE_ADMIN_USERNAME_PROD'] ?? '');
 define('FACTOMATE_ADMIN_PASSWORD_PROD', $_ENV['FACTOMATE_ADMIN_PASSWORD_PROD'] ?? '');
+// Facturación electrónica — FE-PY, el motor PROPIO (segundo proveedor,
+// `einvoice_account.provider = 'fepy'`). Factomate queda intacto como plan B
+// y el cutover es por tenant, no global — ver mig 206.
+//
+// FEPY_BASE_URL: origen de la API, SIN el prefijo `/v1` (lo pone el cliente).
+// UNA sola constante, a diferencia de FACTOMATE_BASE_URL_TEST/PROD: en FE-PY
+// test y prod NO son hosts distintos — son el campo `env` del tenant, que se
+// fija al darlo de alta (`POST /v1/tenants`, `env: 'test'|'prod'`) y decide
+// contra qué SIFEN firma. O sea que el aislamiento entre entornos vive del
+// lado de ellos, por emisor, y acá no hay par de hosts que confundir.
+// Sin valor → FePyProvider tira un error explícito; nunca un default a
+// localhost, que en producción sería un fallo silencioso.
+define('FEPY_BASE_URL', $_ENV['FEPY_BASE_URL'] ?? '');
+// FEPY_API_KEY: la key de COMPANY (integrador) — formato `cmp_` + 32 hex,
+// verificado contra su `lib/api-keys.ts`. Es GLOBAL de Punto, no por tenant:
+// FE-PY scopea por el tenant del path y verifica que pertenezca a esta
+// company (`middleware/tenant-scope.ts` — un tenant ajeno responde 404, no
+// 403). Es el secreto más poderoso del proveedor (crea emisores, emite y
+// cancela documentos de cualquiera de ellos): SIEMPRE en env, NUNCA en BD ni
+// alcanzable desde un endpoint con auth de tenant, mismo criterio que
+// FACTOMATE_ADMIN_*.
+define('FEPY_API_KEY', $_ENV['FEPY_API_KEY'] ?? '');
 // Entorno donde se provisionan los emisores NUEVOS (F7). Global, no elección
 // del tenant. 'test' hasta que el white-label esté validado contra prod.
 define('EINVOICE_DEFAULT_ENVIRONMENT', $_ENV['EINVOICE_DEFAULT_ENVIRONMENT'] ?? 'test');
+// Proveedor con el que se dan de alta los emisores NUEVOS: 'factomate' | 'fepy'.
+// NO cambia a nadie ya provisionado — el proveedor de un emisor existente es
+// su `einvoice_account.provider` y solo se mueve a mano, por tenant (mig 206).
+// Default 'factomate' a propósito: estrenar motor por omisión es exactamente
+// el fallback silencioso que este módulo evita en todos lados.
+define('EINVOICE_DEFAULT_PROVIDER', $_ENV['EINVOICE_DEFAULT_PROVIDER'] ?? 'factomate');
 // EINVOICE_DRAIN_SECRET: secreto compartido de jobs internos del sistema —
 // gatea POST /v1/einvoice?action=drain (F1, drainer del outbox de FE) y
 // POST /v1/maintenance?job=... (rollup-reconcile / purge-tenant-audit /

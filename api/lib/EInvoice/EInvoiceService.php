@@ -23,13 +23,46 @@ use Punto\Api\Notifications\NotificationOutbox;
  */
 final class EInvoiceService
 {
-    private EInvoiceProvider $provider;
-    private FactomateSession $session;
+    /**
+     * Proveedor INYECTADO. Solo lo setean los arneses, que simulan la API
+     * para poder ejercitar el camino real sin emitir documentos fiscales de
+     * verdad. Cuando está, gana sobre el factory — si no, un arnés no podría
+     * simular nada.
+     *
+     * En producción es null y el proveedor lo elige `providerFor()` POR
+     * COMPANY (mig 206: el cutover Factomate → FE-PY es por tenant). No puede
+     * ser una propiedad resuelta en el constructor: esta clase se construye
+     * una vez y se usa para varias companies (drenaje del outbox,
+     * reconciliación), así que la primera le fijaría el proveedor a todas las
+     * demás — la misma fuga que el docblock de `EInvoiceProvider` explica
+     * para `$environment`.
+     */
+    private ?EInvoiceProvider $injectedProvider;
 
     public function __construct(?EInvoiceProvider $provider = null)
     {
-        $this->provider = $provider ?? new FactomateProvider();
-        $this->session  = new FactomateSession($this->provider);
+        $this->injectedProvider = $provider;
+    }
+
+    /** Proveedor de esta company (o el inyectado por el arnés). */
+    private function providerFor(string $companyId): EInvoiceProvider
+    {
+        return $this->injectedProvider ?? EInvoiceProviderFactory::for($companyId);
+    }
+
+    /**
+     * Credenciales de esta company. Con un proveedor inyectado se sigue
+     * usando la sesión de Factomate: es el único caso que los arneses
+     * simulan, y su cadena de auth es la que pasa por el provider (o sea, por
+     * el simulado). `FePySession` no consulta al provider en absoluto — lee
+     * una env var — así que un arnés de FE-PY no necesita inyectarla.
+     */
+    private function sessionFor(string $companyId): EInvoiceSession
+    {
+        if ($this->injectedProvider !== null) {
+            return new FactomateSession($this->injectedProvider);
+        }
+        return EInvoiceProviderFactory::sessionFor($companyId);
     }
 
     /** Shape estable aunque no haya cuenta configurada — el frontend no rama por null. */
@@ -160,10 +193,10 @@ final class EInvoiceService
         }
 
         try {
-            $bearer = $this->session->getBearer($companyId);
+            $bearer = $this->sessionFor($companyId)->getBearer($companyId);
             [$phone, $environment] = $this->phoneAndEnvironment($companyId);
 
-            $emitter = $this->provider->userInfo($environment, $phone, $bearer);
+            $emitter = $this->providerFor($companyId)->userInfo($environment, $phone, $bearer);
 
             // El timbrado NO sale de sincro/config. Verificado contra la API real
             // (2026-07-30): sincro/config devuelve `{tenantId, stamps: []}` — la
@@ -182,12 +215,12 @@ final class EInvoiceService
             // real de abajo.
             $stamp = null;
             try {
-                $stamp = $this->extractStamp($this->provider->sincroConfig($environment, $phone, $bearer));
+                $stamp = $this->extractStamp($this->providerFor($companyId)->sincroConfig($environment, $phone, $bearer));
             } catch (\Throwable $e) {
                 error_log("[EInvoiceService] sincro/config falló para $companyId (no fatal): " . $e->getMessage());
             }
             if ($stamp === null) {
-                $stamp = $this->extractStamp($this->provider->stamps($environment, $phone, $bearer));
+                $stamp = $this->extractStamp($this->providerFor($companyId)->stamps($environment, $phone, $bearer));
             }
 
             if ($stamp === null) {
@@ -242,9 +275,9 @@ final class EInvoiceService
             throw new \RuntimeException('La cuenta de facturación electrónica no está conectada.');
         }
 
-        $bearer = $this->session->getBearer($companyId);
+        $bearer = $this->sessionFor($companyId)->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-        return $this->normalizePaymentMethods($this->provider->paymentMethods($environment, $phone, $bearer));
+        return $this->normalizePaymentMethods($this->providerFor($companyId)->paymentMethods($environment, $phone, $bearer));
     }
 
     /**
@@ -278,9 +311,9 @@ final class EInvoiceService
             throw new \RuntimeException('La cuenta de facturación electrónica no está conectada.');
         }
 
-        $bearer = $this->session->getBearer($companyId);
+        $bearer = $this->sessionFor($companyId)->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-        return $this->provider->clientByRuc($environment, $phone, $bearer, $ruc);
+        return $this->providerFor($companyId)->clientByRuc($environment, $phone, $bearer, $ruc);
     }
 
     /**
@@ -353,14 +386,17 @@ final class EInvoiceService
      */
     private function phoneAndEnvironment(string $companyId): array
     {
-        $row = ncmExecute('SELECT environment FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        if (!$row) {
-            throw new \RuntimeException('La cuenta de facturación electrónica no está configurada.');
-        }
-        // El header `phonenumber` de TODA llamada lleva la identidad de LOGIN
-        // (el UserName/email), no el celular del dueño — ese es solo la
-        // identidad de PhoneLogin. Ver `EmitterIdentity` y la mig 205.
-        return [EmitterIdentity::login($companyId), (string) ($row['environment'] ?? 'test')];
+        // El cuerpo se movió a `FactomateSession::identity()` cuando entró el
+        // segundo proveedor (mig 206): sabía cosas de Factomate —que el header
+        // `phonenumber` lleva el LOGIN y no el celular, y que `EmitterIdentity`
+        // repara las filas anteriores a la mig 205— que no aplican a otro
+        // motor. Para una cuenta de FE-PY, `FePySession::identity()` devuelve
+        // el UUID del tenant, que es lo que va en el path de sus rutas.
+        //
+        // El nombre del método se conserva porque los ~10 call-sites lo
+        // desestructuran igual y renombrarlos no cambia nada: el par sigue
+        // siendo [identidad del emisor, environment].
+        return $this->sessionFor($companyId)->identity($companyId);
     }
 
     /**
@@ -1332,10 +1368,10 @@ final class EInvoiceService
             throw new \RuntimeException('El documento emitido no tiene CDC registrado — no se puede cancelar.');
         }
 
-        $bearer = $this->session->getBearer($companyId);
+        $bearer = $this->sessionFor($companyId)->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
 
-        $result = $this->provider->cancel($environment, $phone, $bearer, $cdc, $reason);
+        $result = $this->providerFor($companyId)->cancel($environment, $phone, $bearer, $cdc, $reason);
         if (empty($result['success'])) {
             $msg = (string) ($result['message'] ?? 'Factomate rechazó la cancelación sin motivo reconocible.');
             throw new \RuntimeException($msg);
@@ -1376,9 +1412,9 @@ final class EInvoiceService
             throw new \RuntimeException('El documento todavía no tiene CDC — no se emitió (o falló la emisión).');
         }
 
-        $bearer = $this->session->getBearer($companyId);
+        $bearer = $this->sessionFor($companyId)->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-        return $this->provider->kude($environment, $phone, $bearer, $cdc);
+        return $this->providerFor($companyId)->kude($environment, $phone, $bearer, $cdc);
     }
 
     /**
@@ -1530,7 +1566,7 @@ final class EInvoiceService
         $updated = 0;
         foreach ($byCompany as $cid => $docs) {
             try {
-                $bearer = $this->session->getBearer((string) $cid);
+                $bearer = $this->sessionFor((string) $cid)->getBearer((string) $cid);
                 [$phone, $environment] = $this->phoneAndEnvironment((string) $cid);
             } catch (\Throwable $e) {
                 if ($companyId !== null) {
@@ -1565,7 +1601,7 @@ final class EInvoiceService
     private function reconcileDocument(string $companyId, string $environment, string $phone, string $bearer, string $docId, string $bulkId, bool $seal): bool
     {
         try {
-            $bulk = $this->provider->getBulk($environment, $phone, $bearer, $bulkId);
+            $bulk = $this->providerFor($companyId)->getBulk($environment, $phone, $bearer, $bulkId);
 
             $sifenStatus = self::sifenStatusFromBulk($bulk);
             if ($sifenStatus !== null) {
@@ -2091,8 +2127,130 @@ final class EInvoiceService
             // local, mismo criterio que `signDate` de la cancelación.
             $issuedDate = $this->issuedDateFor($companyId, $sale);
 
-            $mapper = new SaleToInvoiceMapper();
+            // ── Bifurcación por proveedor ────────────────────────────────
+            //
+            // Es la ÚNICA de todo el drenaje, y es irreductible: los dos
+            // proveedores hablan idiomas distintos (Factomate su API propia;
+            // FE-PY el `data` de xmlgen, SIFEN v150), y los guards de
+            // numeración de Factomate consultan SU catálogo de timbrados, que
+            // en FE-PY no existe (el timbrado es del tenant, ver mig 206).
+            // Todo lo de ARRIBA —reconstruir la venta, congelar el
+            // securityCode, resolver la fecha de la operación— es común y no
+            // se duplica.
+            $isFePy = $this->injectedProvider === null && EInvoiceProviderFactory::isFePy($companyId);
+            // Inicializado ANTES del try: `buildFactomatePayload()` lo recibe
+            // por referencia (lo necesita después `cdcMismatchFor()`) y un
+            // parámetro `array &$stamp` con una variable inexistente es un
+            // TypeError, no un null silencioso.
+            $stamp = [];
+
             try {
+                if ($isFePy) {
+                    // El par establecimiento/punto de la CAJA que vendió
+                    // (`context/29`: cada caja es un punto de expedición).
+                    // Lanza si la caja no lo tiene cargado — mismo criterio
+                    // fail-closed que `stampForDocument()`: nunca el punto de
+                    // expedición de otra caja.
+                    $point = $this->fePyPointForDocument($companyId, $transactionId);
+                    // `$stamp = []` a propósito: `cdcMismatchFor()` lo usa más
+                    // abajo y con `Id` vacío se saltea la consulta remota del
+                    // establecimiento/punto (que es de Factomate) y CONSERVA
+                    // la comprobación del número y del RUC contra el CDC
+                    // devuelto — que es justo la que importa acá, porque FE-PY
+                    // numera por su cuenta.
+                    $stamp = [];
+                    // `assertNumberingCoherence()` NO corre: sus dos guards
+                    // preguntan por el `BranchDocumentType` de Factomate y su
+                    // `CurrentNumber`. La divergencia de numeración con FE-PY
+                    // no se previene —no se puede, la asigna el motor— se
+                    // DETECTA, y queda en `numbering_mismatch` (mig 204).
+                    $sale['securityCode'] = $securityCode;
+                    $payload = (new SaleToFePyMapper())->build($sale, $point, $config, $issuedDate, $docId);
+                } else {
+                    $payload = $this->buildFactomatePayload(
+                        $companyId, $transactionId, $doctype, $account, $config, $sale, $securityCode, $issuedDate, $stamp
+                    );
+                }
+            } catch (\RuntimeException $e) {
+                // Regla fiscal violada o dato faltante — NUNCA se manda al
+                // proveedor para que rebote, se marca error directo con el
+                // motivo en castellano.
+                $this->markError($docId, $attempts, $e->getMessage());
+                return false;
+            }
+
+            // `request_payload` archiva lo que se le manda al proveedor, y el
+            // panel lo muestra. La clave reservada de idempotencia de FE-PY
+            // (`__idempotencyKey`) NO es parte del documento —viaja como
+            // header y su valor es el propio `einvoicedocid`, o sea la PK de
+            // esta misma fila— así que se saca antes de archivar en vez de
+            // ensuciar el payload fiscal con un campo que no existe.
+            $archived = $payload;
+            unset($archived[FePyProvider::IDEMPOTENCY_PAYLOAD_KEY]);
+            ncmExecute('UPDATE einvoice_document SET request_payload = ?::jsonb WHERE einvoicedocid = ?', [
+                json_encode($archived, JSON_UNESCAPED_UNICODE), $docId,
+            ]);
+
+            $bearer = $this->sessionFor($companyId)->getBearer($companyId);
+            [$phone, $environment] = $this->phoneAndEnvironment($companyId);
+            $result = $this->providerFor($companyId)->issue($environment, $phone, $bearer, $payload);
+
+            if (empty($result['success']) || empty($result['cdc'])) {
+                $reason = (string) ($result['statusMessage'] ?? 'El proveedor rechazó el documento sin motivo reconocible.');
+                ncmExecute(
+                    "UPDATE einvoice_document
+                        SET status = 'error', attempts = attempts + 1, error_message = ?,
+                            provider_response = ?::jsonb, next_retry_at = ?, updated_at = now()
+                      WHERE einvoicedocid = ?",
+                    [$reason, json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE), $this->nextRetryAt($attempts + 1), $docId]
+                );
+                return false;
+            }
+
+            return $this->persistIssued($companyId, $account, $stamp, $sale, $doctype, $config, $result, $docId);
+        } catch (\Throwable $e) {
+            // Nunca dejar la excepción escapar — el caller (SaleService post-commit,
+            // o el endpoint de drain) no puede fallar porque el proveedor esté caído.
+            error_log('[EInvoiceService] issueClaimedDocument ' . $docId . ': ' . $e->getMessage());
+            try {
+                $attempts = (int) (ncmExecute('SELECT attempts FROM einvoice_document WHERE einvoicedocid = ?', [$docId])['attempts'] ?? 0);
+                $this->markError($docId, $attempts, $e->getMessage());
+            } catch (\Throwable $inner) {
+                // Ni siquiera se pudo persistir el error — se loguea y se abandona,
+                // el documento queda 'sending' hasta revisión manual (caso extremo).
+                error_log('[EInvoiceService] no se pudo persistir el error de ' . $docId . ': ' . $inner->getMessage());
+            }
+            return false;
+        }
+    }
+
+    /**
+     * Camino de Factomate, extraído TAL CUAL de `issueClaimedDocument()`
+     * cuando entró el segundo proveedor (mig 206). Ni una línea de lógica
+     * cambió: es el mismo orden, los mismos guards y los mismos mensajes.
+     *
+     * `$stamp` sale por referencia porque el caller lo necesita después para
+     * `cdcMismatchFor()`, que compara el CDC devuelto contra el
+     * establecimiento y el punto de expedición del timbrado con el que se
+     * emitió.
+     *
+     * @param array<string,mixed> $config
+     * @param array<string,mixed> $sale
+     * @param array<string,mixed> $stamp Se llena acá.
+     * @return array<string,mixed> Payload listo para `issue()`.
+     * @throws \RuntimeException regla fiscal violada o dato faltante.
+     */
+    private function buildFactomatePayload(
+        string $companyId,
+        string $transactionId,
+        string $doctype,
+        $account,
+        array $config,
+        array $sale,
+        string $securityCode,
+        string $issuedDate,
+        array &$stamp
+    ): array {
                 // registerId → {fc, nc} lo arma el provisioning
                 // (EInvoiceProvisioningService::ensureStampsCreated); FC/FCR
                 // usan el id de tipo factura, NC el de nota de crédito.
@@ -2115,34 +2273,31 @@ final class EInvoiceService
                 // por documento (ver stampSeries()).
                 $stamp['Serie'] = $this->stampSeries($account, (string) ($stamp['Id'] ?? ''));
                 $sale['securityCode'] = $securityCode;
-                $payload = $mapper->build($sale, $stamp, $config, $issuedDate);
-            } catch (\RuntimeException $e) {
-                // Regla fiscal violada o dato faltante — NUNCA se manda a Factomate
-                // para que rebote, se marca error directo con el motivo en castellano.
-                $this->markError($docId, $attempts, $e->getMessage());
-                return false;
-            }
 
-            ncmExecute('UPDATE einvoice_document SET request_payload = ?::jsonb WHERE einvoicedocid = ?', [
-                json_encode($payload, JSON_UNESCAPED_UNICODE), $docId,
-            ]);
+        return (new SaleToInvoiceMapper())->build($sale, $stamp, $config, $issuedDate);
+    }
 
-            $bearer = $this->session->getBearer($companyId);
-            [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-            $result = $this->provider->issue($environment, $phone, $bearer, $payload);
-
-            if (empty($result['success']) || empty($result['cdc'])) {
-                $reason = (string) ($result['statusMessage'] ?? 'Factomate rechazó el documento sin motivo reconocible.');
-                ncmExecute(
-                    "UPDATE einvoice_document
-                        SET status = 'error', attempts = attempts + 1, error_message = ?,
-                            provider_response = ?::jsonb, next_retry_at = ?, updated_at = now()
-                      WHERE einvoicedocid = ?",
-                    [$reason, json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE), $this->nextRetryAt($attempts + 1), $docId]
-                );
-                return false;
-            }
-
+    /**
+     * Persiste un documento que el proveedor YA emitió. Extraído tal cual de
+     * `issueClaimedDocument()` (mig 206) para que los dos proveedores
+     * compartan el cierre: el guard del CDC, el `numbering_mismatch` y el
+     * UPDATE a `issued` no dependen de quién firmó.
+     *
+     * @param array<string,mixed> $config
+     * @param array<string,mixed> $sale
+     * @param array<string,mixed> $stamp Vacío para FE-PY (no tiene catálogo de timbrados).
+     * @param array<string,mixed> $result Respuesta normalizada de `issue()`.
+     */
+    private function persistIssued(
+        string $companyId,
+        $account,
+        array $stamp,
+        array $sale,
+        string $doctype,
+        array $config,
+        array $result,
+        string $docId
+    ): bool {
             // ── GUARD: ¿el CDC que volvió describe la venta que imprimimos? ──
             //
             // El documento ya existe en SIFEN, así que esto NO puede marcarlo
@@ -2182,21 +2337,84 @@ final class EInvoiceService
                 error_log('[EInvoiceService] CDC no coincide con la venta ' . $docId . ': ' . $mismatch);
             }
 
-            return true;
-        } catch (\Throwable $e) {
-            // Nunca dejar la excepción escapar — el caller (SaleService post-commit,
-            // o el endpoint de drain) no puede fallar porque Factomate esté caído.
-            error_log('[EInvoiceService] issueClaimedDocument ' . $docId . ': ' . $e->getMessage());
-            try {
-                $attempts = (int) (ncmExecute('SELECT attempts FROM einvoice_document WHERE einvoicedocid = ?', [$docId])['attempts'] ?? 0);
-                $this->markError($docId, $attempts, $e->getMessage());
-            } catch (\Throwable $inner) {
-                // Ni siquiera se pudo persistir el error — se loguea y se abandona,
-                // el documento queda 'sending' hasta revisión manual (caso extremo).
-                error_log('[EInvoiceService] no se pudo persistir el error de ' . $docId . ': ' . $inner->getMessage());
+        return true;
+    }
+
+    /**
+     * Establecimiento y punto de expedición con los que sale UN documento de
+     * FE-PY. Es lo que en Factomate resuelve `stampForDocument()`, pero acá el
+     * dato NO viene del proveedor: FE-PY guarda el timbrado a nivel tenant y
+     * espera `establecimiento`/`punto` POR documento, así que el par sale de
+     * la CAJA que vendió (`register.registerInvoicePrefix`, formato `EEE-PPP`)
+     * — que es exactamente el modelo de `context/29`: cada caja es un punto de
+     * expedición.
+     *
+     * FAIL-CLOSED, igual que el caso 3 de `stampForDocument()`: una caja sin
+     * prefijo cargado NO cae al de otra caja. Dos cajas emitiendo contra el
+     * mismo punto de expedición es el escenario de facturas duplicadas que el
+     * modelo por-caja existe para impedir.
+     *
+     * Una NC emitida desde el PANEL no tiene caja. Ahí sí se acepta el
+     * fallback al prefijo de la primera caja activa con timbrado: sin caja no
+     * hay a quién robarle el punto, y es el mismo criterio (caso 2) que ya
+     * rige para Factomate.
+     *
+     * @return array{establecimiento:string,punto:string}
+     * @throws \RuntimeException si no se puede determinar sin adivinar.
+     */
+    private function fePyPointForDocument(string $companyId, string $transactionId): array
+    {
+        $tx = ncmExecute(
+            'SELECT t.registerId, r.registerName, r.data
+               FROM transaction t
+          LEFT JOIN register r ON r.registerId = t.registerId AND r.companyId = t.companyId
+              WHERE t.transactionId = ? AND t.companyId = ?',
+            [$transactionId, $companyId]
+        );
+        $tx = $tx ?: [];
+        $registerId = trim((string) ($tx['registerId'] ?? ''));
+
+        if ($registerId !== '') {
+            // `data` viene aplanado por Query::flattenJsonb, así que
+            // `registerInvoicePrefix` llega como clave de la fila. Mismo
+            // patrón —y mismo bug evitado— que `registerStamps()`.
+            $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
+            if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
+                return ['establecimiento' => $m[1], 'punto' => $m[2]];
             }
-            return false;
+            $registerName = trim((string) ($tx['registerName'] ?? ''));
+            throw new \RuntimeException(sprintf(
+                'La caja %s no tiene el punto de expedición cargado (formato EEE-PPP) — cargalo en Sucursales → Cajas. ' .
+                'El documento no se emite con el punto de expedición de otra caja.',
+                $registerName !== '' ? '"' . $registerName . '"' : 'de esta venta'
+            ));
         }
+
+        $rs = ncmExecute(
+            'SELECT data FROM register WHERE companyId = ? AND registerStatus = TRUE ORDER BY registerName ASC',
+            [$companyId],
+            false,
+            true
+        );
+        // ncmExecute con forceObj devuelve un RECORDSET, no un array: se
+        // itera con while(!$rs->EOF) o queda vacío siempre (footgun de
+        // CLAUDE.md, bug shipped 2026-06-18).
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $prefix = trim((string) ($rs->fields['registerInvoicePrefix'] ?? ''));
+                if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
+                    $rs->Close();
+                    return ['establecimiento' => $m[1], 'punto' => $m[2]];
+                }
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        throw new \RuntimeException(
+            'Ninguna caja tiene el punto de expedición cargado (formato EEE-PPP) — no se puede emitir el documento. ' .
+            'Cargalo en Sucursales → Cajas.'
+        );
     }
 
     /**
@@ -2493,9 +2711,9 @@ final class EInvoiceService
             return $cache[$stampId];
         }
 
-        $bearer = $this->session->getBearer($companyId);
+        $bearer = $this->sessionFor($companyId)->getBearer($companyId);
         [$phone, $environment] = $this->phoneAndEnvironment($companyId);
-        $raw = $this->provider->stamps($environment, $phone, $bearer);
+        $raw = $this->providerFor($companyId)->stamps($environment, $phone, $bearer);
         $items = $raw['Items'] ?? $raw['items'] ?? [];
 
         $found = null;
