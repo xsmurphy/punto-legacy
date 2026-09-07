@@ -344,9 +344,12 @@ final class KudeService
                 'city'       => $company['city'],
                 'phone'      => $company['phone'],
                 'email'      => $company['email'],
-                // Actividad económica (D131): Punto no la tiene cargada en
-                // ningún lado todavía. Va null y el template omite la línea.
-                'activity'   => null,
+                // Actividad económica (D131): la PRINCIPAL declarada en el
+                // alta del emisor (einvoice_account.fiscal.actividades, la
+                // primera de la lista — el orden ES el dato, igual que en la
+                // constancia de RUC). null si el alta aún no la tiene, y el
+                // template omite la línea.
+                'activity'   => $this->primaryActivity($companyId),
                 'logoUrl'    => $company['logoUrl'],
                 'stamp'      => $stamp,
             ],
@@ -472,6 +475,36 @@ final class KudeService
      *
      * @return array<string,mixed>
      */
+    /**
+     * Actividad económica principal del emisor, como "47640 - Comercio al por
+     * menor de juegos y juguetes", o null si el alta no la declaró todavía.
+     * Lee `einvoice_account.fiscal.actividades` (la primera es la principal,
+     * shape de EInvoiceProvisioningService::normalizeActivities()).
+     */
+    private function primaryActivity(string $companyId): ?string
+    {
+        $row = ncmExecute(
+            'SELECT fiscal::text FROM einvoice_account WHERE companyid = ?',
+            [$companyId]
+        );
+        if (!$row) {
+            return null;
+        }
+        $fiscal = json_decode((string) ($row['fiscal'] ?? ''), true);
+        $acts   = is_array($fiscal['actividades'] ?? null) ? $fiscal['actividades'] : [];
+        $first  = is_array($acts[0] ?? null) ? $acts[0] : null;
+        if ($first === null) {
+            // Cuenta anterior al shape de lista: el par suelto sigue siendo
+            // legible (misma retrocompat que normalizeActivities()).
+            $codigo = (int) ($fiscal['actividadCodigo'] ?? 0);
+            $nombre = trim((string) ($fiscal['actividadNombre'] ?? ''));
+            return $codigo > 0 && $nombre !== '' ? $codigo . ' - ' . $nombre : null;
+        }
+        $codigo = (int) ($first['codigo'] ?? 0);
+        $nombre = trim((string) ($first['nombre'] ?? ''));
+        return $codigo > 0 && $nombre !== '' ? $codigo . ' - ' . $nombre : null;
+    }
+
     private function company(string $companyId): array
     {
         $row = ncmExecute(
