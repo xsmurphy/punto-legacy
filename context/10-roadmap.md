@@ -2508,7 +2508,17 @@ no se duplican acá.
 **Catálogo/Inventario:**
 - Crear categoría inline desde el form de artículo
 - Sesiones configurables para servicios tipo paquete
-- Stock mínimo con notificación automática
+- Stock mínimo con notificación automática. **Matiz del owner (2026-09-07,
+  "esto es fundamental"): en un ítem PRODUCIDO (semielaborado, ej. pollo
+  porcionado), el mínimo no sugiere una compra — sugiere una ORDEN DE
+  PRODUCCIÓN** ("quedan 2 kg, el mínimo es 5"), y la decisión sigue siendo de
+  cocina, no un disparo automático. Encaja con la "necesidad de reposición"
+  de `context/70` §B.5 (P2): la necesidad es la entidad; compra, transferencia
+  o producción son cómo se cubre — el mínimo del semielaborado es un ORIGEN
+  más de esa necesidad, no un mecanismo aparte. Relacionado pero distinto del
+  "producibles ahora" en la página del producto (slice 2026-09-07): aquel
+  responde "¿cuántos lattes puedo hacer YA?"; este avisa "producí más base
+  antes de que te corte".
 - Columnas stock actual + costo de stock en listado de artículos
 - Historial de movimientos por artículo
 - Imprimir listado de artículos
