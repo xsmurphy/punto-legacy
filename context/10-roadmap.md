@@ -2520,6 +2520,26 @@ no se duplican acá.
   igual — igual que la tenencia de caja), botón deshabilitado + tooltip, y
   avisos previos a los 7/3 días como los del plan (`context/34` D7). Encolado
   como slice.
+- **REABIERTA (owner 2026-09-07): la numeración fiscal debe ser la del
+  EMISOR, no la de Factomate — el ticket debe ser la representación impresa
+  de la factura electrónica.** Corrige la D6 de `context/42` y el
+  `number: -1` de `SaleToInvoiceMapper.php:211` (su comentario dice "numera
+  la SET" — impreciso: numera FACTOMATE; en el modelo SIFEN estándar numera
+  el emisor desde su timbrado y el CDC se deriva de ese número). Hoy el
+  número configurado en la caja (001-002-XXXXXXX) y el del documento
+  electrónico son series DISTINTAS: el impreso no representa a la factura.
+  Estándar del owner, textual: el comprobante impreso lleva EL MISMO número,
+  el QR y la URL de consulta — "no tiene validez fiscal como tal pero sí o
+  sí debe ser la representación impresa; de lo contrario no estamos dando un
+  comprobante de factura". BLOQUEADO por la respuesta de soporte Factomate
+  (consulta en curso): (1) ¿/Bulk acepta número del emisor en vez de -1?
+  (2) ¿el CDC/QR vuelve en la respuesta o el emisor lo calcula antes de
+  enviar? Si aceptan nuestro número, la numeración de caja pasa a ser LA
+  fiscal (el offline ya la garantiza sin duplicados — punto de expedición
+  exclusivo, `context/29`); el QR offline depende de si el CDC se puede
+  calcular localmente (certificado y CSC ya guardados cifrados,
+  `context/28`). Si no aceptan, es pelea con Factomate: contra SIFEN
+  estándar, numera el emisor.
 - **Provisioning de Factomate: el alta no registra el CELULAR del tenant
   (hallazgo 2026-09-07, alta real de Balloon Party).** `CreateExternal` manda
   solo razón social/fantasía/email/RUC — el usuario queda con
