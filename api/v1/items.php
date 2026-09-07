@@ -34,18 +34,19 @@ require_once __DIR__ . '/../lib/services/ItemService.php';
 require_once __DIR__ . '/../lib/Items/ItemsQuery.php';
 
 use Punto\Api\Context\TenantContext;
-use function Punto\Api\Items\buildItemsSelectSql;
+use function Punto\Api\Items\fetchItems;
 use function Punto\Api\Items\presentItem;
 use function Punto\Api\Items\outletVisibilityClause;
 
-// `buildItemsSelectSql()` y `presentItem()` viven en
-// `api/lib/Items/ItemsQuery.php` (extraídas 2026-08-16,
-// context/43-sync-incremental.md) para que el delta de
+// `fetchItems()` (SELECT + `presentItem()` + saldo por sucursal) y
+// `presentItem()` viven en `api/lib/Items/ItemsQuery.php` (extraídas
+// 2026-08-16, context/43-sync-incremental.md) para que el delta de
 // `/v1/sync?section=items` las comparta sin copiar SQL/mapeo a mano. Mismo
 // shape de fila para los TRES casos (listado paginado, bulk-get quirúrgico
 // de context/15, y el delta de context/43) — así el reshape del BFF
 // (`lib/pos-bff/reshape.ts::reshapeItem`) nunca diverge entre caminos.
-// Importadas arriba vía `use function`.
+// Desde 2026-09-07 `fetchItems()` es además el único lugar que decide de qué
+// sucursal es el `stockOnHand` que baja al POS. Importadas vía `use function`.
 
 /**
  * Devuelve el array de categorías (id + isPrimary) de un item
@@ -304,14 +305,13 @@ if ($resource === 'bulk-get') {
         $whereSql .= " AND {$outletClause}";
         $whereParams = array_merge($whereParams, $outletParams);
     }
-    $sql = buildItemsSelectSql($whereSql);
-    $rs  = $db->Execute($sql, $whereParams);
-    $items = [];
-    if ($rs !== false) {
-        foreach ($rs->GetRows() as $row) {
-            $items[] = presentItem(_flattenJsonb($row));
-        }
-    }
+    // `$deviceOutletId` va DOS veces al mismo lugar a propósito: acota QUÉ
+    // ítems ve la caja (cláusula de arriba) y de qué sucursal es el saldo que
+    // se le manda (ver `fetchItems()`). El bulk-get es el camino por el que el
+    // POS refresca un ítem tras un movimiento de stock —`realtimePublish` desde
+    // `Inventory::flushRealtimeStockEvents()`, `context/15`—, así que si el
+    // saldo no viajara acá el número quedaría congelado en el del bootstrap.
+    $items = fetchItems($db, $whereSql, $whereParams, '', $deviceOutletId);
     apiOk(['items' => $items]);
 }
 
@@ -975,14 +975,21 @@ switch ($method) {
             $params = array_merge($params, $outletParams);
         }
 
-        $sql = buildItemsSelectSql($whereSql, "ORDER BY i.itemDate DESC LIMIT $limit OFFSET $offset");
-        $rs    = $db->Execute($sql, $params);
-        $items = [];
-        if ($rs !== false) {
-            foreach ($rs->GetRows() as $row) {
-                $items[] = presentItem(_flattenJsonb($row));
-            }
-        }
+        // Saldo por sucursal: `$deviceOutletId`, NO `$effectiveViewOutletId`.
+        // La caja opera UNA sucursal y el único saldo que le sirve es el de
+        // ella (decisión owner 2026-09-07). El panel sigue recibiendo el saldo
+        // CONSOLIDADO del tenant incluso con el selector de sucursal parado en
+        // una puntual: ese selector acota qué ítems se administran, y la
+        // columna de stock del listado viene significando "en toda la empresa"
+        // desde que existe — cambiarle el significado en silencio es otra
+        // decisión, y el panel ya tiene su desglose por sucursal en la ficha.
+        $items = fetchItems(
+            $db,
+            $whereSql,
+            $params,
+            "ORDER BY i.itemDate DESC LIMIT $limit OFFSET $offset",
+            $deviceOutletId
+        );
 
         // LEFT JOIN taxonomy cat: el WHERE puede referenciar `cat.taxonomyName`
         // (búsqueda por categoría, arriba) — sin el JOIN el COUNT rompe con

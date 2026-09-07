@@ -239,9 +239,21 @@ export interface PosItem {
   /** Si trackea stock — para mostrar alerta de stock bajo. */
   trackInventory: boolean
   /**
-   * Stock actual del ítem en la caja activa (null si no trackea inventario
-   * o si no está disponible). Negativo = stock en rojo.
-   * Rellenado por el BFF bootstrap desde el depósito del outlet.
+   * Saldo de inventario del ítem EN LA SUCURSAL DE ESTA CAJA — nunca el
+   * consolidado del tenant. `null` = el ítem no lleva control de inventario
+   * (un servicio, un combo dinámico); no es lo mismo que `0`, que es un saldo
+   * real en cero.
+   *
+   * Lo llena el reshape del BFF (`lib/pos-bff/reshape.ts`) desde el
+   * `stockOnHand` que resuelve `Inventory::onHandFor()` en el backend, y se
+   * mantiene al día solo: cada movimiento de stock publica el evento realtime
+   * `item` y `lib/catalog/realtime-catalog-sync.ts` repide y mergea SOLO los
+   * ids tocados (ver el docblock de ese archivo). Sin red queda el último
+   * saldo sincronizado, sin marca de antigüedad — decisión explícita del
+   * owner, el offline es para cortes temporales.
+   *
+   * Para pintarlo: `lib/stock-status.ts` es el semáforo canónico (`<= 0` es
+   * `quiebre`), no reimplementar el criterio en cada pantalla.
    */
   stock: number | null
   /** true si es un grupo de catálogo (itemIsParent=true). Click en POS abre dialog con hijos. No se vende. */

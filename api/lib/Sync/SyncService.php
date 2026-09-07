@@ -3,8 +3,14 @@ declare(strict_types=1);
 
 namespace Punto\Api\Sync;
 
-use function Punto\Api\Items\buildItemsSelectSql;
-use function Punto\Api\Items\presentItem;
+// `ItemsQuery.php` declara FUNCIONES, y las funciones no se autoloadean: hasta
+// ahora dependía de que el entrypoint (`api/v1/sync.php`) se acordara de
+// requerirlo antes de instanciar este service. Cualquier caller nuevo —un job,
+// un arnés, otro endpoint— moría con "undefined function". La dependencia la
+// declara quien la usa.
+require_once dirname(__DIR__) . '/Items/ItemsQuery.php';
+
+use function Punto\Api\Items\fetchItems;
 use function Punto\Api\Items\outletVisibilityClause;
 use function Punto\Api\Items\outletInvisibilityClause;
 
@@ -141,14 +147,18 @@ final class SyncService
             $params    = array_merge($params, $outletParams);
         }
 
-        $sql = buildItemsSelectSql($whereSql, 'ORDER BY i.updated_at ASC NULLS FIRST');
-        $rs = $this->db->Execute($sql, $params);
-        $items = [];
-        if ($rs !== false) {
-            foreach ($rs->GetRows() as $row) {
-                $items[] = presentItem(_flattenJsonb($row));
-            }
-        }
+        // Mismo `$outletId` que la cláusula de visibilidad de arriba: acota qué
+        // ítems trae el delta Y de qué sucursal es su `stockOnHand`. Sin esto
+        // el delta reintroduciría en el cache del device el saldo CONSOLIDADO
+        // del tenant, pisando el de la sucursal que bajó el bootstrap — el
+        // número del POS cambiaría de significado según por qué camino llegó.
+        $items = fetchItems(
+            $this->db,
+            $whereSql,
+            $params,
+            'ORDER BY i.updated_at ASC NULLS FIRST',
+            $outletId
+        );
 
         $deletedIds = $this->deletedIdsSince('item', $companyId, $since);
 

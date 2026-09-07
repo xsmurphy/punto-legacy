@@ -403,3 +403,108 @@ function outletInvisibilityClause(?string $outletId): array
         [$outletId],
     ];
 }
+
+/**
+ * Corre el SELECT compartido, presenta cada fila y —cuando la consulta está
+ * acotada a UNA sucursal— reemplaza `stockOnHand` por el saldo de ESA
+ * sucursal.
+ *
+ * ── Por qué existe (2026-09-07; D2 de `context/52` y regla 7 de
+ *    `context/modules/05-stock.md`) ─────────────────────────────────────────
+ *
+ * Los tres caminos que bajan catálogo al POS —bootstrap (listado de
+ * `/v1/items`), bulk-get quirúrgico del sync realtime y delta de
+ * `/v1/sync?section=items`— repetían el mismo bloque `Execute` + `foreach
+ * GetRows` + `presentItem`. Sumarle el saldo por sucursal encima daría TRES
+ * lugares donde acordarse de pedirlo, y el primer olvido deja al POS con el
+ * saldo llegando por un camino y no por el otro: el bootstrap lo muestra y el
+ * refresco quirúrgico lo borra. Acá el shape de fila se arma UNA sola vez.
+ *
+ * ── Qué significa `stockOnHand` según el alcance ────────────────────────────
+ *
+ *   - `$outletId === null` (panel: administra el catálogo del tenant entero) →
+ *     el saldo CONSOLIDADO que ya calculaba el `LEFT JOIN LATERAL st` de
+ *     `buildItemsSelectSql()`. Comportamiento histórico, sin cambios.
+ *   - `$outletId` presente (pos-app: una caja opera UNA sucursal) → el saldo de
+ *     ESA sucursal, y `null` para los ítems que no llevan control de
+ *     inventario. `null` no es 0: un servicio o un combo dinámico no TIENE
+ *     saldo, y mandar 0 haría que la caja pinte "sin stock" sobre algo que
+ *     siempre se puede vender.
+ *
+ * El alcance lo decide el caller con el MISMO valor que ya le pasa a
+ * `outletVisibilityClause()` — por eso las dos funciones viven pegadas: el
+ * catálogo que ve una caja y el saldo que se le muestra salen de la misma
+ * sucursal por construcción, no por disciplina de cada call-site.
+ *
+ * ── De dónde sale el número ─────────────────────────────────────────────────
+ *
+ * De `Inventory::onHandFor()`, el lector canónico del ledger (D2 de
+ * `context/52`: un solo lector). No se escribe una segunda aritmética de saldo
+ * acá, ni se lee el snapshot `stock.stockOnHand` de la última fila —que se
+ * desincroniza con cualquier movimiento cargado con fecha retroactiva, mig
+ * 130—. Es UNA query agregada por request para todo el lote, no una subquery
+ * por fila: el bootstrap de una caja con miles de productos suma una sola ida
+ * a Postgres.
+ *
+ * Un ítem ausente del mapa que devuelve `onHandFor()` nunca tuvo movimiento en
+ * esa sucursal ⇒ saldo 0 REAL (lleva control), no "desconocido".
+ *
+ * El aislamiento multi-tenant NO descansa en `onHandFor()` (que no recibe
+ * companyId): los ids que se le pasan son los que devolvió este mismo SELECT,
+ * ya filtrado por `i.companyId` en el WHERE del caller.
+ *
+ * @param  object      $db       conexión (wrapper propio del proyecto, `->Execute()`).
+ * @param  list<mixed> $params   params del WHERE, en orden.
+ * @param  string|null $outletId sucursal del alcance; `null`/'' = consolidado.
+ * @return list<array<string,mixed>> filas ya presentadas
+ */
+function fetchItems(object $db, string $whereSql, array $params, string $tailSql = '', ?string $outletId = null): array
+{
+    $rs = $db->Execute(buildItemsSelectSql($whereSql, $tailSql), $params);
+    if ($rs === false) {
+        return [];
+    }
+
+    $items = [];
+    foreach ($rs->GetRows() as $row) {
+        $items[] = presentItem(_flattenJsonb($row));
+    }
+
+    return ($outletId === null || $outletId === '')
+        ? $items
+        : withOutletOnHand($items, $outletId);
+}
+
+/**
+ * Reescribe `stockOnHand` de un lote de ítems YA presentados con el saldo de
+ * una sucursal. Vive separada de `fetchItems()` para que el criterio "qué
+ * saldo ve una caja" sea una sola función testeable, y no quede enterrado
+ * dentro del que además hace I/O.
+ *
+ * @param  list<array<string,mixed>> $items
+ * @return list<array<string,mixed>>
+ */
+function withOutletOnHand(array $items, string $outletId): array
+{
+    // Solo se pide el saldo de los ítems que LLEVAN control: el resto no tiene
+    // saldo que leer, y meterlos en el IN() lo agranda sin devolver una fila.
+    $tracked = [];
+    foreach ($items as $item) {
+        if ((int) ($item['itemTrackInventory'] ?? 0) >= 1) {
+            $tracked[] = (string) ($item['itemId'] ?? '');
+        }
+    }
+
+    $onHand = $tracked === []
+        ? []
+        : \Punto\App\Domain\Inventory::onHandFor($tracked, $outletId);
+
+    foreach ($items as &$item) {
+        $item['stockOnHand'] = (int) ($item['itemTrackInventory'] ?? 0) >= 1
+            ? (float) ($onHand[(string) ($item['itemId'] ?? '')] ?? 0.0)
+            : null;
+    }
+    unset($item);
+
+    return $items;
+}

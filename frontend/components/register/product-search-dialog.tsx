@@ -37,6 +37,7 @@ import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchItems } from "@/lib/catalog/search"
 import { formatMoney } from "@/lib/format-money"
+import { formatQty } from "@/lib/format-qty"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
@@ -261,9 +262,15 @@ function ProductResultRow({
   // Inicial para el fallback del avatar (primera letra del nombre).
   const initial = item.name.trim()[0]?.toUpperCase() ?? "?"
 
-  // Badge de stock: solo si trackInventory y stock no es null.
+  // Saldo de la sucursal de esta caja. Solo para ítems con control de
+  // inventario: `stock === null` es "no lleva stock", no "no lo sabemos".
   const showStock = item.trackInventory && item.stock !== null
-  const stockNegative = item.stock !== null && item.stock < 0
+  // `<= 0` es el corte `quiebre` de `lib/stock-status.ts` — el mismo que pinta
+  // la ficha y el panel. Acá la fila solo distingue "lo puedo vender" de "no",
+  // que es la decisión que el cajero toma mirando la lista; el semáforo
+  // completo (bajo mínimo / sobre máximo) vive en la ficha del producto, donde
+  // hay lugar para explicarlo.
+  const sinStock = showStock && item.stock !== null && item.stock <= 0
 
   return (
     // `relative`: el botón de la ficha se posiciona absolute sobre el hueco
@@ -283,19 +290,6 @@ function ProductResultRow({
             de la fila no se mueva un pixel. */}
         <span className="size-8 shrink-0" aria-hidden />
 
-        {/* Badge de stock */}
-        {showStock && (
-          <Badge
-            variant={stockNegative ? "destructive" : "default"}
-            className={cn(
-              "shrink-0 tabular-nums",
-              !stockNegative && "bg-emerald-500 text-white",
-            )}
-          >
-            {item.stock}
-          </Badge>
-        )}
-
         {/* Nombre + categoría */}
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground flex items-center gap-1.5 lg:text-base">
@@ -314,6 +308,23 @@ function ProductResultRow({
             </p>
           )}
         </div>
+
+        {/* Saldo de stock, a la derecha del nombre y ANTES del precio.
+            El hueco se reserva siempre (`w-16`, aunque el ítem no lleve
+            stock): si el badge apareciera y desapareciera según la fila, el
+            precio se correría de lugar entre resultado y resultado y el cajero
+            perdería la referencia de dónde mirar — posiciones estables, la
+            misma razón por la que el hueco del avatar existe arriba. */}
+        <span className="flex w-16 shrink-0 justify-end">
+          {showStock && (
+            <Badge
+              variant={sinStock ? "destructive" : "secondary"}
+              className="tabular-nums"
+            >
+              {formatQty(item.stock, config)}
+            </Badge>
+          )}
+        </span>
 
         {/* Precio a la derecha */}
         <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground lg:text-base">
