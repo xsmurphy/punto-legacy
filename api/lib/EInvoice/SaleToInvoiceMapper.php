@@ -172,6 +172,29 @@ final class SaleToInvoiceMapper
      *         `{"ElectronicDocuments": [...]}` antes de mandarlo.
      * @throws \RuntimeException Con mensaje en castellano indicando qué dato falta o qué regla fiscal se viola.
      */
+    // ── Helpers COMPARTIDOS entre proveedores ────────────────────────────
+    //
+    // `resolveSecurityCode`, `resolveTransactionType`, `currencyDecimals`,
+    // `lineTax`, `assertTaxRate` y `fiscalLines` pasaron de `private` a
+    // `public` cuando entró `SaleToFePyMapper` (motor propio, mig 206). Es lo
+    // ÚNICO que se tocó de este archivo en ese slice, y es un cambio de
+    // visibilidad: cero cambio de comportamiento para Factomate.
+    //
+    // Por qué compartirlos y no duplicarlos: no tienen una sola línea de
+    // formato de proveedor adentro. Son aritmética fiscal —el IVA por línea,
+    // los decimales de la moneda, y sobre todo `fiscalLines()`, que garantiza
+    // que `Σ(cantidad × unitario)` dé exactamente el total de la venta— y
+    // cada una de esas reglas costó un bug real (el unitario a 8 decimales,
+    // los 10.000 Gs en 3 unidades, el securityCode que cambiaba entre
+    // reintentos). Dos copias divergiendo en silencio significaría que un
+    // proveedor declara un guaraní distinto del otro para la misma venta.
+    //
+    // Lo que NO se comparte es todo lo demás: el shape del payload, el
+    // receptor, los medios de pago y el crédito hablan idiomas distintos
+    // (Factomate tiene su propio JSON; FE-PY habla el `data` de xmlgen,
+    // SIFEN v150) y forzarlos a un builder común sería un molde que no le
+    // queda bien a ninguno de los dos.
+
     public function build(array $sale, array $stamp, array $config, string $issuedDate): array
     {
         $total = (float) ($sale['total'] ?? 0);
@@ -529,7 +552,7 @@ final class SaleToInvoiceMapper
      *
      * Generador único: `Cdc::securityCode()` (CSPRNG, ver ahí el porqué).
      */
-    private static function resolveSecurityCode(array $sale): string
+    public static function resolveSecurityCode(array $sale): string
     {
         $frozen = trim((string) ($sale['securityCode'] ?? ''));
         // Se acepta solo si es lo que el CDC espera: 9 dígitos exactos. Un
@@ -572,7 +595,7 @@ final class SaleToInvoiceMapper
      *
      * @param array<int,mixed> $items
      */
-    private static function resolveTransactionType(array $items): int
+    public static function resolveTransactionType(array $items): int
     {
         $hasService = false;
         $hasGoods   = false;
@@ -599,7 +622,7 @@ final class SaleToInvoiceMapper
      * unitario no es un problema paraguayo — cuando se habilite otra moneda
      * esta función ya dice cuántos decimales admite.)
      */
-    private static function currencyDecimals(string $currency): int
+    public static function currencyDecimals(string $currency): int
     {
         static $zeroDecimal = [
             'PYG' => true, 'CLP' => true, 'JPY' => true, 'KRW' => true,
@@ -619,7 +642,7 @@ final class SaleToInvoiceMapper
      * se marca una línea exenta. Si el rechazo de SIFEN menciona
      * taxRate/exenta, este es el primer sospechoso.
      */
-    private static function lineTax(array $item, int $index): float
+    public static function lineTax(array $item, int $index): float
     {
         $taxRate = self::assertTaxRate($item, $index);
         if ($taxRate <= 0) {
@@ -630,7 +653,7 @@ final class SaleToInvoiceMapper
     }
 
     /** @return int 10, 5 o 0 */
-    private static function assertTaxRate(array $item, int $index): int
+    public static function assertTaxRate(array $item, int $index): int
     {
         $taxRate = (int) ($item['taxRate'] ?? 10);
         if (!in_array($taxRate, [10, 5, 0], true)) {
@@ -675,7 +698,7 @@ final class SaleToInvoiceMapper
      *
      * @return array<int,array<string,mixed>> Una o dos líneas.
      */
-    private static function fiscalLines(array $item, int $decimals): array
+    public static function fiscalLines(array $item, int $decimals): array
     {
         $quantity = (float) ($item['quantity'] ?? 0);
         $unitPrice = (float) ($item['unitPrice'] ?? 0);
