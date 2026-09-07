@@ -2522,6 +2522,14 @@ no se duplican acá.
   igual — igual que la tenencia de caja), botón deshabilitado + tooltip, y
   avisos previos a los 7/3 días como los del plan (`context/34` D7). Encolado
   como slice.
+- **El detalle de transacción pinta el timbrado ACTUAL de la caja en documentos
+  que nunca lo congelaron (hallazgo 2026-09-07, del slice de timbrado vencido).**
+  `TransactionDetailService.php:412` resuelve `authNo` desde la config viva del
+  register para TODO doctype — recibos y NC muestran un timbrado que no
+  estamparon, y al renovar el timbrado la historia renderizada cambia sola. La
+  factura no lo sufre (lee el congelado de la mig 145). Dos salidas posibles:
+  congelar el timbrado también en esos doctypes si legalmente lo llevan, o
+  dejar de pintarlo donde no se congeló. Decisión fiscal, no de código.
 - **Artículo comodín / venta de concepto libre (owner 2026-09-07).** Facturar
   algo que no forma parte del inventario y no tiene nombre fijo: al agregarlo
   en el POS pide descripción y precio, entra como una línea más del carrito y
