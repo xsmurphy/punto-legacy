@@ -333,17 +333,24 @@ final class EInvoiceService
      * provisionadas por F7 es su email; para las manuales de F0, el
      * teléfono) + environment.
      *
+     * NO devuelve el celular del dueño aunque el nombre lo sugiera: ese
+     * dato es la identidad de `PhoneLogin` y nada más (mig 205). El nombre
+     * del método se conserva porque el header de Factomate se llama
+     * literalmente `phonenumber`.
+     *
      * @return array{0: string, 1: string} [$login, $environment] descifrados/listos para pasar al provider.
      * @throws \RuntimeException si falta (cuenta a medio provisionar).
      */
     private function phoneAndEnvironment(string $companyId): array
     {
-        $row   = ncmExecute('SELECT phone_enc, environment FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        $phone = $this->tryDecryptPhone($row['phone_enc'] ?? null);
-        if ($phone === null) {
-            throw new \RuntimeException('La cuenta de facturación electrónica no terminó de provisionarse.');
+        $row = ncmExecute('SELECT environment FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        if (!$row) {
+            throw new \RuntimeException('La cuenta de facturación electrónica no está configurada.');
         }
-        return [$phone, (string) ($row['environment'] ?? 'test')];
+        // El header `phonenumber` de TODA llamada lleva la identidad de LOGIN
+        // (el UserName/email), no el celular del dueño — ese es solo la
+        // identidad de PhoneLogin. Ver `EmitterIdentity` y la mig 205.
+        return [EmitterIdentity::login($companyId), (string) ($row['environment'] ?? 'test')];
     }
 
     /**
@@ -385,18 +392,6 @@ final class EInvoiceService
         return null;
     }
 
-    private function tryDecryptPhone(mixed $enc): ?string
-    {
-        $enc = (string) ($enc ?? '');
-        if ($enc === '') {
-            return null;
-        }
-        try {
-            return CredentialVault::decrypt($enc);
-        } catch (\Throwable $e) {
-            return null;
-        }
-    }
 
     /**
      * F1 — estado de facturación electrónica de UNA venta (solo lectura, panel).
@@ -2042,7 +2037,10 @@ final class EInvoiceService
                 // volvió es de ESTE contribuyente. Sale de acá y no de
                 // `company.config` para no sumar una query por documento: es el
                 // mismo RUC con el que el emisor está dado de alta.
-                'SELECT status, environment, phone_enc, stamp, provisioning, emitter, config AS account_config
+                // `phone_enc` NO se lee acá: el header `phonenumber` lo
+                // resuelve phoneAndEnvironment() vía EmitterIdentity, que es
+                // quien sabe que ese header lleva el LOGIN y no el celular.
+                'SELECT status, environment, stamp, provisioning, emitter, config AS account_config
                    FROM einvoice_account WHERE companyid = ?',
                 [$companyId]
             );

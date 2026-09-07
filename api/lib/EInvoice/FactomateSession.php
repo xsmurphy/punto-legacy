@@ -22,11 +22,19 @@ namespace Punto\Api\EInvoice;
  * que tipear, y Punto no necesita usar la contraseña por-tenant que
  * devolvió CreateExternal (queda en el vault solo como respaldo/portabilidad).
  *
- * El header `phonenumber` de PhoneLogin es la IDENTIDAD DE LOGIN del
- * usuario (verificado 2026-07-30: vuelve como `userName`), no un teléfono
- * literal — para usuarios provisionados por CreateExternal es su EMAIL.
- * Se guarda cifrada en `einvoice_account.phone_enc` (nombre heredado de
- * mig 95, documentado en mig 100).
+ * OJO — son DOS identidades distintas, no una (mig 205, `EmitterIdentity`):
+ *
+ *   - El header `phonenumber` de las llamadas normales y de `/Token` es la
+ *     IDENTIDAD DE LOGIN (verificado 2026-07-30: vuelve como `userName`),
+ *     no un teléfono literal — para usuarios provisionados por
+ *     CreateExternal es su EMAIL. Vive cifrada en `login_enc`.
+ *
+ *   - `PhoneLogin` en cambio exige el CELULAR del dueño (verificado
+ *     2026-09-07: con el email responde 500). Vive cifrado en `phone_enc`.
+ *
+ * Este archivo NO elige cuál va en cada lugar: se lo pide a
+ * `EmitterIdentity`, que además repara las filas anteriores a la mig 205
+ * en su primer uso. Ver el docblock de esa clase.
  *
  * Fallback LEGACY (cuentas de F0 provisionadas a mano, ej. la de DEV):
  * sin credencial admin en env, o si la cuenta tiene contraseña propia en
@@ -111,7 +119,7 @@ final class FactomateSession
     public function getBearer(string $companyId): string
     {
         $row = ncmExecute(
-            'SELECT username, password_enc, phone_enc, environment, token_enc, token_expires_at
+            'SELECT username, password_enc, environment, token_enc, token_expires_at
                FROM einvoice_account WHERE companyid = ?',
             [$companyId]
         );
@@ -126,13 +134,14 @@ final class FactomateSession
             return CredentialVault::decrypt($tokenEnc);
         }
 
-        $loginEnc = (string) ($row['phone_enc'] ?? '');
-        if ($loginEnc === '') {
-            throw new \RuntimeException('Falta la identidad de login del emisor — la cuenta no terminó de provisionarse.');
-        }
-
         $environment = (string) ($row['environment'] ?? 'test');
-        $login       = CredentialVault::decrypt($loginEnc);
+
+        // DOS identidades, no una (mig 205 / EmitterIdentity):
+        //   $login → el UserName (email). Header `phonenumber` de /Token.
+        //   $phone → el CELULAR del dueño. Es lo ÚNICO que acepta PhoneLogin
+        //            (verificado 2026-09-07: con el email devuelve 500).
+        // Antes las dos salían de `phone_enc` y cada fix rompía a la otra.
+        $login = EmitterIdentity::login($companyId);
 
         // Camino 1 — cadena ADMIN (white-label): PhoneLogin con el bearer
         // admin, sin contraseña del tenant.
@@ -140,7 +149,7 @@ final class FactomateSession
         if (self::hasAdminCredentials($environment)) {
             try {
                 $adminBearer = $this->getAdminBearer($environment);
-                $step2 = $this->provider->phoneLogin($environment, $login, $adminBearer);
+                $step2 = $this->provider->phoneLogin($environment, EmitterIdentity::phone($companyId), $adminBearer);
                 return $this->persistBearer($companyId, $step2);
             } catch (\RuntimeException $e) {
                 // No se cae directo: si la cuenta tiene credencial propia
@@ -164,7 +173,7 @@ final class FactomateSession
         $password = CredentialVault::decrypt($passwordEnc);
         $step1 = $this->provider->token($environment, $login, $username, $password);
         try {
-            $step2 = $this->provider->phoneLogin($environment, $login, (string) $step1['token']);
+            $step2 = $this->provider->phoneLogin($environment, EmitterIdentity::phone($companyId), (string) $step1['token']);
             return $this->persistBearer($companyId, $step2);
         } catch (\RuntimeException $e) {
             // Camino 3 — CONTINGENCIA (2026-09-07): /api/account/PhoneLogin de
