@@ -275,6 +275,40 @@ final class SettingsService
                 $record['settingCountry'] = $iso;
             }
         }
+        // La zona horaria y las tres etiquetas de moneda/impuesto/documento
+        // son IDENTIDAD por el mismo motivo que el país de arriba, y llegan
+        // por el mismo camino: el form de Ajustes las autocompleta desde el
+        // país, así que una sección guardada con el Select todavía sin valor
+        // las manda en ''. Escribir ese '' no es "el usuario limpió el campo":
+        // es el tenant perdiendo el huso con el que fecha sus documentos (todo
+        // el sistema pasa por TenantClock), el símbolo que imprime al lado de
+        // cada monto, el nombre de su impuesto en la factura y la etiqueta del
+        // documento fiscal del cliente. Un valor vacío o inválido se IGNORA —
+        // el ajuste anterior queda intacto—; cambiarlos a otro valor válido
+        // sigue siendo una decisión del comercio y se permite.
+        if (array_key_exists('timeZone', $f)) {
+            $tz = trim((string) $f['timeZone']);
+            if (!\Punto\Api\Support\CountryDefaults::isValidTimezone($tz)) {
+                unset($record['settingTimeZone']);
+            } else {
+                $record['settingTimeZone'] = $tz;
+            }
+        }
+        foreach ([
+            'currency' => 'settingCurrency',
+            'taxName'  => 'settingTaxName',
+            'tin'      => 'settingTIN',
+        ] as $fKey => $col) {
+            if (!array_key_exists($fKey, $f)) {
+                continue;
+            }
+            $value = trim((string) $f[$fKey]);
+            if ($value === '') {
+                unset($record[$col]);
+            } else {
+                $record[$col] = $value;
+            }
+        }
         if (array_key_exists('name', $f)) {
             $record['settingName'] = $f['name'] ?? '';
         }

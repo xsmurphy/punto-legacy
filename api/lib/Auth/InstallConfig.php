@@ -7,6 +7,16 @@
  * Single source of truth para /api — el legacy mantiene su propia copia
  * hasta que /panel desaparezca. Cualquier cambio (rubro nuevo, item demo)
  * debe replicarse en ambos lados hasta entonces.
+ *
+ * EL ORDEN DE ESTA LISTA ES PARTE DEL CONTRATO: `SignupService` corta en el
+ * PRIMER grupo cuyo `match` contiene el rubro elegido. Hay códigos declarados
+ * en dos grupos a propósito ('0.5'/'0.6' en salud y en panadería, '2.2' en
+ * regalos y en indumentaria) y antes se aplicaban los dos: el comercio nacía
+ * con el catálogo demo DUPLICADO y con las hotkeys del segundo grupo pisando
+ * las del primero. Si agregás un grupo, ponelo donde su prioridad relativa
+ * sea la que querés — no al final por costumbre.
+ *
+ * Los códigos de rubro salen de `lib/Settings/resources/company_categories.php`.
  */
 
 declare(strict_types=1);
@@ -123,6 +133,39 @@ final class InstallConfig
             'modules' => ['ecom','feedback'],
         ],
         [
+            // Ropa/Accesorios ('2.3'). Sin este grupo el rubro no matcheaba
+            // NINGÚN patrón —el de prendas cubre mascotas, deportiva y
+            // niños/bebés, pero no ropa— y la tienda nacía vacía: sin
+            // módulos, sin catálogo demo y con la caja sin hotkeys.
+            'match' => ['2.3'],
+            'items' => [
+                ['name' => 'Remera básica', 'price' => '45000'],
+                ['name' => 'Camisa de vestir', 'price' => '120000'],
+                ['name' => 'Pantalón de jean talle 40', 'price' => '150000'],
+                ['name' => 'Vestido casual', 'price' => '180000'],
+                ['name' => 'Campera de abrigo', 'price' => '320000'],
+                ['name' => 'Zapatillas talle 39', 'price' => '250000'],
+                ['name' => 'Cinturón de cuero', 'price' => '90000'],
+                ['name' => 'Gorra', 'price' => '55000'],
+            ],
+            'modules' => ['ecom','feedback'],
+        ],
+        [
+            // Hogar/Decoración ('2.11'), el otro rubro huérfano.
+            'match' => ['2.11'],
+            'items' => [
+                ['name' => 'Juego de sábanas', 'price' => '195000'],
+                ['name' => 'Almohadón decorativo', 'price' => '45000'],
+                ['name' => 'Cortina blackout', 'price' => '230000'],
+                ['name' => 'Lámpara de mesa', 'price' => '160000'],
+                ['name' => 'Espejo de pared', 'price' => '280000'],
+                ['name' => 'Juego de vasos x6', 'price' => '85000'],
+                ['name' => 'Maceta de cerámica', 'price' => '38000'],
+                ['name' => 'Alfombra 2 x 1,5 m', 'price' => '450000'],
+            ],
+            'modules' => ['ecom','feedback'],
+        ],
+        [
             'match' => ['3','3.1','3.2','3.3','3.4','3.5','6','6.1','6.2','6.3','6.4','6.5'],
             'items' => [
                 ['name' => 'Servicio por hora', 'price' => '23000'],
@@ -158,7 +201,10 @@ final class InstallConfig
                 ['name' => 'Corte de Barba', 'price' => '32000'],
                 ['name' => 'Lavado', 'price' => '25000'],
             ],
-            'modules' => ['schedule','table','feedback'],
+            // 'tables', no 'table': la whitelist de SignupService (y la flag que
+            // lee el bootstrap) se llama en plural. Con el singular, la
+            // peluquería nacía SIN el módulo de espacios que este rubro pide.
+            'modules' => ['schedule','tables','feedback'],
         ],
         [
             'match' => ['5.7'],

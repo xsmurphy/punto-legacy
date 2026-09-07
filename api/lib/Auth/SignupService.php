@@ -7,10 +7,11 @@
  *   - Retorna array estructurado en lugar de string mixto.
  *   - No emite cookie acá; el endpoint que lo llama usa PanelAuth::issuePanelSession.
  *
- * Single source of truth para el flujo de signup en /api. El panel legacy
- * mantiene su copia de `signUp()` hasta que desaparezca — cualquier cambio
- * (campos nuevos, validaciones, modules nuevos) debe replicarse en ambos
- * lados hasta entonces.
+ * Single source of truth para el flujo de signup, sin "ambos lados": la
+ * `signUp()` de `api/includes/functions.php` es legacy MUERTO —la nota sobre
+ * la función lo declara: cero callers, el alta real entra por `/v1/signup`— y
+ * se conserva sólo como referencia del port. NO hay que replicarle nada; este
+ * archivo es el único que se toca.
  *
  * Dependencias del entorno: ncmInsert, ncmUpdate, ncmExecute, passEncoder,
  * phoneToE164, findPhoneLogin, $countries global. Todo cargado por
@@ -21,6 +22,7 @@ declare(strict_types=1);
 
 namespace Punto\Api\Auth;
 
+use Punto\Api\Support\CountryDefaults;
 use Punto\Api\Support\Slug;
 
 final class SignupService
@@ -181,12 +183,34 @@ final class SignupService
             return ['ok' => false, 'error' => 'País inválido o no soportado'];
         }
 
-        $cSymbol     = $countryData['currency']['symbol']         ?? '$';
-        $decimals    = (int) ($countryData['currency']['decimal_digits'] ?? 0);
+        // La localización sale de CountryDefaults, NO de `$countries`.
+        //
+        // `$countries` es el catálogo ANCHO (`libraries/countries.php`, 273
+        // países generados sin curar) y estos cinco valores se escriben UNA
+        // vez en el alta y quedan para siempre. Ahí adentro: Panamá tiene el
+        // símbolo del baht tailandés, Guatemala y Honduras traen el código ISO
+        // donde va el símbolo, Brasil declara "IPI" como impuesto de mostrador
+        // (es el ICMS), Nicaragua no trae documento fiscal y Chile trae dos
+        // decimales que el peso chileno no usa. CountryDefaults antepone la
+        // tabla curada de los países donde Punto vende —espejo de
+        // `frontend/lib/tenant-locale.ts`, que es lo que el front usa para
+        // rotular el mismo formulario— y cae al catálogo ancho solamente para
+        // los países de afuera, que es exactamente donde el dato aproximado
+        // sigue siendo mejor que ninguno.
+        $cSymbol     = CountryDefaults::currencySymbol($countryCode) ?: '$';
+        $decimals    = CountryDefaults::decimalDigits($countryCode) ?? 0;
         $lang        = explode(',', (string) ($countryData['languages'] ?? 'es'));
         $decim       = ($decimals < 1) ? 'no' : 'yes';
-        $taxName     = $countryData['currency']['vat_name']        ?? 'VAT';
-        $tin         = $countryData['tin']                         ?? 'TIN';
+        $taxName     = CountryDefaults::taxName($countryCode) ?: 'VAT';
+        $tin         = CountryDefaults::taxIdLabel($countryCode) ?: 'TIN';
+        // Separador de MILES. Estaba cableado en 'dot' para todo el mundo: un
+        // comercio mexicano o ecuatoriano nacía mostrando 1.234,50 donde su
+        // cliente espera 1,234.50. 'dot' sigue siendo el default de los países
+        // que la tabla curada no declara — es el formato de la mayoría de
+        // LATAM, y es el valor que este alta venía escribiendo.
+        $thousandSep = CountryDefaults::thousandSeparator($countryCode) === ','
+            ? 'comma'
+            : 'dot';
 
         // BUG QUE ESTE FIX CIERRA: `$countries` es el catálogo ancho
         // (`libraries/countries.php`, 273 países) y NO tiene la clave
@@ -227,7 +251,7 @@ final class SignupService
             'settingAcceptedTerms'     => 1,
             'settingBillTemplate'      => 'ticket',
             'settingDecimal'           => $decim,
-            'settingThousandSeparator' => 'dot',
+            'settingThousandSeparator' => $thousandSep,
             'settingTaxName'           => $taxName ?: 'VAT',
             'settingTIN'               => $tin ?: 'TIN',
             'settingCompanyCategoryId' => (string) ($post['category'] ?? ''),
@@ -287,6 +311,16 @@ final class SignupService
 
         // Modules + demo items basados en categoría — patrones declarados en
         // InstallConfig (port de panel/includes/config.php $installConfig).
+        //
+        // PRIMER MATCH GANA, y por eso los dos `foreach` de acá abajo cortan.
+        // Hay rubros declarados en DOS grupos de InstallConfig ('0.5' y '0.6'
+        // —Profesional de la Salud y Hospital— caen en el grupo de consultas y
+        // en el de panadería; '2.2' —Libros/Música/Videos— cae en el de
+        // regalos y en el de indumentaria). Sin el corte se aplicaban los dos:
+        // el comercio nacía con SEIS ítems demo donde tenía que tener tres, y
+        // con las hotkeys del segundo grupo pisando enteras a las del primero
+        // (el `ncmUpdate` de registerHotkeys reescribe el array completo, no
+        // acumula). Un hospital terminaba con pan francés en la caja.
         $category = (string) ($post['category'] ?? '');
         $moduleRecord = [];
         foreach (InstallConfig::all() as $val) {
@@ -304,15 +338,22 @@ final class SignupService
                     $moduleRecord[$key] = 1;
                 }
             }
+            break;
         }
         if ($moduleRecord) {
             ncmUpdate(['records' => $moduleRecord, 'table' => 'company',
                 'where' => 'companyId = ' . $db->qstr($companyInsert)]);
         }
 
-        // Demo items + hotkeys del register
-        // Precios demo en guaraníes; dividir por 100 para currencies con decimales.
-        $priceScale = ($decimals >= 2) ? 0.01 : 1.0;
+        // Demo items + hotkeys del register.
+        //
+        // Los precios de InstallConfig están escritos EN GUARANÍES (12000 un
+        // plato principal) y CountryDefaults::demoPrice() los lleva a la banda
+        // de la moneda del país. La regla anterior —«dividir por 100 si la
+        // moneda tiene decimales»— no convertía nada: le mostraba al comercio
+        // ecuatoriano un plato principal de USD 120 y una laptop de USD 2.250.
+        // Es un orden de magnitud para el catálogo DEMO, no una cotización;
+        // ver el comentario de CountryDefaults::DEMO_PRICE_DIVISOR.
         foreach (InstallConfig::all() as $val) {
             if (!in_array($category, $val['match'], true)) {
                 continue;
@@ -333,7 +374,7 @@ final class SignupService
                         'itemStatus' => 1,
                         'taxId'      => $taxonomyInsert,
                         'itemImage'  => false,
-                        'itemPrice'  => round(((float) $item['price']) * $priceScale, $decimals),
+                        'itemPrice'  => CountryDefaults::demoPrice((float) $item['price'], $countryCode),
                         'companyId'  => $companyInsert,
                     ]
                 ), 'table' => 'item']);
@@ -356,6 +397,7 @@ final class SignupService
                 'table' => 'register',
                 'where' => 'registerId = ' . $db->qstr($registerInsert)
                         . ' AND companyId = ' . $db->qstr($companyInsert)]);
+            break;
         }
 
         // Cliente placeholder ("Primer Cliente")
@@ -384,8 +426,36 @@ final class SignupService
         // matchea ninguna opción: el Dueño abría su propia ficha con el campo
         // Rol EN BLANCO, y al guardar el panel mandaba `roleId: null` (que le
         // habría borrado el rol a cualquier otro usuario editado así).
-        \RoleService::seedCompanyRoles((string) $companyInsert);
-        $ownerRoleId = \RoleService::resolveLegacyRole(1, (string) $companyInsert);
+        //
+        // Las dos llamadas van dentro de un try/catch por la misma razón que
+        // el depósito de arriba: `seedCompanyRoles()` termina en
+        // `_savePermissions()`, que LANZA RuntimeException si los permisos no
+        // se persisten. Sin el catch, esa excepción sale con la transacción
+        // del signup ABIERTA y envenena la conexión para el resto del request.
+        try {
+            \RoleService::seedCompanyRoles((string) $companyInsert);
+            $ownerRoleId = \RoleService::resolveLegacyRole(1, (string) $companyInsert);
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudieron crear los roles del comercio'];
+        }
+
+        // El rol del dueño es OBLIGATORIO y acá se verifica que exista de
+        // verdad. `seedCompanyRoles()` devuelve void y `resolveLegacyRole()`
+        // devuelve '' cuando el SELECT por slug no encuentra la fila (falló el
+        // seed, o el `taxonomyextra::json->>'slug'` no matcheó), así que el
+        // alta seguía de largo e insertaba al dueño con `role = ''`: un
+        // usuario SIN permisos, que es el estado del que este comercio no
+        // puede salir solo —para arreglarlo hay que entrar al panel, y para
+        // entrar al panel hace falta el rol—. Es la misma clase de invariante
+        // que la cadena Sucursal > Depósito > Caja de arriba: si el eslabón no
+        // está, el tenant nace roto y hay que abortar, no seguir.
+        if ($ownerRoleId === '') {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudo asignar el rol de dueño de la cuenta'];
+        }
 
         $passSalt = passEncoder((string) $post['password']);
         // PIN por defecto de la caja. Se escriben los TRES campos que el resto
