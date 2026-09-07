@@ -258,6 +258,23 @@ final class SettingsService
                 $record[$col] = $f[$fKey];
             }
         }
+        // El país es IDENTIDAD, no preferencia: de él cuelgan el padrón de
+        // contribuyentes, los impuestos y la validación del RUC. Se escribe una
+        // vez en el signup (que lo valida contra el catálogo y aborta si falta)
+        // y un update NUNCA puede blanquearlo ni degradarlo a un valor que el
+        // catálogo no conoce — un form que llega con `country: ''` (el Select
+        // sin valor) blanqueaba el país en silencio y rompía el lookup de RUC
+        // y la validación del TIN aguas abajo, que es exactamente el incidente
+        // de Balloon Party (2026-09-06). Cambiarlo a otro país VÁLIDO sigue
+        // permitido: eso sí es una decisión del comercio.
+        if (array_key_exists('country', $f)) {
+            $iso = strtoupper(trim((string) $f['country']));
+            if (preg_match('/^[A-Z]{2}$/', $iso) !== 1) {
+                unset($record['settingCountry']);
+            } else {
+                $record['settingCountry'] = $iso;
+            }
+        }
         if (array_key_exists('name', $f)) {
             $record['settingName'] = $f['name'] ?? '';
         }
