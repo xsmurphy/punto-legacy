@@ -201,6 +201,26 @@ export interface EInvoiceDocument {
   contactId: string | null
   outletId: string | null
   clientName: string | null
+  /**
+   * Casilla del cliente de la venta. Precarga el diálogo de reenvío (D8 de
+   * `context/57`) — editable ahí mismo, porque el destino puede ser otro (la
+   * del contador). `null` = la venta no tiene cliente, o el cliente no tiene
+   * email: ahí el envío automático nunca se encoló.
+   */
+  clientEmail: string | null
+  /**
+   * ENTREGA DIGITAL (`context/57`). Derivado de `notification_outbox`, no de
+   * una columna de `einvoice_document`: mandar un email no cambia el
+   * documento, y duplicar el dato crearía dos verdades.
+   *
+   * `emailSentAt` = cuándo salió el ÚLTIMO envío (puede haber varios: el
+   * automático más los reenvíos manuales a otras direcciones).
+   */
+  emailSentAt: string | null
+  /** Hay un envío en cola — sale en la próxima corrida del drainer (≤5 min). */
+  emailPending: boolean
+  /** Algún envío agotó los reintentos. El motivo queda en el outbox. */
+  emailFailed: boolean
 }
 
 export interface EInvoiceDocumentFilters {
@@ -227,4 +247,17 @@ export interface EInvoiceDocumentsPage {
 export interface EInvoiceReconcileResult {
   checked: number
   updated: number
+}
+
+/**
+ * Resultado de encolar la entrega del KuDE (`action=sendKude`). El backend NO
+ * manda en el acto: encola en `notification_outbox` y el drainer lo entrega en
+ * la próxima corrida — así el envío tiene reintento y queda registrado.
+ *
+ * `queued: false` = ya había un envío encolado a ESA dirección (idempotencia
+ * del outbox). No es un error: es "ya está pedido".
+ */
+export interface EInvoiceSendKudeResult {
+  queued: boolean
+  recipient: string
 }

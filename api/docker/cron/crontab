@@ -17,6 +17,13 @@
 */10 *  *  *  *   /usr/local/bin/maintenance.sh rollup-reconcile
 # Rescata extracciones OCR colgadas (proceso muerto a mitad, ej. deploy).
 */5  *  *  *  *   /usr/local/bin/maintenance.sh ocr-requeue
+# Entrega digital: drena `notification_outbox` (context/57 E3). Al lado del
+# drain de FE y con la misma cadencia porque es su continuación natural — la
+# reconciliación encola el envío del KuDE cuando SIFEN aprueba, y sin este job
+# la cola no la vacía nadie. El backoff de la cola es PACIENTE (hasta 24 h
+# entre reintentos), así que los 5 minutos son la latencia del PRIMER envío,
+# no la del reintento.
+*/5  *  *  *  *   /usr/local/bin/maintenance.sh notification-drain
 0    3  *  *  *   /usr/local/bin/maintenance.sh purge-tenant-audit
 0    4  *  *  *   /usr/local/bin/maintenance.sh purge-deleted-row
 30   2  *  *  *   /usr/local/bin/maintenance.sh partition-ensure

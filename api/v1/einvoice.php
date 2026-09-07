@@ -23,6 +23,8 @@
  *                                                  el rechazado queda como registro (gateado einvoice.manage)
  *   POST /v1/einvoice?action=cancel&id=          → anula un documento issued en SIFEN (gateado einvoice.manage, body: reason)
  *   POST /v1/einvoice?action=reconcile           → reconcilia sifen_status contra GetAll (gateado einvoice.manage)
+ *   POST /v1/einvoice?action=sendKude&id=        → D8 de context/57: ENCOLA el envío del KuDE por email al cliente
+ *                                                  (body: email opcional — vacío = la casilla del cliente de la venta)
  *
  * Auth: panel para todo salvo `drain` (gateado por EINVOICE_DRAIN_SECRET, sin
  * realm — lo invoca el cron del sistema). TODA escritura de panel está gateada
@@ -298,6 +300,31 @@ switch ($method) {
             break;
         }
 
+        if ($action === 'sendKude') {
+            // D8 de context/57 — reenvío manual de la factura al cliente. Es el
+            // escape para "no me llegó" / "mandámelo a la del contador", y
+            // cubre al cliente que cargó su email DESPUÉS de la venta.
+            //
+            // No manda nada acá: ENCOLA en `notification_outbox`. El envío lo
+            // hace el drainer (≤5 min), que es quien tiene reintento y deja
+            // registro — mandar inline dejaría el fallo sin cola y sin rastro.
+            // Un `email` distinto crea una fila nueva por el UNIQUE del outbox,
+            // que es exactamente lo que se quiere.
+            $id = (string) ($_GET['id'] ?? '');
+            if ($id === '') {
+                apiError('Falta id', 422);
+            }
+            $email = (string) (validateHttp('email', 'post') ?: '');
+            try {
+                apiOk($svc->sendKude($companyId, $id, $email, $ctx['userId'] ?? null));
+            } catch (\RuntimeException $e) {
+                // 422 con el texto tal cual: los motivos ("SIFEN todavía no lo
+                // aprobó", "el cliente no tiene email") son accionables.
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
         if ($action === 'reconcile') {
             $limitRaw = (int) ($_GET['limit'] ?? 50);
             $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 50;
@@ -309,7 +336,7 @@ switch ($method) {
             break;
         }
 
-        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|reissue|cancel|reconcile)', 422);
+        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|reissue|cancel|reconcile|sendKude)', 422);
         break;
 
     default:

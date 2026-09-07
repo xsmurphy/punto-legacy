@@ -12,6 +12,7 @@ import type {
   EInvoicePaymentMethod,
   EInvoiceReconcileResult,
   EInvoiceSecretStatus,
+  EInvoiceSendKudeResult,
   EInvoiceTestResult,
 } from "@/lib/types/einvoice"
 
@@ -197,6 +198,30 @@ export function useCancelEinvoiceDocument() {
   return useMutation<EInvoiceDocument, Error, { id: string; reason: string }>({
     mutationFn: ({ id, reason }) =>
       api.post<EInvoiceDocument>(`/v1/einvoice?action=cancel&id=${encodeURIComponent(id)}`, { reason }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: DOCUMENTS_KEY }),
+  })
+}
+
+/**
+ * Reenvío manual de la factura al cliente (D8 de `context/57`). `email` vacío
+ * = la casilla del cliente de la venta.
+ *
+ * ENCOLA, no manda: el backend deja la notificación en `notification_outbox` y
+ * el drainer la entrega en la próxima corrida (≤5 min). Por eso el toast dice
+ * "se va a enviar" y no "enviado" — afirmar lo segundo sería mentirle al
+ * operador si el proveedor falla y el ítem se reintenta.
+ *
+ * Invalida el listado: la columna de entrega se deriva del outbox, así que
+ * pasa a "En cola" apenas vuelve.
+ */
+export function useSendKudeEmail() {
+  const qc = useQueryClient()
+  return useMutation<EInvoiceSendKudeResult, Error, { id: string; email?: string }>({
+    mutationFn: ({ id, email }) =>
+      api.post<EInvoiceSendKudeResult>(
+        `/v1/einvoice?action=sendKude&id=${encodeURIComponent(id)}`,
+        email ? { email } : {},
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: DOCUMENTS_KEY }),
   })
 }
