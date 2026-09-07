@@ -2520,6 +2520,20 @@ no se duplican acá.
   igual — igual que la tenencia de caja), botón deshabilitado + tooltip, y
   avisos previos a los 7/3 días como los del plan (`context/34` D7). Encolado
   como slice.
+- **Provisioning de Factomate: el alta no registra el CELULAR del tenant
+  (hallazgo 2026-09-07, alta real de Balloon Party).** `CreateExternal` manda
+  solo razón social/fantasía/email/RUC — el usuario queda con
+  `PhoneNumber: null` y `phone_enc` guarda el EMAIL por una suposición vieja
+  ("UserName = Email, manual §2.2") que el owner corrigió: el modelo de
+  Factomate es que el usuario del tenant es su NÚMERO DE CELULAR y
+  `PhoneLogin` selecciona por teléfono registrado. Un tenant sin teléfono no
+  va a poder abrir sesión ni con el endpoint sano. Fix: mandar el celular en
+  el alta (confirmar con Factomate el campo de `CreateExternal` o si va por
+  update posterior) y guardar el TELÉFONO como identidad en `phone_enc`.
+  Contexto: se descubrió mientras `PhoneLogin` devolvía 500 para CUALQUIER
+  entrada (incluso el PhoneNumber registrado del admin, mientras GetUserInfo
+  con el mismo token daba 200) — ESO es un bug de Factomate, reclamado aparte;
+  este ítem es lo nuestro que quedará expuesto cuando lo arreglen.
 - **El detalle de transacción pinta el timbrado ACTUAL de la caja en documentos
   que nunca lo congelaron (hallazgo 2026-09-07, del slice de timbrado vencido).**
   `TransactionDetailService.php:412` resuelve `authNo` desde la config viva del
