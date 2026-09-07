@@ -78,7 +78,24 @@ if ($method === 'POST' && $action === 'drain') {
     exit;
 }
 
-$ctx       = apiAuthTenant(['panel']);
+// El realm `api` (API key del tenant, `context/58`) entra SOLO al estado de la
+// cuenta, y solo por GET. Es lo que necesita `get_einvoice_setup` para poder
+// conducir la configuración de FE por MCP (M7): sin esto el bot registra
+// acciones a ciegas, sin poder verificar en qué quedó el emisor.
+//
+// El recorte por `resource` es deliberado y no una precaución de más: el resto
+// de este archivo sirve el LISTADO de documentos fiscales emitidos y el KuDE en
+// PDF de cada uno, que es mucho más que "cómo está configurada mi cuenta".
+// Abrirlo entero para habilitar una lectura de setup habría regalado esa
+// superficie sin que nadie la pidiera.
+//
+// La escritura no depende de esta línea: `apiAuthTenant()` corta con 405
+// cualquier verbo que no sea GET/HEAD para el realm `api` salvo que el endpoint
+// declare `apiWrite` — y acá no se declara, ni se va a declarar: el certificado
+// y el CSC no se cargan por API key (M8 tiene su propio mecanismo).
+$ctx       = apiAuthTenant(
+    $method === 'GET' && $resource === 'account' ? ['panel', 'api'] : ['panel']
+);
 $companyId = COMPANY_ID;
 
 $svc = new \Punto\Api\EInvoice\EInvoiceService();

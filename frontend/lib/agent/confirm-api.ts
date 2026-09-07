@@ -42,6 +42,8 @@ export const WRITE_ACTIONS = [
   "create_outlet",
   "update_outlet",
   "create_register",
+  "set_fiscal_data",
+  "provision_einvoice",
   "tabular_import",
 ] as const
 

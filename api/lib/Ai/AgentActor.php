@@ -38,12 +38,13 @@ use Punto\Api\Auth\OperatorContext;
  *
  * ── Configurar el comercio NO se puede pedir desde la caja ─────────────────
  *
- * Cinco acciones se bloquean por realm, explícitamente, acá abajo: las que
- * fabrican accesos al comercio (`create_user`, `assign_role`) y las que definen
- * su estructura fiscal (`create_outlet`, `update_outlet`, `create_register`).
- * Ninguna es tarea de cajero: son decisiones de dueño, se toman con el equipo
- * delante y con el timbrado de la SET a mano, no de pie en el mostrador
- * mientras espera un cliente.
+ * Siete acciones se bloquean por realm, explícitamente, acá abajo: las que
+ * fabrican accesos al comercio (`create_user`, `assign_role`), las que definen
+ * su estructura fiscal (`create_outlet`, `update_outlet`, `create_register`) y
+ * las que configuran su facturación electrónica (`set_fiscal_data`,
+ * `provision_einvoice`). Ninguna es tarea de cajero: son decisiones de dueño,
+ * se toman con el equipo delante y con la constancia de RUC y el timbrado de la
+ * SET a mano, no de pie en el mostrador mientras espera un cliente.
  *
  * El motivo de que el bloqueo sea explícito importa: se creía que `create_user`
  * quedaba fuera de alcance solo, porque exige `ai.agent.elevated` y
@@ -77,6 +78,14 @@ final class AgentActor
         'create_outlet',
         'update_outlet',
         'create_register',
+        // Facturación electrónica (M7). Misma familia que las de arriba y por
+        // el mismo motivo: la identidad fiscal del comercio y el alta de su
+        // emisor son decisiones de dueño, con la constancia de RUC y el
+        // timbrado a mano. Además el rol de encargado tiene
+        // `settings.company.edit` en el seed, así que sin este bloqueo "cargá
+        // el RUC" desde el mostrador habría funcionado.
+        'set_fiscal_data',
+        'provision_einvoice',
     ];
 
     /**
@@ -106,6 +115,12 @@ final class AgentActor
         'create_outlet'     => 'settings.outlet.manage',
         'update_outlet'     => 'settings.outlet.manage',
         'create_register'   => 'settings.register.manage',
+        // FE: la identidad fiscal se escribe sobre los ajustes del comercio,
+        // así que exige el MISMO permiso que el form de Configuración del
+        // negocio (y que el lookup de padrón de `/v1/settings?view=taxpayer`).
+        // El alta del emisor tiene clave propia desde que existe la pantalla.
+        'set_fiscal_data'    => 'settings.company.edit',
+        'provision_einvoice' => 'einvoice.manage',
     ];
 
     /**

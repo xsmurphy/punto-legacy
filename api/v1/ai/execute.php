@@ -625,6 +625,121 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             ];
         }
 
+        case 'set_fiscal_data': {
+            // ── La razón social la trae el PADRÓN, nunca el modelo ────────
+            //
+            // El payload trae SOLO el RUC. Que el lookup se rehaga acá —y no
+            // se confíe en el que el bot hizo para mostrarle la razón social
+            // al usuario— es el punto entero de esta acción: entre la consulta
+            // del chat y la confirmación pasan minutos y un modelo de por
+            // medio, y lo que se persiste como identidad fiscal del comercio
+            // tiene que salir de la fuente, no de lo que quedó en el contexto.
+            //
+            // NO hay fallback al nombre de fantasía de la empresa. Los tres
+            // que existían se eliminaron el 2026-09-06 por ser un bug fiscal
+            // (SIFEN valida la razón social contra el padrón del RUC); si el
+            // padrón no contesta, la acción FALLA y el bot repregunta.
+            $ruc    = trim((string) ($payload['ruc'] ?? ''));
+            $lookup = new \Punto\Api\Contacts\TaxpayerLookupService();
+
+            // "No hay padrón al cual preguntarle" ≠ "ese RUC no existe". El
+            // servicio es quien sabe qué fuentes hay y su mensaje ya dice qué
+            // hacer (cargar el país del negocio, escribir a soporte), así que
+            // se pasa tal cual: es lo único accionable que el bot puede
+            // repetirle al usuario.
+            $motivo = $lookup->unavailableReason($companyId);
+            if ($motivo !== null) {
+                throw new \InvalidArgumentException($motivo);
+            }
+
+            $padron = $lookup->lookup($companyId, $ruc);
+            if ($padron === null) {
+                throw new \InvalidArgumentException(
+                    'No encontramos el RUC ' . $ruc . ' en el padrón de contribuyentes. '
+                    . 'Verificá el número (va con el dígito verificador) y volvé a intentarlo.'
+                );
+            }
+
+            // MISMO destino que el form de Ajustes → Facturación electrónica
+            // (`einvoice-manager.tsx` → PUT /v1/settings → updateGeneral): un
+            // solo lugar por dato. El RUC que se guarda es el que devolvió el
+            // padrón —viene completo, con dígito verificador— y se cae al
+            // tipeado solo si la fuente no lo repitió, igual que en el form.
+            $rucCanonico  = trim((string) ($padron['ruc'] ?? '')) !== '' ? (string) $padron['ruc'] : $ruc;
+            $razonSocial  = (string) $padron['name'];
+
+            $svc = new \Punto\Api\Settings\SettingsService();
+            if (!$svc->updateGeneral($companyId, ['ruc' => $rucCanonico, 'billingName' => $razonSocial])) {
+                throw new \RuntimeException('No se pudieron guardar los datos fiscales');
+            }
+
+            // La entity `setting` invalida `["settings"]`, `["bootstrap"]` y
+            // `["pos-bootstrap"]`: el RUC y la razón social se imprimen en el
+            // ticket, así que la caja tiene que enterarse sin esperar un
+            // refresh.
+            realtimePublish('setting', 'update', null);
+
+            return [
+                'ruc'         => $rucCanonico,
+                'billingName' => $razonSocial,
+                // De dónde salió el dato: 'factomate' (el padrón del propio
+                // emisor, autoritativo) o 'padron' (el público). El bot lo
+                // dice cuando el usuario duda del nombre que quedó cargado.
+                'source'      => (string) ($padron['source'] ?? ''),
+                'taxpayerStatus' => $padron['status'] ?? null,
+            ];
+        }
+
+        case 'provision_einvoice': {
+            // El alta del emisor es del SERVICIO y de nadie más: es idempotente
+            // por checkpoint, retoma un alta a medias, lee el RUC/razón social
+            // de los ajustes y los timbrados de las CAJAS, y reaplica el
+            // certificado en custodia. Acá solo se le arma el formulario.
+            //
+            // SIN cscId/cscSecret ni certificado: son secretos fiscales, no
+            // pasan por el modelo, y `/v1/ai/confirm` rechaza el payload que
+            // los traiga (AI_EINVOICE_SECRET_KEYS). `provision()` los trata
+            // como opcionales — la cuenta queda provisionada y el comercio
+            // carga el CSC y el .p12 en Ajustes → Facturación electrónica.
+            $form = [
+                'email'       => trim((string) ($payload['email'] ?? '')),
+                'actividades' => is_array($payload['actividades'] ?? null) ? $payload['actividades'] : [],
+            ];
+            if (isset($payload['taxpayerType']) && is_numeric($payload['taxpayerType'])) {
+                $form['taxpayerType'] = (int) $payload['taxpayerType'];
+            }
+            if (trim((string) ($payload['infoAdicional'] ?? '')) !== '') {
+                $form['infoAdicional'] = trim((string) $payload['infoAdicional']);
+            }
+
+            try {
+                $cuenta = (new \Punto\Api\EInvoice\EInvoiceProvisioningService())->provision($companyId, $form);
+            } catch (\RuntimeException $e) {
+                // Se re-lanza como error de NEGOCIO y no se deja caer al catch
+                // genérico de abajo por lo mismo que `RegisterAdminException`:
+                // el servicio documenta que TODA su RuntimeException lleva un
+                // mensaje en castellano escrito para el operador ("cargá el
+                // país del negocio", "ninguna caja tiene timbrado completo",
+                // "contactá a soporte"), y el genérico lo reemplazaría por
+                // "Error ejecutando la acción" justo en el error que más
+                // repregunta necesita.
+                throw new \InvalidArgumentException($e->getMessage());
+            }
+
+            // Lo que el bot le cuenta al usuario: en qué quedó el emisor y qué
+            // falta. Los booleanos de secretos son booleanos y nada más — el
+            // contenido del certificado y del CSC no sale de la custodia ni
+            // acá ni en ningún otro lado.
+            return [
+                'provisioned'  => (bool) ($cuenta['provisioned'] ?? false),
+                'status'       => (string) ($cuenta['status'] ?? ''),
+                'certUploaded' => (bool) ($cuenta['certUploaded'] ?? false),
+                'cscStored'    => (bool) ($cuenta['cscStored'] ?? false),
+                'stamp'        => $cuenta['stamp'] ?? [],
+                'lastError'    => $cuenta['lastError'] ?? null,
+            ];
+        }
+
         case 'tabular_import': {
             $kind      = (string) ($payload['kind']      ?? '');
             $sessionId = (string) ($payload['sessionId'] ?? '');

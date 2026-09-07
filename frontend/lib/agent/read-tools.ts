@@ -535,13 +535,24 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
    * confusión que esto viene a sacar.
    */
   async function describeFailure(res: Response, opts: ReadOptions): Promise<string> {
-    if (res.status === 403) {
+    // El 422 se lee igual que el 403 y por el mismo motivo: es el status con el
+    // que el backend contesta "falta un prerequisito", y su mensaje dice CUÁL
+    // ("No podemos consultar el padrón porque falta el país del negocio:
+    // cargalo en Configuración del negocio"). Cambiarlo por "Error 422" deja al
+    // modelo con un número y lo manda a reintentar la misma consulta.
+    if (res.status === 403 || res.status === 422) {
       let detalle = ""
       try {
         const body = (await res.json()) as { error?: { message?: unknown } }
         if (typeof body?.error?.message === "string") detalle = body.error.message.trim()
       } catch {
-        // 403 sin cuerpo JSON (proxy, gateway). Queda el texto genérico.
+        // Respuesta sin cuerpo JSON (proxy, gateway). Queda el texto genérico.
+      }
+      if (res.status === 422) {
+        // Sin cuerpo legible el 422 no aporta nada por sí solo, así que cae al
+        // error propio de la tool, que es el que sabe qué se estaba pidiendo.
+        if (detalle !== "") return detalle
+        return opts.errorLabel ? opts.errorLabel(res.status) : `Error ${res.status}`
       }
       return (
         (detalle !== "" ? detalle : "No tenés permiso para consultar esto.") +
@@ -909,6 +920,38 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     inputSchema: z.object({}),
     // Tenant-level: sin `X-Outlet-Id`. Ver el comentario de `authHeader`.
     execute: async () => read(`/v1/settings`, { headers: { Authorization: authHeader } }),
+  }),
+
+  lookup_taxpayer: defineTool({
+    // Existe para que la razón social NUNCA la escriba el modelo. `set_fiscal_data`
+    // manda solo el RUC, así que sin esta lectura el bot tendría que mostrarle
+    // al usuario un nombre inventado —o el nombre comercial del negocio, que es
+    // exactamente el bug fiscal que se eliminó el 2026-09-06— antes de pedirle
+    // que confirme su propia identidad tributaria.
+    //
+    // Es una lectura del padrón OFICIAL, no del catálogo de Punto: el mismo
+    // endpoint que usa el form de Ajustes → Facturación electrónica, gateado
+    // por `settings.company.edit` (el permiso que hace falta para persistir el
+    // resultado — sin él la consulta no serviría de nada).
+    description:
+      "Consulta el padrón oficial de contribuyentes por identificador tributario y devuelve la razón social registrada. " +
+      "Usala ANTES de registrar set_fiscal_data: mostrale al usuario la razón social que devuelve y pedile que la confirme. " +
+      "Esa razón social es la que el sistema va a guardar; nunca la escribas vos ni uses el nombre comercial del negocio, porque el organismo fiscal valida la razón social contra el padrón al emitir. " +
+      "Si el padrón no encuentra el número, decíselo al usuario y pedile que verifique la constancia — no propongas seguir sin ese dato.",
+    inputSchema: z.object({
+      ruc: z
+        .string()
+        .describe("Identificador tributario a consultar, completo y con su dígito verificador si lo tiene"),
+    }),
+    // Tenant-level: la identidad fiscal es de la empresa, no de una sucursal.
+    execute: async ({ ruc }) =>
+      read(`/v1/settings?view=taxpayer&ruc=${encodeURIComponent(ruc)}`, {
+        headers: { Authorization: authHeader },
+        errorLabel: (status) =>
+          status === 404
+            ? "El padrón no tiene datos para ese identificador tributario. Verificá el número con el usuario."
+            : `No se pudo consultar el padrón (${status})`,
+      }),
   }),
 
   get_report: defineTool({

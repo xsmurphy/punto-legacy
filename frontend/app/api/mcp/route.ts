@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { z } from "zod"
 
 import { postConfirm, postExecute, WRITE_ACTIONS } from "@/lib/agent/confirm-api"
+import { buildEinvoiceSetupTool } from "@/lib/agent/einvoice-setup"
 import { buildReadOnlyFetchTools } from "@/lib/agent/read-tools"
 
 /**
@@ -196,7 +197,7 @@ async function handle(req: Request): Promise<Response> {
 
   // Mismas definiciones que consume el agente propio (`context/58` D11): el
   // catálogo es la fuente compartida, este archivo solo es otro transporte.
-  const tools = buildReadOnlyFetchTools({
+  const ctx = {
     apiUrl,
     // El view-scope NO viaja: un cliente MCP no tiene el selector de sucursal
     // del panel, así que las lecturas salen con la sucursal del usuario que
@@ -204,7 +205,23 @@ async function handle(req: Request): Promise<Response> {
     // selector.
     dataHeaders: { Authorization: authHeader },
     authHeader,
-  })
+  }
+
+  const tools = {
+    ...buildReadOnlyFetchTools(ctx),
+    // `get_einvoice_setup` NO está en el catálogo compartido: es una lectura de
+    // CONFIGURACIÓN, no un dato del negocio. Se registra acá igual porque es la
+    // otra mitad de lo que M7 abrió — `punto_register_actions` ya puede
+    // escribir `set_fiscal_data` y `provision_einvoice`, y sin poder leer el
+    // estado el modelo del cliente propondría pasos a ciegas: cargar un RUC que
+    // ya está, o dar de alta el emisor antes de que exista una caja con
+    // timbrado (que es el error que el propio servicio rechaza).
+    //
+    // `get_setup_status` (el checklist general del onboarding) sigue SIN
+    // registrarse acá: es del dueño configurando su cuenta desde el panel, y no
+    // le sirve a un cliente externo que consulta ventas o stock.
+    ...buildEinvoiceSetupTool(ctx),
+  }
 
   // Prefijo `punto_` — el namespace es responsabilidad del SERVER, no del
   // cliente (misma convención que el MCP de Fish, que expone `fish_*`).
@@ -248,7 +265,7 @@ async function handle(req: Request): Promise<Response> {
     "punto_register_actions",
     {
       description:
-        "Registra un LOTE de cambios en el comercio (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario existente; crear o editar una sucursal; crear una caja; importación tabular) y devuelve un confirmToken. NO ejecuta NADA todavía. " +
+        "Registra un LOTE de cambios en el comercio (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario existente; crear o editar una sucursal; crear una caja; cargar los datos fiscales del comercio o darlo de alta como emisor electrónico; importación tabular) y devuelve un confirmToken. NO ejecuta NADA todavía. " +
         "Agrupá TODO lo que el usuario pidió en UNA sola llamada con actions=[...] — un pedido de cinco productos es un lote de cinco acciones, no cinco llamadas. " +
         "Después de llamarla: mostrale al usuario el resumen de lo que se va a hacer y pedile su OK EXPLÍCITO. Recién con esa aprobación llamá punto_execute_actions con el confirmToken. Nunca la des por dada. " +
         "Acciones válidas: " + WRITE_ACTIONS.join(", ") + ". El servidor es la autoridad: valida cada payload, exige los permisos reales del usuario dueño de la API key y rechaza con un mensaje explicativo lo que falte o no corresponda — si te dice que falta un dato, pedíselo al usuario y volvé a registrar el lote.",
@@ -260,7 +277,8 @@ async function handle(req: Request): Promise<Response> {
               payload: z
                 .record(z.string(), z.unknown())
                 .describe(
-                  "Datos de ESA acción. Los campos dependen de cuál sea: name/type/phone/email/tin/ci/address para contactos; name/kind ('producto'|'servicio')/price/cost/sku/categoryName/brandName/taxName/outletNames para ítems; id/newPrice para cambiar un precio; name/phone/roleName/lockPass (PIN de 4 dígitos, pedíselo al usuario, NUNCA lo inventes) para usuarios; name/address para sucursales; name/outletId u outletName/timbrado/expeditionPoint (formato EEE-PPP)/initialInvoiceNumber para cajas. Mandá solo los que apliquen.",
+                  "Datos de ESA acción. Los campos dependen de cuál sea: name/type/phone/email/tin/ci/address para contactos; name/kind ('producto'|'servicio')/price/cost/sku/categoryName/brandName/taxName/outletNames para ítems; id/newPrice para cambiar un precio; name/phone/roleName/lockPass (PIN de 4 dígitos, pedíselo al usuario, NUNCA lo inventes) para usuarios; name/address para sucursales; name/outletId u outletName/timbrado/expeditionPoint (formato EEE-PPP)/initialInvoiceNumber para cajas; SOLO ruc para set_fiscal_data (la razón social la trae el padrón — consultala antes con punto_lookup_taxpayer, mostrásela al usuario y NO la mandes en el payload); email/actividades ([{codigo, nombre}], la principal primera)/taxpayerType/infoAdicional para provision_einvoice. Mandá solo los que apliquen. " +
+                    "El certificado de firma, su contraseña y el CSC NO son campos de ninguna acción: son secretos fiscales, el servidor rechaza el payload que los traiga, y el comercio los carga desde Ajustes → Facturación electrónica.",
                 ),
             }),
           )
