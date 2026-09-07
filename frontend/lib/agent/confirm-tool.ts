@@ -138,7 +138,7 @@ const actionItemSchema = payloadSchema.extend({
     WRITE_ACTIONS.join(" | ") + ". " +
     "update_outlet modifica una sucursal EXISTENTE (nombre, dirección, teléfono, email, descripción): mandá SOLO los campos que cambian — los que omitas quedan como están, y los que mandes vacíos se ignoran. " +
     "set_fiscal_data carga la identidad fiscal del comercio (mandá SOLO ruc: la razón social la trae el padrón). " +
-    "provision_einvoice da de alta al comercio como emisor electrónico (email + actividades): antes tiene que estar cargado el RUC y tiene que haber al menos una caja con timbrado, y el certificado y el CSC se cargan aparte en Ajustes"
+    "provision_einvoice da de alta al comercio como emisor electrónico (email + actividades): antes tiene que estar cargado el RUC y tiene que haber al menos una caja con timbrado, y el certificado y el CSC se cargan aparte en Configuración → Facturación electrónica"
   ),
 })
 

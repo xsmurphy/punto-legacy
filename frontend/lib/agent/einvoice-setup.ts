@@ -141,7 +141,7 @@ function unreadable(
 function checkFiscalIdentity(settings: unknown): EinvoiceStep {
   const id = "datos_fiscales"
   const title = "Datos fiscales del comercio"
-  const where = "Ajustes → Facturación electrónica"
+  const where = "Configuración → Facturación electrónica"
 
   if (failed(settings)) {
     return unreadable(id, title, "la configuración del negocio", ["set_fiscal_data"], where)
@@ -262,7 +262,7 @@ function checkRegisterStamps(registers: unknown): EinvoiceStep {
 function checkProvisioning(account: unknown): EinvoiceStep {
   const id = "emisor"
   const title = "Alta del emisor electrónico"
-  const where = "Ajustes → Facturación electrónica"
+  const where = "Configuración → Facturación electrónica"
 
   if (failed(account) || !isRecord(unwrap(account))) {
     return unreadable(id, title, "el estado de la cuenta de facturación", ["provision_einvoice"], where)
@@ -320,7 +320,7 @@ function checkProvisioning(account: unknown): EinvoiceStep {
 function checkSecrets(account: unknown): EinvoiceStep {
   const id = "certificado_y_csc"
   const title = "Certificado de firma y código de seguridad (CSC)"
-  const where = "Ajustes → Facturación electrónica (se cargan ahí, nunca por el chat)"
+  const where = "Configuración → Facturación electrónica (se cargan ahí, nunca por el chat)"
 
   if (failed(account) || !isRecord(unwrap(account))) {
     return unreadable(id, title, "el estado de la cuenta de facturación", [], where)
@@ -356,7 +356,7 @@ function checkSecrets(account: unknown): EinvoiceStep {
     detail:
       `Falta cargar: ${faltan.join(" y ")}. ` +
       "Son secretos fiscales: NO se los pidas por el chat ni los recibas como archivo adjunto — " +
-      "el comercio los carga él mismo en Ajustes → Facturación electrónica, donde viajan directo al servidor. " +
+      "el comercio los carga él mismo en Configuración → Facturación electrónica, donde viajan directo al servidor. " +
       "Los consigue en el portal de la autoridad tributaria.",
     // Sin `missing`: no son datos que el bot tenga que pedir.
     agentActions: [],

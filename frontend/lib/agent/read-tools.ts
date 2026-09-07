@@ -930,7 +930,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     // que confirme su propia identidad tributaria.
     //
     // Es una lectura del padrón OFICIAL, no del catálogo de Punto: el mismo
-    // endpoint que usa el form de Ajustes → Facturación electrónica, gateado
+    // endpoint que usa el form de Configuración → Facturación electrónica, gateado
     // por `settings.company.edit` (el permiso que hace falta para persistir el
     // resultado — sin él la consulta no serviría de nada).
     description:
