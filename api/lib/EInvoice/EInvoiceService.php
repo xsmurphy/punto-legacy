@@ -1355,11 +1355,24 @@ final class EInvoiceService
         }
 
         $doc = ncmExecute(
-            'SELECT cdc FROM einvoice_document WHERE einvoicedocid = ? AND companyid = ? AND status = ?',
+            'SELECT cdc, sifen_status FROM einvoice_document WHERE einvoicedocid = ? AND companyid = ? AND status = ?',
             [$docId, $companyId, 'issued']
         );
         if (!$doc) {
             throw new \RuntimeException('No se puede cancelar: el documento no existe o no está emitido.');
+        }
+        // Un RECHAZADO no se cancela: no tiene efecto fiscal — no hay nada que
+        // anular ante SIFEN, y el camino correcto es corregir y emitir de
+        // nuevo (N2). Confirmado en vivo contra el motor propio (409, regla
+        // "solo aprobados son cancelables"); Factomate lo dejaba pasar y el
+        // evento moría del lado de SIFEN. Un Pendiente sí se intenta: la
+        // anulación de una venta no puede esperar el veredicto, y si el motor
+        // la rechaza el error vuelve legible.
+        $sifen = (string) ($doc['sifen_status'] ?? '');
+        if ($sifen !== '' && (stripos($sifen, 'rechaz') !== false || stripos($sifen, 'error') !== false)) {
+            throw new \RuntimeException(
+                'Este documento fue RECHAZADO por SIFEN: no tiene efecto fiscal y no se cancela — usá "Corregir y emitir de nuevo".'
+            );
         }
         $cdc = (string) ($doc['cdc'] ?? '');
         if ($cdc === '') {

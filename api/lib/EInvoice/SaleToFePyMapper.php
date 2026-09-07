@@ -419,6 +419,12 @@ final class SaleToFePyMapper
         ];
 
         if ($nature === 'contribuyente') {
+            // Variante SIN emisión real todavía (PUNTO_INTEGRATION.md §4: solo
+            // el innominado tiene aprobación en vivo). Se emite igual —el
+            // contrato está implementado y un rechazo de SIFEN cae en el flujo
+            // de corregir y reemitir— pero queda rastro para correlacionar el
+            // primer rechazo que aparezca con esta rama.
+            error_log('[SaleToFePyMapper] receptor contribuyente-RUC: variante sin emisión real previa contra SIFEN');
             if ($ruc === '') {
                 throw new \RuntimeException('Falta el RUC del cliente — es obligatorio para facturar a un contribuyente.');
             }
@@ -438,6 +444,8 @@ final class SaleToFePyMapper
         }
 
         if ($nature === 'fisica') {
+            // Ídem contribuyente: variante implementada pero sin emisión real.
+            error_log('[SaleToFePyMapper] receptor persona-CI: variante sin emisión real previa contra SIFEN');
             if ($ci === '') {
                 throw new \RuntimeException(
                     'Falta el documento de identidad del cliente — es obligatorio para facturar a una persona física sin RUC.'
