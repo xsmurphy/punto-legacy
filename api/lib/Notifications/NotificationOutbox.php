@@ -84,28 +84,30 @@ final class NotificationOutbox
         string $entityId,
         string $channel,
         string $recipient,
-        array $meta = []
+        array $meta = [],
+        bool $rearmSent = false
     ): bool {
         $recipient = trim($recipient);
         if ($companyId === '' || $entityId === '' || $recipient === '') {
             return false;
         }
 
-        // El conflicto REARMA una fila muerta en vez de ignorarla: sin el
+        // El conflicto REARMA una fila terminal en vez de ignorarla: sin el
         // DO UPDATE, un envío que agotó sus intentos (status='error') dejaba
         // esa dirección clausurada para siempre — el reenvío manual (D8)
         // chocaba contra la fila terminal, devolvía queued:false y la UI le
         // decía al operador "ya había un envío pendiente", que era falso.
-        // Solo se rearma lo TERMINAL: un 'pending' vivo o un 'sent' reciente
-        // siguen siendo DO NOTHING de facto (el WHERE no matchea) y conservan
-        // la idempotencia contra reconciliaciones repetidas.
+        // Qué cuenta como terminal depende del caller (ver `$rearmSent`); un
+        // 'pending' vivo NUNCA se rearma (el WHERE no lo matchea): duplicaría
+        // el envío en vuelo, y la idempotencia contra reconciliaciones
+        // repetidas depende de eso.
         $row = ncmExecute(
             "INSERT INTO notification_outbox
                     (companyid, entitytype, entityid, channel, recipient, meta)
              VALUES (?, ?, ?, ?, ?, ?::jsonb)
              ON CONFLICT (companyid, entitytype, entityid, channel, recipient) DO UPDATE
                 SET status = 'pending', attempts = 0, next_attempt_at = now(), last_error = NULL
-              WHERE notification_outbox.status = 'error'
+              WHERE notification_outbox.status = ANY(?::text[])
              RETURNING notificationid",
             [
                 $companyId,
@@ -114,6 +116,11 @@ final class NotificationOutbox
                 $channel,
                 mb_substr($recipient, 0, 255),
                 json_encode($meta, JSON_UNESCAPED_UNICODE),
+                // `$rearmSent` es del REENVÍO MANUAL (D8 de context/57: "no me
+                // llegó, mandalo de nuevo a la misma casilla"): también rearma
+                // una fila ya enviada. El camino automático (reconcile) nunca
+                // lo pasa — un 'sent' es su condición de parada, no un rearme.
+                $rearmSent ? '{error,sent}' : '{error}',
             ]
         );
 

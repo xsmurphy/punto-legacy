@@ -907,7 +907,8 @@ final class EInvoiceService
             $docId,
             NotificationOutbox::CHANNEL_EMAIL,
             $recipient,
-            ['origin' => 'manual', 'userId' => $userId]
+            ['origin' => 'manual', 'userId' => $userId],
+            rearmSent: true
         );
 
         return ['queued' => $queued, 'recipient' => $recipient];
