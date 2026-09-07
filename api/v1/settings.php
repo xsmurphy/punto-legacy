@@ -262,7 +262,16 @@ if ($view === 'taxpayer') {
     if ($ruc === '') {
         apiError('Falta el RUC a consultar', 422);
     }
-    $taxpayer = (new \Punto\Api\Contacts\TaxpayerLookupService())->lookup(COMPANY_ID, $ruc);
+    // "No hay padrón al cual preguntar" no es "ese RUC no existe": contestar
+    // 404 le decía al comercio que su propio RUC no está en el padrón cuando
+    // lo que faltaba era el país de su negocio. El motivo lo decide el
+    // servicio, que es quien sabe qué fuentes hay.
+    $lookup = new \Punto\Api\Contacts\TaxpayerLookupService();
+    $reason = $lookup->unavailableReason(COMPANY_ID);
+    if ($reason !== null) {
+        apiError($reason, 422);
+    }
+    $taxpayer = $lookup->lookup(COMPANY_ID, $ruc);
     if ($taxpayer === null) {
         apiError('No se encontraron datos para ese RUC', 404);
     }
