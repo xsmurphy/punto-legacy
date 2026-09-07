@@ -120,18 +120,16 @@ analizar el dato.
 
 Dos hallazgos que definen el trabajo (verificados 2026-09-07):
 
-1. **La instrucción proactiva YA EXISTE y no muerde.** El prompt del agente del
-   panel ya dice "Graficá cuando ayude a leer el dato: evoluciones/tendencias
-   en el tiempo, comparaciones entre categorías o distribuciones"
-   (`frontend/app/api/agent/chat/route.ts:163-164`). En la práctica el modelo
-   no la obedece salvo pedido explícito. O sea que esto NO se arregla
-   "agregando la regla al prompt" — la regla está; el trabajo es hacerla
-   confiable. Candidatos, en orden: reforzar el disparador en la DESCRIPCIÓN
-   de la tool `render_chart` (`frontend/lib/agent/read-tools.ts:1190` — para
-   la selección de tools, la descripción pesa más que la prosa del system
-   prompt), few-shot en el prompt, y recién después evaluar si el modelo
-   default es el problema (el agente es OpenRouter model-agnostic:
-   DeepSeek/Gemini por defecto, la obediencia varía por modelo).
+1. **La instrucción proactiva YA EXISTE y SÍ muerde — a veces.** El prompt del
+   agente del panel ya dice "Graficá cuando ayude a leer el dato"
+   (`frontend/app/api/agent/chat/route.ts:163-164`). El owner reportó primero
+   que no graficaba sin pedirlo y después (2026-09-07, probando de nuevo) que
+   sí — o sea que el comportamiento es INCONSISTENTE, no ausente, y con
+   OpenRouter model-agnostic (DeepSeek/Gemini default) la obediencia varía por
+   modelo y por consulta. Si se quiere consistencia, el refuerzo va en la
+   DESCRIPCIÓN de la tool `render_chart`
+   (`frontend/lib/agent/read-tools.ts:1190`), no en más prosa del prompt.
+   Prioridad baja mientras no vuelva a molestar.
 2. **La segunda mitad del pedido hoy está PROHIBIDA por el prompt.** La misma
    sección dice "no vuelvas a listar los números que ya se ven en el gráfico"
    — exactamente lo contrario de "chart y lista juntos". Esa regla se
