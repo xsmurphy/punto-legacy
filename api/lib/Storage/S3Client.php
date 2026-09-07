@@ -15,7 +15,10 @@ namespace Punto\Api\Storage;
  * virtual-host (`https://<bucket>.nyc3.digitaloceanspaces.com/<key>`) también
  * funciona — `publicUrl()` devuelve el formato path-style que es universal.
  *
- * No se soporta GET via signed URL — para imágenes public-read no hace falta.
+ * GET firmado sí se soporta (`get()`): lo necesita el caché de artefactos
+ * PRIVADOS —el KuDE y el XML firmado de la factura electrónica, `context/73`—,
+ * que no pueden subirse public-read porque son documentos fiscales de un
+ * comercio y su URL no puede ser la única barrera.
  */
 final class S3Client
 {
@@ -72,14 +75,51 @@ final class S3Client
         $this->signedRequest('DELETE', $this->fullKey($objectKey), '', []);
     }
 
+    /**
+     * Descarga un objeto con GET firmado. Devuelve `null` si NO existe (404):
+     * "todavía no está en el caché" es un estado normal del llamador, no un
+     * error. Cualquier otro fallo (403, 5xx, red) sí lanza — confundirlo con
+     * un miss haría que un bucket mal configurado se viera como caché frío
+     * para siempre, sin que nada lo delate.
+     */
+    public function get(string $objectKey): ?string
+    {
+        [$status, $response, $err] = $this->exec('GET', $this->fullKey($objectKey), '', []);
+
+        if ($status === 404) {
+            return null;
+        }
+        if ($response === false || $status < 200 || $status >= 300) {
+            throw new \RuntimeException("S3 GET falló (HTTP $status): " . ($err !== '' ? $err : (string) $response));
+        }
+
+        return (string) $response;
+    }
+
     public function publicUrl(string $objectKey): string
     {
         return $this->endpoint . '/' . $this->bucket . '/' . $this->fullKey($objectKey);
     }
 
+    /** PUT/DELETE: cualquier status fuera de 2xx es un fallo duro. */
     private function signedRequest(string $method, string $objectKey, string $body, array $extraHeaders): void
     {
-        $host        = (string) parse_url($this->endpoint, PHP_URL_HOST);
+        [$status, $response, $err] = $this->exec($method, $objectKey, $body, $extraHeaders);
+
+        if ($response === false || $status < 200 || $status >= 300) {
+            throw new \RuntimeException("S3 $method falló (HTTP $status): " . ($err !== '' ? $err : (string) $response));
+        }
+    }
+
+    /**
+     * Firma (SigV4) y ejecuta. NO interpreta el status — eso lo decide el
+     * llamador, porque un 404 es un error para PUT y un miss para GET.
+     *
+     * @return array{0:int,1:string|false,2:string} [status, body, curlError]
+     */
+    private function exec(string $method, string $objectKey, string $body, array $extraHeaders): array
+    {
+        $host      = (string) parse_url($this->endpoint, PHP_URL_HOST);
         $path        = '/' . $this->bucket . '/' . ltrim($objectKey, '/');
         $payloadHash = hash('sha256', $body);
         $now         = gmdate('Ymd\THis\Z');
@@ -129,22 +169,25 @@ final class S3Client
         }
 
         $ch = curl_init();
-        curl_setopt_array($ch, [
+        $opts = [
             CURLOPT_URL            => $this->endpoint . $path,
             CURLOPT_CUSTOMREQUEST  => $method,
-            CURLOPT_POSTFIELDS     => $body,
             CURLOPT_HTTPHEADER     => $curlHeaders,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT        => 30,
-        ]);
+        ];
+        // Sin cuerpo no se setea POSTFIELDS: en un GET curl agregaría un
+        // `Content-Length: 0` que no está en la firma y ensucia el request.
+        if ($body !== '') {
+            $opts[CURLOPT_POSTFIELDS] = $body;
+        }
+        curl_setopt_array($ch, $opts);
         $response = curl_exec($ch);
         $status   = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err      = curl_error($ch);
         curl_close($ch);
 
-        if ($response === false || $status < 200 || $status >= 300) {
-            throw new \RuntimeException("S3 $method falló (HTTP $status): " . ($err !== '' ? $err : (string) $response));
-        }
+        return [$status, $response, $err];
     }
 
     private function canonicalUri(string $path): string

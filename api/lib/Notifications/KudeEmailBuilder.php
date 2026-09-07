@@ -69,9 +69,14 @@ final class KudeEmailBuilder
 
         $svc = new EInvoiceService();
 
-        // Reintentable a propósito: `kude()` lanza si Factomate todavía no
-        // generó el PDF, y eso es exactamente el caso que el backoff cubre.
-        $pdf = $svc->kude($companyId, $docId);
+        // KuDE PROPIO (K2 de context/73): `kudePdf()` es el punto de decisión
+        // —caché, render propio, fallback a Factomate— y el adjunto del email
+        // es una de las superficies que tenía que moverse.
+        //
+        // Reintentable a propósito: si NI el render propio NI Factomate tienen
+        // el PDF todavía, la excepción sube y el backoff del outbox cubre
+        // exactamente ese caso.
+        $pdf = $svc->kudePdf($companyId, $docId);
 
         $commerce  = $this->commerce($companyId);
         $number    = trim((string) ($doc['document_number'] ?? ''));
