@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|partition-ensure|period-close|ocr-requeue|plan-lifecycle>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|notification-drain|partition-ensure|period-close|ocr-requeue|plan-lifecycle>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -39,6 +39,17 @@
  *                          que alguien apriete el botón del panel. `limit` en
  *                          query, default 25, tope 200: cada documento es una
  *                          llamada a la API del proveedor (20s de timeout).
+ *   - notification-drain → E3 de context/57-entrega-digital-del-kude.md (mig 202),
+ *                          vía `NotificationOutbox::drain()`, cross-tenant. Toma
+ *                          las notificaciones vencidas de `notification_outbox`,
+ *                          las entrega por el adapter de su canal y reintenta con
+ *                          backoff PACIENTE (5m → 24h, tope 8 intentos). Hoy el
+ *                          único consumidor es la entrega del KuDE por email
+ *                          cuando SIFEN aprueba, pero el outbox es genérico a
+ *                          propósito (D4): la cotización en PDF de context/56 usa
+ *                          el mismo camino. `limit` en query, default 25, tope
+ *                          200 — cada ítem baja el KuDE del proveedor y hace un
+ *                          POST a Resend, o sea dos llamadas externas por envío.
  *   - partition-ensure   → E1 de context/48-escalamiento-de-datos.md (mig 156):
  *                          `SELECT ensure_month_partitions('transaction'|'itemsold',
  *                          'transactiondate'|'itemsolddate', 12)` + chequeo
@@ -108,7 +119,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -156,6 +167,21 @@ function maintenanceRunJob(string $job): array
             $limitRaw = (int) ($_GET['limit'] ?? 25);
             $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 25;
             return (new \Punto\Api\EInvoice\EInvoiceService())->reconcileAll($limit);
+
+        case 'notification-drain':
+            // E3 de context/57-entrega-digital-del-kude.md. Drena
+            // `notification_outbox` (mig 202): hoy, la entrega del KuDE por
+            // email cuando SIFEN aprueba; mañana, cualquier otro consumidor
+            // del mismo outbox (la cotización en PDF de context/56).
+            //
+            // Default 25 y no más: cada ítem baja el KuDE de Factomate y hace
+            // un POST a Resend, o sea dos llamadas externas por envío. Con
+            // cadencia de 5 minutos, 25 alcanza de sobra para el volumen real
+            // y deja margen para no encadenar corridas (el advisory lock las
+            // saltea, pero el trabajo no avanzaría).
+            $limitRaw = (int) ($_GET['limit'] ?? 25);
+            $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 25;
+            return (new \Punto\Api\Notifications\NotificationOutbox())->drain($limit);
 
         case 'ocr-requeue':
             // Rescata borradores de compra que quedaron en 'processing': el

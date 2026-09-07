@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\EInvoice;
 
+use Punto\Api\Notifications\NotificationOutbox;
+
 /**
  * Orquestación de F0: conectar/probar la cuenta de Factomate de un
  * comercio y leer el timbrado vigente. F1 agrega enqueue/drain/cancel/retry
@@ -544,10 +546,31 @@ final class EInvoiceService
                     -- caja, y sin estos dos ids el panel solo podría describir
                     -- el camino en vez de linkearlo.
                     t.customerId AS contact_id, t.outletId AS outlet_id,
-                    c.contactName AS client_name
+                    c.contactName AS client_name,
+                    -- Casilla del cliente: la usa el diálogo de reenvío para
+                    -- venir precargada (D8 de context/57). Editable ahí mismo,
+                    -- porque el destino puede ser otro (el contador).
+                    c.contactEmail AS client_email,
+                    -- Estado de la ENTREGA digital (context/57 E4). Derivado del
+                    -- outbox de notificaciones, no de una columna nueva en
+                    -- `einvoice_document`: el documento no cambia porque se haya
+                    -- mandado un mail, y duplicar el dato acá crearía dos verdades.
+                    ne.sent_at   AS email_sent_at,
+                    ne.pending   AS email_pending,
+                    ne.failed    AS email_failed
                FROM einvoice_document d
                LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
                LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = d.companyid
+               LEFT JOIN LATERAL (
+                    SELECT max(n.sent_at) FILTER (WHERE n.status = 'sent')      AS sent_at,
+                           count(*)       FILTER (WHERE n.status = 'pending')   AS pending,
+                           count(*)       FILTER (WHERE n.status = 'error')     AS failed
+                      FROM notification_outbox n
+                     WHERE n.companyid  = d.companyid
+                       AND n.entitytype = 'einvoice_document'
+                       AND n.entityid   = d.einvoicedocid
+                       AND n.channel    = 'email'
+               ) ne ON true
               WHERE $whereSql
               ORDER BY d.created_at DESC
               LIMIT $pageSize OFFSET $offset",
@@ -589,6 +612,12 @@ final class EInvoiceService
                     'contactId'      => $f['contact_id'] ?? null,
                     'outletId'       => $f['outlet_id'] ?? null,
                     'clientName'     => $f['client_name'] ?? null,
+                    'clientEmail'    => $f['client_email'] ?? null,
+                    // Entrega digital (context/57): cuándo salió el último
+                    // email, si hay uno en cola, y si alguno agotó los intentos.
+                    'emailSentAt'    => $f['email_sent_at'] ?? null,
+                    'emailPending'   => (int) ($f['email_pending'] ?? 0) > 0,
+                    'emailFailed'    => (int) ($f['email_failed'] ?? 0) > 0,
                 ];
                 $rs->MoveNext();
             }
@@ -763,6 +792,146 @@ final class EInvoiceService
             return 'approved';
         }
         return 'pending';
+    }
+
+    // ── Entrega digital del KuDE (context/57) ───────────────────────────
+
+    /**
+     * ¿SIFEN dijo "Aprobado"? MÁS ESTRICTO que `sifenVerdict()` a propósito, y
+     * la diferencia es la decisión central del plan (D3 de context/57).
+     *
+     * `sifenVerdict()` también da 'approved' con "Exitoso", que es el
+     * `StatusString` del PROVEEDOR, no el veredicto de SIFEN — sirve para
+     * pintar la pantalla, no para decidir que se le manda un documento fiscal
+     * al comprador. Está comprobado contra DEV (context/28 §CRÍTICO) que un
+     * documento con `Success: true`, CDC válido y KuDE descargable puede
+     * haber sido RECHAZADO por SIFEN. El único campo que dice la verdad es el
+     * `dEstResField` de SIFEN, y sólo con él se dispara el envío automático.
+     *
+     * El reenvío MANUAL (D8) sí usa el criterio ancho: ahí hay un operador
+     * mirando la pantalla que ya dice "Aprobado por SIFEN", y negarle la
+     * acción sobre lo que la propia UI le afirma sería incoherente.
+     */
+    private static function isSifenApproved(?string $sifenStatus): bool
+    {
+        return str_contains(mb_strtolower(trim((string) $sifenStatus)), 'aprobad');
+    }
+
+    /**
+     * Encola la entrega del KuDE por email — E2 de context/57. BEST-EFFORT:
+     * nunca lanza. Lo llama la reconciliación, y una notificación que no se
+     * pudo encolar no puede tirar abajo la corrida que está escribiendo el
+     * estado fiscal de todos los tenants.
+     *
+     * D7 — SIN EMAIL NO PASA NADA. Si el cliente de la venta no tiene casilla
+     * cargada (o la venta es a consumidor final, sin cliente), no se encola y
+     * no es un error: el canal digital es opcional y el ticket con QR al
+     * portal ya cumplió la obligación de puesta a disposición (context/49).
+     */
+    private function enqueueKudeEmail(string $companyId, string $docId): void
+    {
+        try {
+            $email = $this->saleContactEmail($companyId, $docId);
+            if ($email === '') {
+                return;
+            }
+
+            NotificationOutbox::enqueue(
+                $companyId,
+                NotificationOutbox::ENTITY_EINVOICE_DOCUMENT,
+                $docId,
+                NotificationOutbox::CHANNEL_EMAIL,
+                $email,
+                ['origin' => 'sifen-approved']
+            );
+        } catch (\Throwable $e) {
+            error_log('[EInvoiceService] no se pudo encolar el KuDE de ' . $docId . ': ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Reenvío MANUAL desde el panel (D8 de context/57): a la misma dirección o
+     * a otra ("mandámelo a la del contador"). También cubre al cliente que
+     * cargó su email DESPUÉS de la venta, para quien el envío automático nunca
+     * se encoló.
+     *
+     * A diferencia de `enqueueKudeEmail()`, acá los motivos SÍ suben como
+     * excepción: hay un operador esperando saber si su click hizo algo.
+     *
+     * No manda nada en el acto — encola. El envío real lo hace el drainer en
+     * la próxima corrida (≤5 min), que es lo que le da reintento y trazabilidad;
+     * mandar inline dejaría el fallo sin cola y sin registro.
+     *
+     * @param string $recipient vacío = la casilla del cliente de la venta.
+     * @return array{queued:bool,recipient:string} `queued:false` = ya había un envío encolado a esa dirección.
+     * @throws \RuntimeException con el motivo listo para mostrarle al operador.
+     */
+    public function sendKude(string $companyId, string $docId, string $recipient = '', ?string $userId = null): array
+    {
+        $doc = ncmExecute(
+            'SELECT einvoicedocid, status, cdc, sifen_status, superseded_by, cancelled_at
+               FROM einvoice_document
+              WHERE einvoicedocid = ? AND companyid = ?',
+            [$docId, $companyId]
+        );
+        if (!$doc) {
+            throw new \RuntimeException('Documento no encontrado.');
+        }
+        if (($doc['superseded_by'] ?? null) !== null) {
+            throw new \RuntimeException('Este documento fue reemplazado por una reemisión. Enviá el documento vigente de esa venta.');
+        }
+        if ((string) ($doc['status'] ?? '') === 'cancelled' || ($doc['cancelled_at'] ?? null) !== null) {
+            throw new \RuntimeException('El documento está anulado: no se le puede enviar al cliente como comprobante válido.');
+        }
+        if (trim((string) ($doc['cdc'] ?? '')) === '') {
+            throw new \RuntimeException('El documento todavía no se emitió — no hay KuDE que enviar.');
+        }
+        if (self::sifenVerdict($doc['sifen_status'] ?? null) !== 'approved') {
+            // Se corta ACÁ y no en el drainer: mandarle al comprador una
+            // factura que SIFEN todavía no aceptó (o que rechazó) es
+            // exactamente lo que D3 evita. El operador ve el porqué.
+            throw new \RuntimeException('SIFEN todavía no aprobó este documento. Se envía recién cuando figura como aprobado.');
+        }
+
+        $recipient = trim($recipient);
+        if ($recipient === '') {
+            $recipient = $this->saleContactEmail($companyId, $docId);
+        }
+        if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            throw new \RuntimeException('Indicá un email válido: el cliente de esta venta no tiene casilla cargada.');
+        }
+
+        $queued = NotificationOutbox::enqueue(
+            $companyId,
+            NotificationOutbox::ENTITY_EINVOICE_DOCUMENT,
+            $docId,
+            NotificationOutbox::CHANNEL_EMAIL,
+            $recipient,
+            ['origin' => 'manual', 'userId' => $userId]
+        );
+
+        return ['queued' => $queued, 'recipient' => $recipient];
+    }
+
+    /**
+     * Casilla del cliente de la VENTA que originó el documento. '' si la venta
+     * no tiene cliente (consumidor final) o el cliente no tiene email — que es
+     * un estado normal, no un error (D7).
+     */
+    private function saleContactEmail(string $companyId, string $docId): string
+    {
+        $row = ncmExecute(
+            'SELECT c.contactEmail AS email
+               FROM einvoice_document d
+               JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+               JOIN contact c     ON c.contactId = t.customerId AND c.companyId = d.companyid
+              WHERE d.einvoicedocid = ? AND d.companyid = ?',
+            [$docId, $companyId]
+        );
+
+        $email = trim((string) ($row['email'] ?? ''));
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
     }
 
     /**
@@ -1267,7 +1436,7 @@ final class EInvoiceService
             }
 
             foreach ($docs as $doc) {
-                if ($this->reconcileDocument($environment, $phone, $bearer, $doc['id'], $doc['bulkId'], $seal)) {
+                if ($this->reconcileDocument((string) $cid, $environment, $phone, $bearer, $doc['id'], $doc['bulkId'], $seal)) {
                     $updated++;
                 }
             }
@@ -1285,7 +1454,7 @@ final class EInvoiceService
      * @param bool $seal marcar `sifen_checked_at` aunque el intento falle — ver reconcilePending().
      * @return bool true si se escribió `sifen_status`.
      */
-    private function reconcileDocument(string $environment, string $phone, string $bearer, string $docId, string $bulkId, bool $seal): bool
+    private function reconcileDocument(string $companyId, string $environment, string $phone, string $bearer, string $docId, string $bulkId, bool $seal): bool
     {
         try {
             $bulk = $this->provider->getBulk($environment, $phone, $bearer, $bulkId);
@@ -1305,6 +1474,17 @@ final class EInvoiceService
                   WHERE einvoicedocid = ?",
                 [$sifenStatus, json_encode($bulk, JSON_UNESCAPED_UNICODE), $docId]
             );
+
+            // E2 de context/57 — ACÁ es donde nace la entrega digital del KuDE,
+            // y no al cerrar la venta (D3). El `WHERE` de reconcilePending()
+            // sólo trae documentos que todavía NO están en un estado final, así
+            // que llegar hasta acá con "Aprobado" ES la transición: no hace
+            // falta comparar contra el valor anterior. Y si igual se repitiera,
+            // la UNIQUE del outbox de notificaciones lo absorbe.
+            if (self::isSifenApproved($sifenStatus)) {
+                $this->enqueueKudeEmail($companyId, $docId);
+            }
+
             return true;
         } catch (\Throwable $e) {
             error_log('[EInvoiceService] reconcile falló para ' . $docId . ': ' . $e->getMessage());

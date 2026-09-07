@@ -6,7 +6,8 @@
 # sin ${var,,}, etc.
 #
 # Uso: maintenance.sh <job-name>
-#   job-name ∈ {rollup-reconcile, purge-tenant-audit, purge-deleted-row, einvoice-drain}
+#   job-name ∈ {rollup-reconcile, purge-tenant-audit, purge-deleted-row,
+#               einvoice-drain, notification-drain}
 #
 # Le pega a localhost:3000 (el mismo `php -S` que sirve el tráfico externo —
 # el cron vive adentro del container, no hay red aparte). Sin header Host
