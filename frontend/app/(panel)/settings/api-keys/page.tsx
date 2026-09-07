@@ -57,7 +57,7 @@ const SCOPES: Array<{ value: ApiKeyScope; label: string; desc: string }> = [
   {
     value: "write",
     label: "Lectura y configuración",
-    desc: "Además de consultar, permite crear y modificar datos del negocio (productos, clientes, usuarios, sucursales, cajas) a través del catálogo de acciones del asistente, con los permisos del usuario que crea la key.",
+    desc: "Además de consultar, permite crear y modificar datos del negocio (productos, clientes, usuarios, categorías, marcas, etiquetas, sucursales, cajas e importación de datos) a través del catálogo de acciones del asistente, con los permisos del usuario que crea la key.",
   },
 ]
 

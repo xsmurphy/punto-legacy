@@ -75,6 +75,13 @@ final class ApiKeyService
     /** Habilita el embudo del agente (`/v1/ai/*`) y NADA más. Ver docblock. */
     public const SCOPE_WRITE = 'write';
 
+    /**
+     * El scope es INMUTABLE: no existe (ni debe existir) un endpoint que lo
+     * edite — se revoca la key y se emite otra. No es solo prolijidad: el
+     * lookup de sesión se cachea, y una key cuyo scope pudiera cambiar en
+     * caliente circularía con el scope viejo hasta expirar el TTL del cache.
+     * Revocar sí es seguro: `status` se valida siempre contra la BD.
+     */
     public const SCOPES = [self::SCOPE_READ, self::SCOPE_WRITE];
 
     /**
