@@ -90,7 +90,11 @@ final class FiscalSecretStore
             'SELECT cert_pfx_enc, cert_password_enc FROM einvoice_account WHERE companyid = ?',
             [$companyId]
         );
-        $row  = is_array($row) ? $row : [];
+        // OJO wrapper: ncmExecute devuelve un objeto array-like (CaseInsensitiveArray,
+        // footgun de CLAUDE.md §5), NO un array — is_array() descartaba la fila REAL
+        // y este store reportaba "vacío" con el secreto guardado. Ese falso vacío
+        // costó una custodia real (2026-09-07). Falsy cubre el "no hay fila".
+        $row = $row ?: [];
         $pfx  = (string) ($row['cert_pfx_enc'] ?? '');
         $pass = (string) ($row['cert_password_enc'] ?? '');
         if ($pfx === '') {
@@ -149,7 +153,11 @@ final class FiscalSecretStore
     public static function readCscSecret(string $companyId, string $reason): ?string
     {
         $row = ncmExecute('SELECT csc_secret_enc FROM einvoice_account WHERE companyid = ?', [$companyId]);
-        $row = is_array($row) ? $row : [];
+        // OJO wrapper: ncmExecute devuelve un objeto array-like (CaseInsensitiveArray,
+        // footgun de CLAUDE.md §5), NO un array — is_array() descartaba la fila REAL
+        // y este store reportaba "vacío" con el secreto guardado. Ese falso vacío
+        // costó una custodia real (2026-09-07). Falsy cubre el "no hay fila".
+        $row = $row ?: [];
         $enc = (string) ($row['csc_secret_enc'] ?? '');
         if ($enc === '') {
             return null;
@@ -189,7 +197,11 @@ final class FiscalSecretStore
             [$companyId]
         );
 
-        $row = is_array($row) ? $row : [];
+        // OJO wrapper: ncmExecute devuelve un objeto array-like (CaseInsensitiveArray,
+        // footgun de CLAUDE.md §5), NO un array — is_array() descartaba la fila REAL
+        // y este store reportaba "vacío" con el secreto guardado. Ese falso vacío
+        // costó una custodia real (2026-09-07). Falsy cubre el "no hay fila".
+        $row = $row ?: [];
 
         return [
             'certStored'     => !empty($row['cert_stored']),
