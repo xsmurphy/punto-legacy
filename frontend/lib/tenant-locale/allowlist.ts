@@ -103,8 +103,12 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "paraguayos. La segunda fila PY es la de `personalIdLabel()`, la tabla país → nombre " +
       "del documento personal (Cédula/DNI/CPF): mismo criterio, Paraguay es UNA fila entre " +
       "trece y sacarla dejaría al tenant paraguayo sin etiqueta. Espejo de " +
-      "`COUNTRY_LOCALE[iso].personalIdName` en `lib/tenant-locale.ts`.",
-    allow: { 'país "PY" como default': 2 },
+      "`COUNTRY_LOCALE[iso].personalIdName` en `lib/tenant-locale.ts`. Desde 2026-09-07 " +
+      "también vive acá el catálogo CURADO de localización por país que siembra el signup " +
+      "(fila PY con Gs/PYG entre 18 de LATAM) y la tabla de divisores de los precios demo, " +
+      "cuya base es PYG porque los montos seed de InstallConfig están escritos en guaraníes " +
+      "(documentado en DEMO_PRICE_DIVISOR — es la unidad de origen, no un default).",
+    allow: { 'país "PY" como default': 2, 'símbolo "Gs"': 1, 'código "PYG"': 2 },
   },
 
   // ── 2. Fixtures, seeds y tests ─────────────────────────────────────────────
