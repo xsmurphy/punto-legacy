@@ -174,8 +174,18 @@ final class EInvoiceService
             // Stablishment, ExpeditionPoint, StampNumber y CurrentNumber.
             //
             // Se consulta sincro/config igual, primero, por si en algún emisor sí
-            // viene poblado — pero no se depende de él.
-            $stamp = $this->extractStamp($this->provider->sincroConfig($environment, $phone, $bearer));
+            // viene poblado — pero no se depende de él. Y como no se depende,
+            // su fallo TAMPOCO puede tumbar la verificación: en un emisor
+            // recién creado devuelve 500 (verificado 2026-09-07, Balloon
+            // Party) y sin este catch ese 500 dejaba la cuenta en auth_error
+            // con la auth funcionando y el timbrado disponible por la fuente
+            // real de abajo.
+            $stamp = null;
+            try {
+                $stamp = $this->extractStamp($this->provider->sincroConfig($environment, $phone, $bearer));
+            } catch (\Throwable $e) {
+                error_log("[EInvoiceService] sincro/config falló para $companyId (no fatal): " . $e->getMessage());
+            }
             if ($stamp === null) {
                 $stamp = $this->extractStamp($this->provider->stamps($environment, $phone, $bearer));
             }
