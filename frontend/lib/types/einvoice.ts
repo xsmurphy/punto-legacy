@@ -36,14 +36,32 @@ export interface EInvoiceConfig {
  * Timbrados por caja, que escribe sobre la caja). `cscSecret` va al backend y
  * nunca vuelve.
  */
+export interface EInvoiceActivity {
+  /** Código SIFEN de la actividad económica (ej. 62010). */
+  codigo: number | ""
+  nombre: string
+}
+
 export interface EInvoiceFiscalForm {
   /** Email de facturación — identidad del emisor, único en el sistema fiscal. */
   email: string
   /** 1 = persona física, 2 = persona jurídica. */
   taxpayerType?: number
-  /** Código SIFEN de la actividad económica (ej. 62010). */
-  actividadCodigo: number | ""
-  actividadNombre: string
+  /**
+   * Actividades económicas de la constancia de RUC: la PRIMERA es la
+   * principal y las que siguen, secundarias. SIFEN las acepta todas y el
+   * backend da de alta una por una (ver `ensureActivityCreated`).
+   */
+  actividades: EInvoiceActivity[]
+  /**
+   * Shape anterior a 2026-09-06 (una sola actividad). Solo se LEE, para las
+   * cuentas provisionadas antes del cambio — nunca se escribe: el backend
+   * reescribe `fiscal` con `actividades` en cada guardado.
+   * @deprecated usar `actividades`
+   */
+  actividadCodigo?: number | ""
+  /** @deprecated usar `actividades` */
+  actividadNombre?: string
   /** Id del CSC de SIFEN (producción) — opcional hasta operar en prod. */
   cscId?: string
   /** Secreto del CSC — sube, se guarda cifrado y NUNCA vuelve del backend. */
