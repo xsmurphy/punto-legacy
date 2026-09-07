@@ -48,7 +48,7 @@ reemplaza.
 | Proveedor | **Factomate** (motor real de SIFEN) — no Automate |
 | Credenciales | **Cuenta propia por comercio** — usuario/contraseña/teléfono por tenant, cifrados |
 | Disparo | **Automática en toda venta**, con outbox + reintentos (no fire-and-forget) — sin cambios por el pivot |
-| Numeración | **La asigna la SET** (`number: -1`) — un solo dueño del correlativo; ver §Numeración |
+| Numeración | **La pone el EMISOR** (2026-09-07) — el documento sale con el correlativo que la caja congeló en la venta, el mismo del ticket impreso; ver §Numeración del emisor. La nota de crédito sigue numerándola Factomate hasta la F3 de `context/40` |
 | Ítems fuera de contrato | **Cae la regla de "colapsar a 1 línea"** (ver §Armado del documento) — Factomate no tiene el límite de qty/price entero que tenía Automate |
 | Config | Sector propio dentro de **Módulos** (`einvoicePy` → `/settings/facturacion-electronica`) — sin cambios |
 | Offline | **Se vende y se emite diferido** al recuperar conexión, una venta por vez (ver §Offline). Bloquear la venta quedó descartado |
@@ -163,6 +163,79 @@ Consecuencias:
    real casi en el acto.
 3. Sin número fiscal disponible offline — resuelto bloqueando la venta, ver
    §Offline.
+
+### Numeración del emisor — IMPLEMENTADA 2026-09-07 (revierte `number: -1`)
+
+> **Esta sección gana sobre la de arriba.** La decisión del 2026-07-28
+> ("numera la SET — `number: -1`") quedó REVERTIDA por el owner. Se conserva
+> el texto anterior porque el razonamiento que lo sostenía —dos escritores
+> del mismo correlativo— sigue siendo el riesgo real, y es exactamente el
+> que los guards de abajo cierran.
+
+**Decisión del owner (2026-09-07), textual:** *"desde el inicio nosotros
+tenemos que ser dueños de la numeración. Factomate no debe llevar la
+numeración."*
+
+**Qué corrige.** El comentario del mapper decía `'number' => -1, // SIEMPRE
+-1: numera la SET, no configurable`. Las dos mitades eran falsas: numeraba
+**Factomate** (su `CurrentNumber` por fila `BranchDocumentType`, verificado el
+2026-07-30) y **sí es configurable**. En SIFEN estándar numera el emisor y el
+CDC se deriva del número.
+
+**Por qué importa.** El comprobante impreso es la representación impresa de la
+factura electrónica: tiene que llevar EL MISMO número. Con `-1` el número lo
+decidía el proveedor después de que el ticket ya estaba en la mano del
+cliente.
+
+**Qué se manda.** El correlativo que la caja ya congeló en la venta
+(`transaction.invoiceNo` + `transaction.invoiceAuth`, mig 145), como **entero
+pelado** — solo la parte `NNNNNNN`. Establecimiento y punto de expedición
+salen siempre del timbrado del lado de Factomate. Coincide con `context/29`
+§1: los 7 dígitos son formato, el correlativo se guarda entero.
+
+**No hay opt-in.** `einvoice_account` tiene UNA fila y cero documentos
+emitidos por este pipeline (verificado contra prod, 2026-09-07): no existe
+historia bajo `-1` que proteger. El modo del emisor ES el comportamiento.
+Queda un kill-switch interno `config.legacyAutoNumbering` (JSONB, sin UI, sin
+mig) que fuerza `-1` como rollback de emergencia.
+
+**Los dos guards, ambos fail-closed POR DOCUMENTO** (la venta nunca se
+bloquea: el ticket interno ya salió, el que espera es el outbox):
+
+| Guard | Qué comprueba | Si falla |
+|---|---|---|
+| Sanidad del número | La venta tiene correlativo congelado > 0 | `error` con motivo. **Nunca `-1` silencioso** — ese fallback devolvería la numeración al proveedor justo donde nadie mira |
+| Coherencia del timbrado | El timbrado congelado en la venta == el `StampNumber` de la fila `BranchDocumentType` con la que se emitiría | `error` ANTES de mandar, nombrando los dos timbrados |
+| Pre-flight del rango | Nuestro correlativo > el `CurrentNumber` del timbrado remoto | `error` diciendo qué número configurar en la caja |
+
+**Dónde vive el pre-flight y por qué ahí.** En el camino de EMISIÓN
+(`EInvoiceService::assertNumberingCoherence`), no en el provisioning: compara
+contra un número NUESTRO, y al provisionar todavía no existe ninguno (no se
+vendió nada). El resultado se cachea por timbrado en
+`provisioning.numberingPreflight[<stampId>]` y la fila remota en
+`provisioning.stampDetails[<stampId>]`, así se paga una llamada por timbrado
+y no una por factura. Existe porque nuestra base está limpia pero **el
+talonario del lado de ELLOS puede tener historia de otros canales** (el owner
+emitió pruebas vía n8n contra la misma cuenta).
+
+**Límite declarado — la NOTA DE CRÉDITO la sigue numerando Factomate.** Su
+`invoiceNo` sale de `document_sequence` doctype `nota_credito` con scope
+OUTLET (`ReturnService`) y la transacción type=6 no congela timbrado: no es un
+correlativo por punto de expedición, y mandarlo declararía ante SIFEN un
+número de otra rama de numeración. Se cierra con la **F3 de `context/40`**.
+
+**Verificación.** `api/tests/run_einvoice_emitter_numbering_test.sh` — 19
+checks contra Postgres real con el provider simulado en su interfaz. **Falta
+la verificación EN VIVO**: la API DEV está caída (PhoneLogin 500, reclamado a
+Automate). Lo que hay que confirmar cuando vuelva es UNA cosa: que `/Bulk`
+acepte el entero pelado y no exija el string `001-001-0000054`. Si exigiera el
+string, el cambio es de una línea en
+`SaleToInvoiceMapper::resolveDocumentNumber()`.
+
+> **OJO al reabrir la F7 de este doc** (qué pasa cuando SIFEN rechaza): la
+> nota "el número lo pone la SET con `number => -1`" que aparece ahí y en el
+> índice de `CLAUDE.md` quedó obsoleta para la FACTURA. Lo que NO cambia es
+> que Factomate no reemite: cada `/Bulk` es un documento nuevo.
 
 ### Regla fiscal PY que encuadra todo esto
 
