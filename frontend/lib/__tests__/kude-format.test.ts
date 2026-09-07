@@ -14,8 +14,9 @@ import {
  * documento fiscal: el resto es layout.
  */
 
-// Tenant sin decimales, miles con punto (el caso de una moneda sin centavos).
-const noDecimals: KudeFormat = { thousand: ".", decimal: ",", decimals: 0, currency: "PYG" }
+// Tenant sin decimales, miles con punto. Moneda deliberadamente NO paraguaya:
+// el formateo sale de los ajustes del tenant, no de un país.
+const noDecimals: KudeFormat = { thousand: ".", decimal: ",", decimals: 0, currency: "CLP" }
 // Tenant con centavos y la convención inversa de separadores.
 const withCents: KudeFormat = { thousand: ",", decimal: ".", decimals: 2, currency: "USD" }
 

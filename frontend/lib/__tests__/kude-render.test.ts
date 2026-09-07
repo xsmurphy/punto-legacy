@@ -18,7 +18,7 @@ const payload: KudePayload = {
     cdc: "01800123456001001000012320260907123456789012",
     issuedAt: "07/09/2026 10:15",
     condition: "Contado",
-    currency: "PYG",
+    currency: "CLP",
     exchangeRate: null,
     qrData: "https://ekuatia.set.gov.py/consultas/qr?nVersion=150&Id=018001234560010010000123",
   },
@@ -54,7 +54,7 @@ const payload: KudePayload = {
     ivaTotal: 11000,
     total: 161000,
   },
-  format: { thousand: ".", decimal: ",", decimals: 0, currency: "PYG" },
+  format: { thousand: ".", decimal: ",", decimals: 0, currency: "CLP" },
 }
 
 /** Los primeros bytes de todo PDF. Es lo que el lado PHP también verifica. */
