@@ -1,6 +1,8 @@
 import { tool } from "ai"
 import { z } from "zod"
 
+import { postConfirm, postExecute, WRITE_ACTIONS } from "./confirm-api"
+
 /**
  * Tools de acciones mutantes del agente (crear/editar contacto, ítem, usuario,
  * taxonomías, e importación tabular).
@@ -102,11 +104,16 @@ const payloadSchema = z.object({
 // se re-anida en el `execute` de register_action (ver abajo).
 const actionItemSchema = payloadSchema.extend({
   action: z.string().describe(
-    "create_contact | update_contact | create_item | update_item_price | create_user | assign_role | create_category | create_brand | create_tag | create_outlet | update_outlet | create_register | tabular_import. " +
+    // La lista sale de `WRITE_ACTIONS` (confirm-api.ts) para no tener una copia
+    // más: la comparten estas tools y las del server MCP.
+    WRITE_ACTIONS.join(" | ") + ". " +
     "update_outlet modifica una sucursal EXISTENTE (nombre, dirección, teléfono, email, descripción): mandá SOLO los campos que cambian — los que omitas quedan como están, y los que mandes vacíos se ignoran"
   ),
 })
 
+// Los fetch viven en `confirm-api.ts`: desde M6 el mismo embudo lo llaman estas
+// tools y las del server MCP, y lo único que cambia entre superficies es el
+// mensaje de guía para el modelo. Ver el docblock de ese archivo.
 async function registerConfirmation(
   authHeader: string,
   apiUrl: string,
@@ -115,31 +122,14 @@ async function registerConfirmation(
   summary: string,
 ) {
   console.error("[agent] register_action input", JSON.stringify({ actions, summary }))
-  try {
-    const res = await fetch(`${apiUrl}/v1/ai/confirm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader, ...extraHeaders },
-      body: JSON.stringify({ actions, summary }),
-    })
-    const bodyText = await res.text()
-    console.error("[agent] /v1/ai/confirm", res.status, bodyText.slice(0, 300))
-    const json = (bodyText ? JSON.parse(bodyText) : {}) as {
-      ok?: boolean
-      data?: { confirmToken: string; summary: string; count: number }
-      error?: string
-    }
-    if (!res.ok || !json.ok) {
-      return { error: json.error ?? `Error registrando confirmación (${res.status})` }
-    }
-    return {
-      confirmToken: json.data?.confirmToken,
-      summary: json.data?.summary,
-      count: json.data?.count,
-      pendingConfirmation: true,
-      message: "Acción(es) pendiente(s) de confirmación del usuario. La UI ya muestra el resumen — NO lo repitas en texto. Esperá su aprobación explícita antes de llamar execute_action.",
-    }
-  } catch (err) {
-    return { error: String(err) }
+  const res = await postConfirm(apiUrl, authHeader, extraHeaders, actions, summary)
+  if (!res.ok) return { error: res.error }
+  return {
+    confirmToken: res.data.confirmToken,
+    summary: res.data.summary,
+    count: res.data.count,
+    pendingConfirmation: true,
+    message: "Acción(es) pendiente(s) de confirmación del usuario. La UI ya muestra el resumen — NO lo repitas en texto. Esperá su aprobación explícita antes de llamar execute_action.",
   }
 }
 
@@ -150,22 +140,9 @@ async function executeConfirmation(
   confirmToken: string,
 ) {
   console.error("[agent] execute_action confirmToken", JSON.stringify(confirmToken))
-  try {
-    const res = await fetch(`${apiUrl}/v1/ai/execute`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader, ...extraHeaders },
-      body: JSON.stringify({ confirmToken }),
-    })
-    const bodyText = await res.text()
-    console.error("[agent] /v1/ai/execute", res.status, bodyText.slice(0, 300))
-    const json = (bodyText ? JSON.parse(bodyText) : {}) as { ok?: boolean; data?: unknown; error?: string }
-    if (!res.ok || !json.ok) {
-      return { error: json.error ?? `Error ejecutando (${res.status})` }
-    }
-    return json.data ?? { ok: true }
-  } catch (err) {
-    return { error: String(err) }
-  }
+  const res = await postExecute(apiUrl, authHeader, extraHeaders, confirmToken)
+  if (!res.ok) return { error: res.error }
+  return res.data ?? { ok: true }
 }
 
 /**

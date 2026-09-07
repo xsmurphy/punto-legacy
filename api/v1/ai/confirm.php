@@ -15,8 +15,15 @@
  *
  * Response: { ok: true, data: { confirmToken, summary, count } }
  *
- * Auth: realms `panel` y `pos-app`. En la caja la autorización NO sale de la
- * credencial sino del operador que probó su PIN — ver `AgentActor`.
+ * Auth: realms `panel`, `pos-app` y `api`. En la caja la autorización NO sale de
+ * la credencial sino del operador que probó su PIN — ver `AgentActor`.
+ *
+ * El realm `api` (M6 de `context/58`) entra con `apiWrite: true`: este endpoint
+ * y `execute.php` son los DOS únicos que aceptan escritura de una API key, y
+ * solo si esa key se emitió con scope `write` (lo verifica `apiAuthTenant()`).
+ * Es deliberado que el MCP escriba por acá y no por endpoints propios — el
+ * catálogo de acciones, el permiso por acción y la auditoría ya viven en este
+ * embudo, y duplicarlos garantiza que las dos copias diverjan.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
@@ -28,7 +35,7 @@ require_once dirname(__DIR__, 2) . '/lib/Ai/ContactPayload.php';
 // las dos mitades de la operación compartan la definición de "quién es el actor
 // y qué puede" es el punto entero de `AgentActor`: si `confirm` se aflojara sin
 // que `execute` se entere, se registrarían lotes que nadie debió poder pedir.
-$ctx = apiAuthTenant(['panel', 'pos-app']);
+$ctx = apiAuthTenant(['panel', 'pos-app', 'api'], apiWrite: true);
 $companyId = $ctx['companyId'];
 
 $actor = \Punto\Api\Ai\AgentActor::authorize($ctx);

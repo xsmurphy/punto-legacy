@@ -1,6 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js"
+import { z } from "zod"
 
+import { postConfirm, postExecute, WRITE_ACTIONS } from "@/lib/agent/confirm-api"
 import { buildReadOnlyFetchTools } from "@/lib/agent/read-tools"
 
 /**
@@ -27,12 +29,28 @@ import { buildReadOnlyFetchTools } from "@/lib/agent/read-tools"
  * datos de otro. Instanciar por request lo hace imposible por construcción, y
  * el costo es despreciable frente al fetch que viene después.
  *
- * ── Solo lectura ────────────────────────────────────────────────────────────
+ * ── Lectura, y escritura SOLO por el embudo del agente (M6) ─────────────────
  * `buildReadOnlyFetchTools` excluye `render_chart` (es de presentación, la
- * pinta la UI del chat y acá no hay UI). Las mutaciones nunca estuvieron en el
- * catálogo: viven en `confirm-tool.ts` detrás de una confirmación humana que un
- * cliente MCP no tiene (D5). Y aunque alguien las expusiera, el backend corta:
- * el realm `api` es read-only en `apiAuthTenant()`.
+ * pinta la UI del chat y acá no hay UI).
+ *
+ * Desde M6 de `context/58` este server también ESCRIBE, pero por un único
+ * camino: `punto_register_actions` + `punto_execute_actions`, que envuelven
+ * `/v1/ai/confirm` y `/v1/ai/execute`. No hay —ni tiene que haber— una tool por
+ * entidad: el catálogo de acciones permitidas, el permiso por acción y la
+ * auditoría ya viven en ese embudo, y una segunda superficie de escritura
+ * terminaría divergiendo de la primera (§Arquitecturas rechazadas de M6).
+ *
+ * El humano en el loop no desaparece, se muda: en el chat de Punto lo confirma
+ * la tarjeta de la UI; acá, el operador de Claude ve el resumen que devuelve
+ * `punto_register_actions` y decide si llama a `punto_execute_actions`. El
+ * servidor exige el token igual, así que un cliente apurado no puede saltearlo.
+ *
+ * El GATE es del BACKEND, no de este archivo: las dos tools se registran
+ * SIEMPRE, sin mirar el scope de la key. Detectarlo acá sería adivinar (el
+ * catálogo se sirve sin credencial — ver más abajo) y, sobre todo, sería una
+ * segunda opinión sobre un permiso que ya se resuelve en `apiAuthTenant()`. Una
+ * key de solo lectura recibe el 403 explicativo del backend y Claude se lo
+ * traduce al usuario, que es más útil que una tool ausente sin explicación.
  */
 
 export const runtime = "nodejs"
@@ -219,6 +237,93 @@ async function handle(req: Request): Promise<Response> {
       },
     )
   }
+
+  // ── Escritura: las DOS mitades del embudo (M6 de `context/58`) ─────────────
+  //
+  // Se registran juntas y siempre. Juntas porque una sin la otra no sirve:
+  // registrar sin poder ejecutar deja lotes muertos, y ejecutar sin registrar
+  // es justamente lo que el token impide. Siempre porque el gate es del
+  // backend — ver el docblock de arriba.
+  server.registerTool(
+    "punto_register_actions",
+    {
+      description:
+        "Registra un LOTE de cambios en el comercio (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario existente; crear o editar una sucursal; crear una caja; importación tabular) y devuelve un confirmToken. NO ejecuta NADA todavía. " +
+        "Agrupá TODO lo que el usuario pidió en UNA sola llamada con actions=[...] — un pedido de cinco productos es un lote de cinco acciones, no cinco llamadas. " +
+        "Después de llamarla: mostrale al usuario el resumen de lo que se va a hacer y pedile su OK EXPLÍCITO. Recién con esa aprobación llamá punto_execute_actions con el confirmToken. Nunca la des por dada. " +
+        "Acciones válidas: " + WRITE_ACTIONS.join(", ") + ". El servidor es la autoridad: valida cada payload, exige los permisos reales del usuario dueño de la API key y rechaza con un mensaje explicativo lo que falte o no corresponda — si te dice que falta un dato, pedíselo al usuario y volvé a registrar el lote.",
+      inputSchema: {
+        actions: z
+          .array(
+            z.object({
+              action: z.string().describe("Nombre de la acción, una de: " + WRITE_ACTIONS.join(", ")),
+              payload: z
+                .record(z.string(), z.unknown())
+                .describe(
+                  "Datos de ESA acción. Los campos dependen de cuál sea: name/type/phone/email/tin/ci/address para contactos; name/kind ('producto'|'servicio')/price/cost/sku/categoryName/brandName/taxName/outletNames para ítems; id/newPrice para cambiar un precio; name/phone/roleName/lockPass (PIN de 4 dígitos, pedíselo al usuario, NUNCA lo inventes) para usuarios; name/address para sucursales; name/outletId u outletName/timbrado/expeditionPoint (formato EEE-PPP)/initialInvoiceNumber para cajas. Mandá solo los que apliquen.",
+                ),
+            }),
+          )
+          .min(1)
+          .describe("Lote completo de acciones a confirmar juntas (mínimo 1)"),
+        summary: z
+          .string()
+          .describe(
+            "Resumen legible del LOTE entero, para mostrarle al usuario antes de pedirle el OK (ej. 'Crear la sucursal Central, su caja 001-001 y 3 usuarios')",
+          ),
+      },
+    },
+    async (args: { actions: Array<{ action: string; payload: Record<string, unknown> }>; summary: string }) => {
+      if (authHeader === "") {
+        return { content: [{ type: "text" as const, text: MISSING_KEY_MESSAGE }], isError: true }
+      }
+      const res = await postConfirm(apiUrl, authHeader, {}, args.actions, args.summary)
+      // El error del backend viaja como TEXTO del resultado y con `isError`, no
+      // como excepción de protocolo: así el modelo del cliente lo lee y se lo
+      // explica al usuario (el 403 de una key sin scope de configuración dice
+      // exactamente qué key hay que emitir). Un fallo opaco lo dejaría
+      // reintentando lo mismo.
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: res.error }], isError: true }
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              ...res.data,
+              pendingConfirmation: true,
+              message:
+                "Nada se ejecutó todavía. Mostrale este resumen al usuario y esperá su OK explícito antes de llamar punto_execute_actions con este confirmToken.",
+            }),
+          },
+        ],
+      }
+    },
+  )
+
+  server.registerTool(
+    "punto_execute_actions",
+    {
+      description:
+        "Ejecuta el lote de cambios que registró punto_register_actions. Llamala SOLO después de que el usuario aprobó explícitamente el resumen — no alcanza con que el pedido original haya sido claro. " +
+        "El resultado reporta ok o error POR ACCIÓN: un fallo en una NO cancela las demás, así que revisá el detalle y contale al usuario qué entró y qué no antes de reintentar nada. " +
+        "El token se consume: si hace falta corregir una acción que falló, registrá un lote nuevo solo con esa.",
+      inputSchema: {
+        confirmToken: z.string().describe("Token devuelto por punto_register_actions"),
+      },
+    },
+    async (args: { confirmToken: string }) => {
+      if (authHeader === "") {
+        return { content: [{ type: "text" as const, text: MISSING_KEY_MESSAGE }], isError: true }
+      }
+      const res = await postExecute(apiUrl, authHeader, {}, args.confirmToken)
+      if (!res.ok) {
+        return { content: [{ type: "text" as const, text: res.error }], isError: true }
+      }
+      return { content: [{ type: "text" as const, text: JSON.stringify(res.data ?? { ok: true }) }] }
+    },
+  )
 
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined })
   await server.connect(transport)

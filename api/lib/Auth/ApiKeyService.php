@@ -40,6 +40,20 @@ require_once __DIR__ . '/../../includes/auth_session.php';
  * puede más que quien la emitió, y si al usuario le bajan el rol, la key lo
  * hereda en su próximo request (D6 de `context/58`).
  *
+ * ── Scope: la ESCRITURA es opt-in y se decide al emitir (M6, `context/58`) ──
+ * Una key nace de solo lectura y esa sigue siendo la opción por defecto — el
+ * contador que consulta el libro de ventas (D9) no debe poder tocar nada. El
+ * scope `write` habilita ÚNICAMENTE el embudo del agente (`/v1/ai/confirm` +
+ * `/v1/ai/execute`), que es donde ya viven el catálogo de acciones permitidas,
+ * el permiso por acción y la auditoría; ningún endpoint de escritura se abre
+ * por tenerlo. Y no reemplaza a D6: la key sigue sin poder más que el usuario
+ * que la emitió, el scope solo puede RECORTAR eso.
+ *
+ * Vive en `meta` y no en una columna nueva por la misma razón que el nombre: es
+ * un atributo de la key, no del modelo de sesiones — un device del POS o una
+ * sesión de panel no tienen scope, y agregar la columna obligaría a explicar
+ * qué significa NULL para ellos.
+ *
  * ── Expiración: acá SÍ, a diferencia del POS ────────────────────────────────
  * Un device del POS se emite con `expiresAt = null` ("device eterno") y eso está
  * bien: es un aparato pareado que el comercio ve y despareja desde Ajustes. Una
@@ -55,6 +69,14 @@ final class ApiKeyService
     /** Tope duro: nadie emite una key eterna "por comodidad". */
     public const MAX_TTL_DAYS = 730;
 
+    /** Scope por defecto — una key nace sin poder escribir nada. */
+    public const SCOPE_READ = 'read';
+
+    /** Habilita el embudo del agente (`/v1/ai/*`) y NADA más. Ver docblock. */
+    public const SCOPE_WRITE = 'write';
+
+    public const SCOPES = [self::SCOPE_READ, self::SCOPE_WRITE];
+
     /**
      * Emite una key y devuelve el token CRUDO — la ÚNICA vez que existe en
      * texto plano. El caller se lo muestra al usuario y lo descarta; en la BD
@@ -62,9 +84,10 @@ final class ApiKeyService
      *
      * @param array{companyId:string,userId:string,outletId:string,roleId:string} $ctx
      *        Contexto del operador que la emite — lo que la key va a heredar.
-     * @return array{token:string,name:string,expiresAt:string}
+     * @param string $scope 'read' (default) | 'write' — ver §Scope del docblock.
+     * @return array{token:string,name:string,expiresAt:string,scope:string}
      */
-    public function issue(array $ctx, string $name, ?int $ttlDays = null): array
+    public function issue(array $ctx, string $name, ?int $ttlDays = null, string $scope = self::SCOPE_READ): array
     {
         $name = trim($name);
         if ($name === '') {
@@ -72,6 +95,13 @@ final class ApiKeyService
         }
         if (mb_strlen($name) > 60) {
             throw new \InvalidArgumentException('El nombre no puede pasar de 60 caracteres.');
+        }
+
+        // Allowlist y no "cualquier cosa que no sea write es read": un valor con
+        // un typo tiene que FALLAR al emitir, no degradarse en silencio a un
+        // scope que el usuario no eligió (en un sentido o en el otro).
+        if (!in_array($scope, self::SCOPES, true)) {
+            throw new \InvalidArgumentException('Scope inválido: solo ' . implode(' o ', self::SCOPES) . '.');
         }
 
         $ttl = $ttlDays ?? self::DEFAULT_TTL_DAYS;
@@ -89,10 +119,14 @@ final class ApiKeyService
             'roleId'    => $ctx['roleId'],
             'module'    => 'api',
             'expiresAt' => $expiresAt,
-            'meta'      => ['name' => $name],
+            // El scope se congela en la sesión al emitirla: se cambia revocando
+            // y emitiendo otra, igual que el resto de lo que define a una key.
+            // Un endpoint que "eleve" una key existente sería una escalada con
+            // forma de comodidad.
+            'meta'      => ['name' => $name, 'scope' => $scope],
         ]);
 
-        return ['token' => $token, 'name' => $name, 'expiresAt' => $expiresAt];
+        return ['token' => $token, 'name' => $name, 'expiresAt' => $expiresAt, 'scope' => $scope];
     }
 
     /**
@@ -125,18 +159,27 @@ final class ApiKeyService
             // (`Query::flattenJsonb` cubre data/meta/config), así que `meta.name`
             // llega como `$r['name']` y la clave `meta` ya no existe. El fallback
             // decodifica por si alguna ruta devuelve la columna cruda.
+            $meta = $r['meta'] ?? null;
+            if (is_string($meta)) {
+                $meta = json_decode($meta, true);
+            }
+            $meta = is_array($meta) ? $meta : [];
+
             $name = (string) ($r['name'] ?? '');
             if ($name === '') {
-                $meta = $r['meta'] ?? null;
-                if (is_string($meta)) {
-                    $meta = json_decode($meta, true);
-                }
-                $name = is_array($meta) ? (string) ($meta['name'] ?? '') : '';
+                $name = (string) ($meta['name'] ?? '');
+            }
+            // Las keys emitidas ANTES de M6 no tienen `scope` en su meta: son de
+            // lectura, que es exactamente el default. No hay backfill que hacer.
+            $scope = (string) ($r['scope'] ?? ($meta['scope'] ?? ''));
+            if (!in_array($scope, self::SCOPES, true)) {
+                $scope = self::SCOPE_READ;
             }
             $expiresAt = (string) ($r['expiresat'] ?? '');
             $out[] = [
                 'id'        => (string) $r['sessionid'],
                 'name'      => $name,
+                'scope'     => $scope,
                 'createdAt' => (string) ($r['createdat'] ?? ''),
                 'lastSeenAt'=> (string) ($r['lastseenat'] ?? ''),
                 'expiresAt' => $expiresAt,
