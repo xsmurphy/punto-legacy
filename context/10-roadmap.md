@@ -2527,9 +2527,12 @@ no se duplican acá.
   `TransactionDetailService.php:412` resuelve `authNo` desde la config viva del
   register para TODO doctype — recibos y NC muestran un timbrado que no
   estamparon, y al renovar el timbrado la historia renderizada cambia sola. La
-  factura no lo sufre (lee el congelado de la mig 145). Dos salidas posibles:
-  congelar el timbrado también en esos doctypes si legalmente lo llevan, o
-  dejar de pintarlo donde no se congeló. Decisión fiscal, no de código.
+  factura no lo sufre (lee el congelado de la mig 145). **D CERRADA por el owner (2026-09-07): CONGELAR** —
+  recibos y NC estampan el timbrado vigente al emitirse, igual que la factura
+  (patrón mig 145), y el detalle deja de leer la config viva. Para los
+  documentos históricos sin timbrado congelado, el render muestra el dato
+  ausente ("—"), NUNCA el actual de la caja: backfillearlos con el vigente de
+  hoy sería inventar historia fiscal. Listo para implementar.
 - **Artículo comodín / venta de concepto libre (owner 2026-09-07).** Facturar
   algo que no forma parte del inventario y no tiene nombre fijo: al agregarlo
   en el POS pide descripción y precio, entra como una línea más del carrito y
