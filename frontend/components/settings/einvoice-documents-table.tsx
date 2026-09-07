@@ -3,7 +3,7 @@
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import Link from "next/link"
-import { FileText, RefreshCw, Ban, Receipt, FilePlus2, AlertTriangle } from "lucide-react"
+import { FileText, RefreshCw, Ban, Receipt, FilePlus2, AlertTriangle, Mail } from "lucide-react"
 import { toast } from "sonner"
 
 import { DataTable } from "@/components/data-table/data-table"
@@ -40,6 +40,7 @@ import {
   useReconcileEinvoiceDocuments,
   useReissueEinvoiceDocument,
   useRetryEinvoiceDocument,
+  useSendKudeEmail,
 } from "@/hooks/use-einvoice"
 import { usePermission } from "@/hooks/use-permissions"
 import { formatAmount, formatCurrencyAmount } from "@/lib/format-money"
@@ -154,6 +155,57 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
   }
 }
 
+/**
+ * Estado de la ENTREGA digital al cliente (`context/57` E4). Se lee del outbox
+ * de notificaciones, no del documento.
+ *
+ * El estado baseline es "—" y no un badge "Sin enviar": la entrega por email
+ * es un canal OPCIONAL (D7) — el ticket con QR al portal ya cumplió la puesta
+ * a disposición, así que un documento sin email no es una tarea pendiente y no
+ * tiene que pedir atención en la tabla. Lo único que se pinta en rojo es un
+ * envío que se intentó y agotó los reintentos, que sí es accionable.
+ */
+function DeliveryCell({ doc }: { doc: EInvoiceDocument }) {
+  if (doc.emailSentAt) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="secondary">Enviado</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          Último envío al cliente: {formatCreatedAt(doc.emailSentAt)}.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+  if (doc.emailPending) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="outline">En cola</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          El envío está encolado y sale en la próxima corrida (unos minutos).
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+  if (doc.emailFailed) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="destructive">No se pudo enviar</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          Se agotaron los reintentos. La factura sigue siendo válida: probá con otra dirección o
+          entregala desde el portal.
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
+  return <span className="text-sm text-muted-foreground">—</span>
+}
+
 function formatCreatedAt(iso: string | null): string {
   if (!iso) return "—"
   try {
@@ -264,10 +316,13 @@ export function EInvoiceDocumentsCard() {
   const cancel = useCancelEinvoiceDocument()
   const reissue = useReissueEinvoiceDocument()
   const reconcile = useReconcileEinvoiceDocuments()
+  const sendKude = useSendKudeEmail()
 
   const [cancelTarget, setCancelTarget] = React.useState<EInvoiceDocument | null>(null)
   const [cancelReason, setCancelReason] = React.useState("")
   const [reissueTarget, setReissueTarget] = React.useState<EInvoiceDocument | null>(null)
+  const [sendTarget, setSendTarget] = React.useState<EInvoiceDocument | null>(null)
+  const [sendEmail, setSendEmail] = React.useState("")
 
   function handleRetry(doc: EInvoiceDocument) {
     retry.mutate(doc.id, {
@@ -285,6 +340,39 @@ export function EInvoiceDocumentsCard() {
       },
       onError: (err) => toast.error("No se pudo emitir de nuevo", { description: err.message }),
     })
+  }
+
+  function openSend(doc: EInvoiceDocument) {
+    setSendTarget(doc)
+    // Precargado con la casilla del cliente, pero EDITABLE: la mitad de los
+    // usos de esta acción son "mandámelo a la del contador" (D8).
+    setSendEmail(doc.clientEmail ?? "")
+  }
+
+  function confirmSend() {
+    if (!sendTarget) return
+    const email = sendEmail.trim()
+    if (email === "") {
+      toast.error("Ingresá el email al que enviar la factura.")
+      return
+    }
+    sendKude.mutate(
+      { id: sendTarget.id, email },
+      {
+        onSuccess: (result) => {
+          // "Se va a enviar" y no "Enviado": el backend encola, el envío real
+          // sale en la próxima corrida del drainer. Decir "enviado" sería
+          // mentirle al operador si el proveedor falla y el ítem se reintenta.
+          toast.success(
+            result.queued
+              ? `La factura se va a enviar a ${result.recipient} en unos minutos.`
+              : `Ya había un envío pendiente a ${result.recipient}.`,
+          )
+          setSendTarget(null)
+        },
+        onError: (err) => toast.error("No se pudo encolar el envío", { description: err.message }),
+      },
+    )
   }
 
   function openCancel(doc: EInvoiceDocument) {
@@ -373,6 +461,12 @@ export function EInvoiceDocumentsCard() {
         cell: ({ row }) => <StatusCell doc={row.original} />,
       },
       {
+        id: "delivery",
+        accessorKey: "emailSentAt",
+        header: "Entrega",
+        cell: ({ row }) => <DeliveryCell doc={row.original} />,
+      },
+      {
         accessorKey: "cdc",
         header: "CDC",
         cell: ({ row }) => (
@@ -414,6 +508,21 @@ export function EInvoiceDocumentsCard() {
                   reason: !canManage ? "Requiere el permiso de facturación electrónica" : undefined,
                 },
                 {
+                  // D8 de context/57. Sólo sobre documentos que SIFEN aprobó:
+                  // mandarle al comprador una factura sin veredicto —o
+                  // rechazada— es exactamente lo que el plan evita (D3). El
+                  // backend vuelve a validarlo, esto es la puerta visible.
+                  label: "Enviar por email",
+                  icon: Mail,
+                  onSelect: () => openSend(doc),
+                  hidden:
+                    sifenVerdict(doc.sifenStatus) !== "approved" ||
+                    doc.supersededBy !== null ||
+                    doc.status === "cancelled",
+                  disabled: !canManage || sendKude.isPending,
+                  reason: !canManage ? "Requiere el permiso de facturación electrónica" : undefined,
+                },
+                {
                   label: "Cancelar",
                   icon: Ban,
                   variant: "destructive",
@@ -427,7 +536,7 @@ export function EInvoiceDocumentsCard() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canManage, retry.isPending, reissue.isPending, bootstrap],
+    [canManage, retry.isPending, reissue.isPending, sendKude.isPending, bootstrap],
   )
 
   return (
@@ -502,6 +611,47 @@ export function EInvoiceDocumentsCard() {
           />
         </CardContent>
       </Card>
+
+      {/* Enviar la factura por email — D8 de context/57. Va en Dialog y no
+          como click directo porque el destinatario es EDITABLE: el caso que
+          justifica la acción no es sólo "no me llegó", es "mandámelo a la del
+          contador". Además cubre al cliente que cargó su email después de la
+          venta, para quien el envío automático nunca se encoló. */}
+      <Dialog open={sendTarget !== null} onOpenChange={(open) => { if (!open) setSendTarget(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar la factura por email</DialogTitle>
+            <DialogDescription>
+              Se envía el KuDE en PDF junto con el enlace al documento en línea. El enlace siempre
+              muestra el estado fiscal vigente; el PDF es una copia del momento del envío.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5 py-2">
+            <Label htmlFor="send-kude-email">Enviar a</Label>
+            <Input
+              id="send-kude-email"
+              type="email"
+              value={sendEmail}
+              onChange={(e) => setSendEmail(e.target.value)}
+              placeholder="cliente@ejemplo.com"
+              autoFocus
+            />
+            <p className="text-sm text-muted-foreground">
+              {sendTarget?.clientEmail
+                ? "Podés cambiarla si el cliente quiere recibirla en otra casilla."
+                : "Este cliente no tiene email cargado. Escribí la dirección a la que enviarla."}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendTarget(null)}>
+              Volver
+            </Button>
+            <Button onClick={confirmSend} disabled={sendKude.isPending}>
+              Enviar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Cancelar es irreversible y anula un documento fiscal ya transmitido
           a SIFEN — Dialog de confirmación con motivo obligatorio, nunca un
