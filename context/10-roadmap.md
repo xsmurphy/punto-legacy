@@ -2540,11 +2540,11 @@ no se duplican acá.
   las maneja (`resolveItemSoldDescription`, `api/lib/Sales/SaleService.php:1602`);
   el POS nuevo nunca las expuso. (2) La decisión de diseño real es el **IVA**:
   una línea libre necesita tasa, y el IVA congelado de `context/38` F3 lee
-  datos del ítem — el camino probablemente correcto es un ítem de catálogo
-  FLAGEADO comodín (uno por tasa: 10%, 5%, exenta) cuyo nombre se pisa por
-  línea con la descripción tipeada, antes que resucitar `dynamic` sin ítem:
-  conserva fiscal, reportes y numeración sin rama nueva. Sin decidir con el
-  owner: ítem flageado vs. opción suelta del carrito.
+  datos del ítem — **D CERRADA por el owner (2026-09-07): ítem de
+  catálogo FLAGEADO comodín, uno por tasa (10%, 5%, exenta)** — el nombre se
+  pisa por línea con la descripción tipeada y el precio se carga al vender.
+  Conserva fiscal, reportes y numeración sin rama nueva; NO se resucitan las
+  líneas `dynamic` sin ítem. Listo para implementar.
 - Crear categoría inline desde el form de artículo
 - Sesiones configurables para servicios tipo paquete
 - Stock mínimo con notificación automática. **Matiz del owner (2026-09-07,
