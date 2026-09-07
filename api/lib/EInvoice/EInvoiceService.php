@@ -975,7 +975,7 @@ final class EInvoiceService
             );
         }
 
-        return $this->kude($companyId, (string) $doc['einvoicedocid']);
+        return $this->kudePdf($companyId, (string) $doc['einvoicedocid']);
     }
 
     /**
@@ -1299,6 +1299,30 @@ final class EInvoiceService
     }
 
     /**
+     * KuDE que se ENTREGA — K2 de `context/73-kude-propio.md`.
+     *
+     * Este es el único punto de decisión entre el KuDE propio y el de
+     * Factomate, y todas las superficies que le dan el PDF a alguien pasan por
+     * acá: el portal del comprador, el adjunto del email y la descarga del
+     * panel. `kude()` (arriba) queda como lo que siempre fue —el camino
+     * Factomate— y ahora tiene un único rol: ser el FALLBACK.
+     *
+     * La dirección importa: si el render propio falla se sirve el de
+     * Factomate, nunca al revés. Mientras dure la paridad (K4) el fallback es
+     * lo que hace que esto pueda estar en producción sin apostar nada.
+     *
+     * El gate fiscal NO vive acá — sigue en `portalKude()`/`sendKude()`.
+     */
+    public function kudePdf(string $companyId, string $docId): string
+    {
+        return (new KudeService())->pdf(
+            $companyId,
+            $docId,
+            fn (): string => $this->kude($companyId, $docId)
+        );
+    }
+
+    /**
      * Reconcilia el estado FISCAL real contra `GET /api/electronicDocument/getBulk/{id}`
      * para documentos `issued` con `provider_number` (el `Id` de bulk cacheado
      * al emitir) que todavía no tienen `sifen_status`, o cuyo último chequeo
@@ -1483,6 +1507,12 @@ final class EInvoiceService
             // falta comparar contra el valor anterior. Y si igual se repitiera,
             // la UNIQUE del outbox de notificaciones lo absorbe.
             if (self::isSifenApproved($sifenStatus)) {
+                // K3 de context/73 — ANTES del email, y best-effort las dos.
+                // El XML firmado es el documento fiscal de verdad y hoy vive
+                // solo en Factomate; archivarlo es conservación del emisor,
+                // no una optimización. `archiveSignedXml()` no lanza: si
+                // falla, la entrega sigue su curso igual.
+                (new KudeService())->archiveSignedXml($companyId, $docId);
                 $this->enqueueKudeEmail($companyId, $docId);
             }
 

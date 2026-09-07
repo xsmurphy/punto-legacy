@@ -145,7 +145,10 @@ switch ($method) {
                 apiError('Falta id', 422);
             }
             try {
-                $pdf = $svc->kude($companyId, $id);
+                // El panel descarga el MISMO KuDE que recibe el comprador
+                // (K2 de context/73): que el comercio vea otro documento que
+                // su cliente es justo lo que rompe la verificación de paridad.
+                $pdf = $svc->kudePdf($companyId, $id);
             } catch (\RuntimeException $e) {
                 // 409, no 500: "todavía no está listo" / "no se emitió" es un
                 // estado esperado del documento, no una falla del servidor —
