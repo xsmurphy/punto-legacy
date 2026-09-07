@@ -191,6 +191,19 @@ export interface EInvoiceDocument {
    * "Reemplazado". El activo de esa venta es el otro.
    */
   supersededBy: string | null
+  /**
+   * Guard de numeración (mig 204): el documento se emitió, pero el CDC que
+   * devolvió el proveedor NO describe el comprobante que la caja imprimió —
+   * típicamente porque no respetó el correlativo congelado de la venta.
+   * No-null = la descripción de la discrepancia, en castellano.
+   *
+   * NO es `errorMessage`: ese acompaña a `status='error'` y significa "falló,
+   * se puede reintentar". Este documento SÍ salió y existe en SIFEN, así que
+   * reintentarlo lo emitiría dos veces — la acción que corresponde es humana.
+   * Mientras esté marcado, su CDC y su QR no se imprimen, no salen al portal
+   * del comprador y no se envían por email.
+   */
+  numberingMismatch: string | null
   total: number | null
   currency: string | null
   /**

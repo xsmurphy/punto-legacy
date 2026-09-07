@@ -309,8 +309,17 @@ function buildEInvoiceSection(): PaletteSection {
     id: "einvoice",
     label: "Factura electrónica",
     items: [
-      { type: "fe_py", label: "QR de consulta (KuDE)", defaultText: "" },
+      // OJO, son DOS QR distintos y no son intercambiables:
+      //   `fe_py` → portal del comprador de PUNTO (nuestro).
+      //   `fe_qr` → consulta pública del DE en SIFEN (`DCarQR`, de la SET).
+      // El KuDE de referencia imprime el SEGUNDO. La etiqueta de cada uno
+      // nombra el destino, no la función, justamente para que en la paleta no
+      // se elija uno creyendo que es el otro.
+      { type: "fe_py", label: "QR del portal de Punto", defaultText: "" },
+      { type: "fe_qr", label: "QR de ekuatía (SET)", defaultText: "" },
       { type: "fe_cdc", label: "CDC", defaultText: "", defaultLabel: "CDC:" },
+      { type: "fe_consulta_url", label: "Consulta de validez + URL", defaultText: "" },
+      { type: "fe_leyenda", label: "Leyenda de representación gráfica", defaultText: "" },
     ],
   }
 }

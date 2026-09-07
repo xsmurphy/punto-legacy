@@ -350,21 +350,22 @@ final class TransactionDetailService
         $netTotal = $subtotal - $discount;
 
         $einvoiceCdc = null;
+        $einvoiceQrUrl = null;
         $einvoicePortalUrl = null;
         try {
-            $eiDoc = ncmExecute(
-                "SELECT cdc FROM einvoice_document
-                  WHERE companyid = ? AND transactionid = ? AND status = 'issued'
-                    AND superseded_by IS NULL
-                    AND cdc IS NOT NULL
-                  ORDER BY issued_at DESC NULLS LAST LIMIT 1",
-                [$companyId, $id]
-            );
-            if ($eiDoc && !empty($eiDoc['cdc'])) {
-                $einvoiceCdc = (string) $eiDoc['cdc'];
+            $einvoice = new \Punto\Api\EInvoice\EInvoiceService();
+            // QUÉ se puede imprimir de esta venta lo decide el servicio de FE,
+            // no esta query: el predicado (emitido + no reemplazado + sin
+            // discrepancia de numeración) es una regla fiscal y vive en UN
+            // solo lugar (`printableDocumentFor`). Repetirlo acá es como se
+            // termina con el panel imprimiendo un CDC que el portal ya
+            // considera inválido.
+            $printable = $einvoice->printableDocumentFor($companyId, $id);
+            if ($printable !== null) {
+                $einvoiceCdc   = $printable['cdc'];
+                $einvoiceQrUrl = $printable['qrUrl'];
             }
-            $einvoicePortalUrl = (new \Punto\Api\EInvoice\EInvoiceService())
-                ->portalUrl($companyId, $id);
+            $einvoicePortalUrl = $einvoice->portalUrl($companyId, $id);
         } catch (\Throwable $e) {
             // La FE nunca puede tirar el detalle: sin dato, los bloques en blanco.
             error_log('[TransactionDetailService] einvoice: ' . $e->getMessage());
@@ -409,7 +410,29 @@ final class TransactionDetailService
             'ivaRemoved'    => $ivaRemoved,
             'registerId'    => $registerId,
             'registerName'  => (string) ($reg['name'] ?? ''),
-            'authNo'        => (string) ($reg['invoiceAuth'] ?? ''),
+            // Timbrado CONGELADO en la venta (mig 145), con la config actual de
+            // la caja solo como respaldo para ventas anteriores a esa
+            // migración. El orden importa y es el motivo por el que existe la
+            // columna: `register.data->>'registerInvoiceAuth'` es
+            // configuración MUTABLE (RegisterAdminService la edita cuando el
+            // comercio renueva el timbrado), así que leerla primero haría que
+            // la reimpresión de una factura vieja saliera con el timbrado
+            // NUEVO — un dato fiscal falso en un documento ya emitido, que es
+            // exactamente lo que la mig 145 congeló para impedir.
+            'authNo'         => (string) ($tx['invoiceauth'] ?? '') !== ''
+                ? (string) $tx['invoiceauth']
+                : (string) ($reg['invoiceAuth'] ?? ''),
+            // Inicio y fin de vigencia del mismo timbrado congelado. Alimentan
+            // los bloques `auth_start_date`/`auth_expiration`, que existían en
+            // la paleta desde siempre y hasta ahora imprimían en blanco al
+            // reimprimir desde el panel (la mig 145 dejó el dato disponible y
+            // anotó que conectarlo quedaba fuera de su alcance).
+            'authStart'      => (string) ($tx['invoiceauthstart'] ?? '') !== ''
+                ? (string) $tx['invoiceauthstart']
+                : null,
+            'authExpiration' => (string) ($tx['invoiceauthexpiration'] ?? '') !== ''
+                ? (string) $tx['invoiceauthexpiration']
+                : null,
             'invoicePrefix' => $invoicePrefix,
             'invoiceNoPad'  => $invoiceNoPad,
             // Formateador único (mig 159). OJO: acá el separador ANTES no
@@ -432,6 +455,12 @@ final class TransactionDetailService
             // rechazado o pendiente no identifica nada ante SIFEN.
             'einvoiceCdc'       => $einvoiceCdc,
             'einvoicePortalUrl' => $einvoicePortalUrl,
+            // QR de ekuatía (`DCarQR`): el link de consulta pública del DE en
+            // SIFEN, ya firmado con su hash por el emisor. Es el QR que imprime
+            // el KuDE — DISTINTO del portal del comprador de Punto
+            // (`einvoicePortalUrl`), que es nuestro. Los dos son bloques de
+            // plantilla separados justamente porque no son lo mismo.
+            'einvoiceQrUrl'     => $einvoiceQrUrl,
         ];
 
         return [

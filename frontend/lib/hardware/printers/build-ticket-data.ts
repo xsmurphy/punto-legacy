@@ -94,6 +94,22 @@ export interface TicketData {
   /** CDC del documento electrónico emitido (SIFEN). null hasta que Factomate
    *  emite — el primer ticket puede salir sin él; la reimpresión lo trae. */
   einvoiceCdc?: string | null
+  /**
+   * `DCarQR` — el link del QR de EKUATIA (consulta pública del DE en SIFEN),
+   * ya armado y firmado con su hash por el emisor. Es el QR que imprime el
+   * KuDE (bloque `fe_qr`).
+   *
+   * DISTINTO de `einvoiceUrl`, que es el portal del comprador de PUNTO: uno
+   * lleva a la fuente oficial de la SET y el otro a una pantalla nuestra. No
+   * son intercambiables y por eso son dos campos y dos bloques.
+   *
+   * No se puede construir localmente —el hash lo calcula el emisor con el CSC—
+   * así que sigue el mismo timing asíncrono que el CDC: null en el ticket de
+   * la venta, presente en la reimpresión. Y null también cuando el guard de
+   * numeración marcó el documento (mig 204): un QR que manda a consultar OTRA
+   * factura es peor que no imprimir ninguno.
+   */
+  einvoiceQrUrl?: string | null
   // usuario
   userName?: string
   /** Caja activa (`activeRegisterId` resuelto contra `registers` del catálogo). */
@@ -384,6 +400,16 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     documentSufix: paddedNumber,
     transactionId: result.transactionId,
     einvoiceUrl: result.einvoicePortalUrl ?? null,
+    // CDC y QR de ekuatía NO existen todavía en el ticket de la venta: la
+    // emisión es asíncrona (outbox → Factomate) y el QR además lo firma el
+    // emisor con el CSC, así que no hay forma de calcularlo local hoy. Van
+    // null explícito —no omitidos— para que se lea que es una ausencia
+    // ESPERADA y no un olvido de cableado. Los bloques `fe_cdc`/`fe_qr` salen
+    // en blanco acá y completos en la reimpresión desde el detalle.
+    // Ver el bloque "CDC DEL EMISOR" de SaleToInvoiceMapper para qué haría
+    // falta para imprimirlos en el momento.
+    einvoiceCdc: null,
+    einvoiceQrUrl: null,
     dueDate: payload.dueDate ?? null,
     tags: payload.tags,
     // Cajero = el OPERADOR del PIN (lock-store), no el device: es quien
@@ -671,10 +697,18 @@ export interface TicketableTxDetail {
     invoiceNoPad?: string
     invoicePrefix?: string
     customerName: string | null
-    /** FE (bloques `fe_py`/`fe_cdc`): el resolver canónico los manda desde
-     *  2026-08-29; null hasta que Factomate emite el documento. */
+    /** FE (bloques `fe_py`/`fe_cdc`/`fe_qr`): el resolver canónico los manda
+     *  desde 2026-08-29; null hasta que Factomate emite el documento. */
     einvoiceCdc?: string | null
     einvoicePortalUrl?: string | null
+    /** `DCarQR` — QR de ekuatía. Ver `TicketData.einvoiceQrUrl`. */
+    einvoiceQrUrl?: string | null
+    /** Timbrado CONGELADO en la venta (mig 145), no la config actual de la
+     *  caja: la reimpresión de una factura vieja tiene que salir con el
+     *  timbrado con el que se emitió, no con el que la caja tiene hoy. */
+    authNo?: string | null
+    authStart?: string | null
+    authExpiration?: string | null
   }
   items: Array<{
     itemId: string
@@ -737,6 +771,13 @@ export function buildTicketDataFromTxDetail(
   return {
     einvoiceUrl: detail.transaction.einvoicePortalUrl ?? null,
     einvoiceCdc: detail.transaction.einvoiceCdc ?? null,
+    einvoiceQrUrl: detail.transaction.einvoiceQrUrl ?? null,
+    // Timbrado congelado de la venta. Esta es LA reimpresión del KuDE: sin
+    // esto los bloques `auth_*` salían en blanco desde el panel aunque la
+    // mig 145 ya guardara el dato con cada transacción.
+    authNumber: detail.transaction.authNo ?? null,
+    authStartDate: detail.transaction.authStart ?? null,
+    authExpiration: detail.transaction.authExpiration ?? null,
     companyName,
     customerName: tx.customerName?.trim() || undefined,
     docType,
@@ -1044,8 +1085,17 @@ export function buildDemoTicketData(
     dueDate: "2026-07-12",
     tags: ["etiqueta1", "etiqueta2"],
     associatedDocument: "001-001-0000099",
-    einvoiceUrl: "https://ekuatia.set.gov.py/consultas/qr?demo",
-    einvoiceCdc: "0180012345678001001000012312026061234567890123",
+    // Portal del comprador de PUNTO (bloque `fe_py`) — nuestro, no de la SET.
+    einvoiceUrl: "https://punto.la/factura/demo",
+    // CDC de ejemplo ESTRUCTURALMENTE VÁLIDO: 44 dígitos y DV módulo 11
+    // correcto (01|80012345|6|001|001|0000123|1|20260612|1|987654321|2). El
+    // valor anterior tenía 46 dígitos y un DV que no cerraba, así que la vista
+    // previa de la plantilla mostraba un CDC más largo que el real y el
+    // operador diseñaba el bloque contra un ancho que no existe.
+    einvoiceCdc: "01800123456001001000012312026061219876543212",
+    // QR de EKUATIA (bloque `fe_qr`) — el de la SET, con su hash.
+    einvoiceQrUrl:
+      "https://ekuatia.set.gov.py/consultas/qr?nVersion=150&Id=01800123456001001000012312026061219876543212&dFeEmiDE=demo",
     userName: "Juan Pérez",
     registerName: "Caja Principal",
     printerName: "Impresora 1",

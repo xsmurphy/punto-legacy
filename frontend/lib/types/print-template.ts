@@ -102,6 +102,19 @@ export type BlockType =
   // puede no existir todavía y el bloque sale en blanco; en la reimpresión ya
   // está. Solo aparece en la paleta con el módulo `einvoicePy` activo.
   | "fe_cdc"
+  // ── Bloques del KuDE (representación gráfica del DE) ────────────────────
+  // `fe_qr` es el QR de EKUATIA: lleva el `DCarQR` que devuelve el emisor —la
+  // consulta pública del documento en SIFEN, ya firmada con su hash— y NO se
+  // puede armar a mano. Es OTRO QR que `fe_py`, que apunta al portal del
+  // comprador de Punto; los dos existen porque no son el mismo destino ni
+  // tienen el mismo dueño. Mismo timing asíncrono que `fe_cdc`.
+  | "fe_qr"
+  // Texto constante: la invitación a consultar la validez + la URL del portal
+  // de la SET. No sale de la venta, así que imprime siempre.
+  | "fe_consulta_url"
+  // Leyenda normativa ("ESTE DOCUMENTO ES UNA REPRESENTACIÓN GRÁFICA..."),
+  // también constante.
+  | "fe_leyenda"
   // Artículos
   | "item_receipt" | "item_receipt_2" | "item_receipt_3" | "item_receipt_4"
   | "item_units" | "item" | "item_id" | "item_note" | "item_uid"

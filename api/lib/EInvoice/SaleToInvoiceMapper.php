@@ -131,7 +131,9 @@ final class SaleToInvoiceMapper
     /**
      * @param array<string,mixed> $sale   Ver shape documentado arriba.
      * @param array<string,mixed> $stamp  Timbrado cacheado de einvoice_account.stamp (trae 'Id').
-     * @param array<string,mixed> $config Config de la cuenta (paymentMethodMap, defaultPaymentMethodCode, series).
+     * @param array<string,mixed> $config Config de la cuenta (paymentMethodMap, defaultPaymentMethodCode,
+     *        series, legacyAutoNumbering, emitterCdc). `emitterCdc` está gateado y sin activar —
+     *        ver el bloque "CDC DEL EMISOR" en el cuerpo de este método.
      * @param string $issuedDate Naive `YYYY-MM-DDTHH:MM:SS` en hora local de Asunción — mismo
      *        criterio que `signDate` de la cancelación (ver FactomateProvider::cancel).
      * @return array<string,mixed> UN documento — el caller (FactomateProvider::issue) lo envuelve en
@@ -209,8 +211,19 @@ final class SaleToInvoiceMapper
             'documentTypeCode'      => $documentType,
             'issuingType'           => 0,
             // securityCode: obligatorio, 9 dígitos aleatorios. Verificado contra
-            // la API real (2026-07-30) — sin este campo Factomate rechaza la emisión.
-            'securityCode'          => $this->randomSecurityCode(),
+            // la API real (2026-07-30) — sin este campo Factomate rechaza la
+            // emisión, y como lo parsea numéricamente, un carácter no-dígito
+            // devuelve un 400 cuyo mensaje no menciona el campo que falló.
+            //
+            // Generador único: `Cdc::securityCode()`. Este campo NO es un
+            // requisito administrativo del proveedor — es el componente 10 del
+            // CDC (los 9 dígitos que en el KuDE de referencia salen como
+            // `000000001`), o sea que el número que mandamos acá es el que
+            // termina DENTRO del código de control del documento. Tener dos
+            // generadores para el mismo dígito garantizaba que el día que se
+            // active el CDC del emisor uno de los dos quedara desalineado.
+            // Ver `Cdc::securityCode()` para por qué es CSPRNG y no secuencial.
+            'securityCode'          => Cdc::securityCode(),
             // Typo "aditionalInformation" (una sola 'd') es de la API de Factomate,
             // no se corrige. Obligatorio, string vacío cuando no aplica.
             'aditionalInformation'  => '',
@@ -250,6 +263,49 @@ final class SaleToInvoiceMapper
             // fórmula global que solo es válida para el caso 100%-10%.
             'tax'      => round($taxSum),
         ];
+
+        // ── CDC DEL EMISOR — preparado, GATEADO, sin activar ─────────────────
+        //
+        // Hoy el CDC lo devuelve Factomate DESPUÉS de emitir, y como la emisión
+        // es asíncrona el primer ticket de la venta sale sin CDC ni QR (el
+        // bloque de plantilla queda en blanco y la reimpresión sí los trae).
+        // Pero los 44 dígitos son CALCULABLES LOCALMENTE: ningún componente
+        // depende del proveedor — tipo de documento, RUC + DV del emisor,
+        // establecimiento, punto de expedición, número congelado de la caja,
+        // tipo de contribuyente, fecha, tipo de emisión y el código de
+        // seguridad que este mismo payload ya genera (`securityCode`, arriba).
+        // Ver la anatomía completa en `Cdc`, verificada contra un KuDE real.
+        //
+        // Si Factomate confirma que su `/Bulk` acepta el CDC del emisor
+        // (consulta abierta con su soporte, sin respuesta al 2026-09-07), el
+        // comprobante puede salir con CDC y QR IMPRESOS EN EL MOMENTO DE LA
+        // VENTA, offline incluido — que es lo que hace falta para que el ticket
+        // sea una representación completa de la factura electrónica sin
+        // esperar la vuelta de la red.
+        //
+        // El interruptor es `einvoice_account.config->>'emitterCdc'` (default
+        // false, sin UI a propósito: no es una preferencia del comercio sino un
+        // hecho sobre la API del proveedor). Cuando se confirme, esto es todo
+        // lo que hay que descomentar — el nombre del campo raíz es lo ÚNICO
+        // que falta y por eso no se deja escrito a medias: mandar una clave
+        // inventada haría que Factomate ignore el CDC en silencio y volvamos a
+        // tener un número nuestro y un CDC suyo, justo el escenario que el
+        // guard de `EInvoiceService::cdcMismatchFor()` existe para detectar.
+        //
+        // if (!empty($config['emitterCdc'])) {
+        //     $payload['cdc'] = Cdc::build([                        // ← nombre del campo SIN CONFIRMAR
+        //         'documentType'    => $documentType,
+        //         'ruc'             => $sale['emitterRuc'],          // sin DV
+        //         'rucCheckDigit'   => $sale['emitterRucDv'],
+        //         'establishment'   => $sale['establishment'],
+        //         'expeditionPoint' => $sale['expeditionPoint'],
+        //         'number'          => $payload['number'],           // el congelado de la caja
+        //         'taxpayerType'    => $sale['taxpayerType'],
+        //         'date'            => substr($issuedDate, 0, 10),   // Cdc::build() saca los guiones
+        //         'emissionType'    => 1,                            // 1 = normal
+        //         'securityCode'    => $payload['securityCode'],     // el MISMO de este payload
+        //     ]);
+        // }
 
         if ($isCreditNote) {
             // El cuerpo de la nota de crédito es el mismo de la factura; los
@@ -441,22 +497,6 @@ final class SaleToInvoiceMapper
             ],
             $itemTax,
         ];
-    }
-
-    /**
-     * 9 dígitos aleatorios. Verificado contra la API real (2026-07-30):
-     * Factomate parsea este campo numéricamente y un carácter no-dígito
-     * produce un 400 cuyo mensaje no tiene nada que ver con el campo real
-     * que falló — mismo criterio que `randomSecurityCode()` en la
-     * implementación de referencia (Automate/efatech).
-     */
-    private function randomSecurityCode(): string
-    {
-        $code = '';
-        for ($i = 0; $i < 9; $i++) {
-            $code .= (string) random_int(0, 9);
-        }
-        return $code;
     }
 
     /**

@@ -254,6 +254,18 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_receipt_numbering.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.9b. CDC del documento electrónico (context/28 §Numeración del emisor):
+#    el generador propio reproduce el CDC REAL de un KuDE legal (caso de oro),
+#    el DV módulo 11 base 11 cierra también sobre los dos RUC del mismo
+#    documento, y el guard detecta un número ajeno en el CDC devuelto — ver
+#    docblock de verify_cdc.php. El paso contra Postgres demuestra que un
+#    documento marcado por el guard deja de entregar CDC y QR a la impresión.
+echo ""
+echo "[run.sh] === CDC: caso de oro, módulo 11, guard de numeración y QR de ekuatía ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_cdc.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 3.10. Numeración de la devolución de venta (context/modules/17-numeracion.md
 #    §7, context/40-anulacion-y-nota-credito.md): antes de este fix
 #    ReturnService::create() (transactionType=6) insertaba la transacción SIN

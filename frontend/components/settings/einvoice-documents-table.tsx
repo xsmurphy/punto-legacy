@@ -85,6 +85,26 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
     // decisión propia, así que gana incluso sobre un rechazo previo de SIFEN.
     return <Badge variant="secondary">Cancelado</Badge>
   }
+  // Guard de numeración (mig 204). Va ANTES del veredicto de SIFEN porque es
+  // un problema que SIFEN no puede reportar: él valida SU registro, no que el
+  // número emitido sea el que la caja imprimió. Un documento puede figurar
+  // perfectamente APROBADO y aun así no corresponder al comprobante que el
+  // cliente tiene en la mano — si esto se pintara como "Aprobado por SIFEN",
+  // el comercio nunca se enteraría.
+  //
+  // Destructivo y con el motivo a la vista, mismo criterio que el rechazo: es
+  // accionable (revisar la numeración de la caja contra el proveedor), pero
+  // NO con el botón de reemitir — el documento ya existe en SIFEN.
+  if (doc.numberingMismatch) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="destructive">Numeración no coincide</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">{doc.numberingMismatch}</TooltipContent>
+      </Tooltip>
+    )
+  }
   // El estado FISCAL manda sobre el del outbox: un documento `issued` que
   // SIFEN rechazó no es una factura emitida, es una factura que no vale — y
   // acá se mostraba "Emitido" (ver lib/einvoice/sifen-status.ts).

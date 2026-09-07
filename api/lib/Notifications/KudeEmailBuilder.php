@@ -44,7 +44,7 @@ final class KudeEmailBuilder
     {
         $doc = ncmExecute(
             'SELECT einvoicedocid, transactionid, status, cdc, document_number,
-                    issued_at, sifen_status, superseded_by, cancelled_at
+                    issued_at, sifen_status, superseded_by, cancelled_at, numbering_mismatch
                FROM einvoice_document
               WHERE einvoicedocid = ? AND companyid = ?',
             [$docId, $companyId]
@@ -61,6 +61,19 @@ final class KudeEmailBuilder
         }
         if ((string) ($doc['status'] ?? '') === 'cancelled' || ($doc['cancelled_at'] ?? null) !== null) {
             throw new NotificationSkipped('El documento fue anulado — no se entrega.');
+        }
+        // Guard de numeración (mig 204), revalidado acá por la MISMA razón que
+        // los dos de arriba: el encolado ya lo chequea
+        // (`EInvoiceService::enqueueKudeEmail`), pero entre encolar y mandar
+        // pasan días y el flag puede aparecer después (una reconciliación
+        // tardía, un reproceso). Si el CDC del documento no es el del
+        // comprobante que se le entregó al cliente, el mail le llevaría la
+        // factura de otra operación — y este es el único canal que no
+        // requiere ninguna acción suya para llegarle.
+        if (trim((string) ($doc['numbering_mismatch'] ?? '')) !== '') {
+            throw new NotificationSkipped(
+                'El número del documento electrónico no coincide con el del comprobante entregado — no se entrega.'
+            );
         }
         $cdc = trim((string) ($doc['cdc'] ?? ''));
         if ($cdc === '') {

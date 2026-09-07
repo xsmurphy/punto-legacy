@@ -683,10 +683,17 @@ export function buildRollGrid(
       i++
       continue
     }
-    if (block.type === "fe_py") {
-      // Sin link (venta sin documento electrónico) no se imprime nada, ni el
-      // rótulo — el dato no existe, igual que cualquier bloque sin valor.
-      if (data.einvoiceUrl) {
+    // Los dos bloques de QR comparten mecánica y difieren SOLO en el destino:
+    // `fe_py` lleva al portal del comprador de Punto, `fe_qr` a la consulta
+    // pública del DE en SIFEN (`DCarQR`). Se resuelven juntos para que no
+    // puedan divergir en cómo reservan filas o qué hacen sin dato.
+    if (block.type === "fe_py" || block.type === "fe_qr") {
+      const isEkuatia = block.type === "fe_qr"
+      const value = isEkuatia ? data.einvoiceQrUrl : data.einvoiceUrl
+      // Sin link (venta sin documento electrónico, o CDC todavía no emitido)
+      // no se imprime nada, ni el rótulo — el dato no existe, igual que
+      // cualquier bloque sin valor.
+      if (value) {
         const row = freeRowFor(row0, reserved)
         canvas.reserve(row, reserved)
         graphics.push({
@@ -694,8 +701,11 @@ export function buildRollGrid(
           row,
           rows: reserved,
           align: block.align,
-          value: data.einvoiceUrl,
-          caption: cased(block.text?.trim() || "Consultá tu factura electrónica"),
+          value,
+          caption: cased(
+            block.text?.trim() ||
+              (isEkuatia ? "Consultá la validez en ekuatia.set.gov.py" : "Consultá tu factura electrónica"),
+          ),
         })
         contribute(0)
       } else {
