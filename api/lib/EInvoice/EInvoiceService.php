@@ -535,7 +535,7 @@ final class EInvoiceService
         $rs = ncmExecute(
             "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
                     d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
-                    d.sifen_status, d.sifen_checked_at, d.superseded_by,
+                    d.sifen_status, d.sifen_checked_at, d.superseded_by, d.numbering_mismatch,
                     -- El bulk crudo pesa y solo se usa para sacar el motivo del
                     -- RECHAZO: para un documento aprobado no se trae.
                     CASE WHEN d.sifen_status IS NOT NULL AND d.sifen_status NOT ILIKE '%aprobad%'
@@ -607,6 +607,12 @@ final class EInvoiceService
                     // en el listado como registro, pero ya no es accionable —
                     // el panel lo pinta "Reemplazado" y no le ofrece reemitir.
                     'supersededBy'   => $f['superseded_by'] ?? null,
+                    // Guard de numeración (mig 204): el documento se emitió,
+                    // pero el CDC devuelto NO describe el comprobante que se
+                    // imprimió. No es un error reintentable —el documento ya
+                    // existe en SIFEN— así que viaja aparte de `errorMessage`:
+                    // la acción que corresponde es humana, no un retry.
+                    'numberingMismatch' => $f['numbering_mismatch'] ?? null,
                     'total'          => $f['total'] !== null ? (float) $f['total'] : null,
                     'currency'       => $f['currency'] ?? null,
                     'contactId'      => $f['contact_id'] ?? null,
@@ -687,7 +693,7 @@ final class EInvoiceService
     {
         $row = ncmExecute(
             "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.issued_at,
-                    d.cancelled_at, d.sifen_status, d.provider_response,
+                    d.cancelled_at, d.sifen_status, d.provider_response, d.numbering_mismatch,
                     t.transactionTotal AS total, t.transactionDiscount AS discount,
                     t.transactionCurrency AS currency, t.transactionDate AS sale_date,
                     COALESCE(NULLIF(co.config->>'settingName', ''), co.config->>'companyName') AS company_name
@@ -710,21 +716,33 @@ final class EInvoiceService
 
         // Link al QR de ekuatía (consulta pública del DE en SIFEN). Viene en la
         // respuesta cruda de `/Bulk` — es el mismo link que imprime el KuDE, así
-        // que dárselo al comprador no expone nada nuevo.
-        $raw = $this->decodeJsonb($row['provider_response'] ?? null);
-        $qrUrl = null;
-        foreach ((array) ($raw['Items'] ?? $raw['items'] ?? []) as $item) {
-            if (is_array($item) && !empty($item['DCarQR'] ?? $item['dCarQR'] ?? null)) {
-                $qrUrl = (string) ($item['DCarQR'] ?? $item['dCarQR']);
-                break;
-            }
+        // que dárselo al comprador no expone nada nuevo. La lectura del shape
+        // vive en UN solo lugar (`extractQrUrl`), compartida con la impresión.
+        $qrUrl = self::extractQrUrl($this->decodeJsonb($row['provider_response'] ?? null));
+
+        // Guard de numeración (mig 204): si el CDC devuelto no describe esta
+        // venta, ni el CDC ni el QR salen al comprador. Un código que lo manda
+        // a consultar OTRO documento en el portal de la SET es peor que no
+        // darle ninguno — el comprador no tiene cómo detectar la diferencia.
+        //
+        // En variables LOCALES, no reescribiendo `$row`: la fila viene del
+        // wrapper de BD (recordset con acceso case-insensitive, ver
+        // `app/Database/Query.php`), y mutarla ahí depende de que el wrapper
+        // implemente escritura — además de dejar una fila que ya no coincide
+        // con lo que la BD tiene.
+        $numberingMismatch = trim((string) ($row['numbering_mismatch'] ?? ''));
+        $cdcForBuyer       = $row['cdc'] ?? null;
+        if ($numberingMismatch !== '') {
+            $cdcForBuyer = null;
+            $qrUrl       = null;
         }
 
         return [
             'status'         => $status,
             'doctype'        => (string) ($row['doctype'] ?? ''),
             'companyName'    => $row['company_name'] ?? null,
-            'cdc'            => $row['cdc'] ?? null,
+            // Ya filtrado por el guard de numeración de arriba.
+            'cdc'            => $cdcForBuyer,
             'documentNumber' => $row['document_number'] ?? null,
             'issuedAt'       => $row['issued_at'] ?? null,
             'cancelledAt'    => $row['cancelled_at'] ?? null,
@@ -760,7 +778,14 @@ final class EInvoiceService
             // 'pending' tampoco descarga: entregar un comprobante antes de
             // saber si vale contradice el criterio del owner (correcto le gana
             // a rápido, `context/28` §R5b) y el mercado tolera la espera.
+            //
+            // El guard de numeración (mig 204) lo bloquea por el mismo
+            // motivo: el KuDE es el PDF del documento DEL PROVEEDOR, así que
+            // si su número no es el que el comprador tiene impreso en su
+            // ticket, ese PDF le entrega un comprobante que no reconoce como
+            // suyo. El gate REAL está en `portalKude()`, abajo.
             'kudeAvailable'  => ($status === 'issued' || $status === 'cancelled')
+                && $numberingMismatch === ''
                 && self::sifenVerdict($row['sifen_status'] ?? null) === 'approved',
         ];
     }
@@ -831,6 +856,28 @@ final class EInvoiceService
     private function enqueueKudeEmail(string $companyId, string $docId): void
     {
         try {
+            // Guard de numeración (mig 204) — ANTES de resolver la casilla.
+            //
+            // Este es el canal más peligroso para la falla que el guard
+            // detecta: se dispara solo, con la aprobación de SIFEN, y no
+            // necesita que el comprador haga nada. Si el CDC del documento no
+            // es el del comprobante que se le entregó, el mail le lleva la
+            // factura de OTRA operación a la casilla del cliente equivocado.
+            //
+            // Y la aprobación de SIFEN no lo cubre: SIFEN valida su propio
+            // registro, no nuestro invariante de que el número emitido sea el
+            // que salió impreso en el ticket. Un documento puede estar
+            // perfectamente aprobado Y tener el número cambiado.
+            $flagged = ncmExecute(
+                'SELECT numbering_mismatch FROM einvoice_document WHERE einvoicedocid = ? AND companyid = ?',
+                [$docId, $companyId]
+            );
+            if ($flagged && trim((string) ($flagged['numbering_mismatch'] ?? '')) !== '') {
+                error_log('[EInvoiceService] KuDE NO enviado por email (' . $docId .
+                    '): el CDC no coincide con el comprobante impreso');
+                return;
+            }
+
             $email = $this->saleContactEmail($companyId, $docId);
             if ($email === '') {
                 return;
@@ -869,13 +916,27 @@ final class EInvoiceService
     public function sendKude(string $companyId, string $docId, string $recipient = '', ?string $userId = null): array
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid, status, cdc, sifen_status, superseded_by, cancelled_at
+            'SELECT einvoicedocid, status, cdc, sifen_status, superseded_by, cancelled_at, numbering_mismatch
                FROM einvoice_document
               WHERE einvoicedocid = ? AND companyid = ?',
             [$docId, $companyId]
         );
         if (!$doc) {
             throw new \RuntimeException('Documento no encontrado.');
+        }
+        if (trim((string) ($doc['numbering_mismatch'] ?? '')) !== '') {
+            // Guard de numeración (mig 204). El email es el canal MÁS
+            // peligroso para esta falla: no requiere ninguna acción del
+            // comprador, así que un KuDE con el CDC de otra venta le llega
+            // solo. SIFEN puede haber aprobado el documento —valida SU
+            // registro, no nuestro invariante de que el número sea el que
+            // salió impreso— así que el chequeo de `sifenVerdict` de abajo no
+            // cubre este caso.
+            throw new \RuntimeException(
+                'El número del documento electrónico no coincide con el del comprobante que se le entregó al ' .
+                'cliente, así que no se le puede enviar: recibiría la factura de otra operación. ' .
+                'Revisá la numeración de la caja con el proveedor de facturación electrónica antes de enviarlo.'
+            );
         }
         if (($doc['superseded_by'] ?? null) !== null) {
             throw new \RuntimeException('Este documento fue reemplazado por una reemisión. Enviá el documento vigente de esa venta.');
@@ -945,13 +1006,30 @@ final class EInvoiceService
     public function portalKude(string $companyId, string $transactionId): string
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid, sifen_status FROM einvoice_document
+            'SELECT einvoicedocid, sifen_status, numbering_mismatch FROM einvoice_document
               WHERE companyid = ? AND transactionid = ? AND superseded_by IS NULL
               ORDER BY created_at DESC LIMIT 1',
             [$companyId, $transactionId]
         );
         if (!$doc) {
             throw new \RuntimeException('No hay documento electrónico para esta venta.');
+        }
+
+        // Guard de numeración (mig 204), MISMO criterio que el veredicto de
+        // SIFEN de abajo y por la misma razón: el flag `kudeAvailable` solo
+        // saca el botón, y la URL del PDF es adivinable para cualquiera que
+        // tenga el token del portal. El documento existe y SIFEN puede
+        // haberlo aprobado, pero su número no es el del comprobante que este
+        // comprador tiene en la mano — entregarle ese PDF es darle la factura
+        // de otra operación.
+        if (trim((string) ($doc['numbering_mismatch'] ?? '')) !== '') {
+            // Al comprador se le dice el estado, nunca el motivo (R1 de
+            // context/28 §F7): la discrepancia de numeración es un problema
+            // de compliance ENTRE el comercio y su proveedor de FE, y el
+            // comprador no puede hacer nada con esa información.
+            throw new \RuntimeException(
+                'El comercio está regularizando esta factura. Vas a poder descargarla cuando esté lista.'
+            );
         }
 
         // El gate REAL de "¿este PDF puede salir?" vive acá, no en el flag
@@ -1959,7 +2037,12 @@ final class EInvoiceService
             $attempts      = (int) ($doc['attempts'] ?? 0);
 
             $account = ncmExecute(
-                'SELECT status, environment, phone_enc, stamp, provisioning, config AS account_config
+                // `emitter` (userInfo cacheado) trae el RUC del emisor — lo usa
+                // el guard de CDC de abajo para comprobar que el documento que
+                // volvió es de ESTE contribuyente. Sale de acá y no de
+                // `company.config` para no sumar una query por documento: es el
+                // mismo RUC con el que el emisor está dado de alta.
+                'SELECT status, environment, phone_enc, stamp, provisioning, emitter, config AS account_config
                    FROM einvoice_account WHERE companyid = ?',
                 [$companyId]
             );
@@ -2031,6 +2114,18 @@ final class EInvoiceService
                 return false;
             }
 
+            // ── GUARD: ¿el CDC que volvió describe la venta que imprimimos? ──
+            //
+            // El documento ya existe en SIFEN, así que esto NO puede marcarlo
+            // `error` (lo haría elegible para retry(), y reintentar un emitido
+            // lo duplica — misma trampa que documentó la mig 201). Queda
+            // `issued` + la discrepancia anotada en `numbering_mismatch`
+            // (mig 204), en el MISMO UPDATE: nunca hay una ventana en la que
+            // el documento esté issued y sin marcar.
+            $mismatch = $this->cdcMismatchFor(
+                $companyId, $account, $stamp, $sale, $doctype, $config, (string) $result['cdc']
+            );
+
             // provider_number cachea el `Id` raíz del bulk devuelto por /Bulk —
             // es la llave de reconciliación con getBulk() (ver reconcile() y
             // FactomateProvider::getBulk). Columna heredada de mig 92
@@ -2040,16 +2135,24 @@ final class EInvoiceService
             ncmExecute(
                 "UPDATE einvoice_document
                     SET status = 'issued', cdc = ?, document_number = ?, provider_number = ?, provider_response = ?::jsonb,
-                        issued_at = now(), updated_at = now()
+                        numbering_mismatch = ?, issued_at = now(), updated_at = now()
                   WHERE einvoicedocid = ?",
                 [
                     (string) $result['cdc'],
                     $result['documentNumber'] !== null ? (string) $result['documentNumber'] : null,
                     $result['bulkId'] !== null ? (string) $result['bulkId'] : null,
                     json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE),
+                    $mismatch,
                     $docId,
                 ]
             );
+
+            if ($mismatch !== null) {
+                // Alto y claro en el log: es una violación de un invariante
+                // fiscal, no un error de red que se reintenta solo.
+                error_log('[EInvoiceService] CDC no coincide con la venta ' . $docId . ': ' . $mismatch);
+            }
+
             return true;
         } catch (\Throwable $e) {
             // Nunca dejar la excepción escapar — el caller (SaleService post-commit,
@@ -2318,6 +2421,227 @@ final class EInvoiceService
         $this->setProvisioningLeaf($companyId, 'stampDetails', $stampId, $found);
 
         return $found;
+    }
+
+    /**
+     * Verificación ESTRUCTURAL del CDC devuelto contra la venta que se emitió.
+     * Devuelve la descripción de la discrepancia, o null si todo coincide.
+     *
+     * Nunca lanza: se llama DESPUÉS de que el documento salió, y no poder
+     * verificar no puede convertir una emisión exitosa en un fallo. Si algo
+     * del propio chequeo revienta, se registra como "no se pudo verificar",
+     * que es información distinta de "no coincide" y sin embargo igual de
+     * visible — el silencio es el único resultado inaceptable acá.
+     *
+     * ── Qué se compara y qué NO ──────────────────────────────────────────
+     *
+     * SÍ: número, RUC del emisor, establecimiento y punto de expedición.
+     * Son estables, inequívocos y los cuatro salen de datos que tenemos
+     * congelados. El NÚMERO es el que importa de verdad: es el único que el
+     * proveedor podría reescribir por su cuenta, y es justo el que el cliente
+     * ya tiene impreso.
+     *
+     * NO la FECHA, a propósito. El CDC lleva la fecha de emisión y el
+     * documento puede cruzar la medianoche entre que lo mandamos y que el
+     * proveedor lo procesa (o diferir por zona horaria). Compararla haría que
+     * una venta de las 23:59 marcara discrepancia y dejara de imprimir un CDC
+     * perfectamente válido. Un falso positivo acá SUPRIME el CDC de un
+     * comprobante bueno, así que el chequeo se limita a lo que no puede dar
+     * falsos positivos. `Cdc::assertMatchesSale()` sí sabe comparar la fecha —
+     * se usa en el arnés y para diagnóstico manual, no en este camino.
+     *
+     * Tampoco el tipo de documento: nuestro doctype interno ('FC'/'FCR'/'NC')
+     * no es el código de dos dígitos de la SET, y mapearlo acá crearía una
+     * segunda tabla de equivalencias que puede divergir de la del mapper.
+     *
+     * @param array<string,mixed> $stamp  Timbrado con el que se emitió ('Id').
+     * @param array<string,mixed> $sale   Venta reconstruida (fiscalNumber).
+     * @param array<string,mixed> $config Config de la cuenta.
+     */
+    private function cdcMismatchFor(
+        string $companyId,
+        $account,
+        array $stamp,
+        array $sale,
+        string $doctype,
+        array $config,
+        string $cdc
+    ): ?string {
+        try {
+            $expected = [];
+
+            // El número propio solo existe cuando NOSOTROS numeramos. Con el
+            // kill-switch `legacyAutoNumbering`, o en una NC (que hoy numera
+            // Factomate, F3 de context/40), no hay correlativo nuestro que
+            // defender — los otros componentes se siguen comprobando.
+            if (empty($config['legacyAutoNumbering']) && $doctype !== 'NC') {
+                $number = is_numeric($sale['fiscalNumber'] ?? null) ? (int) $sale['fiscalNumber'] : 0;
+                if ($number > 0) {
+                    $expected['number'] = $number;
+                }
+            }
+
+            // RUC del emisor, sin DV (el CDC lo lleva en un componente aparte).
+            $emitter = $this->decodeJsonb($account['emitter'] ?? null);
+            $ruc     = trim((string) ($emitter['Ruc'] ?? $emitter['ruc'] ?? ''));
+            if ($ruc !== '') {
+                $expected['ruc'] = explode('-', $ruc)[0];
+            }
+
+            // Establecimiento y punto de expedición del timbrado con el que se
+            // emitió. Normalmente salen del cache de provisioning
+            // (`stampDetails`) y no agregan red, PERO en un cache frío
+            // `remoteStampRow()` consulta a Factomate.
+            //
+            // Por eso va en su PROPIO try: si esa consulta falla, se sigue sin
+            // esos dos componentes en vez de abortar la verificación entera.
+            // La alternativa —dejar que el catch de afuera marque el
+            // documento— convertiría cualquier caída transitoria de Factomate
+            // en la supresión PERMANENTE del CDC de todos los documentos
+            // emitidos durante la caída, sin forma de re-chequearlos. Un
+            // corte de red no puede invalidar un comprobante válido.
+            //
+            // Lo que de verdad importa —el NÚMERO— ya quedó arriba y no
+            // depende de la red: sale del CDC devuelto y de `fiscalNumber`,
+            // los dos en memoria. El guard conserva su poder de detección aun
+            // con Factomate caído.
+            //
+            // OJO `Stablishment`: la falta de "E" inicial es del proveedor, no
+            // un typo de acá — así viene el campo en su API.
+            $stampId = (string) ($stamp['Id'] ?? '');
+            if ($stampId !== '') {
+                try {
+                    $remote = $this->remoteStampRow($companyId, $account, $stampId);
+                    $est    = trim((string) ($remote['Stablishment'] ?? $remote['Establishment'] ?? ''));
+                    $point  = trim((string) ($remote['ExpeditionPoint'] ?? ''));
+                    if ($est !== '') {
+                        $expected['establishment'] = $est;
+                    }
+                    if ($point !== '') {
+                        $expected['expeditionPoint'] = $point;
+                    }
+                } catch (\Throwable $e) {
+                    error_log('[EInvoiceService] CDC: no se pudo leer el timbrado remoto para verificar ' .
+                        'establecimiento/punto de expedición (se verifica el resto): ' . $e->getMessage());
+                }
+            }
+
+            $problems = Cdc::assertMatchesSale($cdc, $expected);
+            if ($problems === []) {
+                return null;
+            }
+
+            return 'El documento electrónico no coincide con el comprobante que se imprimió: '
+                . implode('; ', $problems)
+                . '. El CDC y el QR no se imprimen ni se publican en el portal hasta que esto se resuelva.';
+        } catch (\Throwable $e) {
+            // NO se marca el documento. Llegar acá significa que el chequeo
+            // se rompió, no que haya encontrado algo: marcar sobre una falla
+            // propia haría que un bug o un dato faltante nuestro suprimiera
+            // el CDC de una factura correcta, de forma permanente y sin
+            // camino de reversión (nada vuelve a evaluar este flag).
+            //
+            // Es una decisión consciente sobre CUÁL error preferir. Marcar de
+            // más rompe facturas buenas a la primera intermitencia; marcar de
+            // menos deja pasar un caso solo si la discrepancia REAL coincide
+            // con una falla del verificador, que además queda logueada acá.
+            error_log('[EInvoiceService] no se pudo verificar el CDC de la venta (documento NO marcado): '
+                . $e->getMessage());
+
+            return null;
+        }
+    }
+
+    /**
+     * `DCarQR` — el link del QR de ekuatía, ya armado y firmado con su hash
+     * por el emisor. Es lo que imprime el KuDE y lo que se le muestra al
+     * comprador en el portal.
+     *
+     * ÚNICO lugar del código que sabe dónde vive ese dato dentro de la
+     * respuesta cruda de `/Bulk`. Antes el bucle estaba inline en el portal;
+     * cuando la impresión necesitó el mismo valor, copiarlo habría dejado dos
+     * lecturas de un shape que no controlamos, que divergen en cuanto el
+     * proveedor cambie una mayúscula.
+     *
+     * Función PURA sobre el JSONB ya decodificado: los dos llamadores
+     * (`publicDocument()` y `TransactionDetailService`) ya traen la fila por
+     * otros motivos, así que esto no agrega ni una query.
+     *
+     * @param mixed $providerResponse `provider_response` decodificado (o el crudo).
+     */
+    public static function extractQrUrl(mixed $providerResponse): ?string
+    {
+        if (is_string($providerResponse)) {
+            $providerResponse = json_decode($providerResponse, true);
+        }
+        if (!is_array($providerResponse)) {
+            return null;
+        }
+
+        foreach ((array) ($providerResponse['Items'] ?? $providerResponse['items'] ?? []) as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $qr = $item['DCarQR'] ?? $item['dCarQR'] ?? null;
+            if (is_string($qr) && trim($qr) !== '') {
+                return trim($qr);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Lo que se puede IMPRIMIR de una venta: el CDC y el QR de ekuatía, o null
+     * si esta venta no tiene documento electrónico imprimible.
+     *
+     * Único lugar que define qué significa "imprimible", y son cuatro
+     * condiciones que tienen que darse juntas:
+     *
+     *   - `status='issued'` — el documento salió (antes de eso no hay CDC).
+     *   - `superseded_by IS NULL` — no es una emisión reemplazada (mig 201);
+     *     el comprobante vigente es el que la sucede.
+     *   - `numbering_mismatch IS NULL` — el guard de numeración (mig 204) no
+     *     lo marcó; si lo marcó, su CDC describe OTRO documento.
+     *   - `cdc IS NOT NULL` — defensivo.
+     *
+     * Existe como UN método porque el predicado es el mismo para todos los
+     * consumidores (impresión de hoja, rollo, reimpresión desde el panel) y
+     * repetirlo en cada query es cómo se termina con una superficie que
+     * imprime un CDC que otra ya considera inválido. Es exactamente la clase
+     * de regla que no puede vivir en el call-site.
+     *
+     * @return array{cdc: string, qrUrl: ?string}|null
+     */
+    public function printableDocumentFor(string $companyId, string $transactionId): ?array
+    {
+        $row = ncmExecute(
+            "SELECT cdc, provider_response FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND status = 'issued'
+                AND superseded_by IS NULL
+                AND numbering_mismatch IS NULL
+                AND cdc IS NOT NULL
+              ORDER BY issued_at DESC NULLS LAST LIMIT 1",
+            [$companyId, $transactionId]
+        );
+        if (!$row || trim((string) ($row['cdc'] ?? '')) === '') {
+            return null;
+        }
+
+        return [
+            'cdc'   => (string) $row['cdc'],
+            'qrUrl' => self::extractQrUrl($this->decodeJsonb($row['provider_response'] ?? null)),
+        ];
+    }
+
+    /**
+     * Atajo: solo el link del QR de ekuatía de la venta. Misma definición de
+     * "imprimible" que `printableDocumentFor()`, del que sale — un QR que
+     * apunta a otro documento es peor que no tener QR.
+     */
+    public function qrUrlFor(string $companyId, string $transactionId): ?string
+    {
+        return $this->printableDocumentFor($companyId, $transactionId)['qrUrl'] ?? null;
     }
 
     /**

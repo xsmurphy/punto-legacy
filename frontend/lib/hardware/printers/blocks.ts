@@ -30,6 +30,10 @@ import type { BlockType, PrintBlock } from "@/lib/types/print-template"
 import { formatAmount as formatAmountShared, formatMoney as formatMoneyShared } from "@/lib/format-money"
 import { formatPhone } from "@/lib/phone"
 import { resolveNumberLocale } from "@/lib/tenant-locale"
+import { KUDE_CONSULTA_TEXT, KUDE_LEYENDA, kudeDocumentName } from "@/lib/einvoice/kude"
+// Helpers del KuDE PDF que Punto renderiza — compartidos a propósito para que
+// el CDC y la URL de consulta del ticket sean idénticos a los del PDF.
+import { consultationUrl, groupCdc } from "@/lib/kude/types"
 import type { TicketData, TicketItem } from "./build-ticket-data"
 
 /**
@@ -485,9 +489,41 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // fallback HTML del navegador. null cuando la venta no generó documento
   // electrónico — el bloque queda en blanco, como cualquier otro sin dato.
   fe_py: (data) => data.einvoiceUrl ?? null,
-  // CDC en texto (el QR es `fe_py`). Acepta título como cualquier bloque
-  // simple ("CDC:"). null hasta que el documento se emita — ver TicketData.
-  fe_cdc: (data) => data.einvoiceCdc ?? null,
+  // CDC en texto. Acepta título como cualquier bloque simple ("CDC:"). null
+  // hasta que el documento se emita — ver TicketData.
+  //
+  // Agrupado en once grupos de cuatro, con `groupCdc` — el MISMO helper que
+  // usa el KuDE PDF que renderiza Punto (`lib/kude/document.tsx`). Es
+  // requisito de legibilidad de la norma (MT §13.4.4), no una decisión
+  // estética, y compartir la función es lo que garantiza que el CDC del
+  // ticket y el del PDF sean tipográficamente el mismo código.
+  //
+  // OJO: el KuDE de referencia del tenant lo imprime CORRIDO. Se sigue la
+  // norma y no ese ejemplo — el documento de muestra sale del sistema
+  // anterior del comercio, que en este detalle no la cumple.
+  fe_cdc: (data) => (data.einvoiceCdc ? groupCdc(data.einvoiceCdc) : null),
+  // QR de ekuatía. En ESC/POS y en el rollo se intercepta antes del resolver
+  // para dibujar el QR de verdad (render-template.ts / roll-grid.ts); en HOJA
+  // lo dibuja `renderSheetQr` como SVG. Este resolver devuelve el destino en
+  // texto, que es el fallback honesto cuando el bloque cae en una superficie
+  // que no sabe dibujar un QR.
+  fe_qr: (data) => data.einvoiceQrUrl ?? null,
+  // Constantes normativas del KuDE: no salen de la venta, así que imprimen
+  // SIEMPRE que la plantilla los tenga. `{doc}` se resuelve con el nombre del
+  // documento que la propia plantilla ya sabe titular.
+  // La URL sale del QR devuelto por la emisión (`consultationUrl`), NUNCA de
+  // un dominio de la SET escrito a mano — misma regla que fijó el KuDE PDF.
+  // Sin QR todavía no hay CDC, así que la frase ("...con el número CDC
+  // impreso abajo") no tendría a qué referirse: el bloque queda en blanco,
+  // igual que cualquier otro sin dato.
+  fe_consulta_url: (data) => {
+    const url = consultationUrl(data.einvoiceQrUrl ?? null)
+    if (!url) return null
+    return KUDE_CONSULTA_TEXT.replace("{doc}", kudeDocumentName(data.docType)).replace("{url}", url)
+  },
+  // La leyenda no depende de ningún dato de la venta: si la plantilla la
+  // tiene, sale siempre.
+  fe_leyenda: () => KUDE_LEYENDA,
 
   // Remisión (context/42) — poblados solo por buildTicketDataFromStockTransfer
   // y buildTicketDataFromRemision (build-ticket-data.ts); null en cualquier

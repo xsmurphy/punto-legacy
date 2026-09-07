@@ -15,6 +15,7 @@ import {
   sortBlocksForRender,
   ticketItemName,
 } from "./blocks"
+import { qrSvgMarkup } from "./qr-svg"
 import type { LineGeometry } from "./blocks"
 import {
   buildRollGrid,
@@ -114,6 +115,30 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
       : ""
   }
 
+  // QR en HOJA. Es el caso del KuDE: el documento se imprime en A4/carta y el
+  // QR tiene que ser un QR de verdad, no el texto de su destino.
+  //
+  // El rollo NO pasa por acá — lo intercepta `roll-grid.ts` como gráfico y lo
+  // dibuja la térmica con su propio comando. Son dos superficies con dos
+  // mecanismos de dibujo, no una duplicación: la única fuente compartida es de
+  // dónde sale el VALOR (`fe_py` → portal de Punto, `fe_qr` → ekuatía).
+  if (block.type === "fe_py" || block.type === "fe_qr") {
+    const value = block.type === "fe_qr" ? data.einvoiceQrUrl : data.einvoiceUrl
+    // Sin dato el bloque queda vacío, igual que cualquier otro sin valor
+    // (el documento electrónico todavía no se emitió, o el guard de
+    // numeración lo marcó). Nunca un placeholder impreso.
+    if (!value) return `<div${styleAttr}></div>`
+    // El QR se dibuja CUADRADO y del lado más chico de la caja que el operador
+    // dibujó: un QR estirado a un rectángulo no escanea, así que la caja manda
+    // el tamaño pero no la proporción.
+    const side = Math.max(24, Math.min(block.width || 0, block.height || 0) || 128)
+    return (
+      `<div${styleAttr}>` +
+      `<div style="width:${side}px;height:${side}px">${qrSvgMarkup(value, { sizePx: side })}</div>` +
+      `</div>`
+    )
+  }
+
   if (ITEM_TABLE_TYPES.has(block.type)) {
     return renderItemTable(block, data)
   }
@@ -153,10 +178,28 @@ function renderRollGraphicHtml(g: RollGraphic, rowHeightMm: number): string {
   if (g.kind === "barcode") {
     return `<div style="${align}">${esc(g.value)}</div>`
   }
-  // El QR real lo dibuja la térmica; en pantalla se muestra el destino y su
-  // rótulo, que es la información que el operador necesita verificar.
+  // QR de verdad, también en rollo.
+  //
+  // Antes acá salía el texto `[QR] https://…`. En la VISTA PREVIA era una
+  // aproximación defendible ("el QR lo dibuja la térmica"), pero este mismo
+  // HTML es lo que se IMPRIME en un binding `native` (transport native / mode
+  // native, ver context/modules/18-impresion.md regla 2) — donde no hay
+  // encoder ESC/POS que dibuje nada. En ese camino el comprobante salía con la
+  // URL literal precedida de "[QR]" en vez de un código escaneable, y el
+  // comprador no tenía cómo consultar el documento.
+  //
+  // El alto del gráfico es el que reservó la grilla (`rows`), igual que el
+  // logo — el QR se dibuja CUADRADO de ese lado para no deformarse.
+  const side = Math.max(8, g.rows * rowHeightMm)
   const caption = g.caption ? `<div style="${align}">${esc(g.caption)}</div>` : ""
-  return `<div style="${align}">[QR] ${esc(g.value)}</div>${caption}`
+  return (
+    `<div style="${align}">` +
+    `<div style="display:inline-block;width:${side.toFixed(3)}mm;height:${side.toFixed(3)}mm">` +
+    // El SVG se pide en px por comodidad del generador y se estira al mm del
+    // rollo con width/height al 100% del contenedor.
+    `${qrSvgMarkup(g.value, { sizePx: 256 }).replace(/^<svg /, '<svg style="width:100%;height:100%" ')}` +
+    `</div></div>${caption}`
+  )
 }
 
 /**
