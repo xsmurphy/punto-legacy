@@ -188,7 +188,9 @@ final class ProductionBatchService
         // sobre una pantalla que recalcula en cada tecleo.
         $trackedIds = [];
         foreach ($leaves as $leaf) {
-            if ($leaf['stockLeaf'] === true) {
+            // Mismo predicado que abajo y que `RecipeCapacity`: hoja de stock
+            // Y con control de inventario.
+            if ($leaf['stockLeaf'] === true && ($names[$leaf['itemId']]['tracked'] ?? false)) {
                 $trackedIds[] = $leaf['itemId'];
             }
         }
@@ -200,8 +202,15 @@ final class ProductionBatchService
         foreach ($leaves as $leaf) {
             $id      = $leaf['itemId'];
             $needed  = (float) $leaf['qty'];
-            $tracked = $leaf['stockLeaf'] === true;
             $meta    = $names[$id] ?? null;
+            // Las DOS condiciones, no solo `stockLeaf`: la hoja de stock dice
+            // que la explosión corta ahí, y `itemtrackinventory` dice que ese
+            // ítem realmente se descuenta (`manageStock()` es no-op por debajo
+            // de 1). Un ítem con `itemproduction` y el trackeo apagado no mueve
+            // una sola fila de ledger; contarlo como trackeado le mostraba al
+            // cocinero un faltante contra un saldo 0 que nunca va a existir.
+            // Mismo predicado que `RecipeCapacity`.
+            $tracked = $leaf['stockLeaf'] === true && ($meta['tracked'] ?? false);
 
             if ($tracked) {
                 // Ausente del mapa = ese insumo nunca tuvo movimiento en el
@@ -647,38 +656,12 @@ final class ProductionBatchService
      */
     private function loadItems(string $companyId, array $itemIds): array
     {
-        $ids = array_values(array_unique(array_filter($itemIds, static fn ($v): bool => (string) $v !== '')));
-        if ($ids === []) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $params       = $ids;
-        $params[]     = $companyId;
-
-        // forceObj=true → recordset: iterar con `while (!$rs->EOF)`.
-        $rs  = ncmExecute(
-            "SELECT itemid, itemname, itemtrackinventory
-               FROM item
-              WHERE itemid IN ($placeholders) AND companyid = ?
-              LIMIT 1000",
-            $params,
-            false,
-            true
-        );
-
-        $out = [];
-        if ($rs !== false && is_object($rs)) {
-            while (!$rs->EOF) {
-                $out[(string) ($rs->fields['itemid'] ?? '')] = [
-                    'name'    => (string) ($rs->fields['itemname'] ?? ''),
-                    'tracked' => !empty($rs->fields['itemtrackinventory']),
-                ];
-                $rs->MoveNext();
-            }
-            $rs->Close();
-        }
-        return $out;
+        // Delega en `RecipeCapacity::itemMeta()`: la capacidad de un plato y la
+        // estimación de un lote piden exactamente lo mismo sobre las hojas de
+        // la misma explosión, y hasta 2026-09-07 la query estaba escrita dos
+        // veces. Una sola definición — si mañana "tracked" deja de ser
+        // `itemtrackinventory` a secas, cambia en un solo lugar.
+        return RecipeCapacity::itemMeta($companyId, $itemIds);
     }
 
     /**

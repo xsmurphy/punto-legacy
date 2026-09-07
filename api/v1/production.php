@@ -5,6 +5,10 @@
  *   GET  /v1/production                              → lista (filtros: status, outletId, from, to, q)
  *   GET  /v1/production?id=<uuid>                     → detalle
  *   GET  /v1/production?resource=capacity&itemId=<uuid>&outletId=<uuid> → capacidad de producción
+ *   GET  /v1/production?resource=producible&itemId=<uuid> → "producibles ahora" POR SUCURSAL
+ *                                                        (ficha del artículo; la sucursal NO va en
+ *                                                         la query: sale del view-scope, o sea del
+ *                                                         header X-Outlet-Id que ya manda el panel)
  *   POST /v1/production                               → crea (body: itemId, outletId, qtyPlanned,
  *                                                        locationId?, outputLocationId?, mode?
  *                                                        'draft'|'immediate', note?; si mode=immediate
@@ -33,6 +37,38 @@ $svc = new \Punto\Api\Production\ProductionService($db);
 
 switch ($method) {
     case 'GET':
+        // "Producibles ahora" de la ficha del artículo. Lectura pura, derivada
+        // del catálogo y del ledger: no crea ni modifica nada.
+        //
+        // Gate `inventory.item.view` y NO `production.manage`, a propósito:
+        // quien puede abrir la ficha de un artículo ya ve su receta y el stock
+        // de cada insumo por sucursal (tab Stock). Exigir el permiso de
+        // ADMINISTRAR producción para VER un número que se deduce de datos que
+        // el mismo usuario ya tiene delante no protege nada — solo le esconde
+        // la conclusión. El permiso de escritura sigue gateando el POST.
+        if ($resource === 'producible') {
+            if (!hasPermission('inventory.item.view')) {
+                apiError('No tenés permiso para esta acción (requiere: inventory.item.view)', 403);
+            }
+            $itemId = (string) ($_GET['itemId'] ?? '');
+            if ($itemId === '') {
+                apiError('itemId es requerido', 422);
+            }
+            // Alcance por sucursal: `effectiveIds()` devuelve [la sucursal
+            // elegida en el selector del panel] o el conjunto asignado al
+            // usuario, y `[]` cuando ese conjunto es global (cero filas en
+            // `contact_outlet` = todas — context/25). No se lee `?outletId=`:
+            // en realm panel la sucursal viaja por `X-Outlet-Id` y bootstrap.php
+            // ya la validó contra el conjunto (403 si no pertenece). Aceptar
+            // además un parámetro sería una segunda puerta sin ese chequeo.
+            $scopeIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
+            try {
+                apiOk($svc->producible($companyId, $itemId, $scopeIds));
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
         if ($resource === 'capacity') {
             $itemId   = (string) ($_GET['itemId'] ?? '');
             $outletId = (string) ($_GET['outletId'] ?? ($ctx['outletId'] ?? ''));

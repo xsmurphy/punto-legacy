@@ -5,6 +5,7 @@ import { api } from "@/lib/api-client"
 import type {
   CompleteProductionOrderPayload,
   CreateProductionOrderPayload,
+  ProducibleNow,
   ProductionCapacity,
   ProductionListFilters,
   ProductionOrder,
@@ -39,9 +40,10 @@ export function useProductionOrder(id: string | null) {
 }
 
 /**
- * Capacidad de producción dado el stock actual de insumos. `capacity: null`
- * significa receta sin insumos con control de stock (capacidad ilimitada) —
- * distinto de `capacity: 0` (sin stock suficiente / sin receta).
+ * Capacidad de producción dado el stock actual de insumos, en UNA sucursal.
+ * `capacity: null` significa que ningún insumo con control de stock limita (no
+ * hay número que dar) — distinto de `capacity: 0`, que es "no se puede producir
+ * ni una". Un ítem sin receta devuelve 0 con `ingredients` vacío.
  */
 export function useProductionCapacity(itemId: string | null, outletId: string | null) {
   return useQuery<ProductionCapacity>({
@@ -49,6 +51,25 @@ export function useProductionCapacity(itemId: string | null, outletId: string | 
     queryFn: () =>
       api.get(`/v1/production?resource=capacity&itemId=${itemId}&outletId=${outletId}`),
     enabled: !!itemId && !!outletId,
+    staleTime: 10 * 1000,
+  })
+}
+
+/**
+ * "Producibles ahora" de la ficha del artículo: la misma capacidad, POR
+ * SUCURSAL. La sucursal NO viaja en la query — sale del view-scope, o sea del
+ * header `X-Outlet-Id` que `api-client` ya manda: con una sucursal elegida en el
+ * selector del panel vuelve esa sola, en consolidado vuelven las asignadas al
+ * usuario. Mismo criterio de alcance que el resto de los lectores del panel.
+ */
+export function useProducibleNow(itemId: string | undefined, enabled = true) {
+  return useQuery<ProducibleNow>({
+    queryKey: ["producible-now", itemId],
+    queryFn: () => api.get(`/v1/production?resource=producible&itemId=${itemId}`),
+    enabled: !!itemId && enabled,
+    // Es una lectura del momento: cualquier venta, compra o ajuste la mueve.
+    // El evento realtime `item` la invalida (use-realtime-sync.ts); el
+    // staleTime corto es el piso para el caso sin websocket.
     staleTime: 10 * 1000,
   })
 }

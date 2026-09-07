@@ -140,105 +140,159 @@ final class ProductionService
     }
 
     /**
-     * Capacidad de producción: mínimo de unidades fabricables dado el stock
-     * actual de insumos (respeta merma % planificada por insumo).
+     * Capacidad de producción de UN plato en UNA sucursal: cuántas unidades
+     * completas salen con el stock actual de sus insumos, y cuál corta.
      *
-     * De UN plato y de UN solo nivel de receta (usa `getCompoundsArray()`
-     * directo, no la explosión recursiva). La capacidad de VARIOS platos a la
-     * vez —"¿cuántos lotes completos salen con lo que hay?"— no se agrega acá:
-     * la responde `ProductionBatchService::estimate()` en `batchCapacity`,
-     * porque no es un mínimo por ítem sino el mínimo sobre la necesidad ya
-     * CONSOLIDADA entre platos. Dos platos que comparten la pechuga compiten
-     * por el mismo saldo, y `min(capacity(A), capacity(B))` daría de más:
-     * cada llamada mira el stock completo como si el otro plato no existiera.
-     * Sin la agregación previa el número no existe, así que vive donde vive la
-     * agregación. `null` sigue significando "ningún insumo con control de
-     * inventario limita", nunca 0 — mismo contrato en las dos.
+     * La aritmética NO vive acá: la resuelve `RecipeCapacity`, sobre la MISMA
+     * explosión recursiva que mueve el stock (`explodeRecipeDetailed`). Hasta
+     * 2026-09-07 este método usaba `getCompoundsArray()` directo —un solo nivel
+     * de receta— y una sub-preparación sin stock propio no limitaba: el plato
+     * informaba capacidad de sobra con la harina de su masa en cero. Era una
+     * SEGUNDA definición de "qué consume esta receta", divergente de la que
+     * después descontaba `complete()`. Ver el docblock de `RecipeCapacity`.
+     *
+     * La capacidad de VARIOS platos a la vez —"¿cuántos lotes completos salen
+     * con lo que hay?"— sigue sin agregarse acá: la responde
+     * `ProductionBatchService::estimate()` en `batchCapacity`, porque no es un
+     * mínimo por ítem sino el mínimo sobre la necesidad ya CONSOLIDADA entre
+     * platos. Dos platos que comparten la pechuga compiten por el mismo saldo,
+     * y `min(capacity(A), capacity(B))` daría de más: cada llamada mira el
+     * stock completo como si el otro plato no existiera.
+     *
+     * `capacity: null` = ningún insumo con control de inventario limita, nunca
+     * 0 — mismo contrato en las dos. Sin receta devuelve 0 con las dos listas
+     * vacías (el front distingue "no se puede producir" de "no tiene receta"
+     * por `ingredients` vacío, contrato preexistente).
+     *
+     * `directIngredients` es el NIVEL 1 de la receta y no alimenta el cálculo:
+     * está porque `complete()` indexa `ingredientAdjustments` por insumo
+     * DIRECTO. Ver el comentario en `RecipeCapacity::recipeFor()`.
+     *
+     * @return array{capacity:int|null,limiting:array<string,mixed>|null,ingredients:list<array<string,mixed>>,directIngredients:list<array<string,mixed>>}
      */
     public function capacity(string $companyId, string $itemId, string $outletId): array
     {
-        $item = ncmExecute(
-            'SELECT itemid FROM item WHERE itemid = ? AND companyid = ? AND itemstatus = 1 LIMIT 1',
-            [$itemId, $companyId]
+        $recipe = RecipeCapacity::recipeFor($companyId, $itemId);
+        if (!$recipe['hasRecipe']) {
+            return ['capacity' => 0, 'limiting' => null, 'ingredients' => [], 'directIngredients' => []];
+        }
+
+        $out = RecipeCapacity::evaluate(
+            $recipe,
+            Inventory::onHandFor(self::stockLeafIds($recipe), $outletId)
         );
-        if (!$item) {
-            throw new \InvalidArgumentException('itemId inválido para este tenant');
+        $out['directIngredients'] = $recipe['direct'];
+
+        return $out;
+    }
+
+    /**
+     * "Producibles ahora" para la ficha del artículo: la misma capacidad, pero
+     * por sucursal y sin exigir que el caller elija una.
+     *
+     * Pedido del owner (2026-09-07): entrar a un producto que se arma sobre
+     * pedido y ver cuántas unidades salen hoy, con el insumo que corta al lado.
+     *
+     * Por qué acá y no un servicio nuevo: es la MISMA pregunta que `capacity()`
+     * respondida sobre N sucursales. La receta se explota UNA vez (no depende
+     * de la sucursal) y lo único que se repite por sucursal es la lectura del
+     * saldo — explotar N veces la misma receta para N sucursales sería pagar el
+     * costo caro del cálculo por nada.
+     *
+     * `$outletIds` vacío = todas las sucursales ACTIVAS del tenant, que es lo
+     * que significa el view-scope consolidado (`OutletScope::effectiveIds()`
+     * devuelve `[]` cuando el usuario no tiene sucursales asignadas: cero filas
+     * en `contact_outlet` es alcance global, ver `context/25`). Con una
+     * sucursal puntual seleccionada en el panel viene esa sola.
+     *
+     * Una query de saldo por sucursal: `onHandFor()` es el único lector de
+     * saldo (D2 de `context/52`) y mide contra UNA sucursal. Un comercio tiene
+     * unidades de sucursales, no cientos — y la alternativa (un lector nuevo
+     * que agrupe por sucursal) sería una tercera definición de saldo.
+     *
+     * @param  list<string> $outletIds
+     * @return array{hasRecipe:bool,outlets:list<array<string,mixed>>}
+     */
+    public function producible(string $companyId, string $itemId, array $outletIds): array
+    {
+        $recipe = RecipeCapacity::recipeFor($companyId, $itemId);
+        if (!$recipe['hasRecipe']) {
+            return ['hasRecipe' => false, 'outlets' => []];
         }
 
-        $recipe = Inventory::getCompoundsArray($itemId);
-        if (!is_array($recipe) || $recipe === []) {
-            return ['capacity' => 0, 'ingredients' => []];
-        }
+        $leafIds = self::stockLeafIds($recipe);
+        $outlets = [];
 
-        $inventory   = [];
-        $waste       = [];
-        $ingredients = [];
-        $trackedRecipe = [];
-
-        foreach ($recipe as $ing) {
-            $childId = $ing['compoundId'];
-
-            $childRow = ncmExecute(
-                // `itemWaste` vive en el JSONB `data`, no es columna (demote de item):
-                // leerlo como columna tira 42703 y aborta la TX entera. El CASE
-                // filtra por tipo antes de castear — hay ítems con el valor
-                // guardado como booleano y un `::numeric` suelto revienta.
-                "SELECT CASE WHEN jsonb_typeof(data->'itemWaste') = 'number'
-                          THEN (data->>'itemWaste')::numeric ELSE 0 END AS itemwaste,
-                        itemtrackinventory
-                   FROM item WHERE itemid = ? AND companyid = ? LIMIT 1",
-                [$childId, $companyId]
+        foreach ($this->scopedOutlets($companyId, $outletIds) as $outlet) {
+            $outlets[] = [
+                'outletId'   => $outlet['outletId'],
+                'outletName' => $outlet['outletName'],
+            ] + RecipeCapacity::evaluate(
+                $recipe,
+                Inventory::onHandFor($leafIds, $outlet['outletId'])
             );
-            $wasteP  = $childRow ? (float) ($childRow['itemwaste'] ?? 0) : 0.0;
-            $tracked = $childRow ? !empty($childRow['itemtrackinventory']) : false;
+        }
 
-            // Insumo sin control de stock (insumo_sin_stock: agua, sal,
-            // condimentos) NO limita la capacidad — su "stock" es infinito a
-            // efectos de producción. Se excluye del cálculo (si entrara con
-            // onHand=0 forzaría capacidad 0 para toda la receta).
-            if (!$tracked) {
-                $ingredients[] = [
-                    'itemId'       => $childId,
-                    'qtyPerUnit'   => (float) $ing['toCompoundQty'],
-                    'onHand'       => null,
-                    'wastePercent' => $wasteP,
-                    'tracked'      => false,
-                ];
-                continue;
+        return ['hasRecipe' => true, 'outlets' => $outlets];
+    }
+
+    /**
+     * Los insumos cuyo saldo hay que leer: solo los que LIMITAN. Pedir el saldo
+     * de una hoja sin ledger (agua, sal) traería 0 y no significaría nada.
+     *
+     * @param  array{leaves:list<array<string,mixed>>} $recipe
+     * @return list<string>
+     */
+    private static function stockLeafIds(array $recipe): array
+    {
+        $ids = [];
+        foreach ($recipe['leaves'] as $leaf) {
+            if ($leaf['limits'] === true) {
+                $ids[] = (string) $leaf['itemId'];
             }
+        }
+        return $ids;
+    }
 
-            // F1 de context/52 — el saldo sale del LEDGER (`SUM(stockCount)`),
-            // no del snapshot `stockOnHand` de la última fila: con un insumo
-            // comprado con fecha retroactiva el snapshot queda viejo y la
-            // capacidad se calculaba contra un stock que no existía (o se
-            // negaba a producir teniendo insumos). El tab Stock ya mostraba el
-            // SUM — la capacidad decía otra cosa para el mismo insumo.
-            $onHand = Inventory::onHand($childId, $outletId);
-            $inventory[$childId] = ['onHand' => $onHand];
-            $waste[$childId]     = $wasteP;
-            $trackedRecipe[]     = $ing;
+    /**
+     * Sucursales activas del tenant, acotadas al alcance recibido.
+     *
+     * @param  list<string> $outletIds `[]` = todas (alcance consolidado).
+     * @return list<array{outletId:string,outletName:string}>
+     */
+    private function scopedOutlets(string $companyId, array $outletIds): array
+    {
+        $params = [$companyId];
+        // `sqlFilter` interpola uuids que re-valida contra su propio regex, y
+        // devuelve '' cuando el alcance es vacío (= sin filtro). Es el mismo
+        // idiom que usan los lectores de inventario y rollup — no se arma el
+        // IN a mano acá.
+        $cut = \Punto\Api\Outlets\OutletScope::sqlFilter('o.outletId', $outletIds);
 
-            $ingredients[] = [
-                'itemId'       => $childId,
-                'qtyPerUnit'   => (float) $ing['toCompoundQty'],
-                'onHand'       => $onHand,
-                'wastePercent' => $wasteP,
-                'tracked'      => true,
-            ];
+        // forceObj=true → recordset, NO array: iterar con `while (!$rs->EOF)`.
+        $rs = ncmExecute(
+            "SELECT o.outletId, o.outletName
+               FROM outlet o
+              WHERE o.companyId = ? AND o.outletStatus = 1{$cut}
+              ORDER BY o.outletName ASC",
+            $params,
+            false,
+            true
+        );
+
+        $out = [];
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $out[] = [
+                    'outletId'   => (string) ($rs->fields['outletid'] ?? ''),
+                    'outletName' => (string) ($rs->fields['outletname'] ?? ''),
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
         }
 
-        // Receta compuesta SOLO por insumos no-stockeables → capacidad
-        // ilimitada en la práctica; devolvemos null (el front decide cómo
-        // presentarlo) en vez de 0 (que significaría "no se puede producir").
-        if ($trackedRecipe === []) {
-            return ['capacity' => null, 'ingredients' => $ingredients];
-        }
-
-        // Inventory::getProductionCapacity ya divide con Math::divide (0 si el
-        // denominador es 0) — no hay riesgo de división por cero acá.
-        $capacity = Inventory::getProductionCapacity($trackedRecipe, $inventory, $waste);
-
-        return ['capacity' => $capacity, 'ingredients' => $ingredients];
+        return $out;
     }
 
     /**

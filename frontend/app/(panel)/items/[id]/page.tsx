@@ -108,6 +108,7 @@ import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
+import { ProducibleCard } from "@/components/items/producible-card"
 import { AddonsSection } from "@/components/items/addons-section"
 import { CurrencyPriceField } from "@/components/items/currency-price-field"
 import { LocationsEditor } from "@/components/items/locations-editor"
@@ -2027,6 +2028,12 @@ function ProduccionTab({
           <CompoundsEditor itemId={id} kind={kind} />
         </CardContent>
       </Card>
+
+      {/* Cuántas unidades salen HOY con el stock de esos insumos. Va debajo de
+          la receta y no arriba porque es su consecuencia, no su encabezado. No
+          se renderiza para un ítem nuevo (todavía no tiene id ni receta), ni
+          cuando el server dice que no hay receta cargada. */}
+      {!isNew && <ProducibleCard itemId={id} />}
 
       <FormField
         control={form.control}
