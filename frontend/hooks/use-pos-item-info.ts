@@ -12,6 +12,9 @@
  * sentido a medias: mostrar el precio mientras el stock sigue cargando obliga
  * al cajero a esperar igual, con el layout saltando en el medio.
  *
+ * `usePosItemProducible()` (más abajo) es la excepción y queda aparte: solo
+ * aplica a ítems con receta y su fallo no debe tumbar el resto de la ficha.
+ *
  * Cliente: `posFetch` (Bearer del device, realm `pos-app`). NUNCA `api-client`
  * — ese lleva la cookie del panel y en un device sin sesión de operador da 401
  * silencioso (regla del proyecto: un cliente HTTP por realm).
@@ -203,6 +206,88 @@ export function usePosItemInfo(itemId: string | null) {
         detail: normalizeDetail(detail),
         stock: normalizeBreakdown(stock?.breakdown),
       }
+    },
+  })
+}
+
+// ── Producibles ahora ──────────────────────────────────────────────────────
+
+/** El insumo que topea la producción: el de menor capacidad de la receta. */
+export interface PosProducibleLimiting {
+  itemId: string
+  itemName: string
+  /** Saldo del insumo en la sucursal de esta caja. */
+  onHand: number | null
+  neededPerUnit: number
+  unitsSupported: number | null
+}
+
+export interface PosProducible {
+  hasRecipe: boolean
+  /**
+   * Unidades que salen HOY con el stock de los insumos en la sucursal de esta
+   * caja. `null` = ningún insumo con control de inventario limita (la receta es
+   * toda de insumos sin stock: agua, sal, condimentos), que NO es 0 — 0 es "no
+   * sale ni una".
+   */
+  capacity: number | null
+  limiting: PosProducibleLimiting | null
+}
+
+function normalizeProducible(raw: unknown): PosProducible {
+  const src = (raw ?? {}) as { hasRecipe?: unknown; outlets?: unknown }
+  const outlets = Array.isArray(src.outlets) ? src.outlets : []
+  // El realm del device acota el alcance a SU sucursal, así que la API devuelve
+  // una sola entrada. Se toma la primera en vez de buscar por outletId: el
+  // device no conoce su propio outletId acá, y pedirlo para filtrar una lista
+  // de un elemento sería inventarse una dimensión que el backend ya resolvió.
+  const outlet = (outlets[0] ?? {}) as Record<string, unknown>
+  const limitingRaw = outlet.limiting as Record<string, unknown> | null | undefined
+  return {
+    hasRecipe: src.hasRecipe === true,
+    capacity: toNullableNumber(outlet.capacity),
+    limiting:
+      limitingRaw === null || limitingRaw === undefined
+        ? null
+        : {
+            itemId: String(limitingRaw.itemId ?? ""),
+            itemName: typeof limitingRaw.itemName === "string" ? limitingRaw.itemName : "",
+            onHand: toNullableNumber(limitingRaw.onHand),
+            neededPerUnit: toNumber(limitingRaw.neededPerUnit, 0),
+            unitsSupported: toNullableNumber(limitingRaw.unitsSupported),
+          },
+  }
+}
+
+/**
+ * "Producibles ahora" de un ítem con receta.
+ *
+ * Query APARTE de `usePosItemInfo` y no dentro de su `Promise.all`, por dos
+ * razones:
+ *
+ *   1. **No se pide para el 99% del catálogo.** Solo un ítem con receta tiene
+ *      producibles; `enabled` corta antes de gastar una request. El caller pasa
+ *      `hasRecipe` desde el catálogo local (`compoundItems`), que ya viaja en el
+ *      bootstrap — no hay que ir a la red para saber si vale la pena ir a la red.
+ *   2. **Su fallo no puede tumbar la ficha.** Es un cálculo que necesita
+ *      conexión (explosión de receta contra el ledger, no un dato del
+ *      snapshot); sin red, la sección lo dice y el resto de la ficha —incluida
+ *      la composición de la receta, que sí es local— se muestra igual.
+ *
+ * `retry: false`: en una caja sin red el reintento solo demora el mensaje que
+ * el cajero ya necesita leer.
+ */
+export function usePosItemProducible(itemId: string | null, hasRecipe: boolean) {
+  return useQuery<PosProducible>({
+    queryKey: ["pos", "item-producible", itemId],
+    enabled: itemId !== null && hasRecipe,
+    staleTime: 15 * 1000,
+    retry: false,
+    queryFn: async () => {
+      const id = encodeURIComponent(itemId as string)
+      return normalizeProducible(
+        await posGetJson<Record<string, unknown>>(`/api/pos/items?id=${id}&resource=producible`),
+      )
     },
   })
 }

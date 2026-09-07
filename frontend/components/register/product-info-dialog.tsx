@@ -56,7 +56,12 @@ import {
   type StockStatus,
 } from "@/lib/stock-status"
 import { cn } from "@/lib/utils"
-import { usePosItemInfo, type PosItemImage, type PosItemStockOutlet } from "@/hooks/use-pos-item-info"
+import {
+  usePosItemInfo,
+  usePosItemProducible,
+  type PosItemImage,
+  type PosItemStockOutlet,
+} from "@/hooks/use-pos-item-info"
 import type { PosConfig, PosItem, PosTaxRate } from "@/lib/types/pos-bootstrap"
 import { KIND_META, type ItemKind } from "@/lib/types/item"
 
@@ -191,6 +196,13 @@ export function ProductInfoDialog({ item, onClose }: Props) {
   // Reactivo (hooks/use-online-status): la lectura suelta de `navigator.onLine`
   // que había acá no se actualizaba si la red se caía con la ficha abierta.
   const offline = !useOnlineStatus()
+
+  // ¿Este ítem se arma con una receta? Sale del catálogo CACHEADO
+  // (`compoundItems` viaja en el bootstrap, context/41), no de la red: es lo
+  // que decide si vale la pena pedir "producibles ahora", y preguntárselo al
+  // servidor para saber si hay que preguntarle al servidor no tiene sentido.
+  const hasRecipe = (item?.compoundItems?.length ?? 0) > 0
+  const producible = usePosItemProducible(item?.id ?? null, hasRecipe)
 
   return (
     <Dialog open={item !== null} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -349,6 +361,78 @@ export function ProductInfoDialog({ item, onClose }: Props) {
               </>
             )}
 
+            {/* ── Producibles ahora ────────────────────────────────────────
+                Cuántas unidades salen HOY con el stock de los insumos en la
+                sucursal de esta caja, y cuál es el insumo que topea. Reemplaza
+                al "este ítem no lleva control de stock" para el ítem de
+                producción, que era literal pero inútil en el mostrador: la
+                pregunta del cajero no es si el plato tiene saldo, es cuántos
+                puede prometer.
+
+                NO viaja en el snapshot del catálogo (decisión cerrada): es una
+                explosión de receta contra el ledger, se recalcula con cada
+                movimiento de cualquiera de los insumos. Por eso se pide al
+                abrir la ficha y por eso sin red no hay número — la composición,
+                que sí es dato del catálogo, se sigue viendo arriba. */}
+            {hasRecipe && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Producibles ahora
+                </p>
+                <div className="rounded-lg border border-border p-4">
+                  {producible.isPending ? (
+                    <div className="flex flex-col gap-2">
+                      <Skeleton className="h-7 w-24" />
+                      <Skeleton className="h-4 w-2/3" />
+                    </div>
+                  ) : producible.isError ? (
+                    <div className="flex items-start gap-2.5">
+                      {offline ? (
+                        <WifiOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      ) : (
+                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      )}
+                      <p className="text-sm text-muted-foreground">
+                        {offline
+                          ? "Sin conexión — cuántas unidades salen se calcula con el stock de los insumos y necesita red. La composición de arriba sale del catálogo guardado en la caja."
+                          : "No se pudo calcular cuántas unidades salen. Probá de nuevo en unos segundos."}
+                      </p>
+                    </div>
+                  ) : producible.data?.capacity === null ? (
+                    // `null` (≠ 0): ningún insumo de la receta lleva control de
+                    // inventario, así que no hay tope que calcular.
+                    <p className="text-sm text-muted-foreground">
+                      Ningún insumo de la receta lleva control de stock, así que no hay un tope
+                      que calcular.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-1">
+                      <p
+                        className={cn(
+                          "text-2xl font-semibold tabular-nums",
+                          (producible.data?.capacity ?? 0) <= 0 && "text-destructive",
+                        )}
+                      >
+                        {formatQty(producible.data?.capacity ?? 0, config)}
+                        {uom ? (
+                          <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                            {uom}
+                          </span>
+                        ) : null}
+                      </p>
+                      {producible.data?.limiting && (
+                        <p className="text-sm text-muted-foreground">
+                          Limita {producible.data.limiting.itemName}:{" "}
+                          {formatQty(producible.data.limiting.onHand, config)} en stock,{" "}
+                          {formatQty(producible.data.limiting.neededPerUnit, config)} por unidad.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             <Separator />
 
             {/* ── Stock ───────────────────────────────────────────────────── */}
@@ -366,8 +450,13 @@ export function ProductInfoDialog({ item, onClose }: Props) {
 
               {!trackInventory ? (
                 <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-                  Este ítem no lleva control de stock, así que no tiene saldo ni alertas.
-                  Se puede vender siempre.
+                  {hasRecipe
+                    ? // Un ítem de producción sin saldo propio no "se puede vender
+                      // siempre": se puede vender mientras haya insumos, y eso ya
+                      // está resuelto arriba en Producibles ahora. Decirle al cajero
+                      // que no tiene límite sería falso.
+                      "Este ítem no guarda saldo propio: se arma con su receta al vender. Cuántas unidades salen está arriba, en Producibles ahora."
+                    : "Este ítem no lleva control de stock, así que no tiene saldo ni alertas. Se puede vender siempre."}
                 </p>
               ) : isError ? (
                 <div className="flex flex-col items-start gap-3 rounded-lg border border-border p-4">

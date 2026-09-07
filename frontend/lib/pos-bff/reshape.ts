@@ -61,6 +61,17 @@ export interface UpstreamItemRow {
    * decodifica el `json_agg` a este shape exacto.
    */
   compoundItems?: PosCompoundItem[] | null
+  /**
+   * Saldo de inventario del ítem EN LA SUCURSAL DE LA CAJA (no consolidado
+   * del tenant), o `null` si el ítem no lleva control de inventario.
+   *
+   * Lo resuelve `fetchItems()` (`api/lib/Items/ItemsQuery.php`) con
+   * `Inventory::onHandFor()`, el lector canónico del ledger, para los TRES
+   * caminos por los que baja catálogo al POS: bootstrap, bulk-get quirúrgico
+   * y delta de sync. Que sea la misma función en los tres es lo que hace
+   * confiable al número: llegue por donde llegue, significa lo mismo.
+   */
+  stockOnHand?: number | string | null
 }
 
 export function reshapeItem(row: UpstreamItemRow): PosItem {
@@ -90,10 +101,34 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
       return Number.isFinite(n) ? n : null
     })(),
     trackInventory: row.itemTrackInventory ?? false,
-    // TODO (A6+): pedir stock real al depósito del outlet activo. El LIST de
-    // /v1/items no incluye stock — habría que componer con /v1/items?resource=inventory
-    // por item o agregar un endpoint /v1/stock?outletId=X. Por ahora null = sin info.
-    stock: null,
+    // Saldo de la sucursal de ESTA caja. Por qué el número es confiable sin
+    // pedirlo aparte (2026-09-07):
+    //
+    //   - Viaja en el snapshot: `fetchItems()` (backend) lo resuelve con
+    //     `Inventory::onHandFor()` —el lector único del ledger, D2 de
+    //     `context/52`— en los tres caminos que bajan catálogo (bootstrap,
+    //     bulk-get, delta de sync), así que no puede significar una cosa por
+    //     un camino y otra por el otro.
+    //   - Se mantiene solo, línea por línea: TODO movimiento de stock pasa por
+    //     `Inventory::manageStock()`, que publica un evento realtime `item`
+    //     batcheado por request (`flushRealtimeStockEvents()`); el POS lo
+    //     escucha en `lib/catalog/realtime-catalog-sync.ts`, repide SOLO esos
+    //     ids por bulk-get y los mergea. Sin polling y sin request extra.
+    //   - Sin red se muestra el último saldo sincronizado, tal cual quedó
+    //     (decisión del owner: el modo offline es para cortes temporales y el
+    //     dato derivado viejo se acepta; no se esconde el número ni se marca).
+    //
+    // `null` = el ítem no lleva control de inventario. No es 0: un servicio o
+    // un combo dinámico no tiene saldo, y un 0 lo pintaría "sin stock".
+    stock: (() => {
+      if (row.stockOnHand === null || row.stockOnHand === undefined || row.stockOnHand === "") {
+        return null
+      }
+      // NUMERIC de Postgres puede llegar como string según driver — mismo
+      // cuidado que `itemDiscount` arriba: NaN contaminaría el semáforo.
+      const n = Number(row.stockOnHand)
+      return Number.isFinite(n) ? n : null
+    })(),
     isGroup: row.itemIsParent === true,
     parentId: row.itemParentId ?? null,
     // F4 (context/41): PG con PDO puede devolver el boolean del EXISTS como

@@ -4,7 +4,12 @@
  *   GET /api/pos/items?id=<uuid>
  *       → detalle del ítem (nombre, descripción, precio, etiquetas, umbrales)
  *   GET /api/pos/items?id=<uuid>&resource=inventory-movements
- *       → { summary, breakdown: { total, outlets[] }, items[] }
+ *       → { breakdown: { total, outlets[] } }
+ *   GET /api/pos/items?id=<uuid>&resource=producible
+ *       → { hasRecipe, outlets: [{ outletId, outletName, capacity, limiting }] }
+ *         "Producibles ahora" de un ítem con receta. Va contra
+ *         `/v1/production?resource=producible` (motor `RecipeCapacity`), no
+ *         contra `/v1/items`.
  *
  * Auth: Bearer del device (`_jwt` en localStorage) — realm `pos-app`, que
  * `api/v1/items.php` ya acepta (`apiAuthTenant(['panel','pos-app'])`).
@@ -44,8 +49,14 @@ import { bffProxy } from "@/lib/bff/proxy"
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-/** Recursos de `/v1/items` que la ficha del POS puede consultar. */
-const ALLOWED_RESOURCES = new Set(["", "inventory-movements"])
+/**
+ * Recursos que la ficha del POS puede consultar. Los dos primeros van a
+ * `/v1/items`; `producible` va a `/v1/production` (ver `upstreamFor()`) — se
+ * expone por acá y no con un route propio porque para el cajero es una sección
+ * MÁS de la misma ficha, y así el whitelist de lo que un device puede leer del
+ * catálogo queda en un solo archivo.
+ */
+const ALLOWED_RESOURCES = new Set(["", "inventory-movements", "producible"])
 
 /**
  * Campos escalares del detalle que viajan al device. Todo lo demás (costo,
@@ -130,6 +141,72 @@ function projectStock(raw: unknown): Record<string, unknown> {
   }
 }
 
+/**
+ * "Producibles ahora": cuántas unidades salen HOY con el stock de los insumos,
+ * y cuál es el que limita. El cálculo es la explosión de la receta contra el
+ * ledger (`RecipeCapacity`), no un dato del catálogo — por eso se pide al abrir
+ * la ficha y no viaja en el bootstrap.
+ *
+ * Proyección, no denylist, por el mismo motivo que `projectDetail()`: el
+ * upstream devuelve un ingrediente por hoja de la receta y cualquier campo que
+ * le agreguen mañana (costos, por ejemplo) no llega al device hasta que alguien
+ * lo ponga acá a propósito.
+ *
+ * El realm `pos-app` acota el alcance a la sucursal del dispositivo, así que
+ * `outlets` trae exactamente una entrada — se proyecta igual como lista para no
+ * inventar un shape distinto del que devuelve la API.
+ */
+function projectProducible(raw: unknown): Record<string, unknown> {
+  const src = asRecord(raw)
+  return {
+    hasRecipe: src.hasRecipe === true,
+    outlets: asArray(src.outlets).map((o) => {
+      const outlet = asRecord(o)
+      const limiting = asRecord(outlet.limiting)
+      return {
+        outletId: outlet.outletId ?? "",
+        outletName: outlet.outletName ?? "",
+        // `null` = ningún insumo con control de inventario limita. NO es 0,
+        // que significa "no se puede producir ni una".
+        capacity: outlet.capacity ?? null,
+        limiting:
+          outlet.limiting === null || outlet.limiting === undefined
+            ? null
+            : {
+                itemId: limiting.itemId ?? "",
+                itemName: limiting.itemName ?? "",
+                onHand: limiting.onHand ?? null,
+                neededPerUnit: limiting.neededPerUnit ?? 0,
+                unitsSupported: limiting.unitsSupported ?? null,
+              },
+      }
+    }),
+  }
+}
+
+/**
+ * A qué endpoint de la API va cada recurso de la ficha. `producible` es el
+ * único que sale de `/v1/items`.
+ */
+function upstreamFor(resource: string, id: string): string {
+  if (resource === "producible") {
+    // La sucursal NO viaja en la query: el realm `pos-app` la resuelve desde la
+    // fila del device (ver el guard de `api/v1/production.php`). Mandarla desde
+    // el browser sería una segunda puerta sin ese chequeo.
+    return `/v1/production?resource=producible&itemId=${encodeURIComponent(id)}`
+  }
+  const qs = new URLSearchParams({ id })
+  if (resource !== "") qs.set("resource", resource)
+  if (resource === "inventory-movements") {
+    // La ficha muestra el saldo por sucursal/depósito (`breakdown`), no el
+    // historial: se pide la página mínima para no arrastrar movimientos que
+    // nadie va a renderizar por una red de caja que puede ser 3G.
+    qs.set("limit", "1")
+    qs.set("offset", "0")
+  }
+  return `/v1/items?${qs.toString()}`
+}
+
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams
   const id = (sp.get("id") ?? "").trim()
@@ -148,18 +225,8 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  const qs = new URLSearchParams({ id })
-  if (resource !== "") qs.set("resource", resource)
-  if (resource === "inventory-movements") {
-    // La ficha muestra el saldo por sucursal/depósito (`breakdown`), no el
-    // historial: se pide la página mínima para no arrastrar movimientos que
-    // nadie va a renderizar por una red de caja que puede ser 3G.
-    qs.set("limit", "1")
-    qs.set("offset", "0")
-  }
-
   const upstream = await bffProxy(req, {
-    upstreamPath: `/v1/items?${qs.toString()}`,
+    upstreamPath: upstreamFor(resource, id),
     requireBearer: true,
   })
 
@@ -188,6 +255,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(body, { status: upstream.status, headers })
   }
 
-  const data = resource === "" ? projectDetail(body.data) : projectStock(body.data)
-  return NextResponse.json({ ok: true, data }, { status: upstream.status, headers })
+  const project =
+    resource === "" ? projectDetail : resource === "producible" ? projectProducible : projectStock
+  return NextResponse.json(
+    { ok: true, data: project(body.data) },
+    { status: upstream.status, headers },
+  )
 }

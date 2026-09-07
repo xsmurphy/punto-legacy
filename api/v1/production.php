@@ -19,18 +19,37 @@
  *                                                        wasteReasonId?, ingredientAdjustments?)
  *   POST /v1/production?id=<uuid>&action=cancel        → cancela (solo draft/in_progress)
  *
- * Auth: panel. Escritura (POST) gateada por production.manage.
+ * Auth: `panel` para todo; `pos-app` (Bearer del dispositivo) ÚNICAMENTE para
+ * `resource=producible` — ver el guard debajo. Escritura (POST) gateada por
+ * production.manage, que el rol seed `device` no tiene.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel']);
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 $userId    = $ctx['userId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $id        = $_GET['id'] ?? null;
 $resource  = $_GET['resource'] ?? null;
 $action    = $_GET['action'] ?? null;
+
+// ── Guard de realm: qué alcanza el token de una CAJA ───────────────────────
+// El device entra a este archivo por UNA sola puerta: "producibles ahora" de la
+// ficha del producto en `/pos` (2026-09-07). Sumar `pos-app` arriba sin este
+// corte le abriría además el listado y el detalle de órdenes de producción —
+// que son gestión del comercio, no algo que se opere desde el mostrador. Es el
+// mismo criterio con el que `items.php` recorta al device a GET + bulk-get: la
+// superficie se declara acá, y una rama nueva nace cerrada en vez de heredar
+// acceso por el solo hecho de estar en el archivo.
+//
+// El POST ya estaba cubierto por `production.manage` (el rol seed `device` no
+// lo tiene), pero un 403 por permiso es una defensa de segunda línea: lo que
+// corresponde es que el realm ni siquiera llegue ahí.
+$isDevice = ($ctx['realm'] ?? '') === 'pos-app';
+if ($isDevice && !($method === 'GET' && $resource === 'producible')) {
+    apiError('No disponible para el POS', 404);
+}
 
 global $db;
 $svc = new \Punto\Api\Production\ProductionService($db);
@@ -61,7 +80,24 @@ switch ($method) {
             // en realm panel la sucursal viaja por `X-Outlet-Id` y bootstrap.php
             // ya la validó contra el conjunto (403 si no pertenece). Aceptar
             // además un parámetro sería una segunda puerta sin ese chequeo.
-            $scopeIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
+            //
+            // Realm `pos-app`: el alcance es la sucursal del DISPOSITIVO, y sale
+            // de la fila `device` que resolvió `apiAuthTenant()` — nunca de la
+            // query. Se escribe explícito y no se delega en `effectiveIds()`
+            // (que hoy caería en `OUTLET_ID` y daría lo mismo) porque el POS no
+            // puede quedar atado a un default: si mañana esa resolución cambia,
+            // una caja empezaría a ver los producibles de otra sucursal sin que
+            // nada falle. Y si la dimensión falta, se corta — el POS no inventa
+            // la sucursal que le falta (misma regla que el bootstrap).
+            if ($isDevice) {
+                $deviceOutletId = (string) ($ctx['outletId'] ?? '');
+                if ($deviceOutletId === '') {
+                    apiError('El dispositivo no tiene sucursal asignada', 409);
+                }
+                $scopeIds = [$deviceOutletId];
+            } else {
+                $scopeIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
+            }
             try {
                 apiOk($svc->producible($companyId, $itemId, $scopeIds));
             } catch (\Throwable $e) {
