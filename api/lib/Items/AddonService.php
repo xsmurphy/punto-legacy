@@ -25,9 +25,15 @@ namespace Punto\Api\Items;
  *     cuántas de cada sabor, el total es 100"). Son dos contadores
  *     EXCLUYENTES sobre las mismas dos columnas, no dos límites que convivan.
  *
- * Tablas nuevas (mig 134): camelCase QUOTED. `item`/`company` son tablas
- * legacy: sus columnas van sin quotes (context/08-convenciones-criticas.md
- * §44) — PG las resuelve a lowercase en ambos lados.
+ * CASING — este comentario decía "tablas nuevas (mig 134): camelCase QUOTED"
+ * y quedó DESACTUALIZADO: la mig **150** normalizó el schema entero a
+ * lowercase, así que hoy las columnas reales son `maxqty`, `minselect`,
+ * `qtymode`. Las queries de acá abajo ya lo reflejan (por eso `ago.maxqty` y
+ * no `ago."maxQty"`), pero el docblock seguía prometiendo lo contrario y
+ * escribir `ALTER TABLE ... "maxQty"` confiando en él tiró la primera corrida
+ * de la mig 203. Todo identificador va lowercase sin comillas; las únicas
+ * comillas que quedan son las de palabras reservadas (`"name"`, `"sort"`,
+ * `"status"`), que apuntan igual a la columna lowercase.
  */
 final class AddonService
 {

@@ -242,6 +242,19 @@ export function AddonPickerDialog() {
     [groups, filters],
   )
 
+  /**
+   * optionId → su posición en `flatVisible`. La fila necesita ese índice para
+   * el `tabIndex` y el `ref` del foco; resolverlo con `findIndex` adentro del
+   * `map` de cada grupo recorre la lista entera por opción (O(n²)) — barato
+   * con tres extras, no tanto con la lista de sabores que esta feature hace
+   * normal, y se recalcula en cada tecla del buscador.
+   */
+  const visibleIndexById = React.useMemo(() => {
+    const index = new Map<string, number>()
+    flatVisible.forEach(({ option }, i) => index.set(option.id, i))
+    return index
+  }, [flatVisible])
+
   // Reset al abrir / al llegar los grupos. `initialSelections` viene del store
   // (línea que se edita) o vacío (alta).
   React.useEffect(() => {
@@ -623,7 +636,7 @@ export function AddonPickerDialog() {
                       </p>
                     )}
                     {visibleOptions.map((option) => {
-                      const index = flatVisible.findIndex((f) => f.option.id === option.id)
+                      const index = visibleIndexById.get(option.id) ?? -1
                       const optionQty = qty[option.id] ?? 0
                       const isSelected = optionQty > 0
                       const isRadio = !byQuantity && group.maxSelect === 1
