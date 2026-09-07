@@ -30,13 +30,26 @@ namespace Punto\Api\EInvoice;
  *   'total'      => float,              // total del documento, CON IVA incluido
  *   'currency'   => string,             // 'PYG'; cualquier otra aborta la emisión
  *   'operationCondition' => 0|1,        // 0 contado, 1 crédito
+ *   'securityCode' => ?string,          // 9 dígitos CONGELADOS para este documento
+ *                                       // (einvoice_document.security_code, mig 205). Si
+ *                                       // falta, el mapper genera uno — pero entonces cambia
+ *                                       // en cada reintento y con él el CDC. Ver
+ *                                       // resolveSecurityCode().
+ *   'issuedDate' => ?string,            // fecha de la OPERACIÓN (no la de emisión). La
+ *                                       // resuelve el caller; llega como argumento aparte.
  *   'items' => [
  *     [
  *       'description' => string,
  *       'quantity'    => float,
  *       'unitPrice'   => float,         // precio unitario CON IVA incluido
- *       'total'       => float,         // quantity * unitPrice (con IVA), redondeado
+ *       'total'       => float,         // quantity * unitPrice (con IVA), redondeado.
+ *                                       // MANDA sobre unitPrice: el unitario del payload se
+ *                                       // deriva de acá (ver fiscalLines()), porque SIFEN
+ *                                       // recalcula el total multiplicando.
  *       'taxRate'     => 10|5|0,        // 0 = exenta (ver nota de riesgo abajo)
+ *       'isService'   => ?bool,         // true si el ítem es un servicio. Alimenta
+ *                                       // transactionTypeCode (mercadería/servicios/mixto).
+ *                                       // Ausente = mercadería.
  *     ],
  *     ...
  *   ],
@@ -49,6 +62,9 @@ namespace Punto\Api\EInvoice;
  *     'idType'   => ?int,               // Tabla 3 SET (11-17, ContactService::ID_TYPE_*).
  *                                       // Solo relevante en nature='fisica' (ver buildClient/
  *                                       // mapIdType) — 'contribuyente' e 'innominado' no lo usan.
+ *     'address'  => ?string,            // Los tres viajan al receptor del documento. El
+ *     'email'    => ?string,            // caller los saca del contacto; si no los manda,
+ *     'phone'    => ?string,            // el campo sale vacío (va igual, no se omite).
  *   ],
  *   'credit' => [                       // solo si operationCondition === 1
  *     'deadline'    => ?string,         // ej. "30 dias" — requerido si cuotas no aplica
@@ -123,6 +139,21 @@ final class SaleToInvoiceMapper
     private const DOC_FACTURA = 1;
     private const DOC_NOTA_CREDITO = 5;
 
+    // transactionTypeCode. Valores del catálogo de Factomate, verificados
+    // contra la implementación de referencia en producción
+    // (Automate/efatech, `src/config/constants.ts` TRANSACTION_TYPES).
+    // El MIXTO existe: no hay que elegir entre mercadería y servicio cuando
+    // la venta tiene las dos cosas.
+    private const TRANSACTION_TYPE_MERCADERIA = 1;
+    private const TRANSACTION_TYPE_SERVICIOS  = 2;
+    private const TRANSACTION_TYPE_MIXTO      = 3;
+
+    // client.operationType. Mismo origen verificado (customer-resolver.ts:176
+    // en la implementación de referencia: `hasRuc ? 1 : 2`).
+    // 4 = autofactura, que Punto no emite.
+    private const OPERATION_TYPE_B2B = 1;
+    private const OPERATION_TYPE_B2C = 2;
+
     // associatedDocumentType: 0 = documento electrónico (se referencia por CDC),
     // 1 = documento impreso (timbrado + establecimiento + punto de expedición).
     // Punto solo emite notas de crédito sobre facturas electrónicas propias.
@@ -130,7 +161,8 @@ final class SaleToInvoiceMapper
 
     /**
      * @param array<string,mixed> $sale   Ver shape documentado arriba.
-     * @param array<string,mixed> $stamp  Timbrado cacheado de einvoice_account.stamp (trae 'Id').
+     * @param array<string,mixed> $stamp  Timbrado de la caja: 'Id' (obligatorio) y 'Serie'
+     *        (la del BranchDocumentType remoto — vacía si el timbrado no tiene serie).
      * @param array<string,mixed> $config Config de la cuenta (paymentMethodMap, defaultPaymentMethodCode,
      *        series, legacyAutoNumbering, emitterCdc). `emitterCdc` está gateado y sin activar —
      *        ver el bloque "CDC DEL EMISOR" en el cuerpo de este método.
@@ -187,23 +219,39 @@ final class SaleToInvoiceMapper
         // SIFEN valida consistencia entre ambos.
         $exchangeRate = 0;
 
+        // Decimales de la MONEDA del documento — no del país. PYG no tiene
+        // decimales, así que un unitario tiene que ser entero.
+        $moneyDecimals = self::currencyDecimals($currency);
+
         $itemsPayload = [];
         $taxSum = 0.0;
-        $itemTotalSum = 0.0;
+        $declaredSum = 0.0;
         foreach ($items as $i => $item) {
-            [$itemPayload, $itemTax] = $this->buildItem((array) $item, $i, $exchangeRate);
-            $itemsPayload[] = $itemPayload;
-            $taxSum += $itemTax;
-            $itemTotalSum += (float) ($item['total'] ?? 0);
+            $item = (array) $item;
+
+            // El IVA se calcula sobre la línea ORIGINAL, antes de partirla:
+            // partir y redondear cada pedazo puede correr el total un guaraní
+            // respecto de lo que declara la venta.
+            $taxSum += self::lineTax($item, $i);
+
+            foreach (self::fiscalLines($item, $moneyDecimals) as $line) {
+                $itemsPayload[] = $this->buildItem($line, $i, $exchangeRate);
+                $declaredSum += round((float) $line['quantity'] * (float) $line['unitPrice'], $moneyDecimals);
+            }
         }
 
-        // Invariante: el total del documento tiene que coincidir con el total de
-        // la venta. Comparación con tolerancia de redondeo (1 Gs, la moneda no
-        // tiene decimales) — nunca se emite un documento cuyo total difiera.
-        if (abs($itemTotalSum - $total) > 1.0) {
+        // Invariante: lo que el documento DECLARA tiene que dar el total de la
+        // venta. Se compara Σ(quantity × unitPriceWithTax) y no Σ(total de
+        // línea) porque el payload no lleva un total por ítem: SIFEN lo
+        // recalcula multiplicando, y ésa es la cuenta que puede rechazar.
+        // Antes se comparaba el total de línea —que siempre cerraba— mientras
+        // el unitario redondeado a 8 decimales hacía que la multiplicación NO
+        // cerrara (10.000 / 3 es el caso canónico). fiscalLines() se encarga
+        // de que cierre; este guard es la red por si algún caso se le escapa.
+        if (abs($declaredSum - $total) > 1.0) {
             throw new \RuntimeException(
-                "El total de los items ($itemTotalSum) no coincide con el total de la venta ($total) — " .
-                'revisar redondeo antes de emitir, no se puede facturar así.'
+                "Lo que declaran los items (cantidad x unitario = $declaredSum) no da el total de la venta " .
+                "($total) — revisar redondeo antes de emitir, no se puede facturar así."
             );
         }
 
@@ -223,7 +271,14 @@ final class SaleToInvoiceMapper
             // generadores para el mismo dígito garantizaba que el día que se
             // active el CDC del emisor uno de los dos quedara desalineado.
             // Ver `Cdc::securityCode()` para por qué es CSPRNG y no secuencial.
-            'securityCode'          => Cdc::securityCode(),
+            //
+            // Se toma el que el CALLER congeló para este documento y solo se
+            // genera uno nuevo si no vino: regenerarlo en cada intento hacía
+            // que un reintento sobre un documento que Factomate YA había
+            // creado (timeout después del alta) saliera con otro CDC para la
+            // misma venta — el rechazo 1002 de SIFEN por duplicado. Ver
+            // `einvoice_document.security_code` (mig 205).
+            'securityCode'          => self::resolveSecurityCode($sale),
             // Typo "aditionalInformation" (una sola 'd') es de la API de Factomate,
             // no se corrige. Obligatorio, string vacío cuando no aplica.
             'aditionalInformation'  => '',
@@ -231,11 +286,23 @@ final class SaleToInvoiceMapper
             // resolveDocumentNumber() para la historia completa de por qué
             // acá decía "SIEMPRE -1" y por qué era falso.
             'number'                => $this->resolveDocumentNumber($sale, $config, $documentType),
-            'series'                => (string) ($config['series'] ?? 'AA'),
+            // La serie sale del TIMBRADO, que es quien la tiene. Acá había un
+            // 'AA' fijo —copiado de la guía de integración, cuyo emisor sí
+            // usaba esa serie— mientras nuestro provisioning crea el
+            // BranchDocumentType con `Serie: ''`: el documento declaraba una
+            // serie que el talonario no tiene. Se manda lo que el timbrado
+            // diga, vacío incluido; `$config['series']` queda como override
+            // explícito por si el proveedor exigiera un valor, para poder
+            // resolverlo por configuración y no por deploy.
+            'series'                => self::resolveSeries($stamp, $config),
             // issuedDate (NO issueDate): naive YYYY-MM-DDTHH:MM:SS en hora local
             // de Asunción, mismo criterio que signDate de la cancelación.
             'issuedDate'            => $issuedDate,
-            'transactionTypeCode'   => 2,
+            // Derivado de lo que la venta REALMENTE tiene (1 mercadería,
+            // 2 servicios, 3 mixto). Estaba fijo en 2 porque el emisor de la
+            // guía de integración vende solo servicios; declarar servicios
+            // una venta de mercadería es declararle mal la operación a SIFEN.
+            'transactionTypeCode'   => self::resolveTransactionType($items),
             'taxTypeCode'           => 1,
             'currencyTypeCode'      => 'PYG',
             'exchangeRate'          => $exchangeRate,
@@ -449,53 +516,260 @@ final class SaleToInvoiceMapper
     /**
      * @return array{0: array<string,mixed>, 1: float} [payload del item, IVA de ese item]
      */
+    /**
+     * `securityCode` — los 9 dígitos del componente 10 del CDC.
+     *
+     * Viene congelado en la fila del outbox (`einvoice_document.security_code`,
+     * mig 205) y solo se genera cuando el caller no lo trae: es el MISMO
+     * número en todos los reintentos de un documento, porque cambiarlo cambia
+     * el CDC y un reintento con otro CDC sobre un documento que el proveedor
+     * ya creó es un duplicado ante SIFEN (rechazo 1002). Una reemisión es un
+     * documento nuevo, con fila nueva, y por lo tanto código nuevo — eso es
+     * correcto y sale solo.
+     *
+     * Generador único: `Cdc::securityCode()` (CSPRNG, ver ahí el porqué).
+     */
+    private static function resolveSecurityCode(array $sale): string
+    {
+        $frozen = trim((string) ($sale['securityCode'] ?? ''));
+        // Se acepta solo si es lo que el CDC espera: 9 dígitos exactos. Un
+        // valor corrupto se descarta en vez de viajar — Factomate lo parsea
+        // numéricamente y devuelve un 400 que no nombra el campo que falló.
+        if (preg_match('/^\d{9}$/', $frozen) === 1) {
+            return $frozen;
+        }
+        return Cdc::securityCode();
+    }
+
+    /**
+     * Serie del documento. Sale del timbrado (`BranchDocumentType.Serie`),
+     * que es el que la define; `$config['series']` la pisa si está seteada,
+     * como escotilla de configuración.
+     *
+     * Devuelve string vacío cuando el timbrado no tiene serie — que es el
+     * caso de todos los que crea nuestro provisioning (`Serie: ''`). El campo
+     * se manda igual, vacío: la implementación de referencia siempre lo
+     * incluye, y omitir una clave que el proveedor espera es un riesgo
+     * distinto (y peor de diagnosticar) que mandarla vacía.
+     */
+    private static function resolveSeries(array $stamp, array $config): string
+    {
+        $override = trim((string) ($config['series'] ?? ''));
+        if ($override !== '') {
+            return $override;
+        }
+        return trim((string) ($stamp['Serie'] ?? $stamp['serie'] ?? ''));
+    }
+
+    /**
+     * `transactionTypeCode` a partir de lo que la venta tiene adentro:
+     * mercadería, servicios, o las dos cosas (MIXTO).
+     *
+     * Cada línea llega con `isService` (bool) desde el caller, que es quien
+     * conoce el `kind` del ítem de Punto. Una línea sin el dato cuenta como
+     * mercadería: es lo que es la enorme mayoría del catálogo, y el default
+     * anterior —servicios para TODO— era el que estaba mal.
+     *
+     * @param array<int,mixed> $items
+     */
+    private static function resolveTransactionType(array $items): int
+    {
+        $hasService = false;
+        $hasGoods   = false;
+        foreach ($items as $item) {
+            if (!empty(((array) $item)['isService'])) {
+                $hasService = true;
+            } else {
+                $hasGoods = true;
+            }
+        }
+
+        if ($hasService && $hasGoods) {
+            return self::TRANSACTION_TYPE_MIXTO;
+        }
+        return $hasService ? self::TRANSACTION_TYPE_SERVICIOS : self::TRANSACTION_TYPE_MERCADERIA;
+    }
+
+    /**
+     * Decimales de una moneda ISO 4217. La regla es de la MONEDA, no del
+     * país del comercio: PYG, CLP, JPY, KRW, VND y compañía no tienen parte
+     * decimal, así que su unitario tiene que ser entero; el resto usa 2.
+     *
+     * (Hoy `build()` aborta si la moneda no es PYG, pero la exactitud del
+     * unitario no es un problema paraguayo — cuando se habilite otra moneda
+     * esta función ya dice cuántos decimales admite.)
+     */
+    private static function currencyDecimals(string $currency): int
+    {
+        static $zeroDecimal = [
+            'PYG' => true, 'CLP' => true, 'JPY' => true, 'KRW' => true,
+            'VND' => true, 'ISK' => true, 'COP' => true, 'UGX' => true,
+            'RWF' => true, 'XAF' => true, 'XOF' => true, 'XPF' => true,
+        ];
+        return isset($zeroDecimal[strtoupper($currency)]) ? 0 : 2;
+    }
+
+    /**
+     * IVA de una línea: taxRate/(100+taxRate) * total, redondeado por línea
+     * (no al final) para que la suma cierre igual que como SIFEN la deriva de
+     * taxRate + taxedProportion. taxRate=0 (exenta) da 0 sin dividir.
+     *
+     * AVISO: taxRate=0 para exentas está SIN VERIFICAR contra la API real de
+     * Factomate — la guía de integración solo documenta 10 y 5, no dice cómo
+     * se marca una línea exenta. Si el rechazo de SIFEN menciona
+     * taxRate/exenta, este es el primer sospechoso.
+     */
+    private static function lineTax(array $item, int $index): float
+    {
+        $taxRate = self::assertTaxRate($item, $index);
+        if ($taxRate <= 0) {
+            return 0.0;
+        }
+        $total = (float) ($item['total'] ?? ((float) ($item['unitPrice'] ?? 0) * (float) ($item['quantity'] ?? 0)));
+        return round($total * $taxRate / (100 + $taxRate));
+    }
+
+    /** @return int 10, 5 o 0 */
+    private static function assertTaxRate(array $item, int $index): int
+    {
+        $taxRate = (int) ($item['taxRate'] ?? 10);
+        if (!in_array($taxRate, [10, 5, 0], true)) {
+            throw new \RuntimeException("Item #$index tiene taxRate inválido ($taxRate) — solo se admite 10, 5 o 0.");
+        }
+        return $taxRate;
+    }
+
+    /**
+     * Convierte UNA línea de la venta en las líneas que van al documento,
+     * garantizando que `Σ(quantity × unitPriceWithTax)` dé exactamente el
+     * total de la línea en los decimales de la moneda.
+     *
+     * ── El problema ──────────────────────────────────────────────────
+     *
+     * El payload NO lleva un total por ítem: SIFEN lo recalcula como
+     * `quantity × unitPriceWithTax`. Con un unitario redondeado (a 8
+     * decimales antes, a 0 ahora porque PYG no admite centavos) esa
+     * multiplicación no vuelve al total: 10.000 Gs en 3 unidades da 3.333,33
+     * y 3 × 3.333 = 9.999. Un guaraní de diferencia entre lo que el
+     * documento declara y lo que se cobró.
+     *
+     * ── La solución ──────────────────────────────────────────────────
+     *
+     * Cuando la división NO es exacta, la línea se parte en dos: (qty-1)
+     * unidades al unitario redondeado hacia abajo y 1 unidad que absorbe el
+     * resto. 2 × 3.333 + 1 × 3.334 = 10.000, exacto, y cada unitario sigue
+     * siendo un entero declarable. El comprobante muestra dos renglones del
+     * mismo producto, que es el costo aceptado de que el fisco recalcule
+     * multiplicando.
+     *
+     * La partición solo aplica con cantidad ENTERA ≥ 2. Con cantidad
+     * fraccionaria (2,5 kg) no hay "una unidad" que separar, así que se
+     * declara el unitario con la precisión necesaria y el guard de `build()`
+     * —tolerancia de 1 unidad de moneda— absorbe el resto. No se inventa una
+     * partición por peso: cambiaría lo que dice el comprobante sobre lo que
+     * se entregó.
+     *
+     * Idempotente respecto del caso feliz: si la división es exacta (el caso
+     * de lejos más común, un precio de lista por una cantidad entera)
+     * devuelve la línea tal cual, sin partir nada.
+     *
+     * @return array<int,array<string,mixed>> Una o dos líneas.
+     */
+    private static function fiscalLines(array $item, int $decimals): array
+    {
+        $quantity = (float) ($item['quantity'] ?? 0);
+        $unitPrice = (float) ($item['unitPrice'] ?? 0);
+        $total = (float) ($item['total'] ?? ($unitPrice * $quantity));
+
+        if ($quantity <= 0) {
+            return [$item]; // build() ya filtró estos casos; defensivo.
+        }
+
+        $exactUnit = round($total / $quantity, $decimals);
+        if (self::sameMoney($exactUnit * $quantity, $total, $decimals)) {
+            // La división cierra: se declara el unitario en la precisión de
+            // la moneda (no el de 8 decimales que venía del caller).
+            $item['unitPrice'] = $exactUnit;
+            return [$item];
+        }
+
+        $isWholeQty = abs($quantity - round($quantity)) < 1e-9;
+        if (!$isWholeQty || $quantity < 2) {
+            $item['unitPrice'] = $exactUnit;
+            return [$item];
+        }
+
+        $wholeQty = (int) round($quantity);
+        $step = 10 ** -$decimals;
+        // floor a la precisión de la moneda: el resto queda SIEMPRE positivo
+        // y se acumula en la última unidad, nunca al revés.
+        $baseUnit = floor($total / $wholeQty / $step) * $step;
+        $baseUnit = round($baseUnit, $decimals);
+
+        // Caso degenerado: el total no alcanza a una unidad de moneda por
+        // unidad vendida (1 Gs repartido en 3). Partir daría renglones con
+        // precio unitario CERO, que es peor que la diferencia de redondeo —
+        // se declara una sola línea y el guard de build() decide si pasa.
+        if ($baseUnit <= 0) {
+            $item['unitPrice'] = $exactUnit;
+            return [$item];
+        }
+
+        $lastUnit = round($total - $baseUnit * ($wholeQty - 1), $decimals);
+
+        $head = $item;
+        $head['quantity'] = $wholeQty - 1;
+        $head['unitPrice'] = $baseUnit;
+        $head['total'] = round($baseUnit * ($wholeQty - 1), $decimals);
+
+        $tail = $item;
+        $tail['quantity'] = 1;
+        $tail['unitPrice'] = $lastUnit;
+        $tail['total'] = $lastUnit;
+
+        return [$head, $tail];
+    }
+
+    private static function sameMoney(float $a, float $b, int $decimals): bool
+    {
+        return abs(round($a, $decimals) - round($b, $decimals)) < (10 ** -($decimals + 3));
+    }
+
+    /**
+     * Una línea del payload. NO calcula el IVA: eso lo hace `lineTax()` sobre
+     * la línea ORIGINAL, antes de que `fiscalLines()` la parta — si cada
+     * pedazo redondeara su propio IVA la suma podría correrse.
+     *
+     * @return array<string,mixed>
+     */
     private function buildItem(array $item, int $index, int $exchangeRate): array
     {
         $unitPrice = (float) ($item['unitPrice'] ?? 0);
         $quantity = (float) ($item['quantity'] ?? 0);
-        $itemTotal = (float) ($item['total'] ?? ($unitPrice * $quantity));
-        $taxRate = (int) ($item['taxRate'] ?? 10);
-
-        if (!in_array($taxRate, [10, 5, 0], true)) {
-            throw new \RuntimeException("Item #$index tiene taxRate inválido ($taxRate) — solo se admite 10, 5 o 0.");
-        }
-
-        // IVA per-item: taxRate/(100+taxRate) * total del item, redondeado por
-        // item (no al final) para que la suma cierre igual que como SIFEN va a
-        // derivarla de taxRate + taxedProportion. taxRate=0 (exenta) da IVA 0
-        // directo, sin división por cero.
-        //
-        // AVISO: taxRate=0 para exentas está SIN VERIFICAR contra la API real de
-        // Factomate — la guía de integración solo documenta 10 y 5, no dice cómo
-        // se marca una línea exenta. Si el rechazo de SIFEN menciona
-        // taxRate/exenta, este es el primer sospechoso.
-        $itemTax = $taxRate > 0 ? round($itemTotal * $taxRate / (100 + $taxRate)) : 0.0;
+        $taxRate = self::assertTaxRate($item, $index);
 
         // Nombres y campos verificados contra la API real (2026-07-30). No hay
         // campo `total` por item — SIFEN lo deriva de quantity * unitPriceWithTax.
         return [
-            [
-                'internalCode'                              => '-',
-                'description'                                => (string) ($item['description'] ?? ''),
-                // Verificado: otros valores de measurementUnitCode rompen la
-                // serialización XML del lado de Factomate.
-                'measurementUnitCode'                       => 0,
-                'quantity'                                   => $quantity,
-                'informationOfInterest'                      => '',
-                'unitPriceWithTax'                           => $unitPrice,
-                // Debe ser igual al exchangeRate del documento (SIFEN valida
-                // consistencia); 0 porque el documento siempre va en PYG acá.
-                'itemExchangeRate'                           => $exchangeRate,
-                'itemUnitPriceDiscountWithTax'                => 0,
-                'itemDiscountPercentage'                      => 0,
-                'itemUnitPriceGlobalDiscountWithTax'          => 0,
-                'itemUnitPriceAdvanceWithTax'                 => 0,
-                'itemUnitPriceGlobalAdvanceWithTax'           => 0,
-                'taxImpact'                                   => 0,
-                'taxedProportion'                             => 100,
-                'taxRate'                                     => $taxRate,
-            ],
-            $itemTax,
+            'internalCode'                       => '-',
+            'description'                        => (string) ($item['description'] ?? ''),
+            // Verificado: otros valores de measurementUnitCode rompen la
+            // serialización XML del lado de Factomate.
+            'measurementUnitCode'                => 0,
+            'quantity'                           => $quantity,
+            'informationOfInterest'              => '',
+            'unitPriceWithTax'                   => $unitPrice,
+            // Debe ser igual al exchangeRate del documento (SIFEN valida
+            // consistencia); 0 porque el documento siempre va en PYG acá.
+            'itemExchangeRate'                   => $exchangeRate,
+            'itemUnitPriceDiscountWithTax'       => 0,
+            'itemDiscountPercentage'             => 0,
+            'itemUnitPriceGlobalDiscountWithTax' => 0,
+            'itemUnitPriceAdvanceWithTax'        => 0,
+            'itemUnitPriceGlobalAdvanceWithTax'  => 0,
+            'taxImpact'                          => 0,
+            'taxedProportion'                    => 100,
+            'taxRate'                            => $taxRate,
         ];
     }
 
@@ -539,7 +813,12 @@ final class SaleToInvoiceMapper
             }
             return [
                 'nature'                     => self::NATURE_CONTRIBUYENTE,
-                'operationType'              => 2, // B2C — único caso soportado hoy.
+                // Con RUC la operación es B2B. Estaba fijo en B2C ("único caso
+                // soportado hoy") copiando la implementación de referencia,
+                // que sí lo tiene hardcodeado en su document-builder — pero su
+                // PROPIO resolver de clientes deriva `hasRuc ? 1 : 2`, que es
+                // la regla correcta y la que se aplica acá.
+                'operationType'              => self::OPERATION_TYPE_B2B,
                 'identityDocumentTypeCode'   => self::DOC_TYPE_CEDULA,
                 'identityDocumentNumber'     => $ci !== null && $ci !== '' ? (string) $ci : null,
                 'countryCode'                => 107,
@@ -566,7 +845,8 @@ final class SaleToInvoiceMapper
             $idType = (int) ($rawClient['idType'] ?? \Punto\Api\Contacts\ContactService::ID_TYPE_CEDULA);
             return [
                 'nature'                     => self::NATURE_FISICA_O_INNOMINADO,
-                'operationType'              => 2,
+                // Sin RUC no hay contribuyente del otro lado: B2C.
+                'operationType'              => self::OPERATION_TYPE_B2C,
                 'identityDocumentTypeCode'   => $this->mapIdType($idType),
                 'identityDocumentNumber'     => (string) $ci,
                 'countryCode'                => 107,
@@ -584,7 +864,7 @@ final class SaleToInvoiceMapper
         // Innominado (consumidor final, sin identificar; ya validado que el total lo permite).
         return [
             'nature'                     => self::NATURE_FISICA_O_INNOMINADO,
-            'operationType'              => 2,
+            'operationType'              => self::OPERATION_TYPE_B2C,
             'identityDocumentTypeCode'   => self::DOC_TYPE_INNOMINADO,
             'identityDocumentNumber'     => null,
             'countryCode'                => 107,

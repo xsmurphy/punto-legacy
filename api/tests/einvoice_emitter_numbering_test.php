@@ -5,7 +5,25 @@ declare(strict_types=1);
 require_once __DIR__ . '/_harness.php';
 
 /**
- * Arnés de la NUMERACIÓN DEL EMISOR en la factura electrónica.
+ * Arnés de la NUMERACIÓN DEL EMISOR y del CONTENIDO del documento en la
+ * factura electrónica.
+ *
+ * Nació cubriendo solo la numeración (secciones A-E). La sección (F) se sumó
+ * con la auditoría de emisión del 2026-09-07: siete campos del payload que
+ * salían mal o inestables y que SIFEN mira. Van en el MISMO arnés porque
+ * comparten fixture, provider simulado y el camino real de drenaje — tener
+ * dos arneses para el mismo `drain()` significaría mantener dos fixtures.
+ *
+ * ── FALLA CONOCIDA, ANTERIOR A LA SECCIÓN F ──────────────────────────────
+ *
+ * (E3) espera `stampCalls === 0` bajo el kill-switch `legacyAutoNumbering`.
+ * Falla —y ya fallaba antes de la sección F, verificado— porque quien
+ * consulta el timbrado en ese camino NO es un guard de numeración sino la
+ * VERIFICACIÓN DEL CDC (`remoteStampRow()` para comparar establecimiento y
+ * punto de expedición del CDC devuelto). Ese guard corre siempre y a
+ * propósito. O la aserción se acota a los guards de numeración, o la
+ * verificación de CDC pasa a leer solo del caché — se decide aparte, no
+ * relajando la aserción de apuro.
  *
  * La decisión que verifica (owner, 2026-09-07): *"desde el inicio nosotros
  * tenemos que ser dueños de la numeración. Factomate no debe llevar la
@@ -39,6 +57,11 @@ require_once __DIR__ . '/_harness.php';
  *       rango por debajo, emite.
  *   (E) El kill-switch `config.legacyAutoNumbering` fuerza `-1` — el
  *       rollback de emergencia funciona y ni siquiera consulta el timbrado.
+ *   (F) El CONTENIDO del documento (auditoría 2026-09-07): cantidad ×
+ *       unitario cierra exacto contra el total, `issuedDate` es la fecha de
+ *       la operación, `securityCode` estable entre reintentos, `series` del
+ *       timbrado, `transactionTypeCode` derivado de los ítems, receptor
+ *       B2B/B2C y con sus datos de contacto.
  *
  * El caso que más importa es (B). (A) es fácil de escribir bien; (B) es el
  * que separa "somos dueños de la numeración" de "somos dueños salvo cuando
@@ -250,27 +273,40 @@ $db->Execute('DELETE FROM einvoice_account WHERE companyid = ?', [$companyId]);
  * `enqueueForSale()` retorna temprano y no se toca la red: la emisión la
  * maneja después `emitir()`, con el provider simulado.
  */
-function crearVenta(SaleService $service, string $itemId, int $invoiceNo, string $companyId): array
+function crearVenta(SaleService $service, string $itemId, int $invoiceNo, string $companyId, array $opts = []): array
 {
+    // Overrides para los casos de la sección (F): cantidad/total de la línea
+    // (para ejercitar el redondeo del unitario) y cliente de la venta (para
+    // ejercitar el receptor). El default es la venta de 1 unidad a 1.000 que
+    // usan las secciones (A)-(E) — no se les cambia nada.
+    $count = (float) ($opts['count'] ?? 1);
+    $total = (float) ($opts['total'] ?? 1000);
+    $unit  = (float) ($opts['unitPrice'] ?? $total);
+
     $payload = [
         'uid'       => MARCA_DEL_ARNES . '-' . bin2hex(random_bytes(8)),
         'type'      => 0,
         'invoiceno' => $invoiceNo,
         'sale'      => [[
-            'itemId' => $itemId, 'count' => 1, 'name' => 'Test numeración',
-            'uniPrice' => 1000, 'price' => 1000, 'total' => 1000,
+            'itemId' => $itemId, 'count' => $count, 'name' => 'Test numeración',
+            'uniPrice' => $unit, 'price' => $unit, 'total' => $total,
             'tax' => 0, 'discount' => 0, 'totalDiscount' => 0,
             'user' => '', 'type' => '', 'date' => '', 'note' => '',
             'currency' => 'PYG', 'uId' => 0,
         ]],
-        'subtotal'  => 1000,
+        'subtotal'  => $total,
         'tax'       => 0,
         'discount'  => 0,
         'currency'  => 'PYG',
-        'payment'   => [['type' => 'cash', 'name' => 'Efectivo', 'total' => 1000]],
+        'payment'   => [['type' => 'cash', 'name' => 'Efectivo', 'total' => $total]],
         'date'      => date('Y-m-d H:i:s'),
         'timestamp' => time(),
     ];
+    // La clave del receptor en el payload de venta es `client` (ver
+    // run_sale_chain.php:526), no `customer` — ese es el nombre de la columna.
+    if (!empty($opts['customer'])) {
+        $payload['client'] = (string) $opts['customer'];
+    }
     $result = $service->save(SaleInput::fromPayload($payload, $companyId));
     return [$result->transactionId, $invoiceNo];
 }
@@ -430,6 +466,142 @@ check('(E2) con number = -1 (numera el proveedor)',
 check('(E3) y sin consultar el timbrado: los guards no corren',
     $providerE->stampCalls === 0,
     "stampCalls={$providerE->stampCalls}", $failures, $checks);
+
+// ===========================================================================
+// (F) Auditoria de emision 2026-09-07: lo que el documento DECLARA
+// ===========================================================================
+//
+// Siete campos que salian mal o inestables y que SIFEN mira. No son casos de
+// numeracion (el resto del arnes) sino del CONTENIDO del documento:
+//
+//   F1  `quantity x unitPriceWithTax` tiene que dar el total. El payload no
+//       lleva total por item: SIFEN lo recalcula multiplicando, y el unitario
+//       redondeado hacia que 10.000 en 3 unidades declarara 9.999,99999999.
+//   F2  `issuedDate` es la fecha de la OPERACION, no la del envio -- una venta
+//       offline drenada al otro dia no puede declarar otra fecha que su ticket.
+//   F3  `securityCode` estable entre reintentos del MISMO documento: si cambia,
+//       cambia el CDC y el reintento es un duplicado ante SIFEN (rechazo 1002).
+//   F4  `series` sale del timbrado, no de un 'AA' cableado.
+//   F5  `transactionTypeCode` derivado de los items, no fijo en "servicios".
+//   F6  `client.operationType` B2B/B2C segun el receptor tenga RUC.
+//   F7  El receptor declara address/email/phone cuando el contacto los tiene.
+echo "\n=== (F) contenido del documento (auditoria de emision) ===\n";
+seedAccount($companyId, $registerId);
+
+// -- F1: cantidad x unitario cierra exacto --------------------------------
+// 10.000 Gs en 3 unidades: la division no es exacta en guaranies (0 decimales).
+[$txF1, $noF1] = crearVenta($service, $itemId, $nextNo++, $companyId, [
+    'count' => 3, 'total' => 10000, 'unitPrice' => 10000 / 3,
+]);
+$resF1 = emitir(new FakeFactomateProvider(), $companyId, $txF1);
+
+$lineas = $resF1['payload']['electronicDocumentItems'] ?? [];
+$declarado = 0.0;
+foreach ($lineas as $l) {
+    $declarado += round((float) $l['quantity'] * (float) $l['unitPriceWithTax']);
+}
+check('(F1a) el documento se emite', $resF1['status'] === 'issued',
+    "status={$resF1['status']} error={$resF1['error']}", $failures, $checks);
+check('(F1b) cantidad x unitario da EXACTO el total del documento',
+    abs($declarado - (float) ($resF1['payload']['total'] ?? -1)) < 0.001,
+    'declarado=' . $declarado . ' total=' . json_encode($resF1['payload']['total'] ?? null), $failures, $checks);
+check('(F1c) la linea inexacta se parte en dos renglones',
+    count($lineas) === 2, 'renglones=' . count($lineas), $failures, $checks);
+$unitariosEnteros = true;
+foreach ($lineas as $l) {
+    if (abs((float) $l['unitPriceWithTax'] - round((float) $l['unitPriceWithTax'])) > 1e-9) {
+        $unitariosEnteros = false;
+    }
+}
+check('(F1d) y cada unitario es entero (PYG no tiene decimales)',
+    $unitariosEnteros, json_encode(array_column($lineas, 'unitPriceWithTax')), $failures, $checks);
+
+// -- F2: issuedDate = fecha de la operacion -------------------------------
+// Se retrasa la venta 3 dias: con `date()` el documento declararia HOY.
+$db->Execute(
+    "UPDATE transaction SET transactionDate = now() - interval '3 days'
+      WHERE transactionId = ? AND companyId = ?",
+    [$txF1, $companyId]
+);
+$resF2 = emitir(new FakeFactomateProvider(), $companyId, $txF1);
+$txRow = ncmExecute(
+    'SELECT transactionDate FROM transaction WHERE transactionId = ? AND companyId = ?',
+    [$txF1, $companyId]
+);
+$esperado = date('Y-m-d\TH:i:s', (int) strtotime((string) $txRow['transactiondate']));
+check('(F2) issuedDate es la fecha de la OPERACION, no la del envio',
+    ($resF2['payload']['issuedDate'] ?? '') === $esperado,
+    'issuedDate=' . json_encode($resF2['payload']['issuedDate'] ?? null) . " esperado=$esperado",
+    $failures, $checks);
+
+// -- F3: securityCode estable entre reintentos ----------------------------
+// `emitir()` borra la fila del outbox, asi que para probar el REINTENTO del
+// MISMO documento se reusa la fila: se la marca en error con next_retry_at
+// vencido y se drena de nuevo.
+$primerCodigo = (string) ($resF2['payload']['securityCode'] ?? '');
+$db->Execute(
+    "UPDATE einvoice_document
+        SET status = 'error', next_retry_at = now() - interval '1 hour'
+      WHERE companyid = ? AND transactionid = ?",
+    [$companyId, $txF1]
+);
+$svcRetry = new EInvoiceService(new FakeFactomateProvider());
+$svcRetry->drain(50);
+$rowRetry = ncmExecute(
+    'SELECT request_payload, security_code FROM einvoice_document
+      WHERE companyid = ? AND transactionid = ?',
+    [$companyId, $txF1]
+);
+$payloadRetry = json_decode((string) ($rowRetry['request_payload'] ?? '{}'), true);
+$payloadRetry = is_array($payloadRetry) ? $payloadRetry : [];
+check('(F3a) el securityCode queda persistido en la fila del outbox',
+    preg_match('/^\d{9}$/', (string) ($rowRetry['security_code'] ?? '')) === 1,
+    'security_code=' . json_encode($rowRetry['security_code'] ?? null), $failures, $checks);
+check('(F3b) el reintento del MISMO documento reusa el securityCode',
+    $primerCodigo !== '' && ($payloadRetry['securityCode'] ?? '') === $primerCodigo,
+    "primero=$primerCodigo reintento=" . json_encode($payloadRetry['securityCode'] ?? null), $failures, $checks);
+
+// -- F4/F5/F6/F7: derivados del timbrado, los items y el receptor ---------
+// El timbrado simulado devuelve Serie=''; el provisioning real los crea igual
+// (`Serie: ''`), asi que lo correcto es declarar vacio y no el 'AA' cableado.
+check('(F4) la serie sale del timbrado (vacia), no de un AA cableado',
+    ($resF2['payload']['series'] ?? null) === '',
+    'series=' . json_encode($resF2['payload']['series'] ?? null), $failures, $checks);
+
+// El item del fixture es un producto => mercaderia (1), no servicios (2).
+check('(F5) transactionTypeCode derivado de los items (mercaderia)',
+    ($resF2['payload']['transactionTypeCode'] ?? null) === 1,
+    'transactionTypeCode=' . json_encode($resF2['payload']['transactionTypeCode'] ?? null), $failures, $checks);
+
+// Venta sin cliente => innominado => B2C.
+check('(F6a) sin RUC el receptor es B2C',
+    ($resF2['payload']['client']['operationType'] ?? null) === 2,
+    'operationType=' . json_encode($resF2['payload']['client']['operationType'] ?? null), $failures, $checks);
+
+// Ahora una venta A UN CONTRIBUYENTE con datos de contacto completos.
+$contactoId = ncmExecute('SELECT gen_random_uuid() AS id')['id'];
+$db->Execute(
+    "INSERT INTO contact (contactId, companyId, type, contactName, contactTIN, contactEmail, contactPhone, contactDate, data)
+     VALUES (?, ?, 1, 'Cliente Con RUC SA', '80012345-6', 'facturacion@cliente.test', '595981222333', now(), ?::jsonb)",
+    [$contactoId, $companyId, json_encode(['contactAddress' => 'Avda. Siempreviva 742'])]
+);
+[$txF6, $noF6] = crearVenta($service, $itemId, $nextNo++, $companyId, ['customer' => $contactoId]);
+$resF6 = emitir(new FakeFactomateProvider(), $companyId, $txF6);
+$cli = $resF6['payload']['client'] ?? [];
+
+check('(F6b) con RUC el receptor es B2B',
+    ($cli['operationType'] ?? null) === 1,
+    'operationType=' . json_encode($cli['operationType'] ?? null) . " status={$resF6['status']} error={$resF6['error']}",
+    $failures, $checks);
+check('(F7a) el receptor declara la direccion del contacto',
+    ($cli['address'] ?? '') === 'Avda. Siempreviva 742',
+    'address=' . json_encode($cli['address'] ?? null), $failures, $checks);
+check('(F7b) el receptor declara el email del contacto',
+    ($cli['email'] ?? '') === 'facturacion@cliente.test',
+    'email=' . json_encode($cli['email'] ?? null), $failures, $checks);
+check('(F7c) el receptor declara el telefono, sin el +',
+    ($cli['phoneNumber'] ?? '') === '595981222333',
+    'phoneNumber=' . json_encode($cli['phoneNumber'] ?? null), $failures, $checks);
 
 // ── Limpieza: la cuenta de FE es del arnés, no del fixture ─────────────────
 seedAccount($companyId, $registerId);

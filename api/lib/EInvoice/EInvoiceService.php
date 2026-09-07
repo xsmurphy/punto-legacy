@@ -2021,7 +2021,7 @@ final class EInvoiceService
     {
         try {
             $doc = ncmExecute(
-                'SELECT transactionid, doctype, attempts FROM einvoice_document WHERE einvoicedocid = ?',
+                'SELECT transactionid, doctype, attempts, security_code FROM einvoice_document WHERE einvoicedocid = ?',
                 [$docId]
             );
             if (!$doc) {
@@ -2030,6 +2030,9 @@ final class EInvoiceService
             $transactionId = (string) $doc['transactionid'];
             $doctype       = (string) $doc['doctype'];
             $attempts      = (int) ($doc['attempts'] ?? 0);
+            // securityCode CONGELADO para este documento: se genera una sola
+            // vez y se reusa en todos los reintentos. Ver ensureSecurityCode().
+            $securityCode  = $this->ensureSecurityCode($docId, $doc['security_code'] ?? null);
 
             $account = ncmExecute(
                 // `emitter` (userInfo cacheado) trae el RUC del emisor — lo usa
@@ -2060,11 +2063,23 @@ final class EInvoiceService
             // timbrado de la caja que vendió — no con uno global. El mapa
             $config = $this->decodeJsonb($account['account_config'] ?? null);
 
-            // issuedDate: naive local de Asunción, mismo criterio que signDate
-            // de la cancelación (ver FactomateProvider::cancel) —
-            // date_default_timezone_set del proceso PHP ya está en la TZ de
-            // Asunción (bootstrap del proyecto).
-            $issuedDate = date('Y-m-d\TH:i:s');
+            // issuedDate = la fecha de la OPERACIÓN, no la del envío.
+            //
+            // Acá había un `date()` del momento de emitir. El outbox se drena
+            // asincrónicamente y una venta cobrada sin red se drena cuando la
+            // tablet reconecta: con `date()` el documento electrónico
+            // declaraba una fecha distinta de la del ticket que el cliente ya
+            // tiene en la mano. El invariante del repo es que las dimensiones
+            // de una transacción son las del momento en que se OPERÓ, y la
+            // fecha es una de ellas.
+            //
+            // Zona: `transactionDate` es timestamptz y se formatea con
+            // `TenantClock::atInstant()`, que lo lee en el reloj del TENANT
+            // sin depender de la TZ del proceso — el drenaje puede correr en
+            // un cron que nunca pasó por `TenantClock::apply()`. El formato
+            // que espera Factomate es naive `YYYY-MM-DDTHH:MM:SS` en hora
+            // local, mismo criterio que `signDate` de la cancelación.
+            $issuedDate = $this->issuedDateFor($companyId, $sale);
 
             $mapper = new SaleToInvoiceMapper();
             try {
@@ -2084,6 +2099,12 @@ final class EInvoiceService
                 // en el markError de abajo — el documento queda en `error`
                 // ANTES de salir, no rebotado por SIFEN.
                 $this->assertNumberingCoherence($companyId, $account, $stamp, $sale, $doctype, $config);
+                // La SERIE sale del timbrado, no de un 'AA' cableado (nuestro
+                // provisioning los crea con `Serie: ''`). Lectura local: el
+                // provisioning ya la persistió, no se le pregunta al proveedor
+                // por documento (ver stampSeries()).
+                $stamp['Serie'] = $this->stampSeries($account, (string) ($stamp['Id'] ?? ''));
+                $sale['securityCode'] = $securityCode;
                 $payload = $mapper->build($sale, $stamp, $config, $issuedDate);
             } catch (\RuntimeException $e) {
                 // Regla fiscal violada o dato faltante — NUNCA se manda a Factomate
@@ -2193,6 +2214,80 @@ final class EInvoiceService
      * @return array<string,mixed>
      * @throws \RuntimeException caso 3 — caja conocida sin timbrado en el mapa.
      */
+    /**
+     * `securityCode` estable del documento: los 9 dígitos del componente 10
+     * del CDC, congelados en la fila del outbox en el PRIMER intento.
+     *
+     * Por qué no se genera en el mapper (donde estaba): el mapper corre una
+     * vez por INTENTO. Si `/Bulk` se corta por timeout después de que
+     * Factomate ya creó el documento, el reintento salía con otro
+     * securityCode y por lo tanto con OTRO CDC para la misma venta — que es
+     * el rechazo 1002 de SIFEN por duplicado, con el agravante de que el
+     * primer documento igual quedó emitido.
+     *
+     * Una reemisión (mig 201) es una fila NUEVA del outbox: llega acá con
+     * `security_code` en NULL y genera el suyo, que es lo correcto — es otro
+     * documento fiscal, no el mismo.
+     */
+    private function ensureSecurityCode(string $docId, mixed $stored): string
+    {
+        $code = trim((string) ($stored ?? ''));
+        if (preg_match('/^\d{9}$/', $code) === 1) {
+            return $code;
+        }
+
+        $code = Cdc::securityCode();
+        // `security_code IS NULL` en el WHERE: si dos drenajes corrieran a la
+        // vez sobre la misma fila, el segundo no pisa el código del primero.
+        // Se relee para devolver el que efectivamente quedó guardado.
+        ncmExecute(
+            'UPDATE einvoice_document SET security_code = ?, updated_at = now()
+              WHERE einvoicedocid = ? AND security_code IS NULL',
+            [$code, $docId]
+        );
+        $row = ncmExecute('SELECT security_code FROM einvoice_document WHERE einvoicedocid = ?', [$docId]);
+        $persisted = trim((string) ($row['security_code'] ?? ''));
+
+        return preg_match('/^\d{9}$/', $persisted) === 1 ? $persisted : $code;
+    }
+
+    /**
+     * Serie del timbrado con el que sale este documento.
+     *
+     * SIN llamadas HTTP, a propósito: sale de `provisioning.stampSeries`
+     * (que escribe `EInvoiceProvisioningService::ensureStampsCreated` con la
+     * respuesta remota que ya tenía en la mano) o, si esa clave no está, del
+     * caché `stampDetails` que el guard de numeración pudo haber llenado.
+     * Pedirla al proveedor por documento agregaría una llamada por factura
+     * al drenaje —justo lo que esos cachés existen para evitar— y encima
+     * correría en los caminos donde los guards NO deben tocar al proveedor
+     * (nota de crédito, kill-switch `legacyAutoNumbering`).
+     *
+     * Devuelve '' cuando no hay dato, que además es el valor CORRECTO para
+     * todo timbrado que crea nuestro provisioning (`Serie: ''`). Un
+     * re-provisioning repuebla el mapa.
+     *
+     * @param array|\ArrayAccess $account
+     */
+    private function stampSeries($account, string $stampId): string
+    {
+        if ($stampId === '') {
+            return '';
+        }
+
+        $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
+
+        $map = is_array($provisioning['stampSeries'] ?? null) ? $provisioning['stampSeries'] : [];
+        if (array_key_exists($stampId, $map)) {
+            return trim((string) $map[$stampId]);
+        }
+
+        $details = is_array($provisioning['stampDetails'] ?? null) ? $provisioning['stampDetails'] : [];
+        $row = is_array($details[$stampId] ?? null) ? $details[$stampId] : [];
+
+        return trim((string) ($row['Serie'] ?? $row['serie'] ?? ''));
+    }
+
     private function stampForDocument(string $companyId, string $transactionId, string $doctype, $account): array
     {
         $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
@@ -2859,6 +2954,82 @@ final class EInvoiceService
      * existe (no debería pasar — el outbox se encola desde una venta recién
      * insertada — pero es defensivo ante una fila borrada/corrupta).
      */
+    /**
+     * ¿Cada ítem es un SERVICIO? Alimenta el `transactionTypeCode` del
+     * documento (1 mercadería / 2 servicios / 3 mixto), que estaba fijo en
+     * "servicios" para todas las ventas de todos los rubros.
+     *
+     * El dato es el `itemKind` del catálogo (mig 15): `servicio` y
+     * `servicio_sesiones` son los dos kinds que Punto modela como
+     * prestación; todo lo demás —producto, producción, combo, giftcard,
+     * descuento— se declara como mercadería.
+     *
+     * Se lee del catálogo ACTUAL y no de un congelado en la venta porque no
+     * hay congelado: `meta.transactionDetails` no guarda el kind. Es una
+     * imprecisión acotada y conocida (si un ítem cambia de kind, una NC vieja
+     * podría declarar distinto que su factura); congelarlo requiere tocar el
+     * shape que persiste la venta y no entra en este lote.
+     *
+     * Un ítem borrado no aparece en el resultado y el caller lo cuenta como
+     * mercadería, que es el default correcto para la mayoría del catálogo.
+     *
+     * @param array<int,string> $itemIds
+     * @return array<string,bool> itemId => esServicio
+     */
+    private function resolveServiceFlagsForItems(string $companyId, array $itemIds): array
+    {
+        $itemIds = array_values(array_unique(array_filter($itemIds, static fn ($id): bool => (string) $id !== '')));
+        if ($itemIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
+        $rs = ncmExecute(
+            "SELECT itemId, itemKind FROM item
+              WHERE companyId = ? AND itemId IN ($placeholders)",
+            array_merge([$companyId], $itemIds),
+            false,
+            true
+        );
+        if ($rs === false) {
+            // No se pudo leer el catálogo: no se aborta la emisión por esto.
+            // Todo cae a mercadería, que es el default del mapper.
+            error_log('[EInvoice] no se pudieron leer los kinds de los ítems — transactionTypeCode cae a mercadería.');
+            return [];
+        }
+
+        $flags = [];
+        while (!$rs->EOF) {
+            $kind = (string) ($rs->fields['itemkind'] ?? '');
+            $flags[(string) $rs->fields['itemid']] = in_array($kind, ['servicio', 'servicio_sesiones'], true);
+            $rs->MoveNext();
+        }
+        $rs->Close();
+
+        return $flags;
+    }
+
+    /**
+     * `issuedDate` del documento: la fecha en que se OPERÓ la venta, en el
+     * reloj del tenant y en formato naive `YYYY-MM-DDTHH:MM:SS`.
+     *
+     * Si la venta no trae fecha (fila corrupta), cae a "ahora" — un documento
+     * sin fecha no se puede emitir y es preferible declarar el momento del
+     * envío que abortar la facturación de una venta ya cobrada.
+     *
+     * @param array<string,mixed> $sale
+     */
+    private function issuedDateFor(string $companyId, array $sale): string
+    {
+        $raw = trim((string) ($sale['transactionDate'] ?? ''));
+        $ts  = $raw !== '' ? strtotime($raw) : false;
+        if ($ts === false) {
+            error_log("[EInvoice] venta sin transactionDate utilizable ('$raw') — issuedDate cae al momento del envío.");
+            $ts = time();
+        }
+        return str_replace(' ', 'T', \Punto\Api\Support\TenantClock::atInstant($companyId, $ts));
+    }
+
     private function buildSaleArrayForMapper(string $companyId, string $transactionId, string $doctype): ?array
     {
         if ($doctype === 'NC') {
@@ -2871,8 +3042,11 @@ final class EInvoiceService
             // el ticket y los que viajan al documento electrónico — el
             // comprobante impreso es la representación impresa de la factura
             // electrónica, tienen que llevar el MISMO número.
+            // transactionDate: la fecha de la OPERACIÓN, que es la que
+            // declara el documento (ver issuedDateFor()). Sin ella, una venta
+            // drenada tarde declaraba la fecha del envío.
             "SELECT transactionType, transactionTotal, transactionDiscount, transactionCurrency, transactionDueDate,
-                    customerId, transactionPaymentType, invoiceNo, invoiceAuth, meta
+                    customerId, transactionPaymentType, invoiceNo, invoiceAuth, transactionDate, meta
                FROM transaction WHERE transactionId = ? AND companyId = ?",
             [$transactionId, $companyId]
         );
@@ -2924,6 +3098,10 @@ final class EInvoiceService
         }
 
         $taxRateByItemId = $this->resolveTaxRatesForItems($companyId, $billableDetail);
+        $serviceByItemId = $this->resolveServiceFlagsForItems(
+            $companyId,
+            array_map(static fn (array $sD): string => (string) $sD['itemId'], $billableDetail)
+        );
 
         $items = [];
         foreach ($billableDetail as $sD) {
@@ -2933,9 +3111,17 @@ final class EInvoiceService
             $items[] = [
                 'description' => (string) ($sD['name'] ?? ''),
                 'quantity'    => $count,
+                // `round($lineNet / $count, 8)` NO cerraba: el payload no
+                // lleva total por ítem y SIFEN lo recalcula multiplicando, así
+                // que 10.000 en 3 unidades declaraba 9.999,99999999. El
+                // unitario definitivo lo deriva el mapper de total/quantity en
+                // los decimales de la moneda, partiendo la línea si hace falta
+                // (SaleToInvoiceMapper::fiscalLines). Acá va como referencia;
+                // el dato que manda es `total`.
                 'unitPrice'   => round($lineNet / $count, 8),
                 'total'       => $lineNet,
                 'taxRate'     => $taxRateByItemId[$itemId],
+                'isService'   => $serviceByItemId[$itemId] ?? false,
             ];
         }
 
@@ -3003,6 +3189,7 @@ final class EInvoiceService
 
         $sale = [
             'total'               => $total,
+            'transactionDate'     => (string) ($tx['transactionDate'] ?? ''),
             // `transactionCurrency` es nullable en el schema. El `?? 'PYG'` que
             // había acá NO era un default inocente: convertía "no sé en qué
             // moneda se vendió" en "se vendió en guaraníes", justo antes de
@@ -3092,7 +3279,8 @@ final class EInvoiceService
         }
 
         $contact = ncmExecute(
-            'SELECT contactTIN, contactName, contactIdType, data FROM contact WHERE contactId = ? AND companyId = ?',
+            'SELECT contactTIN, contactName, contactIdType, contactEmail, contactPhone, data
+               FROM contact WHERE contactId = ? AND companyId = ?',
             [$clientId, $companyId]
         );
         if (!$contact) {
@@ -3103,6 +3291,22 @@ final class EInvoiceService
         $ci   = trim((string) ($contact['contactCI'] ?? '')); // flattenJsonb ya trajo contactCI desde `data`
         $name = trim((string) ($contact['contactName'] ?? ''));
 
+        // Datos de contacto del receptor. El documento los declara SIEMPRE
+        // (aunque vacíos), y hasta ahora salían vacíos incluso teniéndolos
+        // cargados porque este resolver no los devolvía: el mapper los leía
+        // de un shape que nunca los traía. `contactAddress` vive en el JSONB
+        // `data` (mig 25) y llega aplanado por seleccionar `data`;
+        // contactEmail/contactPhone siguen siendo columnas.
+        //
+        // El teléfono va SIN '+' — convención de storage del repo (mig 67).
+        // El ltrim es defensivo: filas anteriores a esa migración podrían
+        // tenerlo, y el '+' viajando a SIFEN es un dato mal declarado.
+        $contactBits = [
+            'address' => trim((string) ($contact['contactAddress'] ?? '')),
+            'email'   => trim((string) ($contact['contactEmail'] ?? '')),
+            'phone'   => ltrim(trim((string) ($contact['contactPhone'] ?? '')), '+'),
+        ];
+
         $storedIdType = $contact['contactIdType'] ?? null;
         $idType = $storedIdType !== null
             ? (int) $storedIdType
@@ -3111,16 +3315,16 @@ final class EInvoiceService
         // idType=15 (SIN NOMBRE) es innominado EXPLÍCITO — aunque el contacto
         // tenga algo cargado en contactCI, declarar el código 15 manda.
         if ($idType === \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE) {
-            return ['nature' => 'innominado', 'idType' => $idType, 'name' => $name !== '' ? $name : 'Consumidor final'];
+            return $contactBits + ['nature' => 'innominado', 'idType' => $idType, 'name' => $name !== '' ? $name : 'Consumidor final'];
         }
 
         if ($tin !== '') {
-            return ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'idType' => $idType, 'name' => $name];
+            return $contactBits + ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'idType' => $idType, 'name' => $name];
         }
         if ($ci !== '') {
-            return ['nature' => 'fisica', 'ci' => $ci, 'idType' => $idType, 'name' => $name];
+            return $contactBits + ['nature' => 'fisica', 'ci' => $ci, 'idType' => $idType, 'name' => $name];
         }
-        return ['nature' => 'innominado', 'idType' => \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE, 'name' => $name !== '' ? $name : 'Consumidor final'];
+        return $contactBits + ['nature' => 'innominado', 'idType' => \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE, 'name' => $name !== '' ? $name : 'Consumidor final'];
     }
 
     /**
@@ -3154,7 +3358,7 @@ final class EInvoiceService
     {
         $tx = ncmExecute(
             'SELECT transactionTotal, transactionDiscount, transactionCurrency,
-                    customerId
+                    customerId, transactionDate
                FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
@@ -3265,15 +3469,23 @@ final class EInvoiceService
             $billable
         );
         $taxRateByItemId = $this->resolveTaxRatesForItems($companyId, $billableWithTax);
+        $serviceByItemId = $this->resolveServiceFlagsForItems(
+            $companyId,
+            array_map(static fn (array $l): string => $l['itemId'], $billable)
+        );
 
         $items = [];
         foreach ($billable as $line) {
             $items[] = [
                 'description' => $line['name'],
                 'quantity'    => $line['quantity'],
+                // El unitario definitivo lo deriva el mapper de total/quantity
+                // en los decimales de la moneda (ver fiscalLines()): acá se
+                // manda como referencia, el que manda es `total`.
                 'unitPrice'   => round($line['net'] / $line['quantity'], 8),
                 'total'       => $line['net'],
                 'taxRate'     => $taxRateByItemId[$line['itemId']],
+                'isService'   => $serviceByItemId[$line['itemId']] ?? false,
             ];
         }
 
@@ -3289,6 +3501,9 @@ final class EInvoiceService
             'documentType'       => 5, // Nota de crédito (guía §"Enviar DE – Tipo 5/6").
             'associatedCdc'      => $parentCdc,
             'total'              => $total,
+            // Fecha de la DEVOLUCIÓN (la operación que la NC documenta), no
+            // la del envío — mismo criterio que la factura.
+            'transactionDate'    => (string) ($tx['transactionDate'] ?? ''),
             // Mismo criterio que en la venta: sin inventar 'PYG'. Ver resolveCurrency().
             'currency'           => self::resolveCurrency($companyId, $tx['transactionCurrency'] ?? null),
             'operationCondition' => 0,

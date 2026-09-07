@@ -654,6 +654,7 @@ final class EInvoiceProvisioningService
         $remote = $this->provider->stamps($environment, $login, $bearer);
         $items = $remote['Items'] ?? $remote['items'] ?? [];
         $map = [];
+        $series = [];
         foreach ($stamps as $stamp) {
             foreach ((array) $items as $item) {
                 if (!is_array($item) || !empty($item['Deleted'] ?? $item['deleted'] ?? null)) {
@@ -667,10 +668,25 @@ final class EInvoiceProvisioningService
                 }
                 $docType = (int) ($item['DocumentTypeId'] ?? 0);
                 $key = $docType === 5 ? 'nc' : 'fc';
-                $map[$stamp['registerId']][$key] = $item['Id'] ?? null;
+                $stampId = $item['Id'] ?? null;
+                $map[$stamp['registerId']][$key] = $stampId;
+
+                // La SERIE del timbrado, indexada por su Id. El documento la
+                // declara (`series`) y hasta ahora se mandaba un 'AA' cableado
+                // que no tenía nada que ver con el talonario — los que crea
+                // este mismo método van con `Serie: ''`.
+                //
+                // Se guarda ACÁ y no se pide en la emisión porque la respuesta
+                // remota ya está en la mano: leerla por documento agregaría una
+                // llamada HTTP por factura, que es justo lo que el caché de
+                // `stampDetails` existe para evitar. Mapa aparte y no dentro de
+                // `stampMap` para no cambiarle el shape a sus lectores.
+                if ($stampId !== null && $stampId !== '') {
+                    $series[(string) $stampId] = (string) ($item['Serie'] ?? $item['serie'] ?? '');
+                }
             }
         }
-        $this->mergeProvisioning($companyId, ['stampMap' => $map]);
+        $this->mergeProvisioning($companyId, ['stampMap' => $map, 'stampSeries' => $series]);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
