@@ -110,6 +110,44 @@ escritura nueva sigue pasando por permisos del operador + `confirmToken`.
   producción como una de las vías que la cubren) — el análisis de "qué me
   falta producir" probablemente sea la misma consulta.
 
+### Gráficos sin pedirlos: chart + lista en todo informe graficable (owner 2026-09-07)
+
+El pedido, en palabras del owner: hoy "dame un reporte de ventas de esta
+semana" devuelve solo un listado en markdown, y el gráfico hay que pedirlo
+aparte. Quiere que todo informe **apto para gráfico** salga como **chart Y
+lista a la vez**, sin pedir nada — el chart para interpretar, la lista para
+analizar el dato.
+
+Dos hallazgos que definen el trabajo (verificados 2026-09-07):
+
+1. **La instrucción proactiva YA EXISTE y no muerde.** El prompt del agente del
+   panel ya dice "Graficá cuando ayude a leer el dato: evoluciones/tendencias
+   en el tiempo, comparaciones entre categorías o distribuciones"
+   (`frontend/app/api/agent/chat/route.ts:163-164`). En la práctica el modelo
+   no la obedece salvo pedido explícito. O sea que esto NO se arregla
+   "agregando la regla al prompt" — la regla está; el trabajo es hacerla
+   confiable. Candidatos, en orden: reforzar el disparador en la DESCRIPCIÓN
+   de la tool `render_chart` (`frontend/lib/agent/read-tools.ts:1190` — para
+   la selección de tools, la descripción pesa más que la prosa del system
+   prompt), few-shot en el prompt, y recién después evaluar si el modelo
+   default es el problema (el agente es OpenRouter model-agnostic:
+   DeepSeek/Gemini por defecto, la obediencia varía por modelo).
+2. **La segunda mitad del pedido hoy está PROHIBIDA por el prompt.** La misma
+   sección dice "no vuelvas a listar los números que ya se ven en el gráfico"
+   — exactamente lo contrario de "chart y lista juntos". Esa regla se
+   invierte para informes: el chart interpreta, la tabla es el dato. (Para
+   respuestas de un número solo, nada de esto aplica.)
+
+Criterio de "apto para gráfico" (propuesto, sin OK): serie temporal, ranking /
+top-N, o distribución por categoría/medio de pago, con ≥3 puntos comparables.
+El detalle transaccional fila por fila NO es graficable — es lista sola.
+
+Alcance: SOLO el agente del panel. El del POS excluye `render_chart` a
+propósito (`frontend/app/api/pos/agent/chat/route.ts:30`) y esa exclusión no
+se toca. Ojo con el prompt duplicado panel/POS que `context/69` ya manda a
+extraer — si la extracción compartida llega antes, este cambio va en la capa
+del panel, no en la común.
+
 ## Módulos nuevos pedidos por el owner (2026-08-28) — sin planificar
 
 Los tres entran como pedido del owner el 2026-08-28. Ninguno tiene plan cerrado
