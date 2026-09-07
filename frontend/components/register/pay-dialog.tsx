@@ -61,6 +61,7 @@ import { recordSale } from "@/lib/pos/shift-journal"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { refreshTenancy, type TenancyVerdictKind } from "@/lib/pos/register-tenancy"
 import { useTenancyStore } from "@/lib/pos/tenancy-store"
+import { emissionBlockNow, useEmissionBlock } from "@/lib/pos/emission-block"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
@@ -652,6 +653,28 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // Fail-closed: `verdict === null` (todavía no hidratado) tampoco emite.
       // El costo de equivocarse hacia el otro lado es un comprobante duplicado
       // que el sistema después repudia.
+      // ── Gate de TIMBRADO, antes que el de tenencia y antes de numerar ────
+      // Va primero por la misma razón que en `emission-block.ts`: tomar la
+      // caja no habilita a facturar con el timbrado caído, así que mandar al
+      // cajero a `RegisterTakenPhase` sería mandarlo a una acción que no lo
+      // desbloquea. Y va ANTES de `getNextInvoiceNo()` por el mismo motivo que
+      // el gate de tenencia: consumir el número es el punto de no retorno de la
+      // numeración.
+      //
+      // Esta es la evaluación que importa: el guard del servidor
+      // (`InvoiceAuthGate`, 422 `invoice_auth_expired`) solo llega si hay red, y
+      // sin este corte local el POS imprimiría el ticket y se enteraría del
+      // rechazo recién al sincronizar — con el comprobante ya entregado.
+      //
+      // Un `throw` y no una fase propia: no hay recuperación desde acá (el
+      // trámite es en el panel, y ante la autoridad fiscal), así que el mensaje
+      // sale por el mismo camino que el resto de los cortes terminales de este
+      // handler.
+      const authBlock = emissionBlockNow()
+      if (authBlock?.kind === "invoice-auth") {
+        throw new Error(authBlock.reason)
+      }
+
       const block = tenancyBlock(useTenancyStore.getState().verdict)
       if (block) {
         setRegisterTaken(block)
@@ -1215,7 +1238,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
    * `isCreditable` es un gate real, no cosmético: el backend
    * (`SaleService::save`) lo valida igual; decirlo acá evita el round-trip.
    */
-  const creditBlockedReason: string | null = !credito
+  // Mismo veredicto que pinta el CTA del carrito (`lib/pos/emission-block.ts`).
+  // Acá se usa la versión reactiva porque alimenta el render del botón; el
+  // camino de confirmación usa `emissionBlockNow()`, que lee el estado en el
+  // instante del click.
+  const emissionBlock = useEmissionBlock()
+
+  // El timbrado vencido bloquea ANTES que cualquier condición del crédito: una
+  // venta a crédito es igual de fiscal que una al contado (type 3, con el mismo
+  // timbrado congelado), así que el impedimento se pinta también en SU control.
+  // Elegir cliente o abrir la caja no lo destraba, por eso va primero.
+  const creditBlockedReason: string | null = emissionBlock?.kind === "invoice-auth"
+    ? emissionBlock.reason
+    : !credito
     ? null
     : !customer
       ? "Elegí un cliente para vender a crédito"

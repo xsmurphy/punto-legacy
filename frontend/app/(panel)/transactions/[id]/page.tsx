@@ -263,6 +263,17 @@ function TransactionDetailView({
             <InfoRow label="Vencimiento" value={formatDateTime(tx.transactionDueDate, "d MMM yyyy")} />
           )}
           {tx.authNo && <InfoRow label="Timbrado" value={tx.authNo} mono />}
+          {/* La venta salió con el timbrado ya vencido. Solo puede pasar por la
+              cola offline —el camino directo devuelve 422— y es un documento
+              fiscalmente inválido, así que tiene que ser VISIBLE acá: la marca
+              se escribe en `meta` desde `SaleService` (context/29) y sin esta
+              fila no la leería nadie. */}
+          {tx.meta?.invoiceAuthExpiredAtEmission && (
+            <InfoRow
+              label="Timbrado al emitir"
+              value={<Badge variant="destructive">Vencido al emitirse</Badge>}
+            />
+          )}
           {tx.docNo && <InfoRow label="Factura" value={tx.docNo} mono />}
         </InfoCard>
 
@@ -633,7 +644,11 @@ function InfoRow({
   bold,
 }: {
   label: string
-  value: string
+  // `ReactNode` y no `string`: algunas filas son un estado, no un dato, y se
+  // leen mejor como badge (ej. "Timbrado vencido al emitirse"). Ensanchar el
+  // wrapper es lo correcto — la alternativa era un `<div>` suelto al lado de
+  // las filas, que rompe la grilla label/valor de la tarjeta.
+  value: React.ReactNode
   mono?: boolean
   bold?: boolean
 }) {

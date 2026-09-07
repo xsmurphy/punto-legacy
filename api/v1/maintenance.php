@@ -119,7 +119,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain', 'invoice-auth-notices'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -208,6 +208,20 @@ function maintenanceRunJob(string $job): array
             // (D5) sigue sin existir — es P3, en el gate de sesión.
             require_once __DIR__ . '/../lib/Admin/PlanLifecycleService.php';
             return (new \Punto\Api\Admin\PlanLifecycleService())->run();
+
+        case 'invoice-auth-notices':
+            // Avisos de timbrado por vencer / vencido, POR CAJA.
+            //
+            // Es la otra mitad del guard de `InvoiceAuthGate`: desde 2026-09-07
+            // la caja no puede facturar con el timbrado caído, y renovarlo es un
+            // trámite ante la autoridad fiscal, no un botón. Un corte duro sin
+            // preaviso es una caja que amanece sin poder vender.
+            //
+            // Este job NO muerde: solo manda mails y escribe su propia marca de
+            // idempotencia en `register.data.invoiceAuthNotices`. El bloqueo lo
+            // aplican el POS y `/v1/sales.php` en tiempo real, no este cron.
+            require_once __DIR__ . '/../lib/Notifications/InvoiceAuthNoticeService.php';
+            return (new \Punto\Api\Notifications\InvoiceAuthNoticeService())->run();
 
         case 'partition-ensure':
             return maintenancePartitionEnsure($db);

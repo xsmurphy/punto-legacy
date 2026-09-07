@@ -11,7 +11,10 @@
  *      que el servidor rechazó es plata contada que quedó en el aire, y no hay
  *      motivo para que grite menos fuerte que una venta;
  *   2. sin conexión (ámbar), con la cola pendiente si la hay;
- *   3. sincronizando.
+ *   3. sincronizando;
+ *   4. el timbrado de la caja se está por acabar — por NÚMEROS (context/37) o
+ *      por PLAZO (context/29). Último de la cadena a propósito: los dos dan
+ *      días de margen y no pueden tapar algo que exige acción ahora.
  *
  * Lo que NO va acá: los IMPEDIMENTOS. La tenencia de caja se avisó un rato en
  * este pill ("Caja tomada por X — no se puede facturar") y estuvo mal por dos
@@ -39,6 +42,8 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { peekInvoiceRemaining } from "@/lib/pos/invoice-numbering"
 import { timbradoLevel } from "@/lib/documents/timbrado-warning"
+import { invoiceAuthNoticeLabel } from "@/lib/documents/invoice-auth-expiry"
+import { tenantNow } from "@/lib/format-date"
 
 /**
  * `savedAt` es un instante real en UTC (`new Date().toISOString()`), no un
@@ -108,6 +113,21 @@ export function OfflineStatusPill() {
   const remaining = activeRegisterId ? peekInvoiceRemaining(activeRegisterId) : null
   const timbrado = timbradoLevel(remaining)
 
+  // Timbrado por VENCER (context/29): el otro final del mismo talonario — allá
+  // se acaban los números, acá el plazo. Solo la PROXIMIDAD (≤ 7 días) vive en
+  // este pill. El timbrado ya VENCIDO no: eso es un impedimento, y los
+  // impedimentos se informan en el control que impide (el CTA de cobro, ver el
+  // docblock de arriba y `lib/pos/emission-block.ts`), nunca acá.
+  //
+  // La fecha se compara contra el día DEL TENANT, no contra el del device:
+  // `tenantNow` usa la TZ del bootstrap y funciona sin conexión.
+  const registers = useCatalogStore((s) => s.registers)
+  const timezone = useCatalogStore((s) => s.config?.timezone)
+  const authExpiration = activeRegisterId
+    ? (registers.find((r) => r.id === activeRegisterId)?.authExpiration ?? null)
+    : null
+  const authNotice = invoiceAuthNoticeLabel(authExpiration, tenantNow(timezone).slice(0, 10))
+
   // UN solo aviso de estado en toda la caja, con prioridad explícita
   // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, sin-conexión
   // sobre sincronizando, y el timbrado por agotarse es el último — es un
@@ -115,7 +135,14 @@ export function OfflineStatusPill() {
   // ahora. Antes esto se repartía entre este pill y una banda `OfflineBanner`
   // montada en otro punto del carrito, así que con dos estados simultáneos se
   // apilaban dos franjas y empujaban la toolbar hacia abajo.
-  if (failedCount === 0 && failedOpsCount === 0 && !degraded && !syncing && timbrado === "ok")
+  if (
+    failedCount === 0 &&
+    failedOpsCount === 0 &&
+    !degraded &&
+    !syncing &&
+    timbrado === "ok" &&
+    authNotice === null
+  )
     return null
 
   // Con conexión y sin nada roto, las operaciones en cola NO se avisan acá: se
@@ -146,6 +173,12 @@ export function OfflineStatusPill() {
   // destructivo — quedan tan pocos números que es cuestión de horas.
   const timbradoOnly = !failed && !degraded && !syncing
 
+  // Entre los dos avisos de timbrado gana el de NÚMEROS cuando está en crítico:
+  // quedan horas. El de plazo da días de margen por definición (≤ 7), así que
+  // nunca puede tapar algo más urgente — misma lógica que lo puso último en la
+  // cadena de prioridad de arriba.
+  const showAuthNotice = timbradoOnly && authNotice !== null && timbrado !== "crit"
+
   const content = (
     <>
       {timbradoOnly ? (
@@ -162,9 +195,11 @@ export function OfflineStatusPill() {
             ? `Sin conexión${queueLabel}`
             : syncing
               ? `Sincronizando ${pendingCount}`
-              : timbrado === "crit"
-                ? `Timbrado por agotarse: quedan ${remaining} números`
-                : `Timbrado: quedan ${remaining} números`}
+              : showAuthNotice
+                ? authNotice
+                : timbrado === "crit"
+                  ? `Timbrado por agotarse: quedan ${remaining} números`
+                  : `Timbrado: quedan ${remaining} números`}
       </span>
     </>
   )
@@ -173,7 +208,7 @@ export function OfflineStatusPill() {
     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
     failed || (timbradoOnly && timbrado === "crit")
       ? "border-destructive/30 bg-destructive/10 text-destructive"
-      : degraded || (timbradoOnly && timbrado === "warn")
+      : degraded || (timbradoOnly && (timbrado === "warn" || showAuthNotice))
         ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
         : "border-border bg-background/90 text-muted-foreground backdrop-blur",
   )

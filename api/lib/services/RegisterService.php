@@ -147,47 +147,30 @@ final class RegisterService
     }
 
     /**
-     * Vigencia del timbrado de la caja.
+     * Vigencia del timbrado de la caja AL MOMENTO DE TOMARLA.
      *
      * Devuelve `null` si se puede facturar, o el mensaje de error si NO.
      *
-     * Regla del owner (2026-08-08): el timbrado se configura por caja y tiene
-     * vencimiento; con el timbrado vencido NO se puede facturar. Un documento
-     * emitido con timbrado vencido es inválido ante la SET, así que el corte
-     * tiene que ser duro — no un aviso que el cajero pueda saltear.
+     * Delega en `InvoiceAuthGate` (2026-09-07). La regla, el mensaje y el
+     * "sin vencimiento cargado no bloquea" viven allá: este método es solo el
+     * caso particular "la fecha de la operación es AHORA", que es lo que
+     * corresponde al tomar la caja (`/v1/register/claim.php`, el único caller).
      *
-     * Una caja SIN vencimiento cargado no se bloquea: hay comercios que operan
-     * sin numeración fiscal (ver el filtro de `TransactionsService::registerInfo`)
-     * y bloquearlos por un campo vacío sería romperles la caja.
-     *
-     * La comparación es por FECHA local del tenant, no por timestamp UTC: el
-     * timbrado vence al terminar su último día, y con TZ del servidor un
-     * comercio en Asunción quedaría bloqueado unas horas antes de tiempo.
+     * El camino que EMITE el documento no pasa por acá — usa
+     * `InvoiceAuthGate::assertValidAt()` con la fecha real de la operación, que
+     * puede ser anterior a hoy en una venta encolada offline. Ver el docblock
+     * de la clase para por qué las dos fechas tienen que poder diferir sin que
+     * la comparación se duplique.
      */
     public function invoiceAuthError(string $registerId, string $companyId): ?string
     {
-        $row = ncmExecute(
-            'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
-            [$registerId, $companyId]
-        );
-        if (!$row) {
-            return null;   // sin caja no hay nada que validar acá
-        }
-        // Query::flattenJsonb aplana `data` y BORRA la columna: la clave se lee
-        // ya aplanada, `$row['data']` sería null (mismo patrón que lease.php).
-        $expiration = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
-        if ($expiration === '') {
-            return null;   // caja sin timbrado cargado — no aplica
-        }
-
-        // date() ya corre en la TZ del tenant: data.php hace
-        // date_default_timezone_set(settingTimeZone) en el boot.
-        if ($expiration >= date('Y-m-d')) {
+        $expiration = \Punto\Api\Sales\InvoiceAuthGate::expirationFor($registerId, $companyId);
+        $now        = \Punto\Api\Sales\InvoiceAuthGate::nowFor($companyId);
+        if (!\Punto\Api\Sales\InvoiceAuthGate::isExpiredOn($expiration, $now)) {
             return null;
         }
 
-        return 'El timbrado de esta caja venció el ' . $expiration
-             . '. Actualizalo en Sucursales → Cajas para poder seguir facturando.';
+        return \Punto\Api\Sales\InvoiceAuthGate::message(substr((string) $expiration, 0, 10));
     }
 
     /**

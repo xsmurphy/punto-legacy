@@ -100,8 +100,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { useTenancyStore } from "@/lib/pos/tenancy-store"
-import { registerBlockShortReason } from "@/lib/pos/register-conflict"
+import { useEmissionBlock } from "@/lib/pos/emission-block"
 import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useOutsidePointerDown } from "@/hooks/use-outside-pointerdown"
@@ -307,11 +306,23 @@ export function CartPanel() {
   // de abrir el flujo de pago. Si drawerStatus es undefined (cargando o error),
   // dejamos pasar — el modal de pago tiene su propio guard interno.
   // Cuando controlCaja === false: el guard no aplica y se abre el pago directo.
-  // Motivo por el que esta caja NO puede emitir, si lo hay. Se lee acá y en
-  // `CartBottom` (el control que lo muestra) del mismo veredicto en memoria.
-  const payBlockedReason = useTenancyStore((s) => registerBlockShortReason(s.verdict))
+  // Motivo por el que esta caja NO puede emitir, si lo hay. Un solo veredicto
+  // —tenencia de caja y timbrado vencido, con la prioridad resuelta en
+  // `lib/pos/emission-block.ts`— leído acá y re-evaluado en `handleConfirm`
+  // del diálogo de pago. `CartBottom` es el control que lo muestra.
+  const emissionBlock = useEmissionBlock()
+  const payBlockedReason = emissionBlock?.reason ?? null
 
   const handlePayClick = React.useCallback(() => {
+    // Timbrado vencido: NO se abre el diálogo. No hay nada que hacer ahí
+    // dentro —`RegisterTakenPhase` ofrece "tomar la caja", que para esto no
+    // sirve— y el trámite es en el panel, en otra sesión y probablemente en
+    // otro día. El toque devuelve el mismo texto del tooltip, que es lo que
+    // necesita el cajero en tablet (sin hover no hay tooltip).
+    if (emissionBlock?.kind === "invoice-auth") {
+      toast.error(emissionBlock.reason)
+      return
+    }
     // Sin derecho a emitir, el gate de tenencia manda sobre el de apertura de
     // caja: no tiene sentido pedirle al cajero que abra el cajón para una
     // venta que después no va a poder numerar. `PayDialog` abre directo en la
@@ -325,7 +336,11 @@ export function CartPanel() {
     } else {
       setPayOpen(true)
     }
-  }, [controlCaja, drawerStatus, payBlockedReason, setPayOpen])
+    // `emissionBlock?.kind` y no el objeto: el veredicto se recalcula en cada
+    // render, así que tenerlo entero acá recrearía este callback siempre. Lo
+    // que decide la rama es el TIPO de bloqueo; el texto ya viaja por
+    // `payBlockedReason`.
+  }, [controlCaja, drawerStatus, emissionBlock?.kind, emissionBlock?.reason, payBlockedReason, setPayOpen])
 
   // Modo orden (O1): "Ordenar" envía a cocina — sin caja/stock, sin gate de
   // drawer. Crea la orden con sendNow=true (status "sent" directo) y, si

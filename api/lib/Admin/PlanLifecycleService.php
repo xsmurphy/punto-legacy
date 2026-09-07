@@ -433,18 +433,6 @@ final class PlanLifecycleService
     }
 
     /**
-     * Teléfono del DUEÑO del tenant. El predicado del rol de dueño NO se
-     * duplica: sale de `RoleService::ownerRoleSql()`, el único lugar del
-     * codebase que sabe distinguir el int legacy '1' del UUID del rol con
-     * slug 'owner'.
-     *
-     * A diferencia de `findPhoneLogin()`, este `LIMIT 1` va con `ORDER BY`:
-     * gana el contacto marcado `main = 'true'` (el dueño REGISTRADO, mismo
-     * criterio que `ownerContactSql`) y el `contactid` desempata. Un LIMIT 1
-     * sin orden sobre un tenant con dos dueños elegiría una fila distinta en
-     * cada corrida — el bug que context/55 §8 documenta en el login.
-     */
-    /**
      * Email del dueño del tenant — destinatario de los avisos.
      *
      * Era el TELÉFONO y los avisos salían por WhatsApp (Evolution). El owner
@@ -455,27 +443,13 @@ final class PlanLifecycleService
      *
      * Al DUEÑO, no al cajero: un vencimiento de plan es del negocio. Ver
      * `context/34` §F7 D7.
+     *
+     * La resolución vive en `TenantNotice` desde 2026-09-07 — la comparte con
+     * el aviso de timbrado vencido, que le manda al mismo destinatario.
      */
     private function ownerEmail(string $companyId): ?string
     {
-        $rows = $this->fetchRows(
-            "SELECT c.contactemail
-               FROM contact c
-              WHERE c.companyid = ?
-                AND c.type = 0
-                AND coalesce(c.contactemail, '') <> ''
-                AND " . \RoleService::ownerRoleSql('c') . "
-              ORDER BY (coalesce(c.main, '') = 'true') DESC, c.contactid
-              LIMIT 1",
-            [$companyId]
-        );
-
-        if ($rows === []) {
-            return null;
-        }
-        $email = trim((string) ($rows[0]['contactemail'] ?? ''));
-
-        return $email !== '' ? $email : null;
+        return \Punto\Api\Notifications\TenantNotice::ownerEmail($companyId);
     }
 
     /** Asunto del aviso. Dice el estado, no el mecanismo. */
@@ -492,12 +466,7 @@ final class PlanLifecycleService
     /** Email enmascarado para el log: basta para identificar, no para filtrar. */
     private static function maskEmail(string $email): string
     {
-        $at = strpos($email, '@');
-        if ($at === false || $at < 1) {
-            return '***';
-        }
-
-        return substr($email, 0, 1) . '***' . substr($email, $at);
+        return \Punto\Api\Notifications\TenantNotice::maskEmail($email);
     }
 
     /** Texto del aviso. El nombre del comercio vive en `config->>'companyName'`. */
@@ -549,62 +518,8 @@ final class PlanLifecycleService
      */
     private function formatTenantDate(string $companyId, string $raw): string
     {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return '';
-        }
-
-        $tz = \Punto\Api\Support\TenantLocale::timezone($companyId);
-        try {
-            $dt = new \DateTimeImmutable($raw, new \DateTimeZone('UTC'));
-            $dt = $dt->setTimezone(new \DateTimeZone($tz));
-        } catch (\Throwable $e) {
-            return '';
-        }
-
-        if (!class_exists(\IntlDateFormatter::class)) {
-            return $dt->format('Y-m-d');
-        }
-
-        // Idioma del PRODUCTO + región del TENANT.
-        //
-        // Acá decía `und-PY` (idioma indefinido + región), y ICU lo RECHAZA:
-        // `IntlDateFormatter::create()` LANZA con ese locale en vez de
-        // devolver null, así que el guard de abajo nunca llegaba a correr y
-        // los seis avisos de la primera corrida real murieron con
-        // "IntlDateFormatter::create(): Argument #1 ($locale) \"und-PY\" is
-        // invalid" (verificado en prod, 2026-09-05 — se salvó porque los
-        // avisos estaban en dry-run).
-        //
-        // 'es' no es hardcodear Paraguay: es el idioma del producto entero
-        // (el front formatea con `date-fns/locale` `es` en todos lados). Lo
-        // que SÍ sale del tenant es la región, que es lo que decide el orden
-        // de la fecha. Un tenant argentino recibe es-AR, uno paraguayo es-PY.
-        $country = \Punto\Api\Support\TenantLocale::country($companyId);
-        $locale  = ($country !== null && $country !== '') ? 'es-' . strtoupper($country) : 'es';
-
-        // try/catch ADEMÁS del chequeo de null: `create()` puede lanzar (es lo
-        // que pasó) o devolver null según el modo de error de intl. Un aviso
-        // no puede caerse por el formato de una fecha.
-        try {
-            $fmt = \IntlDateFormatter::create(
-                $locale,
-                \IntlDateFormatter::SHORT,
-                \IntlDateFormatter::NONE,
-                $tz
-            );
-        } catch (\Throwable $e) {
-            return $dt->format('Y-m-d');
-        }
-        if ($fmt === null) {
-            return $dt->format('Y-m-d');
-        }
-
-        $out = $fmt->format($dt);
-
-        return is_string($out) && $out !== '' ? $out : $dt->format('Y-m-d');
+        return \Punto\Api\Notifications\TenantNotice::formatDate($companyId, $raw);
     }
-
     /**
      * Anota el aviso en `company.config`. MERGE sobre la subclave, no
      * reemplazo del JSONB entero: `config` es donde viven `moduleData`, los

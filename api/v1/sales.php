@@ -120,6 +120,39 @@ if ($input->invoiceNo === null) {
     apiError('Falta el número de comprobante — actualizá el POS e intentá de nuevo', 422);
 }
 
+// Vigencia del timbrado (context/29 §1) aplicada al camino DIRECTO. `save()`
+// congela el timbrado en cada venta desde la mig 145, pero hasta 2026-09-07
+// nadie comparaba `registerInvoiceAuthExpiration` contra nada en el money-path:
+// la caja emitía facturas con el timbrado caído, sin aviso.
+//
+// Va acá y no dentro de `SaleService`: el servicio lo usan los DOS caminos y el
+// de la cola offline NO puede rechazar (ver abajo). El servicio calcula la
+// marca; quién corta lo decide el endpoint.
+//
+// La fecha es la de la OPERACIÓN (`$input->date`, resuelta con
+// `TenantClock::atInstant()` desde el epoch del device), nunca el `now()` del
+// servidor — ver el docblock de `InvoiceAuthGate`.
+//
+// La venta INTERNA (`$input->interno`, mig 118) NO se exceptúa, y no es un
+// descuido: hoy consume número de factura y congela timbrado como cualquier
+// otra (`pay-dialog.tsx`: "`interno` incluido — el doctype 'comprobante' sin
+// valor fiscal todavía no existe"). Mientras salga bajo el timbrado de la caja,
+// el timbrado vencido la invalida igual. El día que exista el doctype no fiscal
+// —context/49— la excepción se agrega ACÁ, junto con el resto de su
+// tratamiento, no antes.
+//
+// §53 (context/08): esto NO viola "el backend nunca rechaza una venta ya
+// emitida" — igual que el 409 de tenencia de abajo, en este punto el ticket
+// todavía no se imprimió (`runAutoPrint` corre DESPUÉS de que este POST
+// responde). Y el POS ya bloqueó localmente antes de llegar acá
+// (`lib/pos/emission-block.ts`): este 422 es el backstop del device con la
+// config vieja o el reloj corrido.
+try {
+    \Punto\Api\Sales\InvoiceAuthGate::assertValidAt($regId, $compId, $input->date);
+} catch (\Punto\Api\Sales\InvoiceAuthExpiredException $e) {
+    apiError($e->getMessage(), 422, $e->details());
+}
+
 // Exclusividad de caja (context/29 §4) aplicada al camino ONLINE — antes
 // solo `offline-sync.php` validaba esto. El número que llega acá lo decidió
 // el device LOCALMENTE (`getNextInvoiceNo()`, nunca `DocumentNumber::
