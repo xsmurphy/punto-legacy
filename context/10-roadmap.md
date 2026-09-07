@@ -2478,6 +2478,34 @@ duplicado — es un caso legítimo y frecuente.
 
 ---
 
+## Feature request — fidelidad con wallet del cliente (2026-09-07, sin planificar)
+
+**Sellos o puntos de fidelidad que viven en la wallet del celular del
+cliente** (Apple Wallet / Google Wallet), con push notifications. Referencia
+del owner: Almendro (merchant.almendroapp.com) — el comercio elige el
+mecanismo (tarjeta de sellos "3 de 8 juntados" con recompensa, o pase de
+membresía con niveles/beneficios) y el cliente agrega su tarjeta a la wallet;
+cada actualización del pase puede empujar una notificación.
+
+Piezas que YA existen y este feature debería reusar, no duplicar:
+- `storeCredit`/`creditLine` y el ledger de crédito del cliente — puntos ≠
+  crédito, pero la acumulación por venta engancha en el mismo lugar
+  (SaleService, post-venta) y la regla de sync en tiempo real aplica.
+- El teléfono del cliente ya se captura en el alta (decisión 2026-09-06:
+  siempre pedirlo, es dato de marketing del comercio).
+- El portal del cliente (token por documento) como precedente de superficie
+  pública sin login.
+
+Lo genuinamente nuevo: emisión de pases (PassKit `.pkpass` firmado con
+certificado de Apple Developer + Google Wallet API), el web service de
+actualización de pases (registro de devices, push vía APNs), y el motor de
+reglas de acumulación/canje (sellos por visita vs. puntos por monto). El canje
+en caja debería ser una línea de la venta (mismo patrón atómico que vouchers,
+`context/36`). Sin planificar: ni fases ni decisiones — cuando se retome,
+primer paso es el doc de plan propio.
+
+---
+
 ## Backlog testing 2026-07-07 — Panel + POS (feedback testers)
 
 **Re-reportado casi íntegro por testers el 2026-07-30** (doc "Punto Panel") —
