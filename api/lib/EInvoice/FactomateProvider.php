@@ -350,6 +350,15 @@ final class FactomateProvider implements EInvoiceProvider
             'NombreFantasia' => (string) ($data['nombreFantasia'] ?? ''),
             'Email'          => (string) ($data['email'] ?? ''),
             'Ruc'            => (string) ($data['ruc'] ?? ''),
+            // El CELULAR del dueño — la identidad de PhoneLogin del usuario
+            // que Factomate crea. Omitirlo fue el bug que dejó a los emisores
+            // sin poder loguearse (PhoneLogin 500, 2026-09-07): el header se
+            // llama phonenumber y le mandábamos el email porque el flujo se
+            // había verificado solo con la cuenta ADMIN, que sí autentica por
+            // username. [S] Nombre del campo SIN confirmar con soporte — se
+            // mandan las dos variantes plausibles; la que sobre se ignora.
+            'Phone'          => (string) ($data['phone'] ?? ''),
+            'PhoneNumber'    => (string) ($data['phone'] ?? ''),
         ], $adminBearer, $adminLogin, $environment);
 
         if (empty($raw['Success'] ?? $raw['success'] ?? false)) {

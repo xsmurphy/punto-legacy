@@ -330,11 +330,24 @@ final class EInvoiceProvisioningService
         $adminBearer = $this->session->getAdminBearer($environment);
         $adminLogin  = $this->session->getAdminLogin($environment);
 
+        // El celular del DUEÑO es obligatorio: es la identidad de PhoneLogin
+        // del usuario que Factomate crea. Sin él, el emisor queda registrado
+        // pero nadie puede autenticarse en su nombre (bug 2026-09-07, Balloon
+        // Party — el alta salió sin teléfono y el PhoneLogin devolvía 500).
+        $ownerPhone = $this->ownerPhone($companyId);
+        if ($ownerPhone === '') {
+            throw new \RuntimeException(
+                'El dueño del comercio no tiene celular cargado — es la identidad de acceso ' .
+                'del emisor ante el proveedor. Cargalo en su ficha de usuario y reintentá.'
+            );
+        }
+
         $created = $this->provider->createExternal($environment, $adminLogin, $adminBearer, [
             'razonSocial'    => $company['razonSocial'],
             'nombreFantasia' => $company['nombreFantasia'],
             'email'          => $fiscal['email'],
             'ruc'            => $company['ruc'],
+            'phone'          => $ownerPhone,
         ]);
 
         // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir.
@@ -358,7 +371,10 @@ final class EInvoiceProvisioningService
                     'factomate_user_id'   => $created['userId'],
                     'username'            => $created['email'],
                     'password_enc'        => CredentialVault::encrypt($created['password']),
-                    'phone_enc'           => CredentialVault::encrypt($created['email']),
+                    // Identidad de PhoneLogin = el CELULAR del dueño, no el
+                    // email (corregido 2026-09-07 — el email solo autentica a
+                    // la cuenta admin). El email queda en `username`.
+                    'phone_enc'           => CredentialVault::encrypt($ownerPhone),
                     'token_enc'           => null,
                     'token_expires_at'    => null,
                 ],
@@ -921,6 +937,22 @@ final class EInvoiceProvisioningService
         $row = ncmExecute('SELECT fiscal FROM einvoice_account WHERE companyid = ?', [$companyId]);
         $f = json_decode((string) ($row['fiscal'] ?? '{}'), true);
         return is_array($f) ? $f : [];
+    }
+
+    /**
+     * Celular del DUEÑO del comercio (contact type=0 con rol de dueño, el más
+     * antiguo — el que registró la cuenta), sin '+' (convención de storage).
+     * Es la identidad de PhoneLogin del emisor en Factomate.
+     */
+    private function ownerPhone(string $companyId): string
+    {
+        $row = ncmExecute(
+            'SELECT contactphone FROM contact c
+              WHERE companyid = ? AND type = 0 AND ' . \RoleService::ownerRoleSql('c') . '
+              ORDER BY contactdate LIMIT 1',
+            [$companyId]
+        );
+        return trim((string) ($row['contactphone'] ?? ''));
     }
 
     private function accountLogin(string $companyId): string
