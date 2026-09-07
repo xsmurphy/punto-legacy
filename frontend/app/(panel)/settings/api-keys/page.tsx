@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import {
   AlertDialog,
@@ -34,7 +35,31 @@ import {
   useIssueApiKey,
   useRevokeApiKey,
   type ApiKey,
+  type ApiKeyScope,
 } from "@/hooks/use-api-keys"
+import { cn } from "@/lib/utils"
+
+/**
+ * Los dos scopes, con el texto que decide el comercio.
+ *
+ * "Solo lectura" va PRIMERO y es el default: la mayoría de las integraciones no
+ * necesitan más, y el que no lee la ayuda se lleva la opción segura. La segunda
+ * dice qué habilita en concreto —crear y modificar datos del negocio— sin
+ * prometer que puede TODO: la key nunca puede más que el usuario que la emitió,
+ * y las ventas quedan afuera por decisión de producto.
+ */
+const SCOPES: Array<{ value: ApiKeyScope; label: string; desc: string }> = [
+  {
+    value: "read",
+    label: "Solo lectura",
+    desc: "Consulta ventas, stock, clientes y reportes. No puede modificar nada.",
+  },
+  {
+    value: "write",
+    label: "Lectura y configuración",
+    desc: "Además de consultar, permite crear y modificar datos del negocio (productos, clientes, usuarios, sucursales, cajas) a través del catálogo de acciones del asistente, con los permisos del usuario que crea la key.",
+  },
+]
 
 function niceDate(iso: string | null): string {
   if (!iso) return "—"
@@ -50,6 +75,7 @@ export default function ApiKeysPage() {
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [name, setName] = React.useState("")
+  const [scope, setScope] = React.useState<ApiKeyScope>("read")
   // El token vive SOLO en este estado, mientras el diálogo está abierto: no hay
   // endpoint que lo relea, y guardarlo en cualquier otro lado sería inventar
   // una segunda copia de una credencial que el backend ya decidió no persistir.
@@ -66,6 +92,20 @@ export default function ApiKeysPage() {
         header: "Nombre",
         cell: ({ row }) => <span className="font-medium">{row.original.name || "—"}</span>,
         meta: { label: "Nombre" },
+      },
+      {
+        accessorKey: "scope",
+        header: "Acceso",
+        // La de escritura es la excepción y la que hay que poder identificar de
+        // un vistazo para revocarla; la de lectura queda en texto tenue porque
+        // es el default y un badge por fila no distinguiría nada.
+        cell: ({ row }) =>
+          row.original.scope === "write" ? (
+            <Badge variant="secondary">Configuración</Badge>
+          ) : (
+            <span className="text-muted-foreground">Lectura</span>
+          ),
+        meta: { label: "Acceso" },
       },
       {
         accessorKey: "createdAt",
@@ -127,11 +167,14 @@ export default function ApiKeysPage() {
 
   function handleIssue() {
     issueKey.mutate(
-      { name },
+      { name, scope },
       {
         onSuccess: (res) => {
           setCreateOpen(false)
           setName("")
+          // El scope vuelve al default para la próxima: elegir "configuración"
+          // es una decisión por key, no una preferencia de la pantalla.
+          setScope("read")
           setIssued({ token: res.token, name: res.name })
         },
         onError: (err) => toast.error(err.message),
@@ -155,8 +198,9 @@ export default function ApiKeysPage() {
         <h1 className="text-2xl font-semibold">Keys de integración</h1>
         <p className="text-sm text-muted-foreground">
           Conectá Claude u otra herramienta de IA a los datos de tu comercio. Cada key
-          lee exactamente lo mismo que puede ver el usuario que la creó, y nunca puede
-          escribir.
+          alcanza exactamente lo mismo que el usuario que la creó, nunca más. Las de
+          solo lectura no pueden modificar nada; las de configuración además dejan que
+          el asistente cargue y edite datos del negocio.
         </p>
       </header>
 
@@ -207,16 +251,48 @@ export default function ApiKeysPage() {
               necesites revocar una. Poné dónde la vas a usar.
             </DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-3">
-            <Label htmlFor="mcp-key-name">Nombre</Label>
-            <Input
-              id="mcp-key-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Claude Desktop de Ana"
-              maxLength={60}
-              autoFocus
-            />
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="mcp-key-name">Nombre</Label>
+              <Input
+                id="mcp-key-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Claude Desktop de Ana"
+                maxLength={60}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <Label>Qué puede hacer</Label>
+              <RadioGroup value={scope} onValueChange={(v) => setScope(v as ApiKeyScope)}>
+                {SCOPES.map((s) => (
+                  <Label
+                    key={s.value}
+                    htmlFor={`api-key-scope-${s.value}`}
+                    className={cn(
+                      "flex cursor-pointer items-start gap-3 rounded-md border p-3 font-normal",
+                      scope === s.value ? "border-foreground/30 bg-accent/50" : "border-border",
+                    )}
+                  >
+                    <RadioGroupItem
+                      value={s.value}
+                      id={`api-key-scope-${s.value}`}
+                      className="mt-0.5"
+                    />
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-sm font-medium">{s.label}</span>
+                      <span className="text-xs text-muted-foreground">{s.desc}</span>
+                    </div>
+                  </Label>
+                ))}
+              </RadioGroup>
+              <p className="text-xs text-muted-foreground">
+                El acceso se define ahora y no se cambia después: para pasar de una a
+                otra se emite una key nueva y se revoca la anterior.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>

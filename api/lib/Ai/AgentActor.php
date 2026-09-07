@@ -137,6 +137,12 @@ final class AgentActor
         $realm     = (string) ($ctx['realm'] ?? '');
         $companyId = (string) ($ctx['companyId'] ?? '');
 
+        // El realm `api` (una API key, M6 de `context/58`) cae acá A PROPÓSITO,
+        // junto con `panel`: la key hereda userId/roleId del usuario que la
+        // emitió, así que `hasPermission()` resuelve exactamente sus permisos —
+        // la credencial ES la persona, igual que en el panel. Un caso propio
+        // sería una segunda definición de "qué puede el agente" que podría
+        // divergir de la primera.
         if ($realm !== 'pos-app') {
             if (!\hasPermission(self::PANEL_ENTRY_PERMISSION)) {
                 \apiError('No tenés permiso para esta acción (requiere: ' . self::PANEL_ENTRY_PERMISSION . ')', 403);

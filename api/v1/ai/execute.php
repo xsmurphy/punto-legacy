@@ -12,8 +12,14 @@
  * Un fallo en una acción del lote NO aborta las demás — cada acción se ejecuta
  * de forma independiente y su resultado (éxito o error) se reporta por separado.
  *
- * Auth: realms `panel` y `pos-app`. En la caja la autorización NO sale de la
- * credencial sino del operador que probó su PIN — ver `AgentActor`.
+ * Auth: realms `panel`, `pos-app` y `api`. En la caja la autorización NO sale de
+ * la credencial sino del operador que probó su PIN — ver `AgentActor`.
+ *
+ * El realm `api` (M6 de `context/58`) entra con `apiWrite: true`, y con la misma
+ * condición que `confirm.php`: la key tiene que haberse emitido con scope
+ * `write`. Los dos endpoints se abren JUNTOS a propósito — abrir solo uno deja
+ * lotes registrados que nadie puede ejecutar, o ejecuciones sin el registro que
+ * es lo único que prueba qué se mostró antes de aprobar.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
@@ -31,7 +37,7 @@ require_once dirname(__DIR__, 2) . '/lib/services/RegisterAdminException.php';
 // que usa `confirm.php`, para que las dos mitades de la operación no puedan
 // diverger. Bajo `pos-app` exige `OperatorAssertion`: sin PIN validado no hay
 // escritura, y el Bearer eterno del dispositivo no alcanza por sí solo.
-$ctx = apiAuthTenant(['panel', 'pos-app']);
+$ctx = apiAuthTenant(['panel', 'pos-app', 'api'], apiWrite: true);
 $companyId = $ctx['companyId'];
 
 $actor  = \Punto\Api\Ai\AgentActor::authorize($ctx);

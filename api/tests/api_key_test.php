@@ -135,6 +135,48 @@ try {
     try { $svc->issue($ctxA, '   '); } catch (\InvalidArgumentException) { $sinNombre = true; }
     check('rechaza una key sin nombre', $sinNombre, 'aceptó nombre vacío', $failures, $checks);
 
+    // ── 4b. Scope de escritura (M6 de `context/58`) ──────────────────────────
+    // Estas emisiones NO crean filas nuevas (todas lanzan o son la key ya
+    // emitida arriba): el conteo del listado de la sección 5 sigue en 1.
+    $metaRow = $row['meta'] ?? null;
+    if (is_string($metaRow)) { $metaRow = json_decode($metaRow, true); }
+    $metaRow = is_array($metaRow) ? $metaRow : [];
+    check(
+        'una key nace con scope de solo lectura',
+        (string) ($metaRow['scope'] ?? '') === ApiKeyService::SCOPE_READ,
+        'scope = ' . var_export($metaRow['scope'] ?? null, true),
+        $failures, $checks
+    );
+    $scopeMalo = false;
+    try { $svc->issue($ctxA, 'Rara', null, 'admin'); } catch (\InvalidArgumentException) { $scopeMalo = true; }
+    check('rechaza un scope fuera de la allowlist', $scopeMalo, 'aceptó un scope inventado', $failures, $checks);
+
+    // El gate de escritura vive en `apiAuthTenant()` y depende de constantes y
+    // de $_SERVER, que bajo CLI no existen: se verifica la REGLA sobre el
+    // código, igual que la de auditoría de la sección 7.
+    $bootstrapSrc = (string) file_get_contents(dirname(__DIR__) . '/bootstrap.php');
+    check(
+        'sin opt-in, el realm api sigue rechazando todo verbo que no sea lectura',
+        str_contains($bootstrapSrc, "if (\$realm === 'api' && !\$apiWrite"),
+        'se perdió el 405: cualquier endpoint con realm api aceptaría escritura',
+        $failures, $checks
+    );
+    check(
+        'con opt-in, la escritura exige que la key tenga scope write',
+        str_contains($bootstrapSrc, "\$__keyScope !== 'write'"),
+        'una key de solo lectura podría escribir por el embudo del agente',
+        $failures, $checks
+    );
+    foreach (['confirm', 'execute'] as $__aiEndpoint) {
+        $src = (string) file_get_contents(dirname(__DIR__) . '/v1/ai/' . $__aiEndpoint . '.php');
+        check(
+            "/v1/ai/{$__aiEndpoint} es el único camino de escritura del realm api",
+            str_contains($src, "apiAuthTenant(['panel', 'pos-app', 'api'], apiWrite: true)"),
+            'el embudo dejó de aceptar la API key, o la acepta sin declarar apiWrite',
+            $failures, $checks
+        );
+    }
+
     // ── 5. Listado sin material sensible ─────────────────────────────────────
     $lista = $svc->listForCompany($companyA);
     check('la key aparece en el listado del tenant', count($lista) === 1, 'devolvió ' . count($lista), $failures, $checks);
@@ -146,6 +188,14 @@ try {
         $failures, $checks
     );
     check('el listado trae el nombre', ($lista[0]['name'] ?? '') === 'Claude Desktop de Juan', 'name = ' . ($lista[0]['name'] ?? ''), $failures, $checks);
+    // La UI pinta el badge de "Configuración" con esto: sin el scope en el
+    // listado, una key que escribe se vería igual que una que solo lee.
+    check(
+        'el listado trae el scope',
+        ($lista[0]['scope'] ?? '') === ApiKeyService::SCOPE_READ,
+        'scope = ' . ($lista[0]['scope'] ?? ''),
+        $failures, $checks
+    );
     check('la key del tenant B no se ve desde A', count($svc->listForCompany($companyB)) === 0, 'B ve keys de A', $failures, $checks);
 
     // ── 6. Revocación: aislada e idempotente ─────────────────────────────────

@@ -88,8 +88,15 @@ function authSessionLookup(string $raw)
 
     try {
         $r = $db->Execute(
+            // `meta` viaja acá desde M6 (`context/58`): el scope de escritura de
+            // una API key vive ahí y lo consume `apiAuthTenant()`, o sea que es
+            // un GATE, no una etiqueta. Traerlo en una segunda query por
+            // sessionId sería una lectura más en el mismo hot path para ahorrar
+            // una columna jsonb chica de una fila ya localizada por índice
+            // único. Ojo al ensancharlo más: esto corre en TODA request
+            // autenticada.
             'SELECT sessionid, realm, companyid, userid, deviceid, outletid,
-                    registerid, roleid, module, status, expiresat
+                    registerid, roleid, module, status, expiresat, meta
                FROM auth_session WHERE tokenhash = ? LIMIT 1',
             [$hash]
         );
@@ -271,6 +278,18 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
     define('AUTHED_DEVICE_ID',   (string)($session['deviceId']   ?? ''));
     define('AUTHED_REALM',       (string)$session['realm']);
     define('AUTHED_SESSION_ID',  (string)$session['sessionId']);
+
+    // `meta` de la sesión, YA decodificado — las constantes AUTHED_* son el
+    // contrato que leen los endpoints y ninguno debería tener que acordarse de
+    // que esta columna es jsonb. Un meta ausente, nulo o corrupto queda en `[]`:
+    // quien lo consuma decide con su propio default (hoy `scope` → 'read' en
+    // `apiAuthTenant()`), que es el lado seguro. Nunca se define a null, para
+    // que el caller pueda leerlo sin chequear el tipo.
+    $__meta = $session['meta'] ?? null;
+    if (is_string($__meta)) {
+        $__meta = json_decode($__meta, true);
+    }
+    define('AUTHED_SESSION_META', is_array($__meta) ? $__meta : []);
 
     authSessionTouch((string)$session['sessionId']);
     return true;

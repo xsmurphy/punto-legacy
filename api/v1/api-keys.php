@@ -2,7 +2,8 @@
 /**
  * GET    /v1/api-keys                  -- Keys MCP del tenant (activas).
  * GET    /v1/api-keys?showRevoked=1    -- Incluye revocadas y vencidas (historial).
- * POST   /v1/api-keys { name, ttlDays? } -- Emite una. Devuelve el token UNA SOLA VEZ.
+ * POST   /v1/api-keys { name, ttlDays?, scope? } -- Emite una. Devuelve el token UNA SOLA VEZ.
+ *                                          scope: 'read' (default) | 'write'.
  * DELETE /v1/api-keys?id=X             -- Revoca (status=0). Preserva auditoría.
  *
  * M0 de `context/58`. Auth: realm `panel` — las keys se administran desde el
@@ -42,6 +43,11 @@ if ($method === 'POST') {
     }
     $name    = (string) ($body['name'] ?? '');
     $ttlDays = isset($body['ttlDays']) && is_numeric($body['ttlDays']) ? (int) $body['ttlDays'] : null;
+    // Passthrough, no normalización: un scope con typo lo rechaza el service con
+    // un 422 legible. Traducirlo acá a 'read' "por las dudas" le entregaría al
+    // usuario una key distinta de la que pidió sin decírselo — y el sentido
+    // seguro no es el que él quiso, es simplemente otro.
+    $scope = (string) ($body['scope'] ?? ApiKeyService::SCOPE_READ);
 
     try {
         $res = $svc->issue([
@@ -49,7 +55,7 @@ if ($method === 'POST') {
             'userId'    => (string) USER_ID,
             'outletId'  => (string) OUTLET_ID,
             'roleId'    => defined('ROLE_ID') ? (string) ROLE_ID : '',
-        ], $name, $ttlDays);
+        ], $name, $ttlDays, $scope);
     } catch (\InvalidArgumentException $e) {
         apiError($e->getMessage(), 422);
     }

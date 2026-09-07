@@ -10,9 +10,17 @@ import { api } from "@/lib/api-client"
  * pantalla—, mientras que una key se EMITE, y su token existe en texto plano
  * una sola vez. Son verbos distintos y la UI lo refleja.
  */
+/**
+ * Qué puede hacer una key. `read` es el default y la mayoría; `write` habilita
+ * ÚNICAMENTE el embudo de acciones del agente (`/v1/ai/*`), que es por donde
+ * Claude configura la cuenta — no abre ningún otro endpoint de escritura.
+ */
+export type ApiKeyScope = "read" | "write"
+
 export interface ApiKey {
   id: string
   name: string
+  scope: ApiKeyScope
   createdAt: string
   lastSeenAt: string
   expiresAt: string
@@ -39,11 +47,12 @@ export interface IssuedApiKey {
   token: string
   name: string
   expiresAt: string
+  scope: ApiKeyScope
 }
 
 export function useIssueApiKey() {
   const qc = useQueryClient()
-  return useMutation<IssuedApiKey, Error, { name: string; ttlDays?: number }>({
+  return useMutation<IssuedApiKey, Error, { name: string; ttlDays?: number; scope?: ApiKeyScope }>({
     mutationFn: (body) => api.post<IssuedApiKey>("/v1/api-keys", body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
   })

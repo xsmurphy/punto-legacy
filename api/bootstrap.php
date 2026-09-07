@@ -118,8 +118,14 @@ if (empty($_POST) && in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['POST', 'PUT
  * para recursos compartidos. Default `['pos-app']` (los endpoints POS existentes no
  * cambian). Los tokens POS son eternos (device pairing): NO deben autenticar en
  * endpoints administrativos del panel. Ver docs/PLAN_panel_desacople.md § Fase 0.
+ *
+ * `$apiWrite` es el opt-in de ESCRITURA del realm `api` (M6 de `context/58`), y
+ * su default `false` es lo que mantiene intacto el contrato anterior: un
+ * endpoint que no dice nada sigue siendo de solo lectura para una API key. Hoy
+ * lo pasan únicamente `/v1/ai/confirm` y `/v1/ai/execute` — leé el bloque de
+ * abajo antes de agregarlo en cualquier otro archivo.
  */
-function apiAuthTenant(array $realms = ['pos-app']): array
+function apiAuthTenant(array $realms = ['pos-app'], bool $apiWrite = false): array
 {
     if (!jwtAuthenticate($realms)) {
         apiError('Autenticación requerida', 401);
@@ -141,7 +147,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         apiError($denial['message'], 403, ['reason' => $denial['reason']]);
     }
 
-    // ── El realm `api` es READ-ONLY, y se hace cumplir ACÁ ────────────────────
+    // ── El realm `api` es READ-ONLY salvo opt-in, y se hace cumplir ACÁ ──────
     //
     // Un endpoint habilita el acceso programático agregando 'api' a su allowlist,
     // y muchos de esos archivos sirven GET y mutaciones en el MISMO archivo (items,
@@ -151,13 +157,51 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     //
     // Por eso vive en el embudo: agregar 'api' a un endpoint es seguro por
     // construcción, no por disciplina. Es la misma lección del POS token-only
-    // (`context/08` §60) y de D5 en `context/58`.
+    // (`context/08` §60).
+    //
+    // M6 de `context/58` NO movió ese enforcement a los endpoints — le agregó
+    // una puerta, y la puerta también vive acá. El contrato quedó así:
+    //
+    //   1. Sin `$apiWrite` (o sea, TODOS los endpoints de hoy salvo dos): el
+    //      realm `api` sigue siendo de solo lectura, verbo por verbo. Nada
+    //      cambió para ellos.
+    //   2. Con `$apiWrite`: el endpoint declara que sabe recibir escritura de
+    //      una API key. Hoy son `/v1/ai/confirm` y `/v1/ai/execute`, o sea el
+    //      embudo del agente — donde el catálogo de acciones permitidas, el
+    //      permiso por acción y la auditoría YA existen. Escribir por MCP no
+    //      abre un segundo camino de escritura: usa el que ya estaba.
+    //   3. Y aun con `$apiWrite`, la KEY tiene que haberse emitido con scope
+    //      `write`. El scope es opt-in del comercio al emitirla (una key de
+    //      lectura es el default) y NO reemplaza a D6: la key sigue sin poder
+    //      más que el usuario dueño, esto solo recorta.
     //
     // HEAD entra con GET (es un GET sin cuerpo). Todo lo demás corta con 405 y
     // no 403: el problema no es quién sos, es que este verbo no existe para
     // esta credencial.
-    if ($realm === 'api' && !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
+    if ($realm === 'api' && !$apiWrite
+        && !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
         apiError('El realm api es de solo lectura', 405);
+    }
+
+    // El scope: acá SÍ es 403 y no 405 — el verbo existe para esta credencial,
+    // lo que falta es la autorización. El texto está escrito PARA UN MODELO,
+    // que es quien lo lee del otro lado del MCP: tiene que poder explicarle al
+    // humano qué hacer sin adivinar, porque reintentar no lo va a arreglar.
+    // Ausente el scope, `read` — las keys emitidas antes de M6 no tienen la
+    // clave y son de lectura, que es el lado seguro.
+    if ($realm === 'api' && $apiWrite) {
+        $__keyMeta  = defined('AUTHED_SESSION_META') ? AUTHED_SESSION_META : [];
+        $__keyScope = is_array($__keyMeta) ? (string) ($__keyMeta['scope'] ?? 'read') : 'read';
+        if ($__keyScope !== 'write') {
+            apiError(
+                'Esta API key es de solo lectura: no puede registrar ni ejecutar cambios. '
+                . 'Para configurar el comercio hace falta una key con scope de configuración, '
+                . 'que se emite desde Ajustes → Keys de integración eligiendo "Lectura y configuración". '
+                . 'La key actual no se puede elevar: se emite una nueva y se revoca esta.',
+                403,
+                ['reason' => 'api_key_read_only']
+            );
+        }
     }
 
     // ── Rate limit del realm `api`, también en el embudo ──────────────────────
@@ -499,11 +543,11 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     if ($__isMutation || $__isApiKey) {
         $__auditEndpoint = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
         $__auditTargetId = isset($_GET['id']) ? (string) $_GET['id'] : null;
-        // Qué key hizo la llamada. Va el ID y no el nombre: el nombre vive en
-        // `auth_session.meta`, que el SELECT de `authSessionLookup()` NO trae —
-        // y ese es el hot path de toda request autenticada (con cache Redis
-        // opcional). Ensancharlo por una etiqueta no vale; la UI de auditoría
-        // resuelve el nombre contra la lista de keys, que ya lo expone.
+        // Qué key hizo la llamada. Va el ID y no el nombre, aunque desde M6 el
+        // `meta` de la sesión SÍ viaja en el lookup (se ensanchó por el scope,
+        // que es un gate, no una etiqueta): el ID es lo que se revoca y lo que
+        // identifica a la key aunque la renombren, y la UI de auditoría ya
+        // resuelve el nombre contra la lista de keys.
         $__auditMeta = $__isApiKey && defined('AUTHED_SESSION_ID')
             ? ['keyId' => (string) AUTHED_SESSION_ID]
             : [];
