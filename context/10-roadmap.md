@@ -2506,6 +2506,37 @@ no se duplican acá.
 - Medios de pago vista detallada (documento, cliente, RUC, método, sucursal, total)
 
 **Catálogo/Inventario:**
+- **Combos por CANTIDAD con tope global + buscador en el selector (owner
+  2026-09-07).** Caso: "Caja surtida de 100 empanadas" — elegir cuántas de
+  cada sabor con la SUMA topeada en 100. Hoy el grupo de opciones de
+  `context/41` no modela cantidad por opción con tope global. Tres piezas:
+  cantidad por opción validada server-side (`AddonService::validateSelections`,
+  la suma = tope del grupo), input numérico además de +/− (50 empanadas no son
+  50 taps), y un buscador dentro del selector de grupos/combos para listas
+  largas. Encolado como slice.
+- **Bloquear la factura con timbrado VENCIDO (gap verificado 2026-09-07).**
+  No existe ningún guard: `SaleService` congela el timbrado (mig 145) pero
+  nadie compara `registerInvoiceAuthExpiration` contra hoy — la caja emite
+  facturas ilegales con el timbrado vencido. Patrón ya establecido: el
+  vencimiento bloquea LA FACTURA, no el POS (se cotiza y se toman órdenes
+  igual — igual que la tenencia de caja), botón deshabilitado + tooltip, y
+  avisos previos a los 7/3 días como los del plan (`context/34` D7). Encolado
+  como slice.
+- **Artículo comodín / venta de concepto libre (owner 2026-09-07).** Facturar
+  algo que no forma parte del inventario y no tiene nombre fijo: al agregarlo
+  en el POS pide descripción y precio, entra como una línea más del carrito y
+  se comporta como un ítem normal (ej. "te vendí el producto y me pediste que
+  lo instale — este servicio no lo vendo, pero por esta vez sí"). Dos datos
+  que acotan el trabajo: (1) **el mecanismo ya existió** — el legacy tenía
+  líneas `type='dynamic'` (freeform sin catalog item) y `SaleService` TODAVÍA
+  las maneja (`resolveItemSoldDescription`, `api/lib/Sales/SaleService.php:1602`);
+  el POS nuevo nunca las expuso. (2) La decisión de diseño real es el **IVA**:
+  una línea libre necesita tasa, y el IVA congelado de `context/38` F3 lee
+  datos del ítem — el camino probablemente correcto es un ítem de catálogo
+  FLAGEADO comodín (uno por tasa: 10%, 5%, exenta) cuyo nombre se pisa por
+  línea con la descripción tipeada, antes que resucitar `dynamic` sin ítem:
+  conserva fiscal, reportes y numeración sin rama nueva. Sin decidir con el
+  owner: ítem flageado vs. opción suelta del carrito.
 - Crear categoría inline desde el form de artículo
 - Sesiones configurables para servicios tipo paquete
 - Stock mínimo con notificación automática. **Matiz del owner (2026-09-07,
