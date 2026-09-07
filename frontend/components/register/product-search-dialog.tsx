@@ -131,7 +131,11 @@ export function ProductSearchDialog({
           Sin teclado las dos variables valen 0 y queda donde estaba. */}
       <DialogContent
         className={cn(
-          "top-[calc(var(--kb-top)+10vh)] flex max-h-[calc(80dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg",
+          // `sm:max-w-2xl` y no `lg` (2026-09-07, pedido del owner): con el
+          // badge de stock + el precio a la derecha, un nombre largo en `lg`
+          // (512px) truncaba o se encimaba en la tablet. 672px le da aire al
+          // nombre sin acercarse al ancho del carrito.
+          "top-[calc(var(--kb-top)+10vh)] flex max-h-[calc(80dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-2xl",
           // Animación de entrada/salida propia — ver context/20 §Overlays.
           // El `DialogContent` de este modal es TRANSPARENTE (command
           // palette: la superficie visible son la pastilla y la lista, no el
