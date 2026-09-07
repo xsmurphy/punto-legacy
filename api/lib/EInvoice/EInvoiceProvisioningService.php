@@ -308,10 +308,14 @@ final class EInvoiceProvisioningService
         [$environment, $tenantId, $login] = $this->requireProvisioned($companyId);
         $bearer = $this->session->getBearer($companyId);
 
-        $fiscal = $this->accountFiscal($companyId);
-        $ruc = (string) ($fiscal['ruc'] ?? '');
+        // El RUC vive en Configuración del negocio (companyFiscal), NUNCA en
+        // el espejo `fiscal` del formulario — ese guarda solo lo que el form
+        // de FE pide (email, actividades...), porque el RUC "no se re-tipea".
+        // Leerlo del espejo hacía fallar la prueba con "no tiene RUC" en una
+        // cuenta con el RUC perfectamente cargado (Balloon Party 2026-09-07).
+        $ruc = (string) ($this->companyFiscal($companyId)['ruc'] ?? '');
         if ($ruc === '') {
-            throw new \RuntimeException('La cuenta no tiene RUC registrado.');
+            throw new \RuntimeException('La cuenta no tiene RUC registrado — cargalo en Configuración del negocio.');
         }
 
         return $this->provider->testSet($environment, $login, $bearer, $tenantId, $ruc);
