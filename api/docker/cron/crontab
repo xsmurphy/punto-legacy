@@ -32,5 +32,13 @@
 # 5 días de gracia, avisa y recarga los créditos IA mensuales. DIARIO aunque
 # la recarga sea mensual: vencimiento y gracia son transiciones por día, y la
 # rama de créditos no hace nada si el período ya está acreditado. Temprano y
-# UNA vez: los avisos son WhatsApp a comercios reales.
+# UNA vez: los avisos son EMAIL a comercios reales (era WhatsApp hasta el
+# commit 3dd67941; este comentario había quedado viejo).
 0    6  *  *  *   /usr/local/bin/maintenance.sh plan-lifecycle
+# Avisos de TIMBRADO por vencer / vencido, por caja (context/29). La otra mitad
+# del guard de `InvoiceAuthGate`: el bloqueo de facturación es duro y renovar un
+# timbrado es un trámite ante la autoridad fiscal, así que el preaviso no es un
+# lujo. Diario y temprano, igual que el del plan; corre DESPUÉS para no competir
+# por el mismo minuto. Idempotente por marca en `register.data`, así que una
+# corrida de más no duplica nada.
+15   6  *  *  *   /usr/local/bin/maintenance.sh invoice-auth-notices

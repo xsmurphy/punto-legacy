@@ -143,6 +143,23 @@ foreach ($sales as $item) {
     }
 
     // Process sale
+    //
+    // NO hay gate de timbrado vencido acá, a diferencia de `/v1/sales.php`, y
+    // es deliberado: esta venta YA SE EMITIÓ — el ticket salió de la impresora
+    // y está en la mano del cliente. El backend nunca rechaza una venta ya
+    // emitida (context/08 §53): un 422 acá no des-emitiría nada, solo trabaría
+    // la cola del device y escondería el problema.
+    //
+    // Lo que sí pasa: `SaleService::save()` compara el timbrado congelado
+    // contra la fecha de la operación y, si estaba vencido, deja la venta
+    // MARCADA (`meta.invoiceAuthExpiredAtEmission`). Ver `InvoiceAuthGate`.
+    //
+    // Ojo con el caso legítimo que esto protege: una venta cobrada a las 22:00
+    // del último día de vigencia que sincroniza al día siguiente NO está
+    // vencida — se compara contra la fecha de la OPERACIÓN, no contra hoy — y
+    // por lo tanto no se marca. La marca queda solo para el reloj de device
+    // corrido o la config vieja, que es lo que el POS ya debería haber
+    // bloqueado localmente antes de imprimir (`lib/pos/emission-block.ts`).
     global $db;
     $service = new SaleService(ctx: TenantContext::fromAuth($authCtx), db: $db);
 

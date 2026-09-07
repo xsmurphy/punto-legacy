@@ -10,6 +10,10 @@ import { RowActions } from "@/components/data-table/row-actions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { timbradoLevel } from "@/lib/documents/timbrado-warning"
+import {
+  invoiceAuthLevel,
+  INVOICE_AUTH_PANEL_WARN_DAYS,
+} from "@/lib/documents/invoice-auth-expiry"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -74,15 +78,6 @@ function niceLeaseDate(iso: string): string {
  *  fechas del timbrado (que son fechas puras, sin hora ni zona). */
 function todayLocalISO(): string {
   const d = new Date()
-  const mm = String(d.getMonth() + 1).padStart(2, "0")
-  const dd = String(d.getDate()).padStart(2, "0")
-  return `${d.getFullYear()}-${mm}-${dd}`
-}
-
-/** Fecha local a N días de hoy, YYYY-MM-DD. Para el aviso de "por vencer". */
-function inDaysLocalISO(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
   const mm = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")
   return `${d.getFullYear()}-${mm}-${dd}`
@@ -280,8 +275,15 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       cell: ({ row }) => {
         const exp = row.original.fiscal.invoiceAuthExpiration
         if (!exp) return <span className="text-sm text-muted-foreground">—</span>
-        const expired = exp < todayLocalISO()
-        const soon = !expired && exp <= inDaysLocalISO(30)
+        // Mismos umbrales y misma regla de "vence al terminar su último día"
+        // que usa el POS para bloquear el cobro y que el servidor para
+        // rechazar la emisión (`lib/documents/invoice-auth-expiry.ts` ↔
+        // `api/lib/Sales/InvoiceAuthGate.php`). El panel avisa con más
+        // anticipación —un mes— porque el trámite lo hace el dueño, no el
+        // cajero; el umbral vive allá, no suelto acá.
+        const level = invoiceAuthLevel(exp, todayLocalISO(), INVOICE_AUTH_PANEL_WARN_DAYS)
+        const expired = level === "expired"
+        const soon = level === "warn"
         return (
           <div className="flex items-center gap-2">
             <span className="text-sm tabular-nums">{formatDate(exp)}</span>

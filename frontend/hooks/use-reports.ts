@@ -1137,7 +1137,16 @@ export interface TxDetailFull {
     responsibleId: string | null
     outletId: string | null
     outletName: string | null
-    meta: { tags?: string[] } | null
+    meta: {
+      tags?: string[]
+      /**
+       * La venta se emitió con el TIMBRADO de la caja ya vencido (context/29).
+       * Solo puede llegar por la cola offline: el camino directo se corta con
+       * 422 (`InvoiceAuthGate`). Ausente en la enorme mayoría de las ventas —
+       * `SaleService` escribe la clave únicamente cuando pasó.
+       */
+      invoiceAuthExpiredAtEmission?: boolean
+    } | null
     /** F1 — cabecera/ámbito ampliados del resolver canónico. */
     transactionStatus?: number
     customerTIN?: string | null

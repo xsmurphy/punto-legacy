@@ -155,6 +155,21 @@ final class SaleService
         // (y siendo comparado contra) el timbrado con el que se emitió.
         [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration] = $this->resolveFrozenInvoiceAuth();
 
+        // ¿El timbrado congelado ya estaba VENCIDO en la fecha de la operación?
+        // Se calcula acá, en el único lugar por donde pasan los dos caminos de
+        // emisión, y no en cada endpoint: la marca es una propiedad de la VENTA
+        // (su fecha contra su timbrado), no del transporte por el que llegó.
+        //
+        // El camino directo (`/v1/sales.php`) corta con 422 antes de invocar
+        // `save()`, así que en la práctica esto solo puede dar `true` desde la
+        // cola offline — donde el documento YA está en la calle y el backend no
+        // lo rechaza (context/08 §53), lo acepta y lo marca. Sin vencimiento
+        // cargado da `false` y no marca nada.
+        $invoiceAuthExpiredAtEmission = InvoiceAuthGate::isExpiredOn(
+            $invoiceAuthExpiration,
+            $input->date,
+        );
+
         // ── B1: abrir transacción ──────────────────────────────────────────
         $this->db->StartTrans();
 
@@ -184,6 +199,7 @@ final class SaleService
                 invoiceAuth:            $invoiceAuth,
                 invoiceAuthStart:       $invoiceAuthStart,
                 invoiceAuthExpiration:  $invoiceAuthExpiration,
+                invoiceAuthExpiredAtEmission: $invoiceAuthExpiredAtEmission,
             );
 
             // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -785,6 +801,7 @@ final class SaleService
         ?string $invoiceAuth = null,
         ?string $invoiceAuthStart = null,
         ?string $invoiceAuthExpiration = null,
+        bool $invoiceAuthExpiredAtEmission = false,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -792,6 +809,18 @@ final class SaleService
             SaleType::CreditPurchase,
             SaleType::Schedule,
         ], true);
+
+        // meta JSONB — se arma acá arriba porque una de sus claves es
+        // CONDICIONAL (ver el comentario sobre `meta` más abajo). `tags` en
+        // cambio se escribe SIEMPRE, aunque valga null: los readers hacen
+        // `json_decode($meta['tags'])` y sacarla del shape los rompería.
+        $meta = [
+            'transactionDetails' => json_encode($saleDetail),
+            'tags'               => $input->tags !== null ? json_encode($input->tags) : null,
+        ];
+        if ($invoiceAuthExpiredAtEmission) {
+            $meta['invoiceAuthExpiredAtEmission'] = true;
+        }
 
         return [
             'transactionDiscount'    => flipOnReturn($typeStr, $input->discount),
@@ -816,10 +845,21 @@ final class SaleService
             // TransactionService:41) hacen `json_decode($meta['tags'])` → DEBE ser string,
             // no array nativo. El legacy guarda `$data['tags']` (el JSON-string del front);
             // nosotros normalizamos a list<uuid> y re-encodeamos al mismo shape.
-            'meta' => json_encode([
-                'transactionDetails' => json_encode($saleDetail),
-                'tags'               => $input->tags !== null ? json_encode($input->tags) : null,
-            ]),
+            //
+            // `invoiceAuthExpiredAtEmission` (2026-09-07): la venta se emitió
+            // con el timbrado de la caja YA VENCIDO. Solo se escribe cuando
+            // pasó — una clave que estuviera en todas las filas en `false` no
+            // dice nada y ensucia el flatten. El camino DIRECTO nunca puede
+            // producirla (`sales.php` corta con 422 antes de llegar acá); es la
+            // cola offline la que la deja, porque una venta YA EMITIDA se
+            // acepta y se marca, nunca se rechaza (context/08 §53). Ver el
+            // docblock de `InvoiceAuthGate`.
+            //
+            // El nombre no puede colisionar con una columna real de
+            // `transaction`: `Query::flattenJsonb` promueve cada clave de
+            // primer nivel de `meta` a columna virtual y borra `meta`. No choca
+            // con `invoiceauthexpiration`, que es la FECHA congelada.
+            'meta' => json_encode($meta),
             'transactionPaymentType' => json_encode($input->payment),
 
             // path simple: sin parentId (B2 omitido). Sub-slices futuros lo agregarán
