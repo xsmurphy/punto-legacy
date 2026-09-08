@@ -132,13 +132,25 @@ export default function DashboardPage() {
 
   if (isEmptyState) {
     return (
+      // `min-h` + `flex items-center` y no más padding: el hero se centra
+      // VERTICALMENTE en el alto disponible del panel. Con `py-12` fijo
+      // quedaba pegado arriba y con medio viewport vacío abajo — se ve en
+      // cualquier pantalla de escritorio, que es donde el dueño abre el panel
+      // por primera vez. El `4rem` descontado es el alto del header del panel.
+      //
+      // El copy sigue el posicionamiento vigente de la marca ("el socio
+      // inteligente de tu negocio", `content/sitio/_brief.md`) y no la
+      // descripción de features que había antes: es la primera pantalla que ve
+      // un comercio recién dado de alta, así que dice QUÉ ES Punto, no qué
+      // módulos trae. La IA se nombra por lo que HACE (cargar lo tedioso,
+      // responder preguntas del negocio), no como etiqueta.
       <Hero115
-        className="py-12"
+        className="flex min-h-[calc(100dvh-4rem)] items-center py-12"
         icon={<PuntoLogo variant="mark" className="size-10" />}
         heading="Bienvenido a Punto"
-        description="El sistema que reúne caja, inventario, clientes y reportes para que vendas más y controles todo tu negocio desde un solo lugar."
+        description="Tu socio inteligente: vende en la caja, factura sin que lo pienses, carga lo tedioso con IA y te dice cómo va tu negocio cuando se lo preguntás."
         buttons={{ primary: { text: "Ir a la caja", url: "/pos" } }}
-        byline="Empezá a vender y hacé crecer tu negocio."
+        byline="Hacé tu primera venta y Punto empieza a trabajar para vos."
       />
     )
   }
