@@ -1,100 +1,110 @@
-# Hand-off — 2026-09-03
+# Hand-off — 2026-09-08 (madrugada)
 
 ## Objetivo
 
-Dos sesiones en paralelo (`system-09`, cerró 09-02; `system-da`, cerró 09-03)
-sobre el mismo repo. `system-09` destrabó el MCP en producción y subió la
-calidad de su catálogo. `system-da` arrancó de un reporte del owner —parear
-una caja, revocarla y habilitarla en otra dejaba las dos sin facturar— que
-destapó una cadena de 5 bugs de auth/tenencia/fecha/permisos, y cerró con el
-alcance por sucursal (decisión ya fijada por el owner: la sucursal se define
-en el usuario, no en la key ni en el outlet activo) llevado a los dos realms
-que faltaban, `api` y `panel`.
+Sesión larga (2026-09-06 → 08) con foco en facturación electrónica: MCP
+escribe (M6/M7), onboarding LATAM corregido, N2 (reemisión de rechazados) y
+KuDE (email + propio), y una auditoría de emisión contra la guía real de
+Factomate. Terminó en un PIVOT del owner: el motor de FE pasa a ser propio
+(proyecto FE-PY, sesión paralela "FE", ya emitiendo en SIFEN real), Factomate
+queda de fallback. Corrió intercalada con la sesión paralela "Punto Bugs"
+(CDC propio, bloques de ticket, numeración del emisor — no reclamado acá).
 
 ## Estado al cerrar
 
-`origin/main` = `f67f5e84`. Front y Backend deployados en `5a0de2d7`, ambos
-`running:healthy`. Los dos commits de docs después de ese deploy
-(`40128910`, `f67f5e84`) son solo `context/`+`CLAUDE.md`, no necesitan
-deploy. Árbol limpio, nada pendiente.
+`origin/main` = `e9f665d5`. Backend y Front deployados y verificados
+`running:healthy` (Front en `f1a6aedd`+, último con contenido de frontend/
+fue el KuDE propio ~`43a6fed7`; los commits posteriores a ese son API-only o
+docs — si al retomar hay dudas, correr `git log --stat` sobre el rango para
+confirmar que ningún cambio de `frontend/` quedó sin deploy). Migs 201, 202,
+205, 206 aplicadas en prod (confirmado en logs `[migrate]`). Árbol limpio.
 
 ## Archivos y cambios
 
-- `api/lib/Auth/DeviceAuth.php` — `buildToken()` revoca sesiones del device
-  al emitir (antes: una sesión viva por cada pareo histórico). Mig 183.
-- `api/lib/Pos/RegisterLeaseService.php` — `claim()` separa `acquire`
-  (explícito, cajero) de confirmar; `close()` emite `register-lease` por
-  realtime, choke point de las 4 vías de liberación.
-- `api/bootstrap.php` — `apiAuthPosContext()` aplica `TenantClock`;
-  `OperatorContext::requirePermission()` mide a la persona en los 3 realms.
-- `api/lib/Outlets/OutletScope.php` — alcance por sucursal: `effectiveIds()`
-  + `sqlFilter()`, usado por realm `api` y `panel`. `Roc::build` emite
-  `IN (...)`.
-- `frontend/lib/api-client.ts` — ante 403 `outlet_out_of_scope` limpia la
-  preferencia de `X-Outlet-Id` de `localStorage` y reintenta una vez.
-- `frontend/lib/settings/sections.ts` — fuente única de secciones de
-  settings, con test contra `routes.ts`.
-- `context/70-viandas.md` — plan nuevo, D1-D6 cerradas, sin implementar.
-- `context/63`, `context/29`, `context/25`, `context/58`, `CLAUDE.md` —
-  actualizados esta sesión (ver abajo).
+- MCP escritura: `api/v1/ai/confirm.php`+`execute.php` vía `punto_register_actions`/
+  `punto_execute_actions` (M6); `set_fiscal_data`/`provision_einvoice`/
+  `lookup_taxpayer`/`get_einvoice_setup` (M7). Docs: `context/58`, `context/66`.
+- Onboarding: `api/lib/Signup/CountryDefaults.php` (nuevo) — miles/decimales/
+  taxName/TIN/rubros/precios demo por país, primer-match-gana; `SettingsService`
+  ya no permite blanquear `settingCountry`.
+- `context/201*.sql` — `superseded_by` + índice parcial, N2 reemisión de
+  rechazados; 3 call-sites externos corregidos para filtrar `superseded_by`.
+- `context/202*.sql` `notification_outbox` + `EmailAdapter`/`KudeEmailBuilder`
+  + cron `notification-drain`.
+- `frontend/.../kude/render` (K1-K3) — renderer A4 propio con `@react-pdf`,
+  `INTERNAL_RENDER_KEY`, caché S3, fallback a `getkude`. Doc nuevo
+  `context/73-kude-propio.md`.
+- Auditoría Factomate: mig 205 `login_enc` (`EmitterIdentity` self-healing),
+  unitario exacto, serie real del timbrado, `issuedDate=transactionDate`,
+  receptor completo, `security_code` congelado en reintento.
+- FE-PY adapter: `FePyProvider` + `SaleToFePyMapper` + factory por
+  `einvoice_account.provider` (`factomate` default / `fepy`) +
+  `FePyProvisioningService` + mig 206 `provider_tenant_ref`; credencial en
+  `platform_config.integration.fepy.keyEnc` cifrada (patrón Resend), fallback
+  a env.
+- `api/lib/Fiscal/FiscalSecretStore.php` — bug real: chequeaba `is_array()`
+  sobre un `CaseInsensitiveArray` (RecordsetIterator), lo trataba como
+  "vacío" y pisó la custodia real del cert de Balloon Party con un dummy.
+  **Pendiente**: el cert en Factomate quedó bien, pero la custodia local
+  quedó vacía — el owner debe re-subir el P12 una vez.
+- Docs tocados: `context/28`, `57`, `58`, `66`, `73` (nuevo), `10-roadmap`, `42`.
+
+## Cambios A MANO en prod (no están en git — leer antes de tocar nada)
+
+- **Balloon Party** (`companyid 01a067cb-8fff-72cd-bb12-0b483dcb7dbf`):
+  `settingCountry='PY'` backfilleado por SQL directo;
+  `einvoice_account.provider_tenant_ref='01a07f03-7335-7739-9869-296d3607797d'`
+  pre-cargado, pero `provider` SIGUE `'factomate'` (NO flipeado a `fepy`).
+- **Factomate DEV, tenant 6**: sucursal Id 5 creada, timbrados 17/18
+  vinculados a ella, actividad 47640 agregada, `TaxpayerType=1` seteado —
+  todo por API en vivo, reparando el estado que dejó el 500.
+- **Custodia del cert de Balloon**: vacía (ver bug de `FiscalSecretStore`
+  arriba). El cert en Factomate está bien, la custodia local no.
+- Env `INTERNAL_RENDER_KEY` cargada por el owner en ambas apps de Coolify.
 
 ## Callejones sin salida
 
-- La tenencia de caja parecía un bug de LIBERACIÓN (revoke, unpair, cerrar
-  caja) — los cuatro caminos estaban bien. Era de ADQUISICIÓN: el latido de
-  `claim.php` tomaba la caja sin condición cada 5 min.
-- "Ningún camino emite `register-lease`" era falso — el panel sí, por el
-  default de `realtimeAfterMutation()`. Por eso el fix fue en `close()`.
-- La hora corrida 3h NO era mezcla `timestamp`/`timestamptz` (refutado en
-  Postgres local, ambas son `timestamptz`) — era la zona de sesión de PG
-  distinta según el embudo de auth (`data.php` vs `apiAuthPosContext`).
-- `get_transactions` del MCP trata `to` como exclusivo — pedir un solo día
-  parecía "no hay ventas hoy" y era el reporte, no los datos.
-- Aprobé el recorte del query string en `isItemActive` creyendo que solo
-  afectaba al palette — rompió las 3 entradas de Contactos en el sidebar
-  (`?type=`) en prod. Arreglado al toque.
-- Acoté el alcance por sucursal al realm `api` y excluí el panel a
-  propósito, cuando el owner ya había fijado la regla general para ambos.
-  Corregido al día siguiente.
-- Dos veces un agente cortó antes de correr `code-reviewer` (alcance `api` y
-  `panel`); forzarlo encontró un P0 real las dos veces (`VIEW_OUTLET_ID=''`
-  reinterpretado como tenant entero; `X-Outlet-Id` en `localStorage` dejando
-  el panel sin salida ante 403). **El reviewer no es opcional en cambios de
-  aislamiento — verificar que corrió, no solo que el agente dice que sí.**
+- Factomate DEV: `/Bulk`, sincro/config, `Consulta`, `UploadCert` (base64)
+  dan TODOS 500 genérico (`NullReferenceException HelpersDE.ValidaDE:2471`).
+  Probado: 7 variantes de payload, estado completo del tenant. No es nuestro
+  — reportado a soporte de Factomate. No insistir; el pivot a FE-PY lo
+  vuelve irrelevante salvo como fallback.
+- `PhoneLogin` de Factomate NO es la puerta del tenant — es `/Token` con
+  email+password de `CreateExternal`. No reintentar por ahí.
+- Monitorear logs por SSH con `docker logs -f` muere en cada redeploy (el
+  nombre del contenedor cambia) — resolver el nombre DENTRO del comando.
 
-## Próximo paso
+## Próximo paso (coordinado con la sesión paralela "FE")
 
-Nada quedó a medias operativamente. Lo más barato para arrancar es una
-decisión chica y pendiente: `Roc::build` ya no filtra por `registerId` (solo
-Outlet y Company) pero el nombre sigue sugiriendo que sí — sumar la R
-(param opcional, ~5 líneas) vs. renombrar (42 call-sites, PHP no avisa los
-que queden desactualizados). Ninguna urge hoy porque nada reporta por caja.
+1. Esperar confirmación de "FE" del PATCH `timbradoFecha=2025-08-26` en su
+   tenant prod.
+2. El owner sube `/root/fepy-handoff.json` (`apiKey`+`tenantId`) por `scp` →
+   ingerirlo CIFRADO a `platform_config.integration.fepy` y BORRAR el archivo.
+3. Flip `provider='fepy'` para Balloon Party.
+4. UN ciclo de prueba ≤500 Gs: venta real vía `SaleService` → outbox → FE-PY
+   → esperado 0260 número 615 → cancelación (0600). Reglas del owner:
+   facturas de prueba ≤500 Gs, un solo ciclo, no romper nada, él no está
+   para confirmar en el momento.
+
+## Pendientes (no son de mañana)
+
+N1 (aviso de rechazo al comercio, decidido que NO se avisa al cliente final —
+ver `context/28` §F7), M8 (URL de un solo uso para secretos por MCP), P3
+gracia solo-lectura, cuotas/tipo de cambio en el template del KuDE, variantes
+de receptor RUC/CI de FE-PY sin emisión real (hoy emiten con warn), preguntas
+a Automate (DCarQR completo, apagar su auto-email), decisión del owner sobre
+reparto de puntos de expedición 001-001 (Factomate fallback) / 001-002
+(FE-PY).
 
 ## Trampas conocidas
 
-- **Sin backfill del histórico de fecha** — ventas guardadas antes de
-  `6f94043c` con la hora corrida 3h siguen así en la BD, decisión explícita
-  del owner.
-- **Cloudflare "Block AI bots" en `punto.la` sigue desactivada A MANO**,
-  fuera del repo. Si se reactiva, el MCP muere con "Couldn't reach Punto"
-  sin que el síntoma señale a Cloudflare.
-- **Flags de comercio system-wide que no deberían serlo** (observación del
-  owner, sin plan escrito): `stockCountBlind`, `stockCountRecordOnly`,
-  listas de conteo, `settingDrawerTolerance`, `drawerRequireClosedOrders`,
-  `blockUsedDocNo`, `autoSendDocs` aplican a TODAS las sucursales por
-  igual hoy. Regla que quiere escrita: antes de sumar un flag, decidir si
-  afecta a todas las sucursales por igual o solo a algunas. Necesita doc
-  propio antes de tocar código.
-- **Decisión pendiente: reconocimiento facial vs QR para asistencia** — cara
-  on-device (privado, offline) vs. servicio externo (más preciso, manda
-  biometría a un tercero). Sin decidir.
-- El default `acquire: true` de `claim.php` es compatibilidad TRANSITORIA
-  con bundles viejos del POS — sacarlo cuando no queden clientes previos al
-  2026-09-01.
-- `realtimeAfterMutation()` (`api/bootstrap.php`) corre DENTRO de
-  `apiAuthTenant()` al ENTRAR la request, antes de que el handler mute nada
-  — publica igual si después falla. Se esquivó puntualmente para
-  `register-lease`; sigue afectando a todas las demás entities.
-- Recurrentes: `psql`/SSH a la BD bloqueados por el classifier; `npx vitest`
-  desde la raíz falla, correr desde `frontend/`; no confundir horas sin
-  convertir a UTC (Paraguay es UTC−3).
+- `context/73-kude-propio.md` es nuevo — no está listado todavía en la tabla
+  de docs del `CLAUDE.md` del proyecto; agregar la fila si se vuelve a tocar
+  KuDE.
+- El deploy del Front puede estar unos commits atrás del HEAD de `main` si
+  los últimos commits fueron API-only — verificar con `git log --stat` antes
+  de asumir que un cambio de `frontend/` ya está sirviendo.
+- Ver también trampas heredadas del hand-off anterior (2026-09-03): sin
+  backfill del histórico de fecha, Cloudflare "Block AI bots" desactivada a
+  mano, flags de comercio system-wide sin scope por sucursal, `psql`/SSH a
+  BD bloqueados por el classifier, `npx vitest` correr desde `frontend/`.
