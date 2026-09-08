@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
+import { isFileUIPart, isTextUIPart, isToolOrDynamicToolUIPart } from "ai"
 import Link from "next/link"
 import {
   ArrowDown,
@@ -21,11 +21,15 @@ import { useSettings } from "@/hooks/use-settings"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
+import { MessageAttachment } from "@/components/agent/message-attachment"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
 import { AgentSettingsDialog } from "@/components/agent/agent-settings-dialog"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
+import { collectReadyFiles } from "@/lib/agent/collect-files"
+import { useFileDrop, FileDropOverlay } from "@/components/agent/file-drop"
+import { toast } from "sonner"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
@@ -171,17 +175,17 @@ export default function ChatPage() {
 
   function handleSend() {
     const text = input.trim()
-    const readyFiles = attachments
-      .filter((a) => (a.kind === "image" || a.kind === "pdf") && a.status === "ready" && a.dataUrl)
-      .map((a) => ({
-        type: "file" as const,
-        mediaType: a.file.type || (a.kind === "pdf" ? "application/pdf" : "image/png"),
-        filename: a.filename ?? a.file.name,
-        url: a.dataUrl as string,
-      }))
+    const { files: readyFiles, rejected } = collectReadyFiles(attachments)
     // Se puede enviar con adjunto y sin texto: mandar una factura sola y que el
     // agente la lea es un caso legítimo.
     if ((!text && readyFiles.length === 0) || isStreaming || hasNoCredits) return
+    // Lo que no entró por el techo total se avisa y NO se manda en silencio:
+    // el usuario tiene que saber qué facturas quedaron sin leer.
+    if (rejected.length > 0) {
+      toast.warning("Algunos archivos no entraron en este mensaje", {
+        description: `${rejected.join(", ")}. Mandalos en otro mensaje.`,
+      })
+    }
     setInput("")
     clearAttachments()
     sendMessage(readyFiles.length > 0 ? { text, files: readyFiles } : { text })
@@ -196,10 +200,23 @@ export default function ChatPage() {
     requestAnimationFrame(() => taRef.current?.focus())
   }
 
+  const { isDragging, handlers: dropHandlers } = useFileDrop({
+    onFiles: (files) => files.forEach((f) => addAttachment(f)),
+    enabled: !hasNoCredits,
+  })
+
   if (!bootstrap) return null
 
   return (
-    <div className="flex h-[calc(100dvh-4rem)] flex-col gap-0">
+    // `relative` + los handlers del drop en la RAÍZ: se puede soltar el archivo
+    // en cualquier parte de la pantalla, no solo sobre el input. En una página
+    // que es casi toda conversación, exigir puntería sobre el textarea es
+    // pedirle al usuario que adivine dónde está la zona válida.
+    <div
+      className="relative flex h-[calc(100dvh-4rem)] flex-col gap-0"
+      {...dropHandlers}
+    >
+      {isDragging && <FileDropOverlay />}
       {/* Header de página — patrón estándar (items/contacts/etc.) */}
       <header className="mb-4 flex flex-row items-center justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
@@ -283,6 +300,20 @@ export default function ChatPage() {
                     className={`group flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
                   >
                     {message.parts.map((part, idx) => {
+                      // El adjunto va ANTES del texto en el mismo mensaje —
+                      // es el orden en que el usuario lo armó (eligió el
+                      // archivo, después escribió) y el que deja claro sobre
+                      // qué documento habla lo que sigue.
+                      if (isFileUIPart(part)) {
+                        return (
+                          <MessageAttachment
+                            key={idx}
+                            mediaType={part.mediaType}
+                            filename={part.filename}
+                            url={part.url}
+                          />
+                        )
+                      }
                       if (isTextUIPart(part)) {
                         const trimmed = part.text.trim()
                         if (trimmed === "" || isEmptyCodeFence(trimmed)) return null

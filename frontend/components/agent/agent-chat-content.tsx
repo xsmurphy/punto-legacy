@@ -1,10 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { isTextUIPart, isToolOrDynamicToolUIPart, type UIMessage } from "ai"
+import { isFileUIPart, isTextUIPart, isToolOrDynamicToolUIPart, type UIMessage } from "ai"
 import { ArrowDown, MessageCircle, TriangleAlert, Upload, X } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
+import { toast } from "sonner"
+import { collectReadyFiles } from "@/lib/agent/collect-files"
+import { useFileDrop, FileDropOverlay } from "@/components/agent/file-drop"
+import { MessageAttachment } from "@/components/agent/message-attachment"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
@@ -285,14 +289,12 @@ export function AgentChatContent({
     // 2026-09-08 solo se inyectaban los TABULARES: una foto o un PDF se veían
     // adjuntados en el input, se limpiaban al enviar, y el modelo nunca los
     // recibía — el usuario preguntaba por un documento que el agente jamás vio.
-    const readyFiles = (attachments ?? [])
-      .filter((a) => (a.kind === "image" || a.kind === "pdf") && a.status === "ready" && a.dataUrl)
-      .map((a) => ({
-        type: "file" as const,
-        mediaType: a.file.type || (a.kind === "pdf" ? "application/pdf" : "image/png"),
-        filename: a.filename ?? a.file.name,
-        url: a.dataUrl as string,
-      }))
+    const { files: readyFiles, rejected } = collectReadyFiles(attachments)
+    if (rejected.length > 0) {
+      toast.warning("Algunos archivos no entraron en este mensaje", {
+        description: `${rejected.join(", ")}. Mandalos en otro mensaje.`,
+      })
+    }
 
     setInput("")
     onClearAttachments?.()
@@ -307,41 +309,10 @@ export function AgentChatContent({
 
   // Drag-and-drop sobre TODO el área del chat. Usamos un counter para evitar
   // el flicker que produce dragenter/dragleave al pasar sobre hijos anidados.
-  const [isDragging, setIsDragging] = React.useState(false)
-  const dragCounter = React.useRef(0)
-
-  function hasFiles(e: React.DragEvent) {
-    if (!showAttachments) return false
-    return Array.from(e.dataTransfer?.types ?? []).includes("Files")
-  }
-
-  function handleDragEnter(e: React.DragEvent) {
-    if (!hasFiles(e)) return
-    e.preventDefault()
-    dragCounter.current += 1
-    setIsDragging(true)
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    if (!hasFiles(e)) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = "copy"
-  }
-
-  function handleDragLeave(e: React.DragEvent) {
-    if (!hasFiles(e)) return
-    dragCounter.current = Math.max(0, dragCounter.current - 1)
-    if (dragCounter.current === 0) setIsDragging(false)
-  }
-
-  function handleDrop(e: React.DragEvent) {
-    if (!hasFiles(e)) return
-    e.preventDefault()
-    dragCounter.current = 0
-    setIsDragging(false)
-    const files = Array.from(e.dataTransfer.files ?? [])
-    for (const f of files) onAddAttachment?.(f)
-  }
+  const { isDragging, handlers: dropHandlers } = useFileDrop({
+    enabled: showAttachments,
+    onFiles: (files) => files.forEach((f) => onAddAttachment?.(f)),
+  })
 
   return (
     <div
@@ -354,20 +325,9 @@ export function AgentChatContent({
         safeArea && "max-sm:pl-[var(--safe-l)] max-sm:pr-[var(--safe-r)]",
         className
       )}
-      onDragEnter={handleDragEnter}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      {...dropHandlers}
     >
-      {isDragging && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-foreground/5 backdrop-blur-[2px]">
-          <div className="flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-foreground/40 bg-card px-8 py-6 shadow-lg">
-            <Upload className="size-8 text-foreground/70" />
-            <p className="text-sm font-medium text-foreground">Soltá para adjuntar</p>
-            <p className="text-xs text-muted-foreground">Excel, CSV o imagen</p>
-          </div>
-        </div>
-      )}
+      {isDragging && <FileDropOverlay />}
       {showHeader && (
         <div
           className={cn(
@@ -427,6 +387,17 @@ export function AgentChatContent({
               className={`group flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
             >
               {message.parts.map((part, idx) => {
+                // Mismo criterio que /chat: el adjunto queda visible en el hilo.
+                if (isFileUIPart(part)) {
+                  return (
+                    <MessageAttachment
+                      key={idx}
+                      mediaType={part.mediaType}
+                      filename={part.filename}
+                      url={part.url}
+                    />
+                  )
+                }
                 if (isTextUIPart(part)) {
                   const trimmed = part.text.trim()
                   if (trimmed === "" || isEmptyCodeFence(trimmed)) return null
