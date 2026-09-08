@@ -1040,9 +1040,20 @@ function AccountOverview({
                         tocar/pasar sobre una porción. Nada de esto agrega una
                         fila nueva fuera del chart: el legend entra en el alto
                         que ya ocupaba la lista, sin desplazar controles. */}
+                    {/* `max-w-full` no es decorativo: `aspect-square` deriva el
+                        ANCHO de la altura, y la altura la fija `flex-1`. En un
+                        card más alto que ancho —el layout del menú del POS en
+                        pantalla grande— el cuadrado sale más ancho que su
+                        contenedor y la dona se corta contra el borde derecho
+                        (reporte del owner 2026-09-08). Clampeando el ancho la
+                        caja deja de ser cuadrada en ese caso y el Pie, que mide
+                        sus radios en % del lado MENOR, simplemente se dibuja más
+                        chico y entero. El arreglo anterior (radios en % en vez
+                        de px) resolvió el círculo dentro del SVG; esto resuelve
+                        el SVG dentro del card. */}
                     <ChartContainer
                       config={paymentChartConfig}
-                      className="mx-auto aspect-square min-h-0 flex-1"
+                      className="mx-auto aspect-square min-h-0 w-full max-w-full flex-1"
                     >
                       <PieChart>
                         <ChartTooltip
