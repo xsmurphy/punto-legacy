@@ -794,10 +794,93 @@ final class EInvoiceProvisioningService
             'taxpayerType'  => isset($form['taxpayerType']) && is_numeric($form['taxpayerType']) ? (int) $form['taxpayerType'] : null,
             'regimeId'      => isset($form['regimeId']) && is_numeric($form['regimeId']) ? (int) $form['regimeId'] : null,
             'actividades'   => self::normalizeActivities($form),
+            'establecimientos' => self::normalizeEstablecimientos($form),
             'cscId'         => trim((string) ($form['cscId'] ?? '')),
             'cscSecret'     => (string) ($form['cscSecret'] ?? ''),
             'infoAdicional' => trim((string) ($form['infoAdicional'] ?? '')),
         ];
+    }
+
+    /**
+     * Establecimientos fiscales declarados en el formulario (dirección
+     * estructurada + códigos geográficos de SIFEN), indexados por su código
+     * EEE — el mismo que las CAJAS declaran en su punto de expedición.
+     *
+     * ── Por qué vive acá y no en el camino de FE-PY ──────────────────────
+     *
+     * Porque `validateForm()` es el NORMALIZADOR del formulario y lo que
+     * devuelve es lo que se persiste en `einvoice_account.fiscal` —el espejo
+     * que hidrata la pantalla al reanudar un alta— en los DOS caminos
+     * (`upsertFiscal(stripSecrets($fiscal))`). Hasta 2026-09-08 esto era una
+     * whitelist que no nombraba `establecimientos`: el borrador crudo se
+     * guardaba bien y el upsert siguiente, con el fiscal normalizado, lo
+     * BORRABA. El comercio tipeaba dirección y códigos geográficos, el alta
+     * cortaba por cualquier otro motivo, y al volver a la pantalla no estaban
+     * más. Agregar la clave solo en el camino de FE-PY habría dejado el mismo
+     * agujero abierto en el de Factomate.
+     *
+     * NO valida obligatoriedad: cuáles establecimientos hacen falta lo sabe
+     * quien lee los timbrados de las cajas (`FePyProvisioningService::
+     * establecimientos()`), que corta nombrando el que falta. Acá se
+     * normaliza y se conserva, nada más — un formulario a medias tiene que
+     * poder guardarse, que es justamente el bug que esto cierra.
+     *
+     * Los códigos geográficos quedan como INT o `null`, nunca como string
+     * vacío disfrazado de número: `null` es "el comercio todavía no lo
+     * cargó", y es lo que la pantalla vuelve a mostrar vacío.
+     *
+     * @param array<string,mixed> $form
+     * @return array<int,array<string,mixed>>
+     */
+    public static function normalizeEstablecimientos(array $form): array
+    {
+        $raw = $form['establecimientos'] ?? null;
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $out    = [];
+        $vistos = [];
+        foreach ($raw as $fila) {
+            if (!is_array($fila)) {
+                continue;
+            }
+            $codigo = trim((string) ($fila['codigo'] ?? ''));
+            if ($codigo === '') {
+                continue; // Sin código no se puede atar a ninguna caja.
+            }
+            $codigo = str_pad($codigo, 3, '0', STR_PAD_LEFT);
+            if (in_array($codigo, $vistos, true)) {
+                continue;
+            }
+            $vistos[] = $codigo;
+
+            $out[] = [
+                'codigo'                  => $codigo,
+                'direccion'               => trim((string) ($fila['direccion'] ?? '')),
+                'numeroCasa'              => trim((string) ($fila['numeroCasa'] ?? '')),
+                'departamento'            => self::intOrNull($fila['departamento'] ?? null),
+                'departamentoDescripcion' => trim((string) ($fila['departamentoDescripcion'] ?? '')),
+                'distrito'                => self::intOrNull($fila['distrito'] ?? null),
+                'distritoDescripcion'     => trim((string) ($fila['distritoDescripcion'] ?? '')),
+                'ciudad'                  => self::intOrNull($fila['ciudad'] ?? null),
+                'ciudadDescripcion'       => trim((string) ($fila['ciudadDescripcion'] ?? '')),
+                'telefono'                => trim((string) ($fila['telefono'] ?? '')),
+                'email'                   => trim((string) ($fila['email'] ?? '')),
+                'denominacion'            => trim((string) ($fila['denominacion'] ?? '')),
+            ];
+        }
+
+        return $out;
+    }
+
+    /** Entero del formulario, o null si el campo vino vacío o no es numérico. */
+    private static function intOrNull(mixed $value): ?int
+    {
+        if (is_int($value)) {
+            return $value;
+        }
+        return is_numeric($value) ? (int) $value : null;
     }
 
     /**
