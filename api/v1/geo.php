@@ -8,7 +8,8 @@
  *   GET  /v1/geo?resource=cities&district=N|&department=N[&search=][&country=][&limit=]
  *                                                                  → ciudades del distrito (o del departamento), con búsqueda
  *   GET  /v1/geo?resource=resolve&department=&district=&city=      → nombres de códigos ya guardados (incluye bajas)
- *   POST /v1/geo?action=sync                                       → dispara la sincronización a mano (gateado einvoice.manage)
+ *   GET  /v1/geo?resource=lookup&city=|&district=|&department=     → NOMBRE → códigos, con toda la jerarquía y las homónimas
+ *   POST /v1/geo?action=sync                                       → recarga el catálogo del seed a mano (gateado einvoice.manage)
  *
  * QUÉ ES ESTE ENDPOINT Y QUÉ NO. Sirve DATO DE PLATAFORMA (mig 207): el mapa
  * de un país, idéntico para todos los comercios. Ninguna respuesta lleva
@@ -18,14 +19,19 @@
  *
  * El realm es `panel` a secas. No se abre a `api` (API key) porque hoy nadie
  * lo pide desde ahí y una superficie de lectura se abre cuando alguien la
- * necesita, no por si acaso.
+ * necesita, no por si acaso. El asistente (`resolve_geo_codes`) entra por acá
+ * con el Bearer del panel, que es el mismo realm.
  *
  * EL SYNC MANUAL VA GATEADO POR `einvoice.manage`, y no por un permiso
- * propio: es una llamada al proveedor FISCAL, potencialmente lenta (baja el
- * catálogo entero), y quien la necesita es exactamente quien está dando de
- * alta la facturación electrónica y encontró el catálogo vacío. Un permiso
- * nuevo para un botón que vive en esa pantalla sería una clave más que
- * administrar sin nadie a quien dársela por separado.
+ * propio: recarga el catálogo FISCAL entero, y quien lo necesita es
+ * exactamente quien está dando de alta la facturación electrónica y encontró
+ * el catálogo vacío. Un permiso nuevo para un botón que vive en esa pantalla
+ * sería una clave más que administrar sin nadie a quien dársela por separado.
+ *
+ * El sync ya NO llama a nadie por red: carga el seed versionado de SIFEN
+ * (`database/seeds/sifen-geo.json`), que es el catálogo contra el que FE-PY
+ * valida los códigos. Corre solo en cada boot del container
+ * (`docker-entrypoint.sh`); este POST está para reintentarlo sin un deploy.
  *
  * Sin `apiWrite`: `apiAuthTenant()` corta con 405 cualquier verbo distinto de
  * GET/HEAD para el realm `api`, así que el POST solo existe para el panel.
@@ -96,8 +102,22 @@ switch ($method) {
                 ));
                 break;
 
+            case 'lookup':
+                try {
+                    apiOk($catalog->lookup(
+                        (string) ($_GET['city'] ?? ''),
+                        (string) ($_GET['district'] ?? ''),
+                        (string) ($_GET['department'] ?? ''),
+                        $country ?: null,
+                        $intParam('limit') ?? 25
+                    ));
+                } catch (\InvalidArgumentException $e) {
+                    apiError($e->getMessage(), 422);
+                }
+                break;
+
             default:
-                apiError('resource inválido (esperado: status|departments|districts|cities|resolve)', 422);
+                apiError('resource inválido (esperado: status|departments|districts|cities|resolve|lookup)', 422);
         }
         break;
 
@@ -112,9 +132,12 @@ switch ($method) {
         try {
             apiOk((new \Punto\Api\EInvoice\GeoCatalogSync())->run() + ['status' => $catalog->status()]);
         } catch (\RuntimeException $e) {
-            // 409 y no 500: el motivo típico es que el proveedor fiscal esté
-            // caído o que todavía no haya con qué autenticarse. Es un estado
-            // del mundo que el comercio puede reintentar, no un bug nuestro.
+            // 409 y no 500: la carga lee un archivo del repo, así que el único
+            // motivo posible es que el seed no esté donde tiene que estar o no
+            // se pueda leer — o sea, un despliegue incompleto. Es un estado del
+            // mundo con causa nombrada en el mensaje, no un bug de la request.
+            // (Antes esto cubría "el proveedor fiscal está caído"; ya no hay
+            // proveedor al que llamar.)
             apiError($e->getMessage(), 409);
         }
         break;

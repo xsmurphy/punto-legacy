@@ -76,7 +76,7 @@ import {
   establishmentCodesFromRegisters,
   establishmentsForCodes,
 } from "@/lib/einvoice/establecimientos"
-import { SIFEN_TAX_REGIMES, taxRegimeLabel } from "@/lib/einvoice/tax-regimes"
+import { SIFEN_TAX_REGIMES, SIFEN_TAXPAYER_TYPES, taxRegimeLabel } from "@/lib/einvoice/tax-regimes"
 import type {
   EInvoiceActivity,
   EInvoiceConfig,
@@ -820,8 +820,14 @@ function ProvisionForm({
                   <SelectValue placeholder="Elegí el tipo" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Persona física</SelectItem>
-                  <SelectItem value="2">Persona jurídica</SelectItem>
+                  {/* Del catálogo compartido: el asistente manda este mismo
+                      campo como número en `provision_einvoice`, y dos listas
+                      tipeadas aparte terminan declarando cosas distintas. */}
+                  {SIFEN_TAXPAYER_TYPES.map((t) => (
+                    <SelectItem key={t.code} value={String(t.code)}>
+                      {t.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

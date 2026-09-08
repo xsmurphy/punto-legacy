@@ -229,6 +229,17 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "explícitamente si la venta no es en guaraníes, en vez de convertirla.",
     allow: { 'símbolo "Gs"': 1, 'código "PYG"': 2 },
   },
+  "api/lib/EInvoice/SifenGeoSource.php": {
+    reason:
+      "FEATURE PY-ONLY GATEADA — el catálogo geográfico de SIFEN ES el de la autoridad " +
+      "tributaria paraguaya: sus códigos de departamento/distrito/ciudad no existen fuera de " +
+      "Paraguay. El literal es la IDENTIDAD de esta fuente, no un default aplicado al tenant, y " +
+      "vive acá justamente para que el resto del catálogo sea agnóstico: las tablas geo_* llevan " +
+      "`countrycode` en su clave única, `GeoCatalogSync` lo toma de `countryCode()` de la fuente, " +
+      "y una segunda fuente de otro país convive sin migración. Es el ÚNICO lugar del camino que " +
+      "nombra un país.",
+    allow: { 'país "PY" como default': 1 },
+  },
   "api/lib/Modules/ModulesService.php": {
     reason:
       "Espejo en PHP del `countries` del catálogo (context/08 §62): el front decide qué MOSTRAR " +

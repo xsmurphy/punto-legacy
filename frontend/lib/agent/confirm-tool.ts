@@ -1,7 +1,21 @@
 import { tool } from "ai"
 import { z } from "zod"
 
+import { SIFEN_TAX_REGIMES, SIFEN_TAXPAYER_TYPES } from "@/lib/einvoice/tax-regimes"
+
 import { postConfirm, postExecute, WRITE_ACTIONS } from "./confirm-api"
+
+/**
+ * Los catálogos cerrados del alta, escritos para el modelo.
+ *
+ * `regimeId` y `taxpayerType` viajan como NÚMEROS, y hasta el 2026-09-08 sus
+ * descripciones no decían cuáles: el modelo podía leer "Régimen Contable" en
+ * la constancia del comercio y no tenía forma de saber que eso es el 8. La
+ * lista sale de `lib/einvoice/tax-regimes.ts`, la misma que llena los selects
+ * del formulario — enumerarla a mano acá sería la tercera copia.
+ */
+const catalogo = (items: readonly { code: number; label: string }[]): string =>
+  items.map((i) => `${i.code}=${i.label}`).join(", ")
 
 /**
  * Tools de acciones mutantes del agente (crear/editar contacto, ítem, usuario,
@@ -45,6 +59,14 @@ import { postConfirm, postExecute, WRITE_ACTIONS } from "./confirm-api"
  *     empresa" fue un bug fiscal eliminado en tres lugares el 2026-09-06 (SIFEN
  *     valida la razón social contra el padrón del RUC): darle un campo al
  *     modelo sería el cuarto.
+ *   - Los CÓDIGOS GEOGRÁFICOS del domicilio fiscal no se le piden al usuario y
+ *     tampoco los escribe el modelo: los resuelve `resolve_geo_codes` a partir
+ *     del NOMBRE de la ciudad, contra el catálogo de la autoridad tributaria.
+ *     Hasta el 2026-09-08 la descripción decía lo contrario ("pedíselos al
+ *     usuario") porque no había de dónde sacarlos, y era exactamente lo que
+ *     frenaba el alta: nadie sabe de memoria que CAPITAL es el 1. Lo que sigue
+ *     prohibido es INVENTARLOS o deducirlos del nombre — y por eso la tool
+ *     devuelve TODAS las homónimas en vez de elegir una.
  *   - Los SECRETOS (certificado .p12, su contraseña, el CSC) tampoco tienen
  *     campo, y `/v1/ai/confirm` rechaza el payload que los traiga. El agente
  *     corre sobre un proveedor externo: un secreto fiscal que entra al contexto
@@ -70,7 +92,7 @@ const payloadSchema = z.object({
   name: z.string().optional().describe("Nombre (contacto, ítem, categoría, marca, etiqueta, usuario, sucursal, caja). En update_outlet es el nombre NUEVO de la sucursal — la sucursal a modificar se indica con outletName o id"),
   type: z.number().int().optional().describe("contacto: 1=cliente, 2=proveedor"),
   phone: z.string().optional(),
-  email: z.string().optional().describe("Email del contacto o de la sucursal. En provision_einvoice es el email de FACTURACIÓN del comercio, al que llegan las notificaciones del emisor"),
+  email: z.string().optional().describe("Email del contacto o de la sucursal. En provision_einvoice es el email de FACTURACIÓN del comercio, al que llegan las notificaciones del emisor: si figura en la constancia de RUC proponéselo al usuario para que lo confirme, y si no, preguntáselo — es una casilla que alguien tiene que leer, así que no la elijas vos"),
   note: z.string().optional(),
   // Dirección default del contacto (create_contact / update_contact). El
   // backend la crea junto con el contacto — no es un paso aparte. `lat`/`lng`
@@ -112,12 +134,18 @@ const payloadSchema = z.object({
   // La razón social NO tiene campo acá a propósito: la trae el padrón, y darle
   // uno al modelo es reabrir el bug fiscal que se cerró el 2026-09-06.
   ruc: z.string().optional().describe("set_fiscal_data: identificador tributario del PROPIO comercio (el que va a emitir las facturas), tal como figura en su constancia. Consultalo antes con lookup_taxpayer y mostrale al usuario la razón social que devuelve el padrón para que la confirme: esa razón social NO se manda en el payload, la vuelve a traer el servidor del padrón al ejecutar. NUNCA la tipees vos ni uses el nombre comercial del negocio"),
-  taxpayerType: z.number().int().optional().describe("provision_einvoice: tipo de contribuyente según la constancia (persona física o jurídica). Si el usuario no lo sabe, omitilo"),
+  taxpayerType: z.number().int().optional().describe(
+    "provision_einvoice: tipo de contribuyente. Valores: " + catalogo(SIFEN_TAXPAYER_TYPES) + ". " +
+    "Sale de la constancia de RUC: si el comercio te la mandó, deducilo de ahí (una razón social de empresa es jurídica; una persona con su nombre y apellido es física) y CONFIRMASELO al usuario en una frase antes de registrar la acción. Si no tenés la constancia y el usuario no lo sabe, omitilo"
+  ),
   actividades: z
     .array(z.object({ codigo: z.number().int(), nombre: z.string() }))
     .optional()
-    .describe("provision_einvoice: actividades económicas de la constancia de RUC, con su código y su descripción. La PRIMERA es la principal — el orden ES el dato. Pedíselas al usuario tal como figuran en la constancia: no las inventes ni las deduzcas del rubro del negocio"),
-  regimeId: z.number().int().optional().describe("provision_einvoice: régimen tributario del comercio según su constancia (por ejemplo régimen contable, pequeño productor, turismo, maquila). OBLIGATORIO y sin default: cambia cómo se declara cada documento, así que preguntáselo al usuario en vez de suponerlo por el rubro del negocio"),
+    .describe("provision_einvoice: actividades económicas de la constancia de RUC, con su código y su descripción. La PRIMERA es la principal — el orden ES el dato. Si el comercio te mandó la constancia, LEELAS DE AHÍ y copialas tal cual (código y descripción exactos, respetando el orden en que figuran); no se las pidas tipeadas si ya las tenés delante. Si no tenés la constancia, pedísela o pedile que te las dicte. Lo que NUNCA se hace es inventarlas ni deducirlas del rubro del negocio"),
+  regimeId: z.number().int().optional().describe(
+    "provision_einvoice: régimen tributario del comercio. Valores: " + catalogo(SIFEN_TAX_REGIMES) + ". " +
+    "OBLIGATORIO y sin default: cambia cómo se declara cada documento. La constancia de RUC lista las OBLIGACIONES del contribuyente, que no siempre nombran el régimen con estas mismas palabras, así que no lo des por leído: proponé el que mejor corresponda diciendo de dónde lo sacaste y pedile al usuario que lo confirme. Nunca lo supongas por el rubro del negocio ni lo elijas en silencio"
+  ),
   establecimientos: z
     .array(
       z.object({
@@ -136,7 +164,15 @@ const payloadSchema = z.object({
       }),
     )
     .optional()
-    .describe("provision_einvoice: domicilio fiscal de cada local desde el que emite, uno por cada establecimiento (el EEE del punto de expedición de sus cajas: si la caja tiene 001-001, el código es '001'). Los códigos de departamento, distrito y ciudad son NÚMEROS del catálogo geográfico de la autoridad tributaria y figuran en la constancia del comercio — NUNCA los deduzcas del nombre de la ciudad ni los inventes: pedíselos al usuario junto con la descripción de cada uno"),
+    .describe(
+      "provision_einvoice: domicilio fiscal de cada local desde el que emite, uno por cada establecimiento. " +
+      "Qué códigos declarar te lo dice get_einvoice_setup en `establishmentCodes` (salen del punto de expedición de las cajas: si la caja tiene 001-001, el código es '001') — no se los preguntes al usuario. " +
+      "La DIRECCIÓN sale de la constancia de RUC si el comercio te la mandó; si no, pedísela. " +
+      "Los códigos de departamento, distrito y ciudad son NÚMEROS del catálogo de la autoridad tributaria y los resolvés con resolve_geo_codes a partir del NOMBRE de la ciudad: nunca se los pidas al usuario, no los sabe de memoria. " +
+      "Las descripciones (departamentoDescripcion, distritoDescripcion, ciudadDescripcion) van EXACTAMENTE como las devuelve esa tool, no como las escribió el usuario. " +
+      "Si resolve_geo_codes devuelve varias candidatas —hay ciudades con el mismo nombre en departamentos distintos— mostrale la lista con el departamento de cada una y preguntale cuál es la suya; si no devuelve ninguna, pedile el nombre como figura en su constancia. " +
+      "Lo único que sigue prohibido es INVENTAR un código o deducirlo vos del nombre: un domicilio fiscal mal declarado es un dato falso ante la autoridad tributaria."
+    ),
   infoAdicional: z.string().optional().describe("provision_einvoice: información adicional que el comercio quiere que salga en sus documentos. Opcional"),
   sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
   mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),

@@ -1,6 +1,7 @@
 import { z } from "zod"
 
 import { buildReadTools, defineTool, type ToolContext } from "@/lib/agent/read-tools"
+import { establishmentCodesFromRegisters } from "@/lib/einvoice/establecimientos"
 import { resolveTaxIdLabel } from "@/lib/tenant-locale"
 
 /**
@@ -46,6 +47,12 @@ export interface EinvoiceStep {
   detail: string
   /** Los datos concretos que hay que pedirle al usuario, si los hay. */
   missing?: string[]
+  /**
+   * Códigos de establecimiento (`EEE`) que el alta del emisor tiene que
+   * declarar, derivados de los puntos de expedición de las cajas. Solo lo trae
+   * el paso de las cajas; el resto lo omite.
+   */
+  establishmentCodes?: string[]
   /** Qué acción del agente lo resuelve. Vacío = el agente NO puede hacerlo. */
   agentActions: string[]
   /** Dónde se hace a mano, para lo que el agente no puede hacer. */
@@ -241,11 +248,37 @@ function checkRegisterStamps(registers: unknown): EinvoiceStep {
     }
   }
 
+  // Los CÓDIGOS DE ESTABLECIMIENTO salen de acá, y decirlos es la diferencia
+  // entre que el bot complete el alta y que la frene. `provision_einvoice`
+  // exige un establecimiento por cada `EEE` de los puntos de expedición
+  // (`EEE-PPP`) de las cajas; el dato ya está en estas mismas filas, así que
+  // preguntárselo al usuario sería pedirle que lea lo que el sistema tiene
+  // delante. No es una derivación nueva: es `establishmentCodesFromRegisters`,
+  // la MISMA función que usa el formulario del panel para armar sus filas —
+  // duplicar la regla garantizaría que un día el bot y la pantalla declaren
+  // establecimientos distintos.
+  const codes = establishmentCodesFromRegisters(
+    habilitadas.map((r) => ({
+      status: true,
+      fiscal: { invoicePrefix: str(isRecord(r.fiscal) ? r.fiscal : {}, "invoicePrefix") },
+    })),
+  )
+
   return {
     id,
     title,
     state: "listo",
-    detail: `${habilitadas.length} de ${activas.length} caja(s) activa(s) con autorización para facturar cargada.`,
+    detail:
+      `${habilitadas.length} de ${activas.length} caja(s) activa(s) con autorización para facturar cargada.` +
+      (codes.length > 0
+        ? ` El alta del emisor tiene que declarar ${codes.length} establecimiento(s): ${codes.join(", ")}.`
+        : ""),
+    /**
+     * Códigos de establecimiento a declarar en `provision_einvoice`, uno por
+     * cada punto de expedición distinto. Ya calculados: el bot los usa tal
+     * cual, no los deduce ni los pide.
+     */
+    establishmentCodes: codes,
     agentActions: [],
     where,
   }

@@ -954,6 +954,74 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       }),
   }),
 
+  resolve_geo_codes: defineTool({
+    // Existe para que el alta de facturación electrónica pueda AVANZAR. El
+    // domicilio fiscal de cada establecimiento se declara con tres códigos
+    // NUMÉRICOS del catálogo de la autoridad tributaria, y hasta el 2026-09-08
+    // la única salida del bot era pedírselos al usuario — que no los sabe de
+    // memoria, no los tiene a mano y muchas veces ni sabe qué son. El alta se
+    // frenaba justo ahí.
+    //
+    // La ambigüedad NO se resuelve acá y no es una limitación del backend: en
+    // el catálogo de la SET hay 666 nombres de ciudad repetidos ("SAN ANTONIO"
+    // existe 35 veces, en departamentos distintos). Elegir una por el modelo
+    // sería declarar el domicilio fiscal del comercio en el departamento
+    // equivocado ante la autoridad tributaria — un dato mal declarado, no un
+    // error de UX. Por eso la tool devuelve TODAS las candidatas y `resolved`
+    // viene en null salvo que haya una sola.
+    description:
+      "Convierte NOMBRES de lugares (ciudad, distrito, departamento) en los CÓDIGOS numéricos del catálogo geográfico de la autoridad tributaria, con su jerarquía completa. " +
+      "Usala para completar los establecimientos de provision_einvoice a partir del nombre de la ciudad que te dio el usuario o que leíste en su constancia: nunca le pidas los códigos numéricos, salen de acá. " +
+      "Acepta el nombre tal como lo escribe una persona: no distingue mayúsculas ni acentos. " +
+      "Si `resolved` viene con un valor, esos son los tres códigos y podés usarlos. " +
+      "Si `resolved` viene null y hay varias candidatas, hay lugares con el MISMO nombre en departamentos distintos: mostrale la lista al usuario con el departamento de cada una y preguntale cuál es la suya. NUNCA elijas vos — un domicilio fiscal declarado en el departamento equivocado es un dato falso ante la autoridad tributaria. " +
+      "Si no hay ninguna candidata, decíselo al usuario y pedile el nombre como figura en su constancia; podés reintentar pasando también el departamento para acotar. " +
+      "Los nombres del catálogo no siempre son los de uso corriente (Asunción figura como 'ASUNCION (DISTRITO)'): usá SIEMPRE la descripción exacta que devuelve esta tool, no la que escribió el usuario.",
+    inputSchema: z.object({
+      city: z.string().optional().describe("Nombre de la ciudad, como lo escribió el usuario (ej. 'San Lorenzo', 'asuncion')"),
+      district: z
+        .string()
+        .optional()
+        .describe("Nombre del distrito. Si también pasás city, acota las candidatas; si va solo, se resuelve el distrito"),
+      department: z
+        .string()
+        .optional()
+        .describe("Nombre del departamento. Es la forma de desempatar dos ciudades homónimas: si el usuario dice 'San Lorenzo, Central', pasá las dos"),
+    }),
+    // Dato de PLATAFORMA: el mapa de un país no cambia por sucursal ni por
+    // comercio. Sin `X-Outlet-Id` — mandarlo afirmaría un scope que este dato
+    // no tiene. Ver el comentario de `authHeader`.
+    execute: async ({ city, district, department }) => {
+      const qs = new URLSearchParams({ resource: "lookup" })
+      if (city) qs.set("city", city)
+      if (district) qs.set("district", district)
+      if (department) qs.set("department", department)
+
+      return read(`/v1/geo?${qs.toString()}`, {
+        headers: { Authorization: authHeader },
+        // El vacío se nombra. Un `candidates: []` pelado lo parafrasea el
+        // modelo como "hubo un problema" o lo ignora y sigue inventando el
+        // código, que es exactamente lo que esta tool viene a impedir.
+        transform: (payload) => {
+          const p = payload as {
+            candidates?: unknown[]
+            resolved?: unknown
+          }
+          const total = Array.isArray(p?.candidates) ? p.candidates.length : 0
+          const message =
+            total === 0
+              ? "Ningún lugar del catálogo coincide con ese nombre. Decíselo al usuario y pedile el nombre como figura en su constancia, o reintentá agregando el departamento."
+              : p?.resolved
+                ? "Una sola coincidencia: estos son los códigos que van al documento."
+                : `Hay ${total} lugares con ese nombre en departamentos distintos. Mostrale la lista al usuario con el departamento de cada uno y preguntale cuál es. No elijas vos.`
+          return { ...(payload as object), message }
+        },
+        errorLabel: (status) =>
+          `No se pudo consultar el catálogo geográfico (${status}). No completes los códigos a mano: pedíselos al usuario o reintentá.`,
+      })
+    },
+  }),
+
   get_report: defineTool({
     description:
       "Devuelve CUALQUIER reporte del negocio por su nombre. Usalo para consultas de reportes " +

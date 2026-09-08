@@ -5,47 +5,50 @@ declare(strict_types=1);
 require_once __DIR__ . '/_harness.php';
 
 /**
- * Arnés del CATÁLOGO GEOGRÁFICO FISCAL (mig 207) — sync y lectura.
+ * Arnés del CATÁLOGO GEOGRÁFICO FISCAL (migs 207/208) — carga y lectura.
  *
  * ── Qué problema cubre ───────────────────────────────────────────────────
  *
  * La pantalla de facturación electrónica pedía departamento, distrito y
  * ciudad como códigos numéricos tipeados a mano. Ahora los ofrece en cascada
- * desde una copia local del catálogo del proveedor fiscal. Todo el valor de
- * ese cambio depende de dos cosas que este arnés verifica: que el sync sea
- * IDEMPOTENTE (el cron corre solo, semanalmente, y no puede duplicar ni
- * borrar catálogo) y que la JERARQUÍA quede bien armada (una ciudad cuelga de
- * su distrito y éste de su departamento — si eso falla, la cascada muestra
- * ciudades del departamento equivocado y el comercio declara un domicilio
- * fiscal falso ante la autoridad tributaria).
+ * desde una copia local del catálogo de SIFEN, y el asistente los resuelve a
+ * partir del nombre de la ciudad. Todo el valor de eso depende de tres cosas
+ * que este arnés verifica: que la carga sea IDEMPOTENTE (corre en cada boot
+ * del container y no puede duplicar ni borrar catálogo), que la JERARQUÍA
+ * quede bien armada (una ciudad cuelga de su distrito y éste de su
+ * departamento — si eso falla, la cascada muestra ciudades del departamento
+ * equivocado y el comercio declara un domicilio fiscal falso ante la
+ * autoridad tributaria), y que la resolución por NOMBRE nunca elija sola
+ * entre homónimas.
  *
- * ── Por qué NO llama a la API del proveedor ──────────────────────────────
+ * ── Por qué NO lee el seed real ──────────────────────────────────────────
  *
- * El ambiente dev de Factomate es inestable (su `PhoneLogin` estuvo caído un
- * día entero el 2026-09-07) y un test que depende de él es un test que no se
- * corre. La fuente se inyecta: `GeoCatalogSync` recibe un `GeoCatalogSource`
- * en memoria que devuelve el shape REAL verificado contra la API el
- * 2026-09-08 — incluida la clave anidada MAL ESCRITA (`Disctrict`), que es
- * justamente el detalle que un fixture "prolijo" perdería y que haría que el
- * sync guardara ciudades huérfanas en producción.
+ * La fuente se inyecta: `GeoCatalogSync` recibe un `GeoCatalogSource` en
+ * memoria con un catálogo mínimo. Cargar las 7.056 filas del seed de SIFEN
+ * para verificar idempotencia no probaría nada más y haría que el arnés pise
+ * el catálogo real de la base contra la que corra.
  *
  * ── Qué cubre ────────────────────────────────────────────────────────────
  *
  *   (A) IDEMPOTENCIA: dos corridas seguidas dejan los mismos conteos en la
  *       base y el mismo resultado.
- *   (B) JERARQUÍA: ASUNCION (ciudad) cuelga de su distrito, y ese distrito de
- *       CAPITAL (departamento, código 1 — verificado contra la API real).
+ *   (B) JERARQUÍA: la ciudad cuelga de su distrito, y ese distrito de
+ *       CAPITAL (departamento, código 1 del catálogo de la SET). Y el
+ *       departamento de la ciudad se DERIVA del distrito, no de la fuente.
  *   (C) FILTRO POR PADRE: los distritos de un departamento son los suyos, las
  *       ciudades de un distrito son las suyas, y ninguna se filtra de otro.
  *   (D) BÚSQUEDA sin acentos: "capiata" encuentra "Capiatá".
- *   (E) BAJAS: lo que el origen deja de mencionar queda inactivo (fuera del
+ *   (E) BAJAS: lo que la fuente deja de mencionar queda inactivo (fuera del
  *       selector) pero SE CONSERVA, así un código ya guardado por un comercio
  *       se sigue resolviendo a su nombre.
  *   (F) MULTI-PAÍS: un segundo país convive sin contaminar las listas del
  *       primero — el modelo no está atado a un solo país aunque hoy el
  *       catálogo sea de uno.
- *   (G) SIN PAÍS NO SE INVENTA: una fila sin `CountryCode` se saltea y se
- *       cuenta, en vez de completarse con un default.
+ *   (G) HUÉRFANOS: una fila cuyo padre la fuente no declara se saltea y se
+ *       CUENTA, en vez de guardarse colgando de un padre inventado.
+ *   (H) SOURCE: cada fila dice de qué catálogo salió su código.
+ *   (I) LOOKUP por nombre: resuelve la jerarquía completa, nunca elige entre
+ *       homónimas, y encuentra por substring lo que no matchea exacto.
  *
  * Uso (necesita Postgres migrado — ver `run_geo_catalog_test.sh`):
  *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/geo_catalog_test.php
@@ -73,24 +76,42 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 }
 
 /**
- * Fuente en memoria con el shape EXACTO de la API (verificado 2026-09-08).
- *
- * De los datos, solo el departamento CAPITAL (código 1) y la ciudad ASUNCION
- * están verificados contra la API real; el resto son códigos de fixture,
- * elegidos altos y fuera de uso para no pisar catálogo real si alguien corre
- * esto contra una base ya sincronizada (el runner igual lo bloquea salvo
- * confirmación explícita, y el arnés limpia lo suyo al terminar).
+ * Fuente en memoria con el shape del DOMINIO (ver `GeoCatalogSource`): tres
+ * niveles planos, el país declarado por la fuente entera.
  */
 final class FakeGeoSource implements GeoCatalogSource
 {
-    /** @param array<int,array<string,mixed>> $departments @param array<int,array<string,mixed>> $cities */
-    public function __construct(private array $departments, private array $cities)
+    /**
+     * @param array<int,array{code:int,name:string}> $departments
+     * @param array<int,array{code:int,name:string,departmentCode:int}> $districts
+     * @param array<int,array{code:int,name:string,districtCode:int}> $cities
+     */
+    public function __construct(
+        private string $country,
+        private array $departments,
+        private array $districts,
+        private array $cities,
+    ) {
+    }
+
+    public function sourceKey(): string
     {
+        return 'fixture';
+    }
+
+    public function countryCode(): string
+    {
+        return $this->country;
     }
 
     public function departments(): array
     {
         return $this->departments;
+    }
+
+    public function districts(): array
+    {
+        return $this->districts;
     }
 
     public function cities(): array
@@ -102,81 +123,74 @@ final class FakeGeoSource implements GeoCatalogSource
 // ── Códigos del fixture ────────────────────────────────────────────────────
 const PY = 'PY';
 const ZZ = 'ZZ';                 // país sintético, para el caso multi-país
-const DEP_CAPITAL = 1;           // verificado contra la API real
+const DEP_CAPITAL = 1;           // código real del catálogo de la SET
 const DEP_CENTRAL = 9101;        // fixture
 const DIS_ASUNCION = 9111;       // fixture
 const DIS_CAPIATA = 9112;        // fixture
-const CIU_ASUNCION = 1;          // verificado contra la API real
+const CIU_ASUNCION = 1;          // código real del catálogo de la SET
 const CIU_CAPIATA = 9122;        // fixture
 const CIU_EFIMERA = 9123;        // fixture — se da de baja en el caso (E)
+const CIU_HOMONIMA = 9124;       // fixture — homónima de CIU_CAPIATA, otro departamento
+const DIS_HUERFANO = 9131;       // fixture — su departamento no se declara
+const CIU_HUERFANA = 9141;       // fixture — su distrito no se declara
 const DEP_ZZ = 9001;
 const DIS_ZZ = 9011;
 const CIU_ZZ = 9021;
 
-/** Departamento con el shape crudo de `/api/Department/get`. */
-function depRow(int $id, int $identifier, string $name, string $country, bool $deleted = false): array
+/** @return array{code:int,name:string} */
+function dep(int $code, string $name): array
 {
-    return ['Id' => $id, 'Identifier' => $identifier, 'Name' => $name, 'CountryCode' => $country, 'Deleted' => $deleted];
+    return ['code' => $code, 'name' => $name];
 }
 
-/**
- * Ciudad con el shape crudo de `/api/City/get`, distrito y departamento
- * ANIDADOS. La clave `Disctrict` va mal escrita A PROPÓSITO: así la escribe
- * la API del proveedor y así tiene que leerla el sync.
- */
-function cityRow(
-    int $id,
-    int $identifier,
-    string $name,
-    int $districtIdentifier,
-    string $districtName,
-    int $departmentIdentifier,
-    string $departmentName,
-    string $country,
-    bool $deleted = false
-): array {
-    return [
-        'Id'           => $id,
-        'Identifier'   => $identifier,
-        'Name'         => $name,
-        'DistrictCode' => $districtIdentifier,
-        'DistrictId'   => $districtIdentifier * 10,
-        'Disctrict'    => [
-            'Id'             => $districtIdentifier * 10,
-            'Identifier'     => $districtIdentifier,
-            'Name'           => $districtName,
-            'DepartmentCode' => $departmentIdentifier,
-            'DepartmentId'   => $departmentIdentifier * 10,
-            'Department'     => depRow($departmentIdentifier * 10, $departmentIdentifier, $departmentName, $country),
-        ],
-        'Deleted'      => $deleted,
-    ];
+/** @return array{code:int,name:string,departmentCode:int} */
+function dis(int $code, string $name, int $departmentCode): array
+{
+    return ['code' => $code, 'name' => $name, 'departmentCode' => $departmentCode];
+}
+
+/** @return array{code:int,name:string,districtCode:int} */
+function ciu(int $code, string $name, int $districtCode): array
+{
+    return ['code' => $code, 'name' => $name, 'districtCode' => $districtCode];
 }
 
 $departments = [
-    depRow(10, DEP_CAPITAL, 'CAPITAL', PY),
-    depRow(11, DEP_CENTRAL, 'CENTRAL FIXTURE', PY),
-    depRow(12, DEP_ZZ, 'PROVINCIA ZZ', ZZ),
-    // (G) sin CountryCode: no se puede ubicar en ningún país, se saltea.
-    ['Id' => 13, 'Identifier' => 9999, 'Name' => 'SIN PAIS', 'CountryCode' => '', 'Deleted' => false],
+    dep(DEP_CAPITAL, 'CAPITAL'),
+    dep(DEP_CENTRAL, 'CENTRAL FIXTURE'),
+];
+
+$districts = [
+    dis(DIS_ASUNCION, 'ASUNCION (DISTRITO)', DEP_CAPITAL),
+    dis(DIS_CAPIATA, 'CAPIATA DISTRITO', DEP_CENTRAL),
+    // (G) su departamento no está declarado: se saltea, no se le inventa uno.
+    dis(DIS_HUERFANO, 'DISTRITO HUERFANO', 9999),
 ];
 
 $cities = [
-    cityRow(100, CIU_ASUNCION, 'ASUNCION', DIS_ASUNCION, 'ASUNCION DISTRITO', DEP_CAPITAL, 'CAPITAL', PY),
-    cityRow(101, CIU_CAPIATA, 'Capiatá', DIS_CAPIATA, 'CAPIATA DISTRITO', DEP_CENTRAL, 'CENTRAL FIXTURE', PY),
-    cityRow(102, CIU_EFIMERA, 'CIUDAD EFIMERA', DIS_CAPIATA, 'CAPIATA DISTRITO', DEP_CENTRAL, 'CENTRAL FIXTURE', PY),
-    cityRow(103, CIU_ZZ, 'CIUDAD ZZ', DIS_ZZ, 'DISTRITO ZZ', DEP_ZZ, 'PROVINCIA ZZ', ZZ),
+    ciu(CIU_ASUNCION, 'ASUNCION (DISTRITO)', DIS_ASUNCION),
+    ciu(CIU_CAPIATA, 'Capiatá', DIS_CAPIATA),
+    ciu(CIU_EFIMERA, 'CIUDAD EFIMERA', DIS_CAPIATA),
+    // (I) mismo NOMBRE que CIU_CAPIATA pero en otro departamento: es el caso
+    // que obliga al lookup a preguntar en vez de elegir.
+    ciu(CIU_HOMONIMA, 'Capiatá', DIS_ASUNCION),
+    // (G) su distrito no está declarado: se saltea.
+    ciu(CIU_HUERFANA, 'CIUDAD HUERFANA', 9998),
 ];
+
+$zzDepartments = [dep(DEP_ZZ, 'PROVINCIA ZZ')];
+$zzDistricts   = [dis(DIS_ZZ, 'DISTRITO ZZ', DEP_ZZ)];
+$zzCities      = [ciu(CIU_ZZ, 'CIUDAD ZZ', DIS_ZZ)];
 
 /** Limpieza: SOLO los códigos que este arnés escribió. Hijos primero (FK). */
 function cleanup(): void
 {
     ncmExecute('DELETE FROM geo_city WHERE code = ANY(?::int[]) AND countrycode = ANY(?::text[])', [
-        '{' . implode(',', [CIU_ASUNCION, CIU_CAPIATA, CIU_EFIMERA, CIU_ZZ]) . '}',
+        '{' . implode(',', [CIU_ASUNCION, CIU_CAPIATA, CIU_EFIMERA, CIU_HOMONIMA, CIU_HUERFANA, CIU_ZZ]) . '}',
         '{"' . PY . '","' . ZZ . '"}',
     ]);
     ncmExecute('DELETE FROM geo_district WHERE code = ANY(?::int[]) AND countrycode = ANY(?::text[])', [
-        '{' . implode(',', [DIS_ASUNCION, DIS_CAPIATA, DIS_ZZ]) . '}',
+        '{' . implode(',', [DIS_ASUNCION, DIS_CAPIATA, DIS_HUERFANO, DIS_ZZ]) . '}',
         '{"' . PY . '","' . ZZ . '"}',
     ]);
     ncmExecute('DELETE FROM geo_department WHERE code = ANY(?::int[]) AND countrycode = ANY(?::text[])', [
@@ -191,17 +205,20 @@ cleanup();
 
 $catalog = new GeoCatalog();
 
+/** El catálogo PY del fixture con la lista de ciudades que se le pase (el caso (E) le saca una). */
+$pySource = static fn (array $c): FakeGeoSource => new FakeGeoSource(PY, $departments, $districts, $c);
+
 echo "\n=== (A) Idempotencia: dos corridas dejan el mismo catálogo ===\n";
 
-$first  = (new GeoCatalogSync(new FakeGeoSource($departments, $cities)))->run();
+$first  = (new GeoCatalogSync($pySource($cities)))->run();
 $countAfterFirst = countRows();
 
-$second = (new GeoCatalogSync(new FakeGeoSource($departments, $cities)))->run();
+$second = (new GeoCatalogSync($pySource($cities)))->run();
 $countAfterSecond = countRows();
 
 check(
     'la primera corrida cargó los 3 niveles',
-    $first['departments'] === 3 && $first['districts'] === 3 && $first['cities'] === 4,
+    $first['departments'] === 2 && $first['districts'] === 2 && $first['cities'] === 4,
     'resultado: ' . json_encode($first),
     $failures,
     $checks
@@ -223,28 +240,30 @@ check(
     $checks
 );
 
-echo "\n=== (G) Una fila sin país se saltea, no se le inventa uno ===\n";
+echo "\n=== (G) Una fila sin padre declarado se saltea, no se le inventa uno ===\n";
 
 check(
-    'el departamento sin CountryCode quedó fuera y se contó',
-    $first['skippedNoCountry'] === 1,
-    'skippedNoCountry=' . $first['skippedNoCountry'],
+    'el distrito y la ciudad huérfanos quedaron fuera y se contaron',
+    $first['skipped'] === 2,
+    'skipped=' . $first['skipped'],
     $failures,
     $checks
 );
 
 check(
-    'y no se guardó bajo ningún país',
-    ncmExecute('SELECT count(*) AS n FROM geo_department WHERE code = 9999')['n'] == 0,
-    'quedó guardado el departamento 9999',
+    'y no se guardaron colgando de un padre inventado',
+    ncmExecute('SELECT count(*) AS n FROM geo_district WHERE code = ?', [DIS_HUERFANO])['n'] == 0
+        && ncmExecute('SELECT count(*) AS n FROM geo_city WHERE code = ?', [CIU_HUERFANA])['n'] == 0,
+    'quedó guardada alguna fila huérfana',
     $failures,
     $checks
 );
 
-echo "\n=== (B) Jerarquía: ASUNCION → su distrito → CAPITAL ===\n";
+echo "\n=== (B) Jerarquía: la ciudad → su distrito → CAPITAL ===\n";
 
 $asuncion = ncmExecute(
-    'SELECT c.name AS city, c.districtcode, d.name AS district, d.departmentcode, p.name AS department
+    'SELECT c.name AS city, c.districtcode, c.departmentcode AS citydepartmentcode,
+            d.name AS district, d.departmentcode, p.name AS department
        FROM geo_city c
        JOIN geo_district d   ON d.countrycode = c.countrycode AND d.code = c.districtcode
        JOIN geo_department p ON p.countrycode = d.countrycode AND p.code = d.departmentcode
@@ -253,9 +272,9 @@ $asuncion = ncmExecute(
 );
 
 check(
-    'ASUNCION cuelga de su distrito y ese distrito de CAPITAL (código 1)',
+    'la ciudad cuelga de su distrito y ese distrito de CAPITAL (código 1)',
     $asuncion
-        && (string) $asuncion['city'] === 'ASUNCION'
+        && (string) $asuncion['city'] === 'ASUNCION (DISTRITO)'
         && (int) $asuncion['districtcode'] === DIS_ASUNCION
         && (int) $asuncion['departmentcode'] === DEP_CAPITAL
         && (string) $asuncion['department'] === 'CAPITAL',
@@ -272,9 +291,19 @@ check(
 );
 
 check(
-    'el código guardado es el Identifier (fiscal), no el Id interno del proveedor',
-    (int) (ncmExecute('SELECT providerid FROM geo_city WHERE countrycode = ? AND code = ?', [PY, CIU_ASUNCION])['providerid'] ?? 0) === 100,
-    'providerid distinto del Id de la API (100)',
+    'el departamento denormalizado de la ciudad SALE del distrito, no puede contradecirlo',
+    $asuncion && (int) $asuncion['citydepartmentcode'] === DEP_CAPITAL,
+    'geo_city.departmentcode=' . ($asuncion ? (string) $asuncion['citydepartmentcode'] : 'sin fila'),
+    $failures,
+    $checks
+);
+
+echo "\n=== (H) Cada fila dice de qué catálogo salió su código ===\n";
+
+check(
+    'el upsert escribe `source` (antes vivía del DEFAULT y una fila no sabía su origen)',
+    (string) (ncmExecute('SELECT source FROM geo_city WHERE countrycode = ? AND code = ?', [PY, CIU_ASUNCION])['source'] ?? '') === 'fixture',
+    'source=' . var_export(ncmExecute('SELECT source FROM geo_city WHERE countrycode = ? AND code = ?', [PY, CIU_ASUNCION])['source'] ?? null, true),
     $failures,
     $checks
 );
@@ -304,13 +333,13 @@ check(
 check(
     'ninguna ciudad de otro distrito se filtra',
     !in_array(CIU_ASUNCION, $codesCapiata, true),
-    'ASUNCION apareció bajo el distrito de CAPIATA',
+    'la ciudad de CAPITAL apareció bajo el distrito de CAPIATA',
     $failures,
     $checks
 );
 
 check(
-    'listar ciudades sin distrito NI departamento se rechaza (serían 6.400 filas al browser)',
+    'listar ciudades sin distrito NI departamento se rechaza (serían 6.766 filas al browser)',
     (static function () use ($catalog): bool {
         try {
             $catalog->cities(null, null, '', PY);
@@ -343,19 +372,111 @@ check(
     $checks
 );
 
-echo "\n=== (E) Baja en el origen: se desactiva, NO se borra ===\n";
+echo "\n=== (I) Lookup por nombre: jerarquía completa y cero adivinanza ===\n";
+
+$homonimas = $catalog->lookup('capiata', null, null, PY);
+check(
+    'un nombre con homónimas devuelve TODAS las candidatas',
+    count($homonimas['candidates']) === 2,
+    json_encode($homonimas),
+    $failures,
+    $checks
+);
+
+check(
+    'y NO resuelve por su cuenta: elegir sería declarar el departamento equivocado',
+    $homonimas['resolved'] === null,
+    'resolved=' . json_encode($homonimas['resolved']),
+    $failures,
+    $checks
+);
+
+check(
+    'cada candidata trae la jerarquía completa (ciudad + distrito + departamento)',
+    (static function () use ($homonimas): bool {
+        foreach ($homonimas['candidates'] as $c) {
+            if (!isset($c['city']['code'], $c['district']['code'], $c['department']['code'])) {
+                return false;
+            }
+        }
+        return true;
+    })(),
+    json_encode($homonimas['candidates']),
+    $failures,
+    $checks
+);
+
+check(
+    'las homónimas se distinguen por su departamento',
+    (static function () use ($homonimas): bool {
+        $deps = array_map(static fn ($c) => $c['department']['code'], $homonimas['candidates']);
+        sort($deps);
+        return $deps === [DEP_CAPITAL, DEP_CENTRAL];
+    })(),
+    json_encode($homonimas['candidates']),
+    $failures,
+    $checks
+);
+
+$acotada = $catalog->lookup('capiata', null, 'central fixture', PY);
+check(
+    'nombrando el departamento, la ambigüedad desaparece y resuelve',
+    $acotada['resolved'] !== null && $acotada['resolved']['city']['code'] === CIU_CAPIATA,
+    json_encode($acotada),
+    $failures,
+    $checks
+);
+
+// En el catálogo de la SET, Asunción se llama "ASUNCION (DISTRITO)": quien
+// escriba "Asunción" no matchea exacto NADA. Sin la fase parcial, la ciudad
+// más obvia del país sería irresoluble.
+$parcial = $catalog->lookup('asuncion', null, null, PY);
+check(
+    'un nombre que no matchea exacto se busca por substring',
+    $parcial['matchType'] === 'partial' && $parcial['resolved'] !== null
+        && $parcial['resolved']['city']['code'] === CIU_ASUNCION,
+    json_encode($parcial),
+    $failures,
+    $checks
+);
+
+check(
+    'sin ningún nombre, el lookup se rechaza en vez de devolver el catálogo',
+    (static function () use ($catalog): bool {
+        try {
+            $catalog->lookup('', '', '', PY);
+            return false;
+        } catch (\InvalidArgumentException) {
+            return true;
+        }
+    })(),
+    'devolvió resultados en vez de cortar',
+    $failures,
+    $checks
+);
+
+$sinMatch = $catalog->lookup('ciudad que no existe en ningun catalogo', null, null, PY);
+check(
+    'un nombre inexistente devuelve vacío explícito, sin candidata inventada',
+    $sinMatch['candidates'] === [] && $sinMatch['resolved'] === null && $sinMatch['matchType'] === null,
+    json_encode($sinMatch),
+    $failures,
+    $checks
+);
+
+echo "\n=== (E) Baja en la fuente: se desactiva, NO se borra ===\n";
 
 $sinEfimera = array_values(array_filter(
     $cities,
-    static fn (array $c): bool => (int) $c['Identifier'] !== CIU_EFIMERA
+    static fn (array $c): bool => $c['code'] !== CIU_EFIMERA
 ));
-$third = (new GeoCatalogSync(new FakeGeoSource($departments, $sinEfimera)))->run();
+$third = (new GeoCatalogSync($pySource($sinEfimera)))->run();
 
 $efimera = ncmExecute('SELECT name, active FROM geo_city WHERE countrycode = ? AND code = ?', [PY, CIU_EFIMERA]);
 $activeFlag = $efimera['active'] ?? null;
 
 check(
-    'la ciudad que el origen dejó de mencionar sigue en la base',
+    'la ciudad que la fuente dejó de mencionar sigue en la base',
     (bool) $efimera,
     'la fila se borró',
     $failures,
@@ -395,6 +516,16 @@ check(
 );
 
 echo "\n=== (F) Multi-país: el modelo no está atado a un solo país ===\n";
+
+$zz = (new GeoCatalogSync(new FakeGeoSource(ZZ, $zzDepartments, $zzDistricts, $zzCities)))->run();
+
+check(
+    'cargar otro país no da de baja el catálogo del primero',
+    $zz['deactivated'] === 0,
+    'deactivated=' . $zz['deactivated'],
+    $failures,
+    $checks
+);
 
 $depsPy = array_column($catalog->departments(PY), 'code');
 check(

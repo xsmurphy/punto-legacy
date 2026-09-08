@@ -1,5 +1,15 @@
 /**
- * Regímenes tributarios de SIFEN (`tipoRegimen` del documento electrónico).
+ * Catálogos CERRADOS del alta del emisor electrónico: régimen tributario y
+ * tipo de contribuyente.
+ *
+ * Viven juntos y en un solo lugar porque los consumen DOS superficies que no
+ * se pueden contradecir: el formulario de Configuración → Facturación
+ * electrónica y el asistente (`provision_einvoice`). El agente manda estos
+ * campos como NÚMEROS, así que sin el catálogo a la vista no tiene forma de
+ * saber que "Régimen Contable" es el 8 — y el literal repetido en dos lados es
+ * exactamente cómo dos superficies terminan declarando cosas distintas.
+ *
+ * ── Regímenes tributarios (`tipoRegimen` del documento electrónico) ─────────
  *
  * La lista sale del catálogo del motor de facturación (`tiposRegimenes` en
  * `constants.service.ts` de FE-PY, que es el que arma el XML), NO de una
@@ -32,4 +42,23 @@ export const SIFEN_TAX_REGIMES: readonly TaxRegime[] = [
 export function taxRegimeLabel(code: number | undefined | null): string | null {
   if (typeof code !== "number") return null
   return SIFEN_TAX_REGIMES.find((r) => r.code === code)?.label ?? `Régimen ${code}`
+}
+
+/**
+ * Tipo de contribuyente (`TaxpayerType` del alta del emisor).
+ *
+ * Dos valores y nada más — pero estaban tipeados a mano dentro del JSX del
+ * formulario, así que el agente no tenía de dónde sacarlos. Sin default, por el
+ * mismo motivo que el régimen: es una condición fiscal declarada, no un campo
+ * que se pueda suponer por el rubro.
+ */
+export const SIFEN_TAXPAYER_TYPES: readonly TaxRegime[] = [
+  { code: 1, label: "Persona física" },
+  { code: 2, label: "Persona jurídica" },
+] as const
+
+/** Etiqueta del tipo de contribuyente guardado, para la vista del emisor ya provisionado. */
+export function taxpayerTypeLabel(code: number | undefined | null): string | null {
+  if (typeof code !== "number") return null
+  return SIFEN_TAXPAYER_TYPES.find((t) => t.code === code)?.label ?? `Tipo ${code}`
 }

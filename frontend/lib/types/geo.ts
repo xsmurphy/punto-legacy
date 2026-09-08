@@ -2,8 +2,10 @@
  * Catálogo geográfico fiscal (departamento → distrito → ciudad).
  *
  * Es dato de PLATAFORMA, no del comercio: el mapa de un país es el mismo para
- * todos los tenants. Se sincroniza desde el proveedor fiscal a nuestra base
- * (mig 207) y se lee desde `/v1/geo` — la pantalla NUNCA le pega al proveedor.
+ * todos los tenants. Sale del catálogo de SIFEN —el mismo contra el que FE-PY
+ * valida los códigos antes de armar el XML— por un seed versionado del repo
+ * (migs 207/208), y se lee desde `/v1/geo`. La pantalla nunca sale a la red por
+ * esto.
  */
 
 /** Un nodo de cualquiera de los tres niveles. `code` es el código FISCAL. */
@@ -30,13 +32,18 @@ export interface GeoCatalogStatus {
   countries: string[]
 }
 
-/** Resultado del sync manual: los conteos del job más el estado resultante. */
+/** Resultado de la recarga manual: los conteos del job más el estado resultante. */
 export interface GeoCatalogSyncResult {
+  /** Clave de la fuente que cargó estas filas (hoy `sifen`). */
+  source: string
+  /** País del catálogo cargado. Lo declara la fuente, no se deduce del dato. */
+  countryCode: string
   departments: number
   districts: number
   cities: number
+  /** Filas que la fuente dejó de mencionar: se marcan inactivas, nunca se borran. */
   deactivated: number
-  skippedNoCountry: number
-  countries: string[]
+  /** Filas descartadas por no tener un padre declarado en la misma fuente. */
+  skipped: number
   status: GeoCatalogStatus
 }

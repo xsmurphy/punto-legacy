@@ -39,6 +39,28 @@ if [ -f /var/www/database/seed_admin.php ]; then
     php /var/www/database/seed_admin.php || echo "[entrypoint] seed_admin falló (ignorado)" >&2
 fi
 
+# Catálogo geográfico fiscal (mig 207/208): departamento → distrito → ciudad
+# desde el seed VERSIONADO de SIFEN (database/seeds/sifen-geo.json), que es el
+# catálogo contra el que FE-PY valida los códigos antes de armar el XML. Es lo
+# que hace que el domicilio de un establecimiento se elija de una lista y que
+# el asistente pueda resolver los códigos a partir del nombre de la ciudad.
+#
+# Acá y no en un cron: el dato viene de un archivo del repo, así que cambia
+# cuando cambia el deploy — un cron semanal releería el mismo archivo para no
+# cambiar nada. Idempotente (upsert por (countrycode, code)) y sin red, así que
+# cuesta unas pocas sentencias por boot.
+#
+# Se corre desde /var/www/api/database/ y no desde /var/www/database/ (las dos
+# copias existen, ver Dockerfile) porque el script necesita el bootstrap de la
+# API, que está en /var/www/api/bootstrap.php.
+#
+# Best-effort igual que el seed de admin: si falla, degrada UNA pantalla; no
+# sirve de nada tirar abajo la API entera por el catálogo geográfico.
+if [ -f /var/www/api/database/seed_geo_catalog.php ]; then
+    echo "[entrypoint] cargando catálogo geográfico fiscal (seed SIFEN)..."
+    php /var/www/api/database/seed_geo_catalog.php || echo "[entrypoint] seed_geo_catalog falló (ignorado)" >&2
+fi
+
 # Jobs de mantenimiento (drainer de FE, reconcile de rollups, purgas de
 # tenant_audit/deleted_row — ver context/06-infraestructura.md § Jobs de
 # mantenimiento). crond corre EN ESTE MISMO container, pegándole a
