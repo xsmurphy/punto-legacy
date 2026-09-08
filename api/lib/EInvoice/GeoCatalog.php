@@ -148,6 +148,204 @@ final class GeoCatalog
     }
 
     /**
+     * Resuelve NOMBRES a códigos fiscales, con toda su jerarquía.
+     *
+     * ── Para qué existe ──────────────────────────────────────────────────
+     *
+     * La pantalla del alta fiscal resuelve esto en cascada (elegís
+     * departamento, después distrito, después ciudad) y no necesita buscar por
+     * nombre suelto. El asistente sí: el comercio le escribe "estamos en San
+     * Lorenzo" y de ahí tienen que salir los tres códigos numéricos que van al
+     * documento electrónico. Sin esta lectura, la única salida del bot era
+     * pedirle al usuario códigos que nadie sabe de memoria.
+     *
+     * ── Nunca elige por su cuenta ────────────────────────────────────────
+     *
+     * Los homónimos no son un caso raro: en el catálogo de la SET hay 666
+     * nombres de ciudad repetidos ("SAN ANTONIO" existe 35 veces, en
+     * departamentos distintos). Elegir uno sería declarar el domicilio fiscal
+     * del comercio en el departamento equivocado ante la autoridad tributaria.
+     * Así que devuelve TODAS las candidatas con su jerarquía, y `resolved`
+     * queda en `null` salvo que haya UNA sola: quién decide es el usuario.
+     *
+     * ── Exacto primero, y solo si no hay, parcial ────────────────────────
+     *
+     * En dos fases y no en una consulta rankeada: si "CAPIATA" existe tal
+     * cual, mezclarla con los diez nombres que la contienen convierte una
+     * respuesta inequívoca en una pregunta. Y al revés, la fase parcial es
+     * imprescindible: en el catálogo de la SET Asunción se llama "ASUNCION
+     * (DISTRITO)", así que quien escriba "Asunción" no matchea exacto NADA.
+     *
+     * `$district` y `$department` son PISTAS para acotar, no lo que se
+     * resuelve: comparan por substring siempre. El nivel que se resuelve es el
+     * más profundo que el caller nombró.
+     *
+     * @return array{level:string,candidates:array<int,array<string,mixed>>,resolved:?array<string,mixed>,matchType:?string,truncated:bool}
+     */
+    public function lookup(
+        ?string $city,
+        ?string $district,
+        ?string $department,
+        ?string $countryCode = null,
+        int $limit = 25
+    ): array {
+        $city       = trim((string) $city);
+        $district   = trim((string) $district);
+        $department = trim((string) $department);
+
+        if ($city === '' && $district === '' && $department === '') {
+            throw new \InvalidArgumentException(
+                'Pasá al menos un nombre de ciudad, distrito o departamento para resolver.'
+            );
+        }
+
+        $limit = max(1, min($limit, self::MAX_LIMIT));
+
+        if ($city !== '') {
+            $level = 'city';
+        } elseif ($district !== '') {
+            $level = 'district';
+        } else {
+            $level = 'department';
+        }
+
+        $needle = GeoCatalogSync::searchName($level === 'city' ? $city : ($level === 'district' ? $district : $department));
+
+        // Exacto primero; parcial solo si el exacto no encontró nada.
+        $rows      = $this->lookupRows($level, $needle, true, $district, $department, $countryCode, $limit + 1);
+        $matchType = 'exact';
+        if ($rows === []) {
+            $rows      = $this->lookupRows($level, $needle, false, $district, $department, $countryCode, $limit + 1);
+            $matchType = 'partial';
+        }
+
+        $truncated = count($rows) > $limit;
+        if ($truncated) {
+            $rows = array_slice($rows, 0, $limit);
+        }
+
+        $candidates = array_map(static fn ($r): array => self::candidate($r), $rows);
+
+        return [
+            'level'      => $level,
+            'candidates' => $candidates,
+            // UNA sola candidata es el único caso en que esto no es ambiguo.
+            'resolved'   => count($candidates) === 1 ? $candidates[0] : null,
+            'matchType'  => $candidates === [] ? null : $matchType,
+            'truncated'  => $truncated,
+        ];
+    }
+
+    /**
+     * @return array<int,\CaseInsensitiveArray>
+     */
+    private function lookupRows(
+        string $level,
+        string $needle,
+        bool $exact,
+        string $district,
+        string $department,
+        ?string $countryCode,
+        int $limit
+    ): array {
+        // `%` y `_` tipeados por el usuario son literales, no comodines.
+        $escaped = static fn (string $v): string => str_replace(
+            ['\\', '%', '_'],
+            ['\\\\', '\\%', '\\_'],
+            GeoCatalogSync::searchName($v)
+        );
+
+        $params = [];
+        $where  = '';
+
+        if ($level === 'city') {
+            $from = 'geo_city c
+                       JOIN geo_district d   ON d.countrycode = c.countrycode AND d.code = c.districtcode
+                       JOIN geo_department p ON p.countrycode = d.countrycode AND p.code = d.departmentcode';
+            $select = 'c.code AS citycode, c.name AS cityname, c.searchname AS target,
+                       d.code AS districtcode, d.name AS districtname,
+                       p.code AS departmentcode, p.name AS departmentname, c.countrycode';
+            $self   = 'c';
+            $active = 'c.active AND d.active AND p.active';
+        } elseif ($level === 'district') {
+            $from = 'geo_district d
+                       JOIN geo_department p ON p.countrycode = d.countrycode AND p.code = d.departmentcode';
+            $select = 'NULL::int AS citycode, NULL::text AS cityname, d.searchname AS target,
+                       d.code AS districtcode, d.name AS districtname,
+                       p.code AS departmentcode, p.name AS departmentname, d.countrycode';
+            $self   = 'd';
+            $active = 'd.active AND p.active';
+        } else {
+            $from = 'geo_department p';
+            $select = 'NULL::int AS citycode, NULL::text AS cityname, p.searchname AS target,
+                       NULL::int AS districtcode, NULL::text AS districtname,
+                       p.code AS departmentcode, p.name AS departmentname, p.countrycode';
+            $self   = 'p';
+            $active = 'p.active';
+        }
+
+        if ($exact) {
+            $where   .= " AND $self.searchname = ?";
+            $params[] = $needle;
+        } else {
+            $where   .= " AND $self.searchname LIKE ?";
+            $params[] = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $needle) . '%';
+        }
+
+        // Pistas de acotamiento: siempre por substring, nunca deciden el nivel.
+        if ($level === 'city' && $district !== '') {
+            $where   .= ' AND d.searchname LIKE ?';
+            $params[] = '%' . $escaped($district) . '%';
+        }
+        if ($level !== 'department' && $department !== '') {
+            $where   .= ' AND p.searchname LIKE ?';
+            $params[] = '%' . $escaped($department) . '%';
+        }
+
+        $country = strtoupper(trim((string) $countryCode));
+        if ($country !== '') {
+            $where   .= " AND $self.countrycode = ?";
+            $params[] = $country;
+        }
+
+        // Prefijo antes que substring: quien escribe "Asunción" espera ver
+        // "ASUNCION (DISTRITO)" antes que "STA.ASUNCION".
+        $params[] = str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $needle) . '%';
+        $params[] = $limit;
+
+        return ncmRows(
+            "SELECT $select
+               FROM $from
+              WHERE $active $where
+              ORDER BY ($self.searchname LIKE ?) DESC, $self.searchname
+              LIMIT ?",
+            $params
+        );
+    }
+
+    /**
+     * Una candidata con su jerarquía COMPLETA. Siempre trae el departamento —
+     * es lo que distingue a dos ciudades homónimas — y los niveles que no
+     * aplican van en `null`, no ausentes: un campo que a veces no está se lee
+     * como un dato que se perdió.
+     *
+     * @return array<string,mixed>
+     */
+    private static function candidate(\CaseInsensitiveArray $r): array
+    {
+        $node = static fn ($code, $name): ?array => $code === null
+            ? null
+            : ['code' => (int) $code, 'name' => (string) $name];
+
+        return [
+            'countryCode' => (string) $r['countrycode'],
+            'department'  => $node($r['departmentcode'], $r['departmentname']),
+            'district'    => $node($r['districtcode'], $r['districtname']),
+            'city'        => $node($r['citycode'], $r['cityname']),
+        ];
+    }
+
+    /**
      * Resuelve un trío de códigos ya guardado a sus nombres, INCLUIDAS las
      * filas dadas de baja.
      *

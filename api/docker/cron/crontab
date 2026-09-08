@@ -42,11 +42,12 @@
 # por el mismo minuto. Idempotente por marca en `register.data`, así que una
 # corrida de más no duplica nada.
 15   6  *  *  *   /usr/local/bin/maintenance.sh invoice-auth-notices
-# Catálogo geográfico fiscal (mig 207): departamento → distrito → ciudad desde
-# el proveedor, para que el domicilio de los establecimientos se elija de una
-# lista en vez de tipear códigos de memoria. SEMANAL —domingo de madrugada—
-# porque son ~6.400 filas que cambian cuando la autoridad tributaria crea o
-# renombra una ciudad, o sea casi nunca; correrlo a diario sería bajarle el
-# catálogo entero al proveedor para no cambiar nada. Idempotente y sin borrados,
-# así que una corrida de más tampoco haría daño.
-45   4  *  *  0   /usr/local/bin/maintenance.sh geo-catalog-sync
+# NO hay entrada del catálogo geográfico fiscal, y la ausencia es deliberada.
+# Hubo una (semanal, domingos 04:45) mientras el catálogo se bajaba por red del
+# proveedor fiscal. Ahora sale de un SEED VERSIONADO del repo
+# (database/seeds/sifen-geo.json, el catálogo de SIFEN contra el que FE-PY
+# valida los códigos), así que un cron semanal releería el mismo archivo para
+# no cambiar nada 51 domingos de 52. El catálogo cambia cuando cambia el seed,
+# y el seed cambia con un deploy: por eso la carga corre al ARRANQUE del
+# container (docker-entrypoint.sh -> database/seed_geo_catalog.php), que es
+# donde el disparo coincide con el cambio. A pedido queda POST /v1/geo?action=sync.

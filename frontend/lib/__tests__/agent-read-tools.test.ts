@@ -31,16 +31,19 @@ const ctx = {
 describe("catálogo de tools de lectura", () => {
   const tools = buildReadTools(ctx)
 
-  it("expone las 22 tools, todas con nombre de lectura o presentación", () => {
+  it("expone las 23 tools, todas con nombre de lectura o presentación", () => {
     const names = Object.keys(tools)
     // 20 al extraer el catálogo + `get_sales_kpis` (2026-08-31), que expone el
     // widget donde el backend calcula el ticket promedio + `lookup_taxpayer`
     // (2026-09-07, M7): la consulta al padrón de contribuyentes, que es lo que
-    // impide que la razón social del comercio la escriba el modelo.
-    expect(names).toHaveLength(22)
+    // impide que la razón social del comercio la escriba el modelo +
+    // `resolve_geo_codes` (2026-09-08): los códigos de departamento/distrito/
+    // ciudad del domicilio fiscal, que hasta entonces el bot tenía que pedirle
+    // al usuario — y nadie los sabe de memoria, así que el alta se frenaba ahí.
+    expect(names).toHaveLength(23)
     // Si alguna vez entra una `create_*`/`update_*`/`delete_*` acá, es que se
-    // movió una mutación al catálogo read-only. Ver D5. `lookup_*` no matchea a
-    // propósito: consulta un padrón externo y no escribe nada.
+    // movió una mutación al catálogo read-only. Ver D5. `lookup_*` y
+    // `resolve_*` no matchean a propósito: consultan catálogos y no escriben.
     const mutantes = names.filter((n) => /^(create|update|delete|set|post|import)_/.test(n))
     expect(mutantes).toEqual([])
   })

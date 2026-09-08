@@ -50,13 +50,20 @@
  *                          el mismo camino. `limit` en query, default 25, tope
  *                          200 — cada ítem baja el KuDE del proveedor y hace un
  *                          POST a Resend, o sea dos llamadas externas por envío.
- *   - geo-catalog-sync   → catálogo geográfico fiscal (mig 207) vía
- *                          `GeoCatalogSync::run()`, cross-tenant y SEMANAL.
- *                          Departamento → distrito → ciudad desde el proveedor
- *                          fiscal, con upsert idempotente. Es lo que hace que
- *                          el domicilio de los establecimientos se elija de una
- *                          lista en vez de tipear códigos numéricos de memoria.
- *                          No borra nunca: lo que el origen deja de mencionar
+ *   - geo-catalog-sync   → catálogo geográfico fiscal (migs 207/208) vía
+ *                          `GeoCatalogSync::run()`, cross-tenant. NO está en el
+ *                          crontab y no es un olvido: el dato sale de un SEED
+ *                          versionado del repo (el catálogo de SIFEN contra el
+ *                          que FE-PY valida los códigos), la carga corre en cada
+ *                          boot del container y un cron semanal releería el
+ *                          mismo archivo para no cambiar nada. Este job queda
+ *                          para recargarlo A PEDIDO sin un deploy.
+ *                          Departamento → distrito → ciudad con upsert
+ *                          idempotente. Es lo que hace que el domicilio de los
+ *                          establecimientos se elija de una lista en vez de
+ *                          tipear códigos numéricos de memoria, y lo que le
+ *                          permite al asistente resolverlos por nombre.
+ *                          No borra nunca: lo que la fuente deja de mencionar
  *                          queda `active=false` (un código dado de baja puede
  *                          estar guardado en el domicilio fiscal de un comercio
  *                          y hay que poder seguir mostrándolo por nombre).
@@ -234,15 +241,15 @@ function maintenanceRunJob(string $job): array
             return (new \Punto\Api\Notifications\InvoiceAuthNoticeService())->run();
 
         case 'geo-catalog-sync':
-            // Catálogo geográfico fiscal (mig 207): departamento → distrito →
-            // ciudad, desde el proveedor. Alimenta el selector en cascada del
-            // domicilio de los establecimientos — sin catálogo, esa pantalla
+            // Catálogo geográfico fiscal (migs 207/208): departamento →
+            // distrito → ciudad, desde el seed versionado de SIFEN. Alimenta
+            // el selector en cascada del domicilio de los establecimientos y la
+            // resolución por nombre del asistente — sin catálogo, esa pantalla
             // vuelve a pedir códigos numéricos a mano.
             //
-            // SEMANAL, no diario: son ~6.400 filas que cambian cuando la
-            // autoridad tributaria crea o renombra una ciudad, o sea casi
-            // nunca. Correrlo seguido sería bajarle el catálogo entero al
-            // proveedor para no cambiar nada.
+            // A PEDIDO, no programado: la carga normal corre al arrancar el
+            // container (docker-entrypoint → database/seed_geo_catalog.php).
+            // Este job existe para recargar el catálogo sin un deploy.
             //
             // NO muerde: solo hace upsert de un catálogo de plataforma y
             // marca inactivo lo que el origen dejó de mencionar. Nunca borra
