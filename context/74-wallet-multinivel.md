@@ -166,33 +166,40 @@ por lista explícita. Recomendación: **categoría**, con el concepto declarando
 cuáles acepta. Es lo que el comercio ya mantiene, y en modo A es lo que permite
 mantener el bolsillo homogéneo en tasa.
 
-### D5 — Cómo entra el titular a ver y controlar · **la pieza más grande**
+### D5 — Cómo entra el titular a ver y controlar
 
-El titular necesita ver saldos, histórico y fijar topes. **Hoy no existe
-ninguna superficie para un cliente final del comercio**: los realms son `panel`,
-`pos-app`, `admin` y `api`, y el portal de facturas (`context/28` F6) es
-**anónimo con token firmado por venta** — sirve para mostrar UN documento, no
-para una sesión con estado.
+El titular necesita ver saldos, histórico y fijar topes. **La credencial de
+cliente final YA EXISTE en el schema vivo** — el legacy la usaba para el login
+de compradores del módulo ecommerce (dato del owner, 2026-09-08):
 
-Un titular que entra a su wallet **necesita sesión real** (ve saldos de sus
-sub-cuentas, cambia límites). Eso es un **realm nuevo de cliente final**, y toca
-el área más sensible del proyecto: el MANDATO de que ningún endpoint mezcle
-realms (`feedback_pos_token_only_no_realms`, tres incidentes de la misma clase).
+- `contact.contactPassword CHAR(68)` + `salt`, con
+  `PanelAuth::checkPassword()` — el mismo mecanismo que hoy autentica al dueño
+  del comercio.
+- El rewrite de auth (`context/21`) dejó **`realm` como columna** de
+  `auth_session`: sumar un realm es el mecanismo previsto, no una excepción.
 
-Opciones:
+Lo que falta, y es acotado:
 
-- **(a) Realm nuevo `customer`** con login propio (teléfono + OTP, como el
-  tenant). Correcto y caro; es auth nueva de punta a punta.
-- **(b) Sin sesión: link firmado por sub-cuenta**, extendiendo el patrón del
-  portal de facturas. Barato, pero un link que permite CAMBIAR TOPES es una
-  credencial permanente en un mensaje de WhatsApp — no alcanza para escritura.
-- **(c) El titular no entra: el comercio administra todo** desde el panel y le
-  manda el resumen. La wallet funciona, el control parental no.
+1. **El resolver excluye a los clientes final por diseño.** `findPhoneLogin`
+   (`api/includes/functions.php:2609`) filtra `type = 0 AND ownerRoleSql` — solo
+   el dueño del tenant. Un contacto cliente (`type = 1`) no puede loguear hoy.
+2. **No queda código del login de ecommerce** en el repo (se fue con el panel
+   legacy). El modelo de datos sobrevivió, la superficie no.
+3. **Un realm `customer` nuevo**, con su alcance: un titular solo ve SU wallet y
+   las sub-cuentas que cuelgan de ella.
 
-Recomendación: **(b) para lectura ahora, (a) para escritura después**. Ver el
-saldo y el histórico con un link firmado es aceptable y entrega el 80% del
-valor; fijar topes espera al realm propio. **No mezclar**: el link de lectura
-nunca habilita escritura.
+Sigue siendo trabajo de auth y aplica el MANDATO de no mezclar realms
+(`feedback_pos_token_only_no_realms`, tres incidentes de la misma clase): el
+endpoint del titular no acepta cookie de panel ni Bearer de device, y viceversa.
+
+Alternativa barata para la primera iteración: **link firmado por sub-cuenta**,
+extendiendo el patrón del portal de facturas (`context/28` F6, anónimo con token
+firmado). Sirve para LEER; **no para escribir topes** — un link que cambia
+límites es una credencial permanente circulando por WhatsApp.
+
+Recomendación: **link firmado para lectura en la primera iteración, realm
+`customer` para escritura**. Con el modelo de credencial ya en el schema, el
+realm dejó de ser el costo que parecía y puede entrar antes de lo previsto.
 
 ### D6 — Topes: qué se limita y cómo se evalúa
 
