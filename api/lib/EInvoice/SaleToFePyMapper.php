@@ -38,14 +38,14 @@ namespace Punto\Api\EInvoice;
  *     identifica a la CAJA (`context/29`: cada caja es un punto de
  *     expedición) y sale de `register.registerInvoicePrefix`.
  *
- *  3. **El NÚMERO lo asigna FE-PY.** Su Zod acepta `numero` y su servicio lo
- *     PISA con un contador propio por (tenant, tipo, est, punto). Se manda
- *     igual —cuesta nada y documenta cuál era el correlativo del ticket—
- *     pero el que vale es el de ellos, y la divergencia queda registrada por
- *     `EInvoiceService::cdcMismatchFor()` en `numbering_mismatch` (mig 204).
- *     Es una decisión ABIERTA del owner, no un detalle: hoy el invariante
- *     "el número del DE es el que salió impreso en el ticket" no se puede
- *     garantizar con este proveedor.
+ *  3. **El NÚMERO lo maneja PUNTO** (contrato actualizado 2026-09-07,
+ *     PUNTO_INTEGRATION.md commits 2958042/7f92223): mandar `numero` hace
+ *     que FE-PY lo respete y sincronice su secuencia hacia arriba; omitirlo
+ *     activa su contador. Como este mapper SIEMPRE lo manda cuando la venta
+ *     lo tiene congelado (`transaction.invoiceNo`), el invariante "el número
+ *     del DE es el del ticket" queda garantizado. Un número ya activo en el
+ *     scope devuelve 409 legible; los de documentos rechazados se reutilizan.
+ *     `cdcMismatchFor()` (mig 204) queda como red por si algo diverge igual.
  *
  *  4. **El IVA se declara por ítem, no como total.** No hay campo `tax` del
  *     documento: SIFEN lo deriva de `iva` + `ivaProporcion` línea por línea.
