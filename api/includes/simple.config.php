@@ -350,31 +350,64 @@ $companyCategories  = [
   ]
 ];
 
+/**
+ * Handler de errores. UN SOLO camino: nunca expone la excepción al cliente.
+ *
+ * ── El bypass `?debug` se ELIMINÓ el 2026-09-08 (decisión del owner) ────────
+ *
+ * Había una rama `isset($_GET['debug']) && APP_DEBUG==='true'` que montaba los
+ * handlers de Whoops que RENDERIZAN la excepción — PrettyPage/PlainText — o
+ * sea stack trace completo, rutas del filesystem, fragmentos de SQL y valores
+ * de variables, servidos a quien pusiera `?debug` en la URL. Es legacy que ya
+ * no debe existir: en producción `APP_DEBUG` estaba en `true`, así que el
+ * bypass era alcanzable por cualquiera, sin autenticar.
+ *
+ * No se reemplaza por "lo mismo pero con un flag mejor": para diagnosticar
+ * están los logs del contenedor, que ya reciben la excepción entera y no
+ * viajan al cliente. Un canal de errores que cambia de forma según un
+ * parámetro de la URL es exactamente el que termina prendido donde no debe.
+ *
+ * ── Y el handler JSON tampoco puede devolver la excepción ──────────────────
+ *
+ * La rama `json` usaba `\Whoops\Handler\JsonResponseHandler`, que serializa
+ * `type`, `message`, `file` y `line`. Eso salió por HTTP en producción el
+ * 2026-09-08: un 500 del catálogo devolvió al cliente
+ * `SQLSTATE[42703] ... column s.taxid does not exist ... /var/www/api/includes/lib/DB.php:499`
+ * — nombre de columna, forma de la query y ruta absoluta del filesystem, en un
+ * endpoint que puede alcanzarse sin autenticar. Además era una SEGUNDA forma
+ * de error conviviendo con la de `apiError()` (`{ok:false,error:{message,code}}`),
+ * que es la que los clientes ya leen.
+ *
+ * Ahora la excepción va ENTERA al log del contenedor (donde se diagnostica) y
+ * al cliente le llega el envelope canónico con un mensaje genérico. Los
+ * consumidores siguen leyendo `error.message` igual; lo que cambia es que ya
+ * no reciben el interior de la base.
+ */
 function theErrorHandler($type=false){
   $whoops = new \Whoops\Run;
 
-  if(isset($_GET['debug']) && ($_ENV['APP_DEBUG'] ?? 'false') === 'true'){
-    if($type == 'plain'){
-      $whoops->pushHandler(new \Whoops\Handler\PlainTextHandler);
-      $whoops->register();
-    }else if($type == 'json'){
-      $whoops->pushHandler(new \Whoops\Handler\JsonResponseHandler);
-      $whoops->register();
-    }else{
-      $whoops->pushHandler(new \Whoops\Handler\PrettyPageHandler);
-      $whoops->register();
-    }
+  if($type == 'json'){
+    $whoops->pushHandler(function($exception, $inspector, $run) {
+        error_log('[uncaught] ' . get_class($exception) . ': ' . $exception->getMessage()
+            . ' en ' . $exception->getFile() . ':' . $exception->getLine()
+            . "\n" . $exception->getTraceAsString());
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+        }
+        echo json_encode([
+            'ok'    => false,
+            'error' => ['message' => 'Error interno del servidor', 'code' => 500],
+        ], JSON_UNESCAPED_UNICODE);
+        return \Whoops\Handler\Handler::QUIT;
+    });
+    $whoops->register();
   }else{
-  	if($type == 'json'){
-      $whoops->pushHandler(new \Whoops\Handler\JsonResponseHandler);
-      $whoops->register();
-    }else{
-	    $whoops->pushHandler(function($exception, $inspector, $run) {
-	        include_once(__DIR__ . '/errorPage.inc.php');
-	        return true;
-	    });
-	    $whoops->register();
-	}
+    $whoops->pushHandler(function($exception, $inspector, $run) {
+        include_once(__DIR__ . '/errorPage.inc.php');
+        return true;
+    });
+    $whoops->register();
   }
 }
 
