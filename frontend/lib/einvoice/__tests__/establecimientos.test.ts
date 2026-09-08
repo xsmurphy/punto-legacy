@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  DEFAULT_ESTABLISHMENT_GEO,
   emptyEstablishment,
   establishmentCodesFromRegisters,
   establishmentsForCodes,
@@ -56,10 +57,49 @@ describe("establecimientos del alta", () => {
     expect(filas.map((f) => f.direccion)).toEqual(["Guardada", "Tipeando ahora"])
   })
 
-  it("una caja nueva abre su fila vacía, sin heredar el domicilio de otro local", () => {
+  it("una caja nueva abre con la dirección en blanco, sin heredar la de otro local", () => {
     const filas = establishmentsForCodes(["001", "002"], [], [])
     expect(filas.map((f) => f.codigo)).toEqual(["001", "002"])
-    expect(filas.every((f) => f.direccion === "" && f.departamento === "")).toBe(true)
+    expect(filas.every((f) => f.direccion === "" && f.numeroCasa === "")).toBe(true)
+  })
+
+  it("preselecciona Asunción en un establecimiento nuevo", () => {
+    const [fila] = establishmentsForCodes(["001"], [], [])
+    expect(fila).toMatchObject(DEFAULT_ESTABLISHMENT_GEO)
+  })
+
+  it("un domicilio ya declarado gana sobre la preselección", () => {
+    const guardado = {
+      ...emptyEstablishment("001"),
+      departamento: 7 as const,
+      departamentoDescripcion: "ITAPUA",
+      distrito: 116,
+      distritoDescripcion: "ENCARNACION",
+      ciudad: 2711,
+      ciudadDescripcion: "ENCARNACION",
+    }
+
+    const [fila] = establishmentsForCodes(["001"], [guardado], [])
+
+    expect(fila.departamento).toBe(7)
+    expect(fila.ciudadDescripcion).toBe("ENCARNACION")
+  })
+
+  it("un alta a medias, sin domicilio guardado, muestra la preselección y no tres campos vacíos", () => {
+    // El vacío de un alta que quedó por la mitad NO es una declaración: si
+    // pisara el default, el comercio vería la cascada en blanco justo donde
+    // el alta se frenaba.
+    const aMedias = {
+      ...emptyEstablishment("001"),
+      departamento: "" as const,
+      departamentoDescripcion: "",
+      ciudad: "" as const,
+      ciudadDescripcion: "",
+    }
+
+    const [fila] = establishmentsForCodes(["001"], [aMedias], [])
+
+    expect(fila).toMatchObject(DEFAULT_ESTABLISHMENT_GEO)
   })
 })
 

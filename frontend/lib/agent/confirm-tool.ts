@@ -67,6 +67,13 @@ const catalogo = (items: readonly { code: number; label: string }[]): string =>
  *     frenaba el alta: nadie sabe de memoria que CAPITAL es el 1. Lo que sigue
  *     prohibido es INVENTARLOS o deducirlos del nombre — y por eso la tool
  *     devuelve TODAS las homónimas en vez de elegir una.
+ *   - DOS DEFAULTS, y son deliberados (owner, 2026-09-08): Asunción cuando la
+ *     dirección no nombra ciudad, y Régimen Contable. El 90% de las altas son
+ *     esas dos cosas, y preguntarlas convierte un alta de dos mensajes en un
+ *     interrogatorio. El bot los ANUNCIA en el resumen en vez de preguntarlos:
+ *     el que emite desde Encarnación o está en Maquila lo sabe y corrige. La
+ *     misma preselección vive en el formulario (EMPTY_FORM,
+ *     DEFAULT_ESTABLISHMENT_GEO) — las dos superficies dicen lo mismo.
  *   - Los SECRETOS (certificado .p12, su contraseña, el CSC) tampoco tienen
  *     campo, y `/v1/ai/confirm` rechaza el payload que los traiga. El agente
  *     corre sobre un proveedor externo: un secreto fiscal que entra al contexto
@@ -92,7 +99,7 @@ const payloadSchema = z.object({
   name: z.string().optional().describe("Nombre (contacto, ítem, categoría, marca, etiqueta, usuario, sucursal, caja). En update_outlet es el nombre NUEVO de la sucursal — la sucursal a modificar se indica con outletName o id"),
   type: z.number().int().optional().describe("contacto: 1=cliente, 2=proveedor"),
   phone: z.string().optional(),
-  email: z.string().optional().describe("Email del contacto o de la sucursal. En provision_einvoice es el email de FACTURACIÓN del comercio, al que llegan las notificaciones del emisor: si figura en la constancia de RUC proponéselo al usuario para que lo confirme, y si no, preguntáselo — es una casilla que alguien tiene que leer, así que no la elijas vos"),
+  email: z.string().optional().describe("Email del contacto o de la sucursal. En provision_einvoice es el email de FACTURACIÓN del comercio, al que llegan las notificaciones del emisor. Buscalo en este orden y usá el primero que aparezca, anunciando cuál elegiste: el de la constancia de RUC, y si no, el del comercio que devuelve get_settings. Solo si no hay ninguno preguntáselo — es una casilla que alguien tiene que leer, así que no la inventes"),
   note: z.string().optional(),
   // Dirección default del contacto (create_contact / update_contact). El
   // backend la crea junto con el contacto — no es un paso aparte. `lat`/`lng`
@@ -136,7 +143,7 @@ const payloadSchema = z.object({
   ruc: z.string().optional().describe("set_fiscal_data: identificador tributario del PROPIO comercio (el que va a emitir las facturas), tal como figura en su constancia. Consultalo antes con lookup_taxpayer y mostrale al usuario la razón social que devuelve el padrón para que la confirme: esa razón social NO se manda en el payload, la vuelve a traer el servidor del padrón al ejecutar. NUNCA la tipees vos ni uses el nombre comercial del negocio"),
   taxpayerType: z.number().int().optional().describe(
     "provision_einvoice: tipo de contribuyente. Valores: " + catalogo(SIFEN_TAXPAYER_TYPES) + ". " +
-    "Sale de la constancia de RUC: si el comercio te la mandó, deducilo de ahí (una razón social de empresa es jurídica; una persona con su nombre y apellido es física) y CONFIRMASELO al usuario en una frase antes de registrar la acción. Si no tenés la constancia y el usuario no lo sabe, omitilo"
+    "No lo preguntes: lo dice el propio RUC. En Paraguay los RUC que empiezan con 80 son de personas JURÍDICAS (empresas); el resto se emiten sobre la cédula de una persona FÍSICA. Contrastalo con la razón social que devolvió lookup_taxpayer —un nombre y apellido es física, una S.A./S.R.L./asociación es jurídica— y si las dos señales coinciden usalo directo. Decí cuál estás declarando en el resumen. Solo preguntá si se contradicen"
   ),
   actividades: z
     .array(z.object({ codigo: z.number().int(), nombre: z.string() }))
@@ -144,7 +151,9 @@ const payloadSchema = z.object({
     .describe("provision_einvoice: actividades económicas de la constancia de RUC, con su código y su descripción. La PRIMERA es la principal — el orden ES el dato. Si el comercio te mandó la constancia, LEELAS DE AHÍ y copialas tal cual (código y descripción exactos, respetando el orden en que figuran); no se las pidas tipeadas si ya las tenés delante. Si no tenés la constancia, pedísela o pedile que te las dicte. Lo que NUNCA se hace es inventarlas ni deducirlas del rubro del negocio"),
   regimeId: z.number().int().optional().describe(
     "provision_einvoice: régimen tributario del comercio. Valores: " + catalogo(SIFEN_TAX_REGIMES) + ". " +
-    "OBLIGATORIO y sin default: cambia cómo se declara cada documento. La constancia de RUC lista las OBLIGACIONES del contribuyente, que no siempre nombran el régimen con estas mismas palabras, así que no lo des por leído: proponé el que mejor corresponda diciendo de dónde lo sacaste y pedile al usuario que lo confirme. Nunca lo supongas por el rubro del negocio ni lo elijas en silencio"
+    "Por defecto es 8 (Régimen Contable): es el régimen general y el de la enorme mayoría de los comercios. Los otros siete son casos especiales —turismo, maquila, importador, exportador, pequeño o mediano productor, Ley 60/90— que el que los tiene sabe que los tiene. " +
+    "Usá 8 sin preguntar, salvo que la constancia de RUC o el usuario indiquen otro; si la constancia menciona uno de esos casos especiales, usá ese. " +
+    "Decí en una línea con qué régimen estás dando de alta, para que el usuario pueda corregirte si no es el suyo — pero no frenes el alta esperando que te lo confirme"
   ),
   establecimientos: z
     .array(
@@ -168,9 +177,11 @@ const payloadSchema = z.object({
       "provision_einvoice: domicilio fiscal de cada local desde el que emite, uno por cada establecimiento. " +
       "Qué códigos declarar te lo dice get_einvoice_setup en `establishmentCodes` (salen del punto de expedición de las cajas: si la caja tiene 001-001, el código es '001') — no se los preguntes al usuario. " +
       "La DIRECCIÓN sale de la constancia de RUC si el comercio te la mandó; si no, pedísela. " +
-      "Los códigos de departamento, distrito y ciudad son NÚMEROS del catálogo de la autoridad tributaria y los resolvés con resolve_geo_codes a partir del NOMBRE de la ciudad: nunca se los pidas al usuario, no los sabe de memoria. " +
+      "Los códigos de departamento, distrito y ciudad son NÚMEROS del catálogo de la autoridad tributaria y los resolvés con resolve_geo_codes a partir del NOMBRE de la ciudad: nunca se los pidas al usuario, no los sabe de memoria. "
+      + "Si la dirección NO nombra ninguna ciudad, asumí Asunción (departamento 1 CAPITAL, distrito 1 y ciudad 1, ambos 'ASUNCION (DISTRITO)') sin preguntar: es de donde emite la enorme mayoría de los comercios. Decilo en una línea al mostrar el resumen, así el que emite desde otra ciudad te corrige. " +
       "Las descripciones (departamentoDescripcion, distritoDescripcion, ciudadDescripcion) van EXACTAMENTE como las devuelve esa tool, no como las escribió el usuario. " +
       "Si resolve_geo_codes devuelve varias candidatas —hay ciudades con el mismo nombre en departamentos distintos— mostrale la lista con el departamento de cada una y preguntale cuál es la suya; si no devuelve ninguna, pedile el nombre como figura en su constancia. " +
+      "telefono, email y denominacion del establecimiento son OPCIONALES para el alta: no se los pidas al usuario. Mandá los que ya conozcas por get_outlets y dejá vacíos los demás. numeroCasa también es opcional — si la dirección no tiene altura, omitilo y el backend declara la convención de SIFEN para 'sin número'. " +
       "Lo único que sigue prohibido es INVENTAR un código o deducirlo vos del nombre: un domicilio fiscal mal declarado es un dato falso ante la autoridad tributaria."
     ),
   infoAdicional: z.string().optional().describe("provision_einvoice: información adicional que el comercio quiere que salga en sus documentos. Opcional"),

@@ -153,10 +153,20 @@ export function EInvoiceManager() {
 
 const EMPTY_FORM: EInvoiceFiscalForm = {
   email: "",
-  // Ni tipo de contribuyente ni régimen tienen valor inicial: los dos viajan
-  // al documento electrónico y elegirlos por el comercio es declararle una
-  // condición fiscal que nadie verificó. La pantalla los pide con placeholder
-  // y el alta corta si no vinieron.
+  // Régimen Contable viene PRESELECCIONADO (decisión del owner, 2026-09-08):
+  // es el régimen general y el de la enorme mayoría de los comercios que se
+  // dan de alta — los otros siete son casos especiales (turismo, maquila,
+  // pequeño productor) que el que los tiene conoce y cambia.
+  //
+  // Es el único default de esta pantalla y la contrapartida está asumida: un
+  // comercio distraído puede declarar un régimen que no es el suyo. Por eso el
+  // control NO está escondido ni deshabilitado, y por eso el ASISTENTE sigue
+  // sin default — cuando el alta la conduce el bot, propone con fundamento y
+  // pide confirmación (ver el describe de `regimeId` en confirm-tool.ts).
+  regimeId: 8,
+  // El tipo de contribuyente NO tiene valor inicial: es física o jurídica y
+  // elegir uno por el comercio es cara o cruz, no un default. La pantalla lo
+  // pide con placeholder y el alta corta si no vino.
   actividades: [{ codigo: "", nombre: "" }],
   establecimientos: [],
   cscId: "",
