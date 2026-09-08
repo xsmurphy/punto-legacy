@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|notification-drain|partition-ensure|period-close|ocr-requeue|plan-lifecycle>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|notification-drain|partition-ensure|period-close|ocr-requeue|plan-lifecycle|geo-catalog-sync>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -50,6 +50,16 @@
  *                          el mismo camino. `limit` en query, default 25, tope
  *                          200 — cada ítem baja el KuDE del proveedor y hace un
  *                          POST a Resend, o sea dos llamadas externas por envío.
+ *   - geo-catalog-sync   → catálogo geográfico fiscal (mig 207) vía
+ *                          `GeoCatalogSync::run()`, cross-tenant y SEMANAL.
+ *                          Departamento → distrito → ciudad desde el proveedor
+ *                          fiscal, con upsert idempotente. Es lo que hace que
+ *                          el domicilio de los establecimientos se elija de una
+ *                          lista en vez de tipear códigos numéricos de memoria.
+ *                          No borra nunca: lo que el origen deja de mencionar
+ *                          queda `active=false` (un código dado de baja puede
+ *                          estar guardado en el domicilio fiscal de un comercio
+ *                          y hay que poder seguir mostrándolo por nombre).
  *   - partition-ensure   → E1 de context/48-escalamiento-de-datos.md (mig 156):
  *                          `SELECT ensure_month_partitions('transaction'|'itemsold',
  *                          'transactiondate'|'itemsolddate', 12)` + chequeo
@@ -119,7 +129,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain', 'invoice-auth-notices'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain', 'invoice-auth-notices', 'geo-catalog-sync'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -222,6 +232,24 @@ function maintenanceRunJob(string $job): array
             // aplican el POS y `/v1/sales.php` en tiempo real, no este cron.
             require_once __DIR__ . '/../lib/Notifications/InvoiceAuthNoticeService.php';
             return (new \Punto\Api\Notifications\InvoiceAuthNoticeService())->run();
+
+        case 'geo-catalog-sync':
+            // Catálogo geográfico fiscal (mig 207): departamento → distrito →
+            // ciudad, desde el proveedor. Alimenta el selector en cascada del
+            // domicilio de los establecimientos — sin catálogo, esa pantalla
+            // vuelve a pedir códigos numéricos a mano.
+            //
+            // SEMANAL, no diario: son ~6.400 filas que cambian cuando la
+            // autoridad tributaria crea o renombra una ciudad, o sea casi
+            // nunca. Correrlo seguido sería bajarle el catálogo entero al
+            // proveedor para no cambiar nada.
+            //
+            // NO muerde: solo hace upsert de un catálogo de plataforma y
+            // marca inactivo lo que el origen dejó de mencionar. Nunca borra
+            // (un código dado de baja puede estar guardado en el domicilio
+            // fiscal de un comercio y hay que poder seguir mostrándolo).
+            // Idempotente: dos corridas dejan el mismo catálogo.
+            return (new \Punto\Api\EInvoice\GeoCatalogSync())->run();
 
         case 'partition-ensure':
             return maintenancePartitionEnsure($db);
