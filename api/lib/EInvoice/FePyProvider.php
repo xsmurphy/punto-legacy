@@ -195,6 +195,26 @@ final class FePyProvider implements EInvoiceProvider
         return $this->request('GET', '/v1/tenants/' . rawurlencode($phone), null, $bearer);
     }
 
+    /**
+     * GET /v1/tenants/{ref}/readiness — la lista de chequeos del emisor
+     * (tenant activo, RUC con DV valido, certificado y su vigencia, CSC,
+     * numeración) más `unverifiable`: lo que SIFEN recién valida al emitir
+     * (fecha exacta del timbrado, habilitación del RUC). Es el GATE del
+     * cutover: no se flipea un tenant a este motor sin `ready === true`,
+     * y el "Verificar estado" del wizard muestra estos checks tal cual.
+     *
+     * @return array{ready:bool,checks:array<int,array{check:string,ok:bool,detail:string}>,unverifiable:array<int,string>}
+     */
+    public function readiness(string $tenantRef, string $bearer): array
+    {
+        $raw = $this->request('GET', '/v1/tenants/' . rawurlencode($tenantRef) . '/readiness', null, $bearer);
+        return [
+            'ready'        => !empty($raw['ready']),
+            'checks'       => is_array($raw['checks'] ?? null) ? $raw['checks'] : [],
+            'unverifiable' => is_array($raw['unverifiable'] ?? null) ? $raw['unverifiable'] : [],
+        ];
+    }
+
     public function sincroConfig(string $environment, string $phone, string $bearer): array
     {
         throw new \LogicException(

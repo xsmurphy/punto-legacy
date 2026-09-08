@@ -196,7 +196,51 @@ final class EInvoiceService
             $bearer = $this->sessionFor($companyId)->getBearer($companyId);
             [$phone, $environment] = $this->phoneAndEnvironment($companyId);
 
-            $emitter = $this->providerFor($companyId)->userInfo($environment, $phone, $bearer);
+            $provider = $this->providerFor($companyId);
+
+            // Motor propio: la verificación ES el readiness del emisor —
+            // los chequeos que su API valida (tenant/RUC/cert/CSC/numeración)
+            // más `unverifiable` (lo que SIFEN recién valida al emitir), que
+            // se muestra como advertencia, no como error. Es también el GATE
+            // del cutover: provider='fepy' no debería recibir tráfico con
+            // ready=false.
+            if ($provider instanceof FePyProvider) {
+                [$tenantRef] = $this->sessionFor($companyId)->identity($companyId);
+                $readiness = $provider->readiness($tenantRef, $bearer);
+                $emitter = $provider->userInfo($environment, $tenantRef, $bearer);
+
+                $failed = array_values(array_filter($readiness['checks'], fn ($c) => empty($c['ok'])));
+                if (!$readiness['ready']) {
+                    $message = 'El emisor todavía no está listo: '
+                        . implode('; ', array_map(
+                            fn ($c) => (string) ($c['check'] ?? '?') . ' — ' . (string) ($c['detail'] ?? ''),
+                            $failed
+                        ));
+                    ncmExecute(
+                        "UPDATE einvoice_account
+                            SET status = 'auth_error', emitter = ?::jsonb, last_check_at = now(), last_error = ?, updated_at = now()
+                          WHERE companyid = ?",
+                        [json_encode($emitter + ['readiness' => $readiness], JSON_UNESCAPED_UNICODE), $message, $companyId]
+                    );
+                    return ['status' => 'auth_error', 'emitter' => $emitter, 'stamp' => [], 'lastError' => $message];
+                }
+
+                $stamp = $this->extractStamp($provider->stamps($environment, $tenantRef, $bearer));
+                ncmExecute(
+                    "UPDATE einvoice_account
+                        SET status = 'ok', emitter = ?::jsonb, stamp = ?::jsonb, stamp_synced_at = now(),
+                            last_check_at = now(), last_error = NULL, updated_at = now()
+                      WHERE companyid = ?",
+                    [
+                        json_encode($emitter + ['readiness' => $readiness], JSON_UNESCAPED_UNICODE),
+                        json_encode($stamp ?? [], JSON_UNESCAPED_UNICODE),
+                        $companyId,
+                    ]
+                );
+                return ['status' => 'ok', 'emitter' => $emitter, 'stamp' => $stamp ?? [], 'lastError' => null];
+            }
+
+            $emitter = $provider->userInfo($environment, $phone, $bearer);
 
             // El timbrado NO sale de sincro/config. Verificado contra la API real
             // (2026-07-30): sincro/config devuelve `{tenantId, stamps: []}` — la
