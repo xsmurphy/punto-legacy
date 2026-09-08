@@ -76,7 +76,7 @@ final class EInvoiceService
     public function getAccount(string $companyId): array
     {
         $row = ncmExecute(
-            'SELECT provider, environment, status, emitter, stamp, stamp_synced_at,
+            'SELECT provider, provider_tenant_ref, environment, status, emitter, stamp, stamp_synced_at,
                     last_check_at, last_error, factomate_tenant_id, fiscal, provisioning,
                     config AS account_config
                FROM einvoice_account WHERE companyid = ?',
@@ -113,9 +113,16 @@ final class EInvoiceService
 
         return [
             'configured'   => true,
-            // provisioned = el emisor existe del lado del proveedor. La UI
-            // decide con esto si muestra el formulario de alta o el estado.
-            'provisioned'  => $tenantId !== null && (int) $tenantId > 0,
+            // provisioned = el emisor existe del lado DEL PROVEEDOR ACTIVO.
+            // La UI decide con esto si muestra el formulario de alta o el
+            // estado. Por proveedor, no global: un tenant que migró de motor
+            // conserva el id del anterior como fallback, y mirarlo acá dejaba
+            // la pantalla sin botón de alta en el motor nuevo (Balloon Party
+            // 2026-09-08: id de Factomate presente, ref de FE-PY vacío, y el
+            // form de alta nunca aparecía).
+            'provisioned'  => strtolower((string) ($row['provider'] ?? '')) === 'fepy'
+                ? trim((string) ($row['provider_tenant_ref'] ?? '')) !== ''
+                : ($tenantId !== null && (int) $tenantId > 0),
             'status'       => (string) ($row['status'] ?? 'unconfigured'),
             // Espejo del formulario legal (sin secretos — ver
             // EInvoiceProvisioningService::stripSecrets).
