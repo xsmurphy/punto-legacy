@@ -1,119 +1,134 @@
-# Hand-off — 2026-09-08
+# Hand-off — 2026-09-08 (continuación)
 
 ## Objetivo
 
-Día del cutover al motor de FE PROPIO (FE-PY, hosteado por la sesión paralela
-"FE" en https://fepy.punto.la). Se cerró el readiness gate del proveedor, se
-corrigió el proceso de alta de tenant (debe ser 100% UI, nunca CLI) y se
-completó el wizard de régimen tributario + establecimientos. Quedó un agente
-de dropdowns geográficos SIFEN detenido a mitad por saturación de la Mac.
+Vivo, textual del owner: **"lo que quiero es que el bot pueda configurar 100%
+la facturación electrónica"** — el operador carga la constancia de RUC (PDF)
+y el domicilio, y el agente resuelve todo lo demás; lo único que sigue
+cargándose a mano es el certificado `.p12` y el CSC (secretos fiscales, no
+viajan por chat). El catálogo geográfico SIFEN es un paso de ese objetivo,
+no un fin en sí mismo.
 
 ## Estado al cerrar
 
-`origin/main` = `e6a52d64`. Backend deployado y verificado en `e6a52d64`
-(HEAD). Front deployado en `b924b989` (los commits posteriores al merge son
-API-only, no requieren redeploy de frontend/). Árbol limpio, nada pusheado
-sin deployar.
+`main` = `8accf37b`, **sin deployar**. Trae mergeado el catálogo geográfico
+fiscal (mig 207: `geo_department`/`geo_district`/`geo_city`, endpoint
+`api/v1/geo.php`, UI en cascada en el alta de establecimiento) pero
+**sincronizado contra la fuente EQUIVOCADA (Factomate)** — Punto ya no usa
+Factomate, el motor vigente es FE-PY propio (https://fepy.punto.la). Los
+catálogos no coinciden (Factomate 6419 ciudades vs SIFEN/FE-PY 6766): un
+código válido en uno puede no existir en el otro, y el que valida el XML es
+FE-PY. **No deployar `main` tal cual** — pondría en prod un sync contra una
+API que no se usa.
 
-## Archivos y cambios (commits `97a08a02..e6a52d64`)
+Hay un agente corriendo AHORA en el worktree
+`.claude/worktrees/geo-sifen-y-bot-fe` (branch `frontend/geo-sifen-y-bot-fe`)
+corrigiendo esto. Dos piezas en el mismo brief:
 
-- `82fd2892` — readiness gate: `FePyProvider::readiness()` + branch `fepy` en
-  `testConnection`.
-- `e9a93acd` — emisores del motor propio nacen con env `'prod'` (el default
-  global `'test'` es de Factomate, no aplica al proveedor nuevo).
-- `17be7bf1` + `3b9b3fa5` (merge `b924b989`) — wizard de alta: campos régimen
-  tributario + `establecimientos[]` persistidos en el espejo fiscal. Bug real:
-  `validateForm()` normalizaba y DESCARTABA los campos nuevos antes de que
-  llegaran al guardado.
-- `e6a52d64` — `provisioned` se mide contra el proveedor ACTIVO de
-  `einvoice_account`, no contra cualquier id de proveedor presente en la fila
-  — el id de Factomate tapaba el botón Guardar del alta del motor nuevo.
-- `context/73-kude-propio.md` ya tiene fila en `CLAUDE.md`; no se tocaron más
-  docs esta sesión (el detalle vive en commits + este hand-off).
+1. **Fuente correcta.** Reemplaza Factomate por SIFEN: trae el extractor +
+   `sifen-geo.json` (18 depto / 272 distrito / 6766 ciudad) del worktree
+   parado `agent-aa0fb08127953c581` a ubicaciones de servidor, crea
+   `SifenGeoSource`, borra `FactomateGeoSource.php` y los métodos de geo en
+   `FactomateProvider.php`, migración que pasa `source` de `'factomate'` a
+   `'sifen'`, revisa el cron semanal (un seed versionado no necesita
+   sync). Tiene instrucción de frenar y reportar si algún tenant en prod ya
+   guardó códigos con numeración Factomate.
+2. **Bot configura FE solo.** Tool `resolve_geo_codes` en
+   `frontend/lib/agent/read-tools.ts` (compartido panel+MCP): nombre de
+   ciudad → códigos, match insensible a acentos por `searchname`, homónimos
+   devuelven TODAS las candidatas (el bot pregunta, nunca elige). Reescribe
+   `frontend/lib/agent/confirm-tool.ts:139`, cuyo `.describe()` hoy le
+   ORDENA al bot pedirle los códigos al usuario — es lo que bloquea que
+   configure solo. Revisa el resto de `provision_einvoice` con el mismo
+   criterio (lo que esté en la constancia de RUC que el bot ya lee, que lo
+   extraiga en vez de preguntarlo).
 
-## Trabajo en vuelo INTERRUMPIDO (crítico)
+**No interrumpir ese agente ni tocar esa branch/worktree.**
 
-Agente de dropdowns geográficos DETENIDO a mitad — la Mac del owner se saturó
-por el Docker local de FE-PY (ya no hace falta, FE-PY está hosteado; se le
-indicó cerrar Docker Desktop). Parcial SIN pushear en:
+## Worktrees vivos — cuáles sirven
 
-- Worktree: `/Users/xstian/Dropbox/Punto/system/.claude/worktrees/agent-aa0fb08127953c581`
-- Branch: `worktree-agent-aa0fb08127953c581`
-- Contenido: script de extracción del catálogo SIFEN (18 depto / ~270
-  distrito / ~5800 ciudad) desde
-  `/Users/xstian/Dropbox/Factura Electrónica/FE-PY/src/services/constants.service.ts`
-  + JSON generado + loader. Falta: la UI en cascada y tests.
+- `frontend/geo-sifen-y-bot-fe` — el que importa, en vuelo (arriba).
+- `agent-aa0fb08127953c581` (branch `worktree-agent-aa0fb08127953c581`,
+  parado en `e6a52d64`) — **queda CONSUMIDO por la pieza 1 de arriba**
+  (extractor + JSON). Una vez que `frontend/geo-sifen-y-bot-fe` mergea, este
+  worktree ya no sirve y se puede borrar.
+- `agent-aa6a0986b93c2240e` (branch `frontend/catalogo-geografico`, parado en
+  `740c2766`) — el trabajo del agente que construyó el catálogo contra
+  Factomate. Ya mergeado a `main` (`8accf37b`) antes de detectar el error.
+  Descartable una vez confirmado que no queda nada suyo por rescatar.
 
-Al retomar: confirmar que la Mac se recuperó, entrar al worktree, seguir desde
-ahí — no relanzar desde cero.
+## Archivos y cambios (commits `87ac7f33..8accf37b`, 14)
 
-## Cambios A MANO en prod (no están en git — leer antes de tocar nada)
-
-- `platform_config` key `integration.fepy`:
-  `{keyEnc: <API key de FE-PY cifrada con CredentialVault>, baseUrl: "https://fepy.punto.la"}`
-  (SIN `/v1` — el cliente lo agrega; con `/v1` da 404 por doble prefijo).
-  Ingerida desde `/root/fepy-handoff.json`, que fue borrado tras la ingesta.
-- **Balloon Party** (`companyid 01a067cb-8fff-72cd-bb12-0b483dcb7dbf`)
-  `einvoice_account` reseteado a cero: `provider='fepy'`,
-  `provider_tenant_ref=NULL`, `status='provisioning'`, `emitter='{}'`,
-  `stamp='{}'`, checkpoints `fepy*` borrados, `fiscal` limpiado de
-  `taxpayerType`/`regimeId`/`establecimientos` (quedaron `email`/
-  `actividades`/`cscId`/`infoAdicional`). Columnas de Factomate
-  (`factomate_tenant_id=6`, `username`, `password_enc`, `login_enc`) INTACTAS
-  — es el fallback.
-- **FE-PY prod**: tenant CLI `01a080c1-a13f-75fa-82f4-7ce2b20a606a` PURGADO
-  físicamente. Company de Punto en FE-PY:
-  `01a08081-413a-7025-b64e-9f3bd112e2c2`. RUC `3595193-1` libre para el alta
-  real. Numeración objetivo: FE=614 / NC=2 (próximos a emitir: 615 / 3).
-- **Custodia local de cert/CSC de Balloon**: VACÍA — se recarga durante el
-  alta por UI.
+- `ad5741cf` — **fix crítico**: nadie podía registrarse, el endpoint de
+  signup tiraba `termsAccepted` antes de llegar al servicio.
+- `571b7412` — eliminado bypass `?debug` de seguridad + handler JSON que
+  devolvía la excepción cruda al cliente.
+- `c1ac80e3`/`b0add9ce` — adjuntos del agente: PDF/imagen llegan al modelo,
+  visibles en el hilo, drag&drop en `/chat`, tope total de archivos.
+- `c2890fb6` — fix `/admin/ai` Probar decía `OPENROUTER_API_KEY no
+  configurada` con la clave presente.
+- `87f7feba` — bienvenida del panel centrada, copy dice qué es Punto.
+- `ac7ab2b2`/`e7b2af5e`/`c77fb8ae`/`a6ce4b7f` — `context/74`: saldo a favor
+  elevado a módulo Wallet multi-nivel, D1 (dos modos de facturación) y D2
+  (jerarquía titular/sub-cuenta) cerradas por el owner. Sin implementar.
+- `348bbcf7`/`740c2766`/`8accf37b` — catálogo geográfico (ver arriba, fuente
+  equivocada, en corrección).
 
 ## Callejones sin salida
 
-- Alta de tenant por CLI con datos inyectados — VETADA por el owner, el
-  tenant se purgó. No repetirla bajo ningún motivo.
-- `baseUrl` con `/v1` en `platform_config.integration.fepy` → 404 (doble
-  prefijo, el cliente ya agrega `/v1`).
-- `PlatformConfig::set(..., 'session-system-82')` revienta — `updatedBy` es
-  uuid, pasar `null`.
-- `fiscal` jsonb: `-` con guiones encadenados falla en el wrapper de DB — usar
-  `- ARRAY[...]::text[]`. `emitter` y `stamp` son NOT NULL — resetear con
-  `'{}'::jsonb`, nunca `NULL`.
+- **Sincronizar el catálogo geográfico desde Factomate** — Punto ya no usa
+  Factomate como motor de FE (es FE-PY propio). Se construyeron ~20 min de
+  sync/cron/arnés antes de que el owner corrigiera. Causa raíz: no se leyó
+  este mismo hand-off (versión anterior) antes de lanzar el agente — ya
+  documentaba que existía trabajo con la fuente correcta parado en un
+  worktree. **Lección: leer `_handoff.md` ANTES de lanzar un agente sobre un
+  tema que quedó a medias**, no confiar en el resumen que uno recuerda.
+- **Reset completo de FE de Balloon Party** — se mapeó el estado y se
+  entregó el script (borrar `einvoice_account` destruye la credencial
+  cifrada de Factomate, irrecuperable). El owner decidió NO hacerlo. El
+  estado de FE de ese tenant queda como lo dejó la sesión anterior (ver
+  "Trampas conocidas" de la entrada previa, heredadas abajo).
+- Heredados de cierres previos (siguen vetados, no repetir): alta de tenant
+  por CLI en FE-PY — VETADA, el tenant se purgó; `baseUrl` con `/v1` en
+  `platform_config.integration.fepy` → 404 (doble prefijo).
 
 ## Próximo paso
 
-1. Confirmar con el owner que la Mac se recuperó.
-2. Retomar el agente de dropdowns geográficos desde el worktree parcial
-   (arriba) — default Asunción (dep 1 / dist 1 / ciudad 1).
-3. Cola siguiente, UN agente a la vez (regla dura tras el incidente de Mac
-   saturada):
-   - tool `lookup_sifen_geo` para el bot (buscar código por nombre sobre el
-     mismo JSON del catálogo).
-   - rediseño UX completo del wizard de FE (pasos guiados, sin siglas,
-     pre-llenado desde la sucursal, régimen pre-cargado en Contable/8,
-     IdCSC default `0001`).
-   - adjuntos multimodales del chat del bot: los PDF mueren con "Solo
-     Excel/CSV e imágenes por ahora" en `processAttachment`
-     (`frontend/lib/agent/use-agent-chat.ts:250`); las imágenes generan
-     thumbnail pero NUNCA viajan al modelo (`handleSend` solo empaqueta
-     tabulares) — falta pasar `files` en `sendMessage` + forzar modelo con
-     visión cuando hay adjuntos (OpenRouter: DeepSeek sin visión, Gemini sí).
-   - bug del bot: `get_einvoice_setup` dice "falta el RUC" con el RUC
-     cargado — `read.get_settings.execute({})` en
-     `frontend/lib/agent/einvoice-setup.ts:448` no trae `ruc`/`billingName`.
-4. Coordinar con la sesión paralela "FE" (`local_49a34065-a306-48f5-9dad-1b856c9c1ece`)
-   antes de tocar nada en FE-PY.
-5. Deploy → el owner corre el alta 100% UI (régimen Contable, IdCSC `0001`,
-   Asunción) → cert + CSC → verificar estado verde → ciclo de prueba ≤500 Gs
-   (factura esperada 615, cancelación 0600), UN solo ciclo.
+1. Esperar a que termine el agente en `frontend/geo-sifen-y-bot-fe` (pieza 1
+   fuente SIFEN + pieza 2 `resolve_geo_codes`/`confirm-tool.ts`).
+2. Revisar el diff completo (no solo el reporte del agente) — en particular
+   que la migración de `source` deje el catálogo consistente y que no haya
+   tenants en prod con códigos Factomate (si el agente reportó que SÍ los
+   hay, resolverlo ANTES de mergear).
+3. Mergear a `main`, cerrar el worktree consumido
+   (`agent-aa0fb08127953c581`) y el ya mergeado
+   (`agent-aa6a0986b93c2240e`).
+4. Deploy — DOS: Backend `z645wx54kwtcciczaeoldwvc` (toca `api/` +
+   migraciones) y Front `nzmay2ytcdup3sgylspq39z6` (toca `frontend/`). Un
+   deploy a la vez, verificar `finished` antes del siguiente.
+5. Con el bot pudiendo resolver códigos geográficos y leer la constancia de
+   RUC, retomar el resto de `provision_einvoice` con el mismo criterio: lo
+   que ya se puede leer, que se deje de preguntar.
 
-## Trampas conocidas
+## Trampas conocidas (heredadas, siguen vigentes)
 
-- `context/73-kude-propio.md` — confirmar que sigue listada en la tabla de
-  `CLAUDE.md` si se retoca KuDE (ya estaba agregada al cierre anterior).
+- **Cambios A MANO en prod, no están en git**:
+  - `platform_config` key `integration.fepy`: `{keyEnc: <API key de FE-PY
+    cifrada>, baseUrl: "https://fepy.punto.la"}` (SIN `/v1`).
+  - Balloon Party (`companyid 01a067cb-8fff-72cd-bb12-0b483dcb7dbf`)
+    `einvoice_account` reseteado a cero desde la sesión anterior
+    (`provider='fepy'`, `provider_tenant_ref=NULL`, `status='provisioning'`)
+    — columnas de Factomate INTACTAS como fallback. Custodia local de
+    cert/CSC VACÍA, se recarga en el alta por UI.
+  - FE-PY prod: tenant CLI `01a080c1-a13f-75fa-82f4-7ce2b20a606a` PURGADO.
+    Company de Punto: `01a08081-413a-7025-b64e-9f3bd112e2c2`. RUC
+    `3595193-1` libre. Numeración objetivo FE=614/NC=2 (próximos: 615/3).
+  - Códigos geográficos de los dos establecimientos de Asunción de Balloon
+    Party: departamento=1 (CAPITAL), distrito=1, ciudad=1.
+- `context/73-kude-propio.md` y `context/74-wallet-multinivel.md` ya están en
+  la tabla de `CLAUDE.md`.
 - Deploy del Front puede ir unos commits atrás de `main` si lo último fue
   API-only — verificar con `git log --stat` antes de asumir que sirve.
-- Heredadas de cierres previos: sin backfill del histórico de fecha,
-  Cloudflare "Block AI bots" desactivada a mano, flags de comercio
-  system-wide sin scope por sucursal, `psql`/SSH a BD bloqueados por el
-  classifier, `npx vitest` correr desde `frontend/`.
+- Más antiguas: sin backfill del histórico de fecha, Cloudflare "Block AI
+  bots" desactivada a mano, `psql`/SSH a BD bloqueados por el classifier,
+  `npx vitest` correr desde `frontend/`.
