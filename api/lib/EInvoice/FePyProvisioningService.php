@@ -73,7 +73,15 @@ final class FePyProvisioningService
      */
     public function provision(string $companyId, array $form): array
     {
-        $environment = EInvoiceProvisioningService::defaultEnvironment();
+        // El env del MOTOR PROPIO no es el default global de FE (ese gobierna
+        // a Factomate y sigue en 'test' hasta que existan sus credenciales de
+        // prod). FE-PY nació validado EN PRODUCCIÓN: sus emisores se crean
+        // con env 'prod' salvo override explícito en platform_config
+        // (integration.fepy.env) — hallazgo del 2026-09-08: el alta por
+        // defaultEnvironment() creó un tenant 'test' que hubo que purgar.
+        require_once __DIR__ . '/../Admin/PlatformConfig.php';
+        $cfg = \PlatformConfig::get('integration.fepy', []);
+        $environment = in_array(($cfg['env'] ?? ''), ['test', 'prod'], true) ? $cfg['env'] : 'prod';
 
         // El BORRADOR crudo se persiste ANTES de cualquier throw — mismo
         // motivo que en el camino de Factomate (incidente Balloon Party
