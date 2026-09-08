@@ -49,10 +49,27 @@ $password  = (string)        ($_POST['password'] ?? '');
 // permanentes porque nada volvía a preguntarlos. El form de alta siempre lo
 // manda; si no llega, es un cliente roto y conviene fallar acá.
 $country   = strtoupper(trim((string) ($_POST['country'] ?? '')));
+// Aceptación de términos: la EXIGE `SignupService::create()` y la manda el form
+// (`app/(auth)/signup/page.tsx`), pero hasta el 2026-09-08 este archivo NO la
+// reenviaba al servicio — armaba el array con seis campos y `termsAccepted`
+// quedaba afuera, así que el guard del servicio veía `empty()` SIEMPRE y NADIE
+// podía registrarse ("tenés que aceptar los términos" con el checkbox tildado).
+// La versión viaja junto: es la evidencia de QUÉ texto se aceptó, y perderla
+// acá dejaba el `termsVersion` de la evidencia legal en null aun con el front
+// mandándolo.
+$termsAccepted = $_POST['termsAccepted'] ?? null;
+$termsVersion  = trim((string) ($_POST['termsVersion'] ?? ''));
 
 if ($phone === '' || $code === '' || $storename === '' || $category === ''
     || $username === '' || $password === '') {
     apiError('Faltan campos requeridos', 400);
+}
+// Se valida ACÁ además del servicio: el endpoint es la frontera con el cliente
+// y un 400 explícito es más honesto que dejar que el servicio devuelva su
+// `['ok' => false]` genérico. El guard del servicio NO se saca — es el que
+// protege a cualquier otro caller.
+if (empty($termsAccepted)) {
+    apiError('Tenés que aceptar los términos y condiciones', 400);
 }
 if (preg_match('/^[A-Z]{2}$/', $country) !== 1) {
     apiError('País requerido (código ISO de 2 letras)', 400);
@@ -80,6 +97,8 @@ try {
         'category'  => $category,
         'country'   => $country,
         'phone'     => $phone,
+        'termsAccepted' => $termsAccepted,
+        'termsVersion'  => $termsVersion,
     ]);
 } catch (\Punto\Api\Support\DbQueryException $e) {
     // El alta corre entera dentro de una transacción y devolvía
