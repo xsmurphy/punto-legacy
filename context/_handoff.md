@@ -11,51 +11,61 @@ no un fin en sí mismo.
 
 ## Estado al cerrar
 
-`main` = `8accf37b`, **sin deployar**. Trae mergeado el catálogo geográfico
-fiscal (mig 207: `geo_department`/`geo_district`/`geo_city`, endpoint
-`api/v1/geo.php`, UI en cascada en el alta de establecimiento) pero
-**sincronizado contra la fuente EQUIVOCADA (Factomate)** — Punto ya no usa
-Factomate, el motor vigente es FE-PY propio (https://fepy.punto.la). Los
-catálogos no coinciden (Factomate 6419 ciudades vs SIFEN/FE-PY 6766): un
-código válido en uno puede no existir en el otro, y el que valida el XML es
-FE-PY. **No deployar `main` tal cual** — pondría en prod un sync contra una
-API que no se usa.
+`main` = post-merge de `frontend/geo-sifen-y-bot-fe`. El catálogo geográfico
+fiscal quedó COMPLETO y sobre la fuente correcta, y el bot ya no le pide
+códigos numéricos al usuario.
 
-Hay un agente corriendo AHORA en el worktree
-`.claude/worktrees/geo-sifen-y-bot-fe` (branch `frontend/geo-sifen-y-bot-fe`)
-corrigiendo esto. Dos piezas en el mismo brief:
+Cómo se llegó acá, porque el error importa más que el resultado: el catálogo
+se mergeó primero (mig 207, `8accf37b`) **sincronizado contra Factomate**, que
+Punto ya no usa — el motor vigente es FE-PY propio (https://fepy.punto.la).
+Los catálogos no coinciden (Factomate 6419 ciudades vs SIFEN/FE-PY 6766) y el
+que valida el XML es FE-PY. Peor: la extracción SIFEN correcta YA EXISTÍA en
+un worktree parado que el hand-off anterior mencionaba, y no se leyó antes de
+lanzar el agente. **Lección: leer `_handoff.md` ANTES de lanzar un agente
+sobre un tema que quedó a medias.**
 
-1. **Fuente correcta.** Reemplaza Factomate por SIFEN: trae el extractor +
-   `sifen-geo.json` (18 depto / 272 distrito / 6766 ciudad) del worktree
-   parado `agent-aa0fb08127953c581` a ubicaciones de servidor, crea
-   `SifenGeoSource`, borra `FactomateGeoSource.php` y los métodos de geo en
-   `FactomateProvider.php`, migración que pasa `source` de `'factomate'` a
-   `'sifen'`, revisa el cron semanal (un seed versionado no necesita
-   sync). Tiene instrucción de frenar y reportar si algún tenant en prod ya
-   guardó códigos con numeración Factomate.
-2. **Bot configura FE solo.** Tool `resolve_geo_codes` en
-   `frontend/lib/agent/read-tools.ts` (compartido panel+MCP): nombre de
-   ciudad → códigos, match insensible a acentos por `searchname`, homónimos
-   devuelven TODAS las candidatas (el bot pregunta, nunca elige). Reescribe
-   `frontend/lib/agent/confirm-tool.ts:139`, cuyo `.describe()` hoy le
-   ORDENA al bot pedirle los códigos al usuario — es lo que bloquea que
-   configure solo. Revisa el resto de `provision_einvoice` con el mismo
-   criterio (lo que esté en la constancia de RUC que el bot ya lee, que lo
-   extraiga en vez de preguntarlo).
+Lo que corrigió el merge siguiente:
 
-**No interrumpir ese agente ni tocar esa branch/worktree.**
+1. **Fuente SIFEN.** Seed versionado `api/database/seeds/sifen-geo.json`
+   (18 depto / 272 distrito / 6766 ciudad) extraído de `constants.service.ts`
+   de FE-PY con `scripts/extract-sifen-geo.mjs`. Carga al boot del container
+   (`api/docker-entrypoint.sh` → `seed_geo_catalog.php`, upsert con
+   `unnest()`, 7056 filas en 0,19s, idempotente); el cron semanal salió —un
+   seed del repo cambia con el deploy, no los domingos—. `FactomateGeoSource`
+   borrado y los métodos de geo sacados de `FactomateProvider`. Mig 208: las
+   filas de Factomate quedan `active=FALSE` (no se borran: un código ya
+   guardado tiene que poder resolverse a su nombre) y `providerid` dropeada.
+   Verificado en prod ANTES de tocar: cero códigos geográficos guardados, las
+   tablas `geo_*` ni existían.
+2. **`resolve_geo_codes`** en `frontend/lib/agent/read-tools.ts` (compartido
+   panel+MCP): nombre de ciudad → códigos, insensible a acentos por
+   `searchname`. **666 nombres de ciudad están repetidos** en el catálogo
+   ("SAN ANTONIO" 35 veces en departamentos distintos), así que ante
+   homónimos devuelve TODAS las candidatas con `resolved: null` y el bot
+   pregunta — elegir una sería declarar el domicilio fiscal en el
+   departamento equivocado. `confirm-tool.ts` reescrito: se eliminó la
+   instrucción que le ORDENABA pedirle los códigos al usuario, y `regimeId`
+   y `taxpayerType` ahora viajan con su lista de valores (el modelo leía
+   "Régimen Contable" y no tenía cómo saber que es el 8).
 
-## Worktrees vivos — cuáles sirven
+Verificación: build `✓ 18.5s`, `tsc --noEmit` limpio, arnés
+`run_geo_catalog_test.sh` 31/31, `code-reviewer` sin P0 ni P1. Las 6 fallas de
+vitest son idénticas en `main` y preexistentes.
 
-- `frontend/geo-sifen-y-bot-fe` — el que importa, en vuelo (arriba).
-- `agent-aa0fb08127953c581` (branch `worktree-agent-aa0fb08127953c581`,
-  parado en `e6a52d64`) — **queda CONSUMIDO por la pieza 1 de arriba**
-  (extractor + JSON). Una vez que `frontend/geo-sifen-y-bot-fe` mergea, este
-  worktree ya no sirve y se puede borrar.
-- `agent-aa6a0986b93c2240e` (branch `frontend/catalogo-geografico`, parado en
-  `740c2766`) — el trabajo del agente que construyó el catálogo contra
-  Factomate. Ya mergeado a `main` (`8accf37b`) antes de detectar el error.
-  Descartable una vez confirmado que no queda nada suyo por rescatar.
+**Lo que el bot todavía pide a mano** (y por qué, para no "arreglarlo"):
+`.p12` y CSC por pantalla (mandato: secretos fiscales no van por chat); el
+email de facturación si no figura en la constancia (alguien tiene que leer esa
+casilla); y `regimeId`, que el bot PROPONE con su fundamento pero pide
+confirmar — la constancia lista obligaciones y no siempre las nombra con las
+palabras de SIFEN.
+
+## Worktrees — todos descartables
+
+Los tres worktrees de agentes quedaron consumidos y se pueden borrar:
+`geo-sifen-y-bot-fe` (mergeado), `agent-aa0fb08127953c581` (su extractor y
+JSON viven ahora en `scripts/` y `api/database/seeds/`) y
+`agent-aa6a0986b93c2240e` (el catálogo contra Factomate, mergeado y después
+corregido).
 
 ## Archivos y cambios (commits `87ac7f33..8accf37b`, 14)
 
@@ -94,21 +104,14 @@ corrigiendo esto. Dos piezas en el mismo brief:
 
 ## Próximo paso
 
-1. Esperar a que termine el agente en `frontend/geo-sifen-y-bot-fe` (pieza 1
-   fuente SIFEN + pieza 2 `resolve_geo_codes`/`confirm-tool.ts`).
-2. Revisar el diff completo (no solo el reporte del agente) — en particular
-   que la migración de `source` deje el catálogo consistente y que no haya
-   tenants en prod con códigos Factomate (si el agente reportó que SÍ los
-   hay, resolverlo ANTES de mergear).
-3. Mergear a `main`, cerrar el worktree consumido
-   (`agent-aa0fb08127953c581`) y el ya mergeado
-   (`agent-aa6a0986b93c2240e`).
-4. Deploy — DOS: Backend `z645wx54kwtcciczaeoldwvc` (toca `api/` +
-   migraciones) y Front `nzmay2ytcdup3sgylspq39z6` (toca `frontend/`). Un
-   deploy a la vez, verificar `finished` antes del siguiente.
-5. Con el bot pudiendo resolver códigos geográficos y leer la constancia de
-   RUC, retomar el resto de `provision_einvoice` con el mismo criterio: lo
-   que ya se puede leer, que se deje de preguntar.
+1. **Probar el alta de FE conversando con el bot** — es el objetivo vivo.
+   Mandarle la constancia de RUC de Balloon Party en PDF y ver hasta dónde
+   llega solo: RUC, actividades, tipo de contribuyente, domicilios y códigos
+   geográficos deberían salir sin que el operador tipee un número. Anotar
+   TODO lo que siga preguntando de más.
+2. Con eso medido, seguir podando `provision_einvoice` con el mismo criterio:
+   lo que ya se puede leer, que se deje de preguntar.
+3. Borrar los tres worktrees de agentes (todos consumidos, ver arriba).
 
 ## Trampas conocidas (heredadas, siguen vigentes)
 
