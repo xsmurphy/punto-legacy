@@ -68,9 +68,15 @@ import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useSettings, useTaxpayerLookup, useUpdateSettings } from "@/hooks/use-settings"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
+import {
+  establishmentCodesFromRegisters,
+  establishmentsForCodes,
+} from "@/lib/einvoice/establecimientos"
+import { SIFEN_TAX_REGIMES, taxRegimeLabel } from "@/lib/einvoice/tax-regimes"
 import type {
   EInvoiceActivity,
   EInvoiceConfig,
+  EInvoiceEstablishment,
   EInvoiceFiscalForm,
   EInvoiceStatus,
 } from "@/lib/types/einvoice"
@@ -143,8 +149,12 @@ export function EInvoiceManager() {
 
 const EMPTY_FORM: EInvoiceFiscalForm = {
   email: "",
-  taxpayerType: 2,
+  // Ni tipo de contribuyente ni régimen tienen valor inicial: los dos viajan
+  // al documento electrónico y elegirlos por el comercio es declararle una
+  // condición fiscal que nadie verificó. La pantalla los pide con placeholder
+  // y el alta corta si no vinieron.
   actividades: [{ codigo: "", nombre: "" }],
+  establecimientos: [],
   cscId: "",
   cscSecret: "",
   infoAdicional: "",
@@ -386,6 +396,215 @@ function RegisterStampsSummary() {
   )
 }
 
+/**
+ * Un código geográfico de SIFEN y su descripción. Van juntos porque el
+ * documento electrónico lleva los dos, y separados serían dos campos que
+ * pueden contradecirse sin que nadie lo note.
+ *
+ * Sin catálogo embebido a propósito: los códigos los publica la autoridad
+ * tributaria y el comercio los tiene en su constancia. Cablear una lista acá
+ * ataría la pantalla a un país y, peor, ofrecería un domicilio plausible que
+ * nadie verificó — que es exactamente lo que un dato fiscal no puede ser.
+ */
+function GeoCodeField({
+  idPrefix,
+  label,
+  code,
+  description,
+  onCodeChange,
+  onDescriptionChange,
+  disabled,
+}: {
+  idPrefix: string
+  label: string
+  code: number | ""
+  description: string
+  onCodeChange: (value: number | "") => void
+  onDescriptionChange: (value: string) => void
+  disabled: boolean
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={`${idPrefix}-code`}>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          id={`${idPrefix}-code`}
+          inputMode="numeric"
+          aria-label={`Código de ${label.toLowerCase()}`}
+          value={code === "" ? "" : String(code)}
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, "")
+            onCodeChange(digits === "" ? "" : Number(digits))
+          }}
+          placeholder="Código"
+          className="w-24 tabular-nums"
+          disabled={disabled}
+        />
+        <Input
+          aria-label={`Descripción de ${label.toLowerCase()}`}
+          value={description}
+          onChange={(e) => onDescriptionChange(e.target.value)}
+          placeholder="Descripción"
+          className="flex-1"
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Establecimientos fiscales del alta — uno por cada `EEE` que declaran las
+ * cajas (ver establishmentCodesFromRegisters).
+ *
+ * No hay botón de agregar ni de quitar: la lista NO se elige acá. Un
+ * establecimiento de más se declararía ante la SET sin que ninguna caja emita
+ * desde él, y uno de menos hace fallar el alta con el código en el mensaje.
+ * Si el comercio abre un local nuevo, lo que crea es la caja.
+ */
+function EstablishmentFields({
+  establecimientos,
+  isLoading,
+  onChange,
+  disabled,
+}: {
+  establecimientos: EInvoiceEstablishment[]
+  isLoading: boolean
+  onChange: (codigo: string, patch: Partial<EInvoiceEstablishment>) => void
+  disabled: boolean
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Establecimientos</CardTitle>
+        <CardDescription>
+          El domicilio de cada local desde el que emitís, tal como lo declaraste ante la SET. El
+          establecimiento sale del punto de expedición de tus cajas; acá va lo que Punto no tiene:
+          la dirección con sus códigos geográficos.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        {isLoading ? (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : establecimientos.length === 0 ? (
+          <EmptyState
+            icon={CreditCard}
+            title="Sin establecimientos"
+            description="Cargá el timbrado y el punto de expedición (EEE-PPP) de al menos una caja en Sucursales: el establecimiento sale de ahí."
+            ghost={false}
+          />
+        ) : (
+          establecimientos.map((e) => (
+            <div key={e.codigo} className="flex flex-col gap-4 rounded-lg border p-4">
+              <div className="flex items-center gap-3">
+                <h3 className="text-base font-semibold tracking-tight">
+                  Establecimiento {e.codigo}
+                </h3>
+                <Badge variant="secondary">Declarado por tus cajas</Badge>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor={`est-${e.codigo}-denominacion`}>Denominación</Label>
+                  <Input
+                    id={`est-${e.codigo}-denominacion`}
+                    value={e.denominacion}
+                    onChange={(ev) => onChange(e.codigo, { denominacion: ev.target.value })}
+                    placeholder="Ej: MATRIZ"
+                    disabled={disabled}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`est-${e.codigo}-direccion`}>Dirección</Label>
+                  <Input
+                    id={`est-${e.codigo}-direccion`}
+                    value={e.direccion}
+                    onChange={(ev) => onChange(e.codigo, { direccion: ev.target.value })}
+                    placeholder="Ej: Av. España"
+                    disabled={disabled}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`est-${e.codigo}-numero`}>Número de casa</Label>
+                  <Input
+                    id={`est-${e.codigo}-numero`}
+                    value={e.numeroCasa}
+                    onChange={(ev) => onChange(e.codigo, { numeroCasa: ev.target.value })}
+                    placeholder="Ej: 576 (0 si no tiene)"
+                    disabled={disabled}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`est-${e.codigo}-telefono`}>Teléfono</Label>
+                  <Input
+                    id={`est-${e.codigo}-telefono`}
+                    type="tel"
+                    value={e.telefono}
+                    onChange={(ev) => onChange(e.codigo, { telefono: ev.target.value })}
+                    placeholder="Teléfono del local"
+                    disabled={disabled}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`est-${e.codigo}-email`}>Email</Label>
+                  <Input
+                    id={`est-${e.codigo}-email`}
+                    type="email"
+                    value={e.email}
+                    onChange={(ev) => onChange(e.codigo, { email: ev.target.value })}
+                    placeholder="Casilla del local"
+                    autoComplete="off"
+                    disabled={disabled}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <GeoCodeField
+                  idPrefix={`est-${e.codigo}-departamento`}
+                  label="Departamento"
+                  code={e.departamento}
+                  description={e.departamentoDescripcion}
+                  onCodeChange={(v) => onChange(e.codigo, { departamento: v })}
+                  onDescriptionChange={(v) => onChange(e.codigo, { departamentoDescripcion: v })}
+                  disabled={disabled}
+                />
+                <GeoCodeField
+                  idPrefix={`est-${e.codigo}-distrito`}
+                  label="Distrito"
+                  code={e.distrito}
+                  description={e.distritoDescripcion}
+                  onCodeChange={(v) => onChange(e.codigo, { distrito: v })}
+                  onDescriptionChange={(v) => onChange(e.codigo, { distritoDescripcion: v })}
+                  disabled={disabled}
+                />
+                <GeoCodeField
+                  idPrefix={`est-${e.codigo}-ciudad`}
+                  label="Ciudad"
+                  code={e.ciudad}
+                  description={e.ciudadDescripcion}
+                  onCodeChange={(v) => onChange(e.codigo, { ciudad: v })}
+                  onDescriptionChange={(v) => onChange(e.codigo, { ciudadDescripcion: v })}
+                  disabled={disabled}
+                />
+              </div>
+            </div>
+          ))
+        )}
+
+        <p className="text-sm text-muted-foreground">
+          Los códigos son los del catálogo geográfico de SIFEN — figuran en el Marangatu, junto
+          con la dirección que declaraste. Copialos tal cual: no se deducen de la dirección ni
+          tienen valor por defecto.
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
+
 function ProvisionForm({
   canManage,
   initial,
@@ -401,6 +620,13 @@ function ProvisionForm({
   // acá pero se guardan donde siempre vivieron (ver CompanyFiscalFields).
   const canEditFiscal = usePermission("settings.company.edit")
   const { data: settings } = useSettings()
+  // Los establecimientos a declarar salen de las cajas, no de una pregunta al
+  // comercio (ver establishmentCodesFromRegisters).
+  const { data: registersData, isLoading: registersLoading } = useRegistersAdmin()
+  const establishmentCodes = React.useMemo(
+    () => establishmentCodesFromRegisters(registersData?.registers),
+    [registersData],
+  )
 
   // Reanudación: si un alta anterior quedó a medias, el backend guardó el
   // formulario en `fiscal` y este estado lo pre-carga para reintentar.
@@ -410,8 +636,29 @@ function ProvisionForm({
     // `fiscal` entero (ver activitiesFromFiscal).
     delete base.actividadCodigo
     delete base.actividadNombre
-    return { ...base, actividades: activitiesFromFiscal(initial) }
+    return {
+      ...base,
+      actividades: activitiesFromFiscal(initial),
+      establecimientos: initial?.establecimientos ?? [],
+    }
   })
+
+  // Los timbrados llegan asincrónicos: en cuanto se sabe qué establecimientos
+  // declaran las cajas, el formulario abre una fila por cada uno (hidratada
+  // con lo guardado, sin pisar lo que el usuario esté tipeando).
+  React.useEffect(() => {
+    setForm((f) => {
+      const filas = establishmentsForCodes(
+        establishmentCodes,
+        initial?.establecimientos,
+        f.establecimientos ?? [],
+      )
+      const igual =
+        filas.length === (f.establecimientos ?? []).length &&
+        filas.every((fila, i) => fila === (f.establecimientos ?? [])[i])
+      return igual ? f : { ...f, establecimientos: filas }
+    })
+  }, [establishmentCodes, initial?.establecimientos])
   const [fiscalData, setFiscalData] = React.useState<{ ruc: string; billingName: string } | null>(
     null,
   )
@@ -432,6 +679,15 @@ function ProvisionForm({
     setForm((f) => ({
       ...f,
       actividades: f.actividades.map((a, i) => (i === index ? { ...a, ...p } : a)),
+    }))
+  }
+
+  function patchEstablishment(codigo: string, p: Partial<EInvoiceEstablishment>) {
+    setForm((f) => ({
+      ...f,
+      establecimientos: (f.establecimientos ?? []).map((e) =>
+        e.codigo === codigo ? { ...e, ...p } : e,
+      ),
     }))
   }
 
@@ -517,12 +773,12 @@ function ProvisionForm({
             <div className="space-y-1.5">
               <Label htmlFor="ei-taxpayer">Tipo de contribuyente</Label>
               <Select
-                value={String(form.taxpayerType ?? 2)}
+                value={form.taxpayerType === undefined ? undefined : String(form.taxpayerType)}
                 onValueChange={(v) => patch({ taxpayerType: Number(v) })}
                 disabled={!canManage}
               >
                 <SelectTrigger id="ei-taxpayer">
-                  <SelectValue />
+                  <SelectValue placeholder="Elegí el tipo" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="1">Persona física</SelectItem>
@@ -530,7 +786,31 @@ function ProvisionForm({
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ei-regime">Régimen tributario</Label>
+              <Select
+                value={form.regimeId === undefined ? undefined : String(form.regimeId)}
+                onValueChange={(v) => patch({ regimeId: Number(v) })}
+                disabled={!canManage}
+              >
+                <SelectTrigger id="ei-regime">
+                  <SelectValue placeholder="Elegí el régimen" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SIFEN_TAX_REGIMES.map((r) => (
+                    <SelectItem key={r.code} value={String(r.code)}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
+
+          <p className="text-sm text-muted-foreground">
+            El tipo de contribuyente y el régimen figuran en tu constancia de RUC. No se eligen
+            por vos: los dos viajan en cada documento electrónico que emitas.
+          </p>
 
           {/* Actividades económicas: la constancia de RUC trae una principal
               y las secundarias que el contribuyente declaró, y la SET las
@@ -608,6 +888,13 @@ function ProvisionForm({
         </CardContent>
       </Card>
 
+      <EstablishmentFields
+        establecimientos={form.establecimientos ?? []}
+        isLoading={registersLoading}
+        onChange={patchEstablishment}
+        disabled={!canManage}
+      />
+
       <RegisterStampsSummary />
 
       {!canManage && (
@@ -618,9 +905,15 @@ function ProvisionForm({
       )}
 
       <div>
+        {/* `registersLoading` bloquea el submit a propósito: hasta que se sepa
+            qué establecimientos declaran las cajas, el formulario mandaría la
+            lista VACÍA y el backend reescribiría el espejo sin ellos — el
+            mismo dato que se acaba de arreglar que no se pierda. */}
         <Button
           type="submit"
-          disabled={provision.isPending || updateSettings.isPending || !canManage}
+          disabled={
+            provision.isPending || updateSettings.isPending || !canManage || registersLoading
+          }
         >
           {(provision.isPending || updateSettings.isPending) && (
             <Loader2 className="size-4 animate-spin" />
@@ -728,6 +1021,26 @@ function ProvisionedView({
             <div className="flex items-baseline justify-between gap-3 sm:justify-start">
               <dt className="text-xs text-muted-foreground">Email de facturación</dt>
               <dd className="text-sm">{String(fiscal.email ?? "—")}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <dt className="text-xs text-muted-foreground">Régimen</dt>
+              <dd className="text-sm">{taxRegimeLabel(fiscal.regimeId) ?? "—"}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+              <dt className="text-xs text-muted-foreground">
+                {(fiscal.establecimientos ?? []).length > 1 ? "Establecimientos" : "Establecimiento"}
+              </dt>
+              <dd className="flex flex-col gap-0.5 text-sm">
+                {(fiscal.establecimientos ?? []).length === 0
+                  ? "—"
+                  : (fiscal.establecimientos ?? []).map((e) => (
+                      <span key={e.codigo}>
+                        {e.codigo}
+                        {e.denominacion ? ` · ${e.denominacion}` : ""}
+                        {e.direccion ? ` · ${e.direccion}` : ""}
+                      </span>
+                    ))}
+              </dd>
             </div>
           </dl>
 

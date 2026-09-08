@@ -460,10 +460,15 @@ final class FePyProvisioningService
                 continue;
             }
 
-            $out[] = [
+            $establecimiento = [
                 'codigo'                  => $code,
                 'direccion'               => (string) $row['direccion'],
-                'numeroCasa'              => (string) ($row['numeroCasa'] ?? '0'),
+                // "0" es la convención de SIFEN para "sin número", no un
+                // default inventado: la dirección sin altura existe y el campo
+                // no admite vacío.
+                'numeroCasa'              => trim((string) ($row['numeroCasa'] ?? '')) !== ''
+                    ? trim((string) $row['numeroCasa'])
+                    : '0',
                 'departamento'            => (int) $row['departamento'],
                 'departamentoDescripcion' => (string) $row['departamentoDescripcion'],
                 'distrito'                => (int) $row['distrito'],
@@ -471,8 +476,18 @@ final class FePyProvisioningService
                 'ciudad'                  => (int) $row['ciudad'],
                 'ciudadDescripcion'       => (string) $row['ciudadDescripcion'],
                 'telefono'                => (string) ($row['telefono'] ?? ''),
+                // El email del establecimiento es OPCIONAL para el motor pero
+                // el formulario lo pide, así que si vino viaja: es la casilla
+                // que la SET publica para ESE local, y no tiene por qué ser la
+                // de facturación del emisor. Vacío no se manda — su Zod lo
+                // valida como email y un string vacío rebota el alta entera.
+                'email'                   => trim((string) ($row['email'] ?? '')),
                 'denominacion'            => (string) ($row['denominacion'] ?? ''),
             ];
+            if ($establecimiento['email'] === '') {
+                unset($establecimiento['email']);
+            }
+            $out[] = $establecimiento;
         }
 
         if ($faltan !== []) {

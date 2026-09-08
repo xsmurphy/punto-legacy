@@ -117,6 +117,26 @@ const payloadSchema = z.object({
     .array(z.object({ codigo: z.number().int(), nombre: z.string() }))
     .optional()
     .describe("provision_einvoice: actividades económicas de la constancia de RUC, con su código y su descripción. La PRIMERA es la principal — el orden ES el dato. Pedíselas al usuario tal como figuran en la constancia: no las inventes ni las deduzcas del rubro del negocio"),
+  regimeId: z.number().int().optional().describe("provision_einvoice: régimen tributario del comercio según su constancia (por ejemplo régimen contable, pequeño productor, turismo, maquila). OBLIGATORIO y sin default: cambia cómo se declara cada documento, así que preguntáselo al usuario en vez de suponerlo por el rubro del negocio"),
+  establecimientos: z
+    .array(
+      z.object({
+        codigo: z.string(),
+        direccion: z.string(),
+        numeroCasa: z.string().optional(),
+        departamento: z.number().int(),
+        departamentoDescripcion: z.string(),
+        distrito: z.number().int(),
+        distritoDescripcion: z.string(),
+        ciudad: z.number().int(),
+        ciudadDescripcion: z.string(),
+        telefono: z.string().optional(),
+        email: z.string().optional(),
+        denominacion: z.string().optional(),
+      }),
+    )
+    .optional()
+    .describe("provision_einvoice: domicilio fiscal de cada local desde el que emite, uno por cada establecimiento (el EEE del punto de expedición de sus cajas: si la caja tiene 001-001, el código es '001'). Los códigos de departamento, distrito y ciudad son NÚMEROS del catálogo geográfico de la autoridad tributaria y figuran en la constancia del comercio — NUNCA los deduzcas del nombre de la ciudad ni los inventes: pedíselos al usuario junto con la descripción de cada uno"),
   infoAdicional: z.string().optional().describe("provision_einvoice: información adicional que el comercio quiere que salga en sus documentos. Opcional"),
   sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
   mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),
@@ -138,7 +158,7 @@ const actionItemSchema = payloadSchema.extend({
     WRITE_ACTIONS.join(" | ") + ". " +
     "update_outlet modifica una sucursal EXISTENTE (nombre, dirección, teléfono, email, descripción): mandá SOLO los campos que cambian — los que omitas quedan como están, y los que mandes vacíos se ignoran. " +
     "set_fiscal_data carga la identidad fiscal del comercio (mandá SOLO ruc: la razón social la trae el padrón). " +
-    "provision_einvoice da de alta al comercio como emisor electrónico (email + actividades): antes tiene que estar cargado el RUC y tiene que haber al menos una caja con timbrado, y el certificado y el CSC se cargan aparte en Configuración → Facturación electrónica"
+    "provision_einvoice da de alta al comercio como emisor electrónico (email + actividades + tipo de contribuyente + régimen + establecimientos): antes tiene que estar cargado el RUC y tiene que haber al menos una caja con timbrado, y el certificado y el CSC se cargan aparte en Configuración → Facturación electrónica"
   ),
 })
 
