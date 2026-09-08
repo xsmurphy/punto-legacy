@@ -42,11 +42,57 @@ export interface EInvoiceActivity {
   nombre: string
 }
 
+/**
+ * Establecimiento fiscal (el `EEE` de `EEE-PPP`): el LOCAL desde el que se
+ * emite, tal como está declarado ante la autoridad tributaria.
+ *
+ * El `codigo` NO se elige acá: sale de los puntos de expedición de las CAJAS
+ * (context/29 §1), que son la fuente de qué establecimientos existen. Lo que
+ * el comercio carga es lo que Punto no tiene en ningún lado — la dirección
+ * estructurada y los códigos geográficos del catálogo de SIFEN, que la
+ * dirección de la sucursal (texto libre) no puede aportar.
+ *
+ * Los códigos geográficos van con su descripción al lado porque el documento
+ * electrónico lleva las dos cosas, y no hay catálogo embebido: el comercio los
+ * copia de su constancia (Marangatu). Un catálogo hardcodeado acá sería
+ * declararle a la SET un domicilio que nadie verificó — y ataría la pantalla a
+ * un país, que es exactamente lo que el proyecto no hace.
+ */
+export interface EInvoiceEstablishment {
+  /** `EEE` — código del establecimiento, derivado del timbrado de las cajas. */
+  codigo: string
+  direccion: string
+  /** Altura de la dirección. "0" es la convención para "sin número". */
+  numeroCasa: string
+  departamento: number | ""
+  departamentoDescripcion: string
+  distrito: number | ""
+  distritoDescripcion: string
+  ciudad: number | ""
+  ciudadDescripcion: string
+  telefono: string
+  email: string
+  /** Nombre del local en el documento (ej. MATRIZ, SUCURSAL CENTRO). */
+  denominacion: string
+}
+
 export interface EInvoiceFiscalForm {
   /** Email de facturación — identidad del emisor, único en el sistema fiscal. */
   email: string
   /** 1 = persona física, 2 = persona jurídica. */
   taxpayerType?: number
+  /**
+   * Régimen tributario del contribuyente según el catálogo de SIFEN. Sin
+   * default: el régimen cambia cómo se declara el documento y elegirlo por el
+   * comercio sería inventarle una condición fiscal.
+   */
+  regimeId?: number
+  /**
+   * Establecimientos fiscales, uno por cada `EEE` que declaran las cajas. Sin
+   * ellos el alta contra el motor propio corta: los códigos geográficos de
+   * SIFEN no se deducen de la dirección en texto libre de la sucursal.
+   */
+  establecimientos?: EInvoiceEstablishment[]
   /**
    * Actividades económicas de la constancia de RUC: la PRIMERA es la
    * principal y las que siguen, secundarias. SIFEN las acepta todas y el

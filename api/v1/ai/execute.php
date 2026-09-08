@@ -708,6 +708,17 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             if (isset($payload['taxpayerType']) && is_numeric($payload['taxpayerType'])) {
                 $form['taxpayerType'] = (int) $payload['taxpayerType'];
             }
+            // Régimen y establecimientos: los pide el motor propio y los valida
+            // `/v1/ai/confirm` antes de que el usuario confirme. Acá viajan tal
+            // cual — la normalización (padding del código, códigos geográficos a
+            // entero) es de `validateForm()`, que es la misma para el panel y
+            // para el bot. Copiarla acá sería la segunda copia que se queda vieja.
+            if (isset($payload['regimeId']) && is_numeric($payload['regimeId'])) {
+                $form['regimeId'] = (int) $payload['regimeId'];
+            }
+            if (is_array($payload['establecimientos'] ?? null)) {
+                $form['establecimientos'] = $payload['establecimientos'];
+            }
             if (trim((string) ($payload['infoAdicional'] ?? '')) !== '') {
                 $form['infoAdicional'] = trim((string) $payload['infoAdicional']);
             }

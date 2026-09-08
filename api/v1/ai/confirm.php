@@ -297,6 +297,66 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
                     apiError('Cada actividad económica necesita código y descripción', 400);
                 }
             }
+            // Régimen tributario: obligatorio y con el mismo rango que acepta
+            // el motor (1-15). Se valida ACÁ y no solo en el servicio por el
+            // mismo motivo que el email: es un dato que el usuario tiene que
+            // dictar, y descubrirlo recién al ejecutar significa una tarjeta
+            // confirmada que falla. NO tiene default — el régimen cambia cómo
+            // se declara el documento.
+            if (!is_numeric($payload['regimeId'] ?? null)
+                || (int) $payload['regimeId'] < 1
+                || (int) $payload['regimeId'] > 15) {
+                apiError(
+                    'Falta el régimen tributario del comercio (figura en su constancia). '
+                    . 'No lo elijas vos: preguntáselo al usuario.',
+                    400
+                );
+            }
+
+            // Establecimientos: el domicilio fiscal de cada local, con los
+            // códigos geográficos del catálogo de la autoridad tributaria. El
+            // modelo NO los puede deducir de la dirección en texto libre ni
+            // inventarlos, así que lo que se valida es que vengan COMPLETOS —
+            // un establecimiento a medias es un domicilio mal declarado ante
+            // la SET, no un campo vacío.
+            //
+            // Cuáles hacen falta lo decide el servicio leyendo los timbrados
+            // de las cajas (nombra el que falta): esa regla no se replica acá,
+            // una segunda copia se queda vieja.
+            if (!is_array($payload['establecimientos'] ?? null) || $payload['establecimientos'] === []) {
+                apiError(
+                    'Falta el establecimiento fiscal (dirección y códigos de departamento, distrito y '
+                    . 'ciudad). Pedíselos al usuario tal como figuran en su constancia.',
+                    400
+                );
+            }
+            foreach ($payload['establecimientos'] as $establecimiento) {
+                if (!is_array($establecimiento)) {
+                    apiError('Cada establecimiento tiene que ser un objeto con sus datos', 400);
+                }
+                if (trim((string) ($establecimiento['codigo'] ?? '')) === '') {
+                    apiError(
+                        'Cada establecimiento necesita su código (el EEE del punto de expedición de la caja)',
+                        400
+                    );
+                }
+                foreach (['direccion', 'departamentoDescripcion', 'distritoDescripcion', 'ciudadDescripcion'] as $texto) {
+                    if (trim((string) ($establecimiento[$texto] ?? '')) === '') {
+                        apiError("Falta $texto del establecimiento " . (string) $establecimiento['codigo'], 400);
+                    }
+                }
+                foreach (['departamento', 'distrito', 'ciudad'] as $codigo) {
+                    if (!is_numeric($establecimiento[$codigo] ?? null) || (int) $establecimiento[$codigo] <= 0) {
+                        apiError(
+                            "El código de $codigo del establecimiento " . (string) $establecimiento['codigo']
+                            . ' tiene que ser el número del catálogo geográfico de la autoridad tributaria. '
+                            . 'No lo deduzcas del nombre: pedíselo al usuario.',
+                            400
+                        );
+                    }
+                }
+            }
+
             foreach (AI_EINVOICE_SECRET_KEYS as $secreta) {
                 if (array_key_exists($secreta, $payload)) {
                     apiError(
