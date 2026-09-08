@@ -143,7 +143,7 @@ final class FePyProvisioningService
         FiscalSecretStore::storeCertificate($companyId, $certBase64, $certPassword);
         EInvoiceProvisioningService::mergeProvisioning($companyId, ['fepyCertUploaded' => true]);
 
-        return (new EInvoiceService())->getAccount($companyId);
+        return $this->refreshReadiness($companyId);
     }
 
     /** Guarda el CSC en custodia y lo aplica al emisor. */
@@ -160,7 +160,41 @@ final class FePyProvisioningService
         FiscalSecretStore::storeCscSecret($companyId, $cscSecret);
         EInvoiceProvisioningService::mergeProvisioning($companyId, ['fepyCscApplied' => true]);
 
-        return (new EInvoiceService())->getAccount($companyId);
+        return $this->refreshReadiness($companyId);
+    }
+
+    /**
+     * Vuelve a preguntarle al motor si el emisor está listo, y persiste esa
+     * respuesta.
+     *
+     * Existe porque `last_error` y `status` son una FOTO del último chequeo, y
+     * cargar un certificado o un CSC cambia justamente lo que esa foto estaba
+     * retratando. Sin esto, el comercio sube el `.pfx`, la pantalla lo marca
+     * "Cargado" y al lado sigue el cartel "No hay certificado cargado" del
+     * chequeo anterior — le pasó al owner el 2026-09-08 con tres minutos de
+     * diferencia entre el error y la carga que lo resolvía. Verificado en la
+     * fila: los dos checkpoints en `true` y el `last_error` de antes intacto.
+     *
+     * Se RECHEQUEA en vez de limpiar el error a mano: el motor es la
+     * autoridad sobre si el emisor puede emitir, y blanquear el campo sería
+     * afirmar que está listo sin haberlo preguntado — que es el mismo error de
+     * base, al revés.
+     *
+     * NO propaga la falla. El secreto YA se aplicó del otro lado y ya se
+     * guardó en custodia: si el rechequeo no sale (el motor caído, un timeout),
+     * la carga fue igual de exitosa y hacerla fallar acá mandaría al comercio a
+     * subir de nuevo un certificado que el motor ya tiene. Queda el estado
+     * anterior, que es exactamente lo que había antes de este arreglo.
+     */
+    private function refreshReadiness(string $companyId): array
+    {
+        $svc = new EInvoiceService();
+        try {
+            $svc->testConnection($companyId);
+        } catch (\Throwable $e) {
+            error_log('[FePyProvisioning] rechequeo tras aplicar un secreto: ' . $e->getMessage());
+        }
+        return $svc->getAccount($companyId);
     }
 
     // ── Pasos (cada uno con su checkpoint) ───────────────────────────────

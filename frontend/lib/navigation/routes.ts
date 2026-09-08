@@ -1024,6 +1024,8 @@ export const UNINDEXED_PAGES: Record<string, string> = {
     "Redirect a /finanzas/configuracion — sobrevive solo para links y bookmarks viejos.",
   "/settings/team":
     "Redirect a /contacts?tab=team — el destino real ya se indexa como Contactos · Equipo.",
+  "/ordenes-pago/new":
+    "Formulario de alta, se llega desde el botón de /ordenes-pago — que sí se indexa. Una pantalla de creación no es un destino de navegación por sí sola.",
   "/pos/transactions":
     "Vista interna de la caja: se abre desde la toolbar del POS, y dentro de /pos el palette del panel está desactivado.",
 }

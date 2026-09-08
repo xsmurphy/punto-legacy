@@ -4,6 +4,9 @@ import * as React from "react"
 import { CheckCircle2, XCircle, ListChecks } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import type { WRITE_ACTIONS } from "@/lib/agent/confirm-api"
+
+type WriteAction = (typeof WRITE_ACTIONS)[number]
 
 /**
  * Render determinístico de las tool-parts mutantes del agente (register_action
@@ -38,7 +41,17 @@ interface RegisterActionOutput {
   pendingConfirmation?: boolean
 }
 
-const ACTION_LABELS: Record<string, string> = {
+/**
+ * Cómo se llama cada acción PARA EL USUARIO.
+ *
+ * El tipo es `Record<WriteAction, string>` a propósito: si mañana se suma una
+ * acción a `WRITE_ACTIONS` y nadie la nombra acá, el build FALLA. Antes el
+ * mapa era `Record<string, string>` y el fallback mostraba el identificador
+ * interno — así fue como `provision_einvoice` terminó impreso en la tarjeta de
+ * confirmación del owner (2026-09-08). Un nombre de tool no le dice nada a
+ * quien lo lee y expone la mecánica interna del asistente.
+ */
+const ACTION_LABELS: Record<WriteAction, string> = {
   create_contact: "Crear contacto",
   update_contact: "Editar contacto",
   create_item: "Crear ítem",
@@ -51,11 +64,22 @@ const ACTION_LABELS: Record<string, string> = {
   create_outlet: "Crear sucursal",
   update_outlet: "Editar sucursal",
   create_register: "Crear caja",
+  set_fiscal_data: "Cargar datos fiscales",
+  provision_einvoice: "Dar de alta la facturación electrónica",
   tabular_import: "Importar archivo",
 }
 
+/**
+ * Nombre mostrable de una acción. NUNCA devuelve el identificador interno: una
+ * acción desconocida (un backend más nuevo que este front) cae en "Acción", que
+ * no dice mucho pero tampoco filtra cómo se llama la tool por dentro.
+ */
+function actionLabel(action: string | undefined): string {
+  return ACTION_LABELS[(action ?? "") as WriteAction] ?? "Acción"
+}
+
 function actionLine(item: RegisterActionItem): string {
-  const label = ACTION_LABELS[item.action ?? ""] ?? item.action ?? "Acción"
+  const label = actionLabel(item.action)
   const name = (item.payload?.name as string | undefined)
     ?? (item.payload?.id as string | undefined)
   return name ? `${label} — ${name}` : label
@@ -185,7 +209,7 @@ export function ExecuteActionSummary({ output }: { output: ExecuteActionOutput |
             {failed.map((r, i) => (
               <li key={i} className="flex items-baseline gap-1.5">
                 <XCircle className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-                <span>{ACTION_LABELS[r.action ?? ""] ?? r.action}: {r.error}</span>
+                <span>{actionLabel(r.action)}: {r.error}</span>
               </li>
             ))}
           </ul>

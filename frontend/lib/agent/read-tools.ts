@@ -1,5 +1,7 @@
 import { z } from "zod"
 
+import { buildSitemap } from "./sitemap"
+
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
 import {
   normalizeToolResult,
@@ -952,6 +954,44 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
             ? "El padrón no tiene datos para ese identificador tributario. Verificá el número con el usuario."
             : `No se pudo consultar el padrón (${status})`,
       }),
+  }),
+
+  find_section: defineTool({
+    // El asistente sabía CONTESTAR sobre el negocio pero no sabía dónde queda
+    // nada: mandaba a la gente a "Configuración" a secas, o inventaba una URL.
+    // El mapa sale del mismo registro que el menú y el buscador, así que una
+    // pantalla que se mueve se mueve para los tres a la vez.
+    description:
+      "Dónde queda una sección del producto y con qué link se llega. Usala cuando el usuario pregunte dónde se hace algo, o cuando le expliques un paso que se completa en una pantalla: dale el link, no solo el nombre. " +
+      "Sin argumentos devuelve el mapa completo; con `query` filtra por título, ruta o alias. " +
+      "Los links son rutas del propio producto y se escriben tal cual vienen en `path`, sin dominio. " +
+      "`app` dice de qué lado vive: 'panel' es la pantalla de gestión y 'pos' es la caja — no mandes a alguien a una ruta del POS para una tarea de gestión ni al revés. " +
+      "Si la entrada trae `requires`, esa pantalla exige un permiso: mencionalo, porque un usuario sin él va a ver un error al entrar. Si trae `requiresModule`, el módulo tiene que estar activo en el plan del comercio.",
+    inputSchema: z.object({
+      query: z
+        .string()
+        .optional()
+        .describe("Qué busca el usuario, en sus palabras ('timbrado', 'donde cargo una compra', 'clientes'). Vacío devuelve todo el mapa"),
+    }),
+    execute: async ({ query }) => {
+      const all = buildSitemap()
+      const q = (query ?? "").trim().toLowerCase()
+      if (q === "") return { sections: all, message: `El producto tiene ${all.length} pantallas.` }
+
+      const matches = all.filter((s) =>
+        [s.title, s.path, s.group ?? "", ...(s.keywords ?? [])]
+          .some((f) => f.toLowerCase().includes(q)),
+      )
+      // El vacío se nombra: un `sections: []` pelado lo parafrasea el modelo
+      // como "no existe esa pantalla", cuando lo que pasó es que no matcheó
+      // el término. Devolver el mapa entero lo deja resolverlo solo.
+      return matches.length > 0
+        ? { sections: matches, message: `${matches.length} pantalla(s) coinciden con "${query}".` }
+        : {
+            sections: all,
+            message: `Ninguna pantalla coincide con "${query}". Va el mapa completo: buscá vos la más parecida y, si ninguna sirve, decile al usuario que esa función no existe todavía en vez de inventarle una ruta.`,
+          }
+    },
   }),
 
   resolve_geo_codes: defineTool({

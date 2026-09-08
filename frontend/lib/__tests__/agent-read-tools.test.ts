@@ -31,7 +31,7 @@ const ctx = {
 describe("catálogo de tools de lectura", () => {
   const tools = buildReadTools(ctx)
 
-  it("expone las 23 tools, todas con nombre de lectura o presentación", () => {
+  it("expone las 24 tools, todas con nombre de lectura o presentación", () => {
     const names = Object.keys(tools)
     // 20 al extraer el catálogo + `get_sales_kpis` (2026-08-31), que expone el
     // widget donde el backend calcula el ticket promedio + `lookup_taxpayer`
@@ -39,8 +39,10 @@ describe("catálogo de tools de lectura", () => {
     // impide que la razón social del comercio la escriba el modelo +
     // `resolve_geo_codes` (2026-09-08): los códigos de departamento/distrito/
     // ciudad del domicilio fiscal, que hasta entonces el bot tenía que pedirle
-    // al usuario — y nadie los sabe de memoria, así que el alta se frenaba ahí.
-    expect(names).toHaveLength(23)
+    // al usuario — y nadie los sabe de memoria, así que el alta se frenaba ahí
+    // + `find_section` (2026-09-08): el mapa del producto, para que el bot
+    // pueda dar el link directo a una pantalla en vez de nombrarla al aire.
+    expect(names).toHaveLength(24)
     // Si alguna vez entra una `create_*`/`update_*`/`delete_*` acá, es que se
     // movió una mutación al catálogo read-only. Ver D5. `lookup_*` y
     // `resolve_*` no matchean a propósito: consultan catálogos y no escriben.
