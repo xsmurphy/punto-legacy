@@ -140,7 +140,14 @@ final class FePyProvider implements EInvoiceProvider
 
     private function baseUrl(): string
     {
-        $url = defined('FEPY_BASE_URL') ? trim((string) constant('FEPY_BASE_URL')) : '';
+        // platform_config primero (mismo criterio que la key — ver
+        // FePySession::getBearer), env de fallback.
+        require_once __DIR__ . '/../Admin/PlatformConfig.php';
+        $cfg = \PlatformConfig::get('integration.fepy', []);
+        $url = is_array($cfg) ? trim((string) ($cfg['baseUrl'] ?? '')) : '';
+        if ($url === '') {
+            $url = defined('FEPY_BASE_URL') ? trim((string) constant('FEPY_BASE_URL')) : '';
+        }
         if ($url === '') {
             // Nunca un fallback a localhost ni a un host adivinado: en
             // producción sería mandar documentos fiscales a la nada (o, peor,

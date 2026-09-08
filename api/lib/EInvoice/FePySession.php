@@ -33,7 +33,21 @@ final class FePySession implements EInvoiceSession
      */
     public function getBearer(string $companyId): string
     {
-        $key = defined('FEPY_API_KEY') ? trim((string) constant('FEPY_API_KEY')) : '';
+        // Precedencia: platform_config le gana al env — mismo criterio que
+        // Resend (context/34 F6 §3) y la dirección declarada del proyecto
+        // (config de integración a BD administrable). En platform_config la
+        // key vive CIFRADA (`keyEnc`, CredentialVault): es la credencial que
+        // emite documentos fiscales de todos los tenants, no una etiqueta.
+        require_once __DIR__ . '/../Admin/PlatformConfig.php';
+        $cfg = \PlatformConfig::get('integration.fepy', []);
+        $keyEnc = is_array($cfg) ? trim((string) ($cfg['keyEnc'] ?? '')) : '';
+        $key = '';
+        if ($keyEnc !== '') {
+            $key = trim(CredentialVault::decrypt($keyEnc));
+        }
+        if ($key === '') {
+            $key = defined('FEPY_API_KEY') ? trim((string) constant('FEPY_API_KEY')) : '';
+        }
         if ($key === '') {
             // Mensaje para el OPERADOR DE PUNTO: es un problema de infra
             // nuestro, no del comercio. Mismo criterio que el guard de
