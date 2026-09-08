@@ -2640,6 +2640,25 @@ no se duplican acá.
 - Movimiento de inventario → link al documento origen + columna ingresos
 
 **Compras/Gastos:**
+- **Los valores que leyó la IA no se pisan al elegir el ítem (owner 2026-09-08).**
+  En el borrador OCR, cambiar el producto de una línea SOBREESCRIBE el precio
+  con el costo histórico del ítem elegido (`purchase-form-fields.tsx:293-296`:
+  `price: defaultCost ?? line.price`, alimentado por
+  `/v1/items?resource=last-purchase-price`), y lo mismo con el IVA (`lastTaxId`).
+  Eso destruye el dato que la IA extrajo de la factura REAL — que es el valor
+  correcto, el que el proveedor cobró — y lo reemplaza por lo que se pagó la
+  vez anterior. Regla: **matchear el ítem sí, pisar los importes no**; si el
+  usuario quiere el costo histórico, lo cambia él. Ojo al implementar: el
+  prefill SÍ tiene sentido en el alta MANUAL de una compra (ahí no hay dato de
+  origen que proteger), así que la condición no es "nunca prefillear" sino
+  "no pisar lo que vino del OCR" — hace falta distinguir el origen del valor
+  por línea (patrón `expenseCategoryTouched`, que ya existe en ese mismo
+  componente para la categoría).
+- **Visor de la factura con herramientas de análisis (owner 2026-09-08).** El
+  panel izquierdo del borrador OCR muestra la imagen fija: hace falta rotar
+  (fotos de mostrador vienen giradas), zoom con desplazamiento, y ajuste de
+  contraste/brillo para leer impresiones térmicas gastadas — que es cuando el
+  operador MÁS necesita verificar contra el original lo que la IA extrajo.
 - Packs de compra (1 caja = N unidades)
 - Categorías de gastos con subcategorías
 - Recordar último costo de compra por producto
