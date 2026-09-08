@@ -360,9 +360,20 @@ if ($resource === 'last-purchase-price') {
     }
     // transactionType = 1 → compras (ver PurchasesService).
     // Precio unitario = total / units. NULLIF evita división por cero.
+    //
+    // `itemSold` NO tiene columna `taxId` — el 500 que tumbó este recurso el
+    // 2026-09-08 fue exactamente `s.taxId` acá (SQLSTATE 42703). Lo que la
+    // línea congela desde la mig 160 es la TASA: `taxrate` + `taxkind`, sin
+    // referencia al catálogo (a propósito: el IVA congelado sobrevive a que el
+    // comercio edite o borre sus impuestos, context/38 F3). El `taxId` que el
+    // form necesita para preseleccionar se RESUELVE contra el catálogo vigente
+    // matcheando tasa+kind — y si ninguna tasa actual coincide (el impuesto
+    // cambió desde aquella compra), va `null` y el form cae a su default, que
+    // es más honesto que preseleccionar un impuesto que ya no representa lo
+    // que se pagó.
     $row = ncmExecute(
         "SELECT (s.itemSoldTotal / NULLIF(s.itemSoldUnits, 0)) AS price,
-                s.taxId
+                s.taxrate, s.taxkind
            FROM itemSold s
            JOIN transaction t ON s.transactionId = t.transactionId
           WHERE t.companyId = ?
@@ -374,7 +385,21 @@ if ($resource === 'last-purchase-price') {
         [$companyId, $itemId]
     );
     $price = ($row && isset($row['price'])) ? (float) $row['price'] : 0.0;
-    $taxId = ($row && !empty($row['taxId'])) ? (string) $row['taxId'] : null;
+    $taxId = null;
+    if ($row) {
+        $frozenKind = (string) ($row['taxkind'] ?? 'exempt');
+        $frozenRate = (float) ($row['taxrate'] ?? 0);
+        $taxRow = ncmExecute(
+            'SELECT taxId FROM tax
+              WHERE companyId = ? AND kind = ? AND COALESCE(rate, 0) = ?
+              ORDER BY sortOrder NULLS LAST, name
+              LIMIT 1',
+            [$companyId, $frozenKind, $frozenRate]
+        );
+        if ($taxRow && !empty($taxRow['taxId'] ?? $taxRow['taxid'] ?? null)) {
+            $taxId = (string) ($taxRow['taxId'] ?? $taxRow['taxid']);
+        }
+    }
     apiOk(['price' => $price, 'taxId' => $taxId]);
 }
 
