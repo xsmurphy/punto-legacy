@@ -10,6 +10,12 @@ export type AttachmentDraft = {
   rowCount?: number
   sample?: string[][]
   filename?: string
+  /**
+   * Contenido completo del archivo como data URL. Presente en `image` y `pdf`
+   * — es lo que viaja al modelo como `file part`. NO lo tienen los tabulares:
+   * esos se suben aparte y mandan solo su `sessionId`.
+   */
+  dataUrl?: string
   thumbnailDataUrl?: string
   error?: string
 }

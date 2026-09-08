@@ -96,7 +96,21 @@ export default function ChatPage() {
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status, error, clear } = useAgentChat({
+  const {
+    messages,
+    sendMessage,
+    status,
+    error,
+    clear,
+    // Los adjuntos NUNCA se cablearon en esta página (el FAB sí los tenía), así
+    // que el botón "+" abría el selector, el usuario elegía el archivo y no
+    // pasaba nada: `onAddFiles` caía en un `?.()` inexistente. Reportado varias
+    // veces por el owner antes de encontrarlo (2026-09-08).
+    attachments,
+    addAttachment,
+    removeAttachment,
+    clearAttachments,
+  } = useAgentChat({
     companyName: bootstrap?.companyName ?? "",
     viewOutletId,
     viewOutletName,
@@ -157,9 +171,20 @@ export default function ChatPage() {
 
   function handleSend() {
     const text = input.trim()
-    if (!text || isStreaming || hasNoCredits) return
+    const readyFiles = attachments
+      .filter((a) => (a.kind === "image" || a.kind === "pdf") && a.status === "ready" && a.dataUrl)
+      .map((a) => ({
+        type: "file" as const,
+        mediaType: a.file.type || (a.kind === "pdf" ? "application/pdf" : "image/png"),
+        filename: a.filename ?? a.file.name,
+        url: a.dataUrl as string,
+      }))
+    // Se puede enviar con adjunto y sin texto: mandar una factura sola y que el
+    // agente la lea es un caso legítimo.
+    if ((!text && readyFiles.length === 0) || isStreaming || hasNoCredits) return
     setInput("")
-    sendMessage({ text })
+    clearAttachments()
+    sendMessage(readyFiles.length > 0 ? { text, files: readyFiles } : { text })
     if (taRef.current) {
       taRef.current.style.height = "auto"
       taRef.current.focus()
@@ -203,6 +228,9 @@ export default function ChatPage() {
             disabled={isStreaming || hasNoCredits}
             placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
             maxHeight={200}
+            attachments={attachments}
+            onAddFiles={(files) => files.forEach((f) => addAttachment(f))}
+            onRemoveAttachment={removeAttachment}
           />
 
           {/* Sugerencias como cards visuales debajo del input */}
@@ -380,6 +408,9 @@ export default function ChatPage() {
                 disabled={isStreaming || hasNoCredits}
                 placeholder={hasNoCredits ? "Sin créditos para usar el asistente" : undefined}
                 maxHeight={200}
+                attachments={attachments}
+                onAddFiles={(files) => files.forEach((f) => addAttachment(f))}
+                onRemoveAttachment={removeAttachment}
               />
               <p className="mt-2 text-center text-xs text-muted-foreground">
                 Punto usa IA y puede cometer errores. Verificá la información importante.

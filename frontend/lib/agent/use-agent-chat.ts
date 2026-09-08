@@ -12,8 +12,27 @@ import type { AttachmentDraft } from "./attachment-types"
 import { detectKind } from "./attachment-types"
 import { parseTabularToCsv } from "./parse-tabular"
 import { uploadTabular, generateImageThumbnail } from "./upload-attachment"
+
 import { useAgentPageSnapshotStore } from "./page-snapshot-store"
 import { getPanelToken } from "@/lib/auth/panel-token"
+
+/**
+ * Techo del adjunto que viaja como data URL dentro del JSON de la request
+ * (imagen y PDF). En base64 el archivo crece ~33%, así que 8 MB de archivo son
+ * ~11 MB de body — el límite práctico antes de que el proxy lo corte. Los
+ * tabulares NO pasan por acá: se suben aparte y viaja solo su `sessionId`.
+ */
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+/** Archivo → data URL, para mandarlo al modelo como `file part`. */
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error("No se pudo leer el archivo"))
+    reader.readAsDataURL(file)
+  })
+}
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
 const CREDENTIAL_TTL_MS = 60_000
@@ -258,11 +277,31 @@ export function useAgentChat({
         const csvFile = await parseTabularToCsv(draft.file)
         const result  = await uploadTabular(csvFile)
         update({ status: "ready", ...result })
-      } else if (draft.kind === "image") {
-        const thumbnailDataUrl = await generateImageThumbnail(draft.file)
-        update({ status: "ready", thumbnailDataUrl })
+      } else if (draft.kind === "image" || draft.kind === "pdf") {
+        // Imagen Y PDF viajan al modelo como `file part` (data URL). Antes el
+        // PDF se rechazaba de entrada ("Solo Excel/CSV e imágenes por ahora") y
+        // la imagen se procesaba solo para la miniatura — o sea que se veía
+        // adjuntada y el modelo NUNCA la recibía, que es peor que rechazarla.
+        //
+        // El tope de 8 MB es del transporte, no del formato: el data URL viaja
+        // dentro del JSON de la request y en base64 crece ~33%, así que un
+        // archivo más grande revienta el body antes de llegar al modelo. Se
+        // corta acá con un mensaje que dice el tamaño real, no en un 413 mudo.
+        if (draft.file.size > MAX_ATTACHMENT_BYTES) {
+          update({
+            status: "error",
+            error: `El archivo pesa ${(draft.file.size / 1024 / 1024).toFixed(1)} MB y el máximo es ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`,
+          })
+          return
+        }
+        const dataUrl = await fileToDataUrl(draft.file)
+        // La miniatura es solo para la imagen: un PDF no se previsualiza acá
+        // (se mostraría el ícono del adjunto), y generarla fallaría.
+        const thumbnailDataUrl =
+          draft.kind === "image" ? await generateImageThumbnail(draft.file) : undefined
+        update({ status: "ready", dataUrl, thumbnailDataUrl })
       } else {
-        update({ status: "error", error: "Solo Excel/CSV e imágenes por ahora" })
+        update({ status: "error", error: "Formato no soportado. Mandá una imagen, un PDF, o un Excel/CSV" })
       }
     } catch (e) {
       update({ status: "error", error: e instanceof Error ? e.message : "Error al procesar archivo" })

@@ -74,7 +74,15 @@ export interface AgentChatContentProps {
   status: ChatStatus
   error?: Error
   /** Envía un mensaje al thread. El wrapper decide con qué transport viaja. */
-  sendMessage: (message: { text: string }) => void
+  /**
+   * `files` opcional: imagen/PDF como `file parts` (data URL). El tipo lo
+   * acepta acá porque el contrato con `useAgentChat().sendMessage` lo soporta
+   * — tenerlo en `{ text }` a secas es lo que impedía adjuntar.
+   */
+  sendMessage: (message: {
+    text: string
+    files?: Array<{ type: "file"; mediaType: string; filename?: string; url: string }>
+  }) => void
   /** Vacía el thread (y el historial persistido, donde exista). */
   onClear: () => void
 
@@ -273,9 +281,22 @@ export function AgentChatContent({
         (text ? text : "")
     }
 
+    // Imagen y PDF viajan al modelo como `file parts` (data URL). Hasta el
+    // 2026-09-08 solo se inyectaban los TABULARES: una foto o un PDF se veían
+    // adjuntados en el input, se limpiaban al enviar, y el modelo nunca los
+    // recibía — el usuario preguntaba por un documento que el agente jamás vio.
+    const readyFiles = (attachments ?? [])
+      .filter((a) => (a.kind === "image" || a.kind === "pdf") && a.status === "ready" && a.dataUrl)
+      .map((a) => ({
+        type: "file" as const,
+        mediaType: a.file.type || (a.kind === "pdf" ? "application/pdf" : "image/png"),
+        filename: a.filename ?? a.file.name,
+        url: a.dataUrl as string,
+      }))
+
     setInput("")
     onClearAttachments?.()
-    sendMessage({ text: fullText })
+    sendMessage(readyFiles.length > 0 ? { text: fullText, files: readyFiles } : { text: fullText })
     if (taRef.current) taRef.current.style.height = "auto"
   }
 

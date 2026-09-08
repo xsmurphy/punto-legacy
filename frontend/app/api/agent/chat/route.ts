@@ -85,8 +85,20 @@ export async function POST(req: Request) {
         string,
         { model: string; creditsperktoken: number }
       >
-      if (config?.chat?.model) {
-        modelId = config.chat.model
+      // Con un adjunto (imagen o PDF) manda la capability VISION, no `chat`:
+      // el modelo de chat por defecto (deepseek) no lee imágenes y la request
+      // fallaría o el modelo respondería ignorando el archivo — que es peor,
+      // porque el usuario cree que lo leyó. La capability `vision` ya existe y
+      // se administra desde /admin/ai, así que no se hardcodea ningún slug.
+      const wantsVision = messages.some((m) =>
+        (m.parts ?? []).some((part) => (part as { type?: string }).type === "file"),
+      )
+      const chosen = wantsVision ? (config?.vision?.model ?? config?.chat?.model) : config?.chat?.model
+      if (chosen) {
+        modelId = chosen
+      }
+      if (wantsVision && !config?.vision?.model) {
+        console.error("[agent] hay adjunto pero no hay modelo con capability 'vision' configurado; se usa el de chat")
       }
     } else {
       console.error(`[agent] ai/config respondió ${configRes.status}, usando default ${modelId}`)
