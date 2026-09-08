@@ -42,3 +42,11 @@
 # por el mismo minuto. Idempotente por marca en `register.data`, así que una
 # corrida de más no duplica nada.
 15   6  *  *  *   /usr/local/bin/maintenance.sh invoice-auth-notices
+# Catálogo geográfico fiscal (mig 207): departamento → distrito → ciudad desde
+# el proveedor, para que el domicilio de los establecimientos se elija de una
+# lista en vez de tipear códigos de memoria. SEMANAL —domingo de madrugada—
+# porque son ~6.400 filas que cambian cuando la autoridad tributaria crea o
+# renombra una ciudad, o sea casi nunca; correrlo a diario sería bajarle el
+# catálogo entero al proveedor para no cambiar nada. Idempotente y sin borrados,
+# así que una corrida de más tampoco haría daño.
+45   4  *  *  0   /usr/local/bin/maintenance.sh geo-catalog-sync

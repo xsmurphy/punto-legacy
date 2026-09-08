@@ -64,6 +64,10 @@ import {
 } from "@/hooks/use-einvoice"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { usePermission } from "@/hooks/use-permissions"
+import {
+  EstablishmentGeoFields,
+  GeoCatalogEmptyNotice,
+} from "@/components/settings/establishment-geo-fields"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useSettings, useTaxpayerLookup, useUpdateSettings } from "@/hooks/use-settings"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -401,10 +405,16 @@ function RegisterStampsSummary() {
  * documento electrónico lleva los dos, y separados serían dos campos que
  * pueden contradecirse sin que nadie lo note.
  *
- * Sin catálogo embebido a propósito: los códigos los publica la autoridad
- * tributaria y el comercio los tiene en su constancia. Cablear una lista acá
- * ataría la pantalla a un país y, peor, ofrecería un domicilio plausible que
- * nadie verificó — que es exactamente lo que un dato fiscal no puede ser.
+ * DEGRADACIÓN, no el camino normal: desde la mig 207 los tres niveles se
+ * eligen de un catálogo sincronizado (`EstablishmentGeoFields`). Este par de
+ * inputs es lo que se muestra mientras ese catálogo esté vacío — el alta de
+ * facturación electrónica no puede quedar bloqueada esperando a que un job
+ * corra, así que el camino manual sobrevive como salida.
+ *
+ * Sigue sin haber catálogo EMBEBIDO, que es otra cosa: la lista se descarga
+ * del proveedor fiscal, no se cablea en el código. Hardcodearla ataría la
+ * pantalla a un país y ofrecería un domicilio plausible que nadie verificó —
+ * exactamente lo que un dato fiscal no puede ser.
  */
 function GeoCodeField({
   idPrefix,
@@ -489,6 +499,11 @@ function EstablishmentFields({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
+        {/*
+          Solo se pinta si el catálogo geográfico todavía está vacío: dice qué
+          falta y ofrece descargarlo. Con el catálogo cargado desaparece solo.
+        */}
+        <GeoCatalogEmptyNotice />
         {isLoading ? (
           <div className="flex flex-col gap-3">
             <Skeleton className="h-9 w-full" />
@@ -567,43 +582,62 @@ function EstablishmentFields({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <GeoCodeField
-                  idPrefix={`est-${e.codigo}-departamento`}
-                  label="Departamento"
-                  code={e.departamento}
-                  description={e.departamentoDescripcion}
-                  onCodeChange={(v) => onChange(e.codigo, { departamento: v })}
-                  onDescriptionChange={(v) => onChange(e.codigo, { departamentoDescripcion: v })}
-                  disabled={disabled}
-                />
-                <GeoCodeField
-                  idPrefix={`est-${e.codigo}-distrito`}
-                  label="Distrito"
-                  code={e.distrito}
-                  description={e.distritoDescripcion}
-                  onCodeChange={(v) => onChange(e.codigo, { distrito: v })}
-                  onDescriptionChange={(v) => onChange(e.codigo, { distritoDescripcion: v })}
-                  disabled={disabled}
-                />
-                <GeoCodeField
-                  idPrefix={`est-${e.codigo}-ciudad`}
-                  label="Ciudad"
-                  code={e.ciudad}
-                  description={e.ciudadDescripcion}
-                  onCodeChange={(v) => onChange(e.codigo, { ciudad: v })}
-                  onDescriptionChange={(v) => onChange(e.codigo, { ciudadDescripcion: v })}
-                  disabled={disabled}
-                />
-              </div>
+              {/*
+                Departamento / distrito / ciudad salen del catálogo geográfico
+                sincronizado (mig 207), en cascada y con el código y la
+                descripción completados JUNTOS. `fallback` es la pantalla
+                anterior —los códigos a mano— y NO es código muerto: es lo que
+                se usa mientras el catálogo todavía no se descargó, para que el
+                alta fiscal nunca quede bloqueada por un job que no corrió.
+              */}
+              <EstablishmentGeoFields
+                idPrefix={`est-${e.codigo}`}
+                establishment={e}
+                onChange={(patch) => onChange(e.codigo, patch)}
+                disabled={disabled}
+                fallback={
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <GeoCodeField
+                      idPrefix={`est-${e.codigo}-departamento`}
+                      label="Departamento"
+                      code={e.departamento}
+                      description={e.departamentoDescripcion}
+                      onCodeChange={(v) => onChange(e.codigo, { departamento: v })}
+                      onDescriptionChange={(v) =>
+                        onChange(e.codigo, { departamentoDescripcion: v })
+                      }
+                      disabled={disabled}
+                    />
+                    <GeoCodeField
+                      idPrefix={`est-${e.codigo}-distrito`}
+                      label="Distrito"
+                      code={e.distrito}
+                      description={e.distritoDescripcion}
+                      onCodeChange={(v) => onChange(e.codigo, { distrito: v })}
+                      onDescriptionChange={(v) => onChange(e.codigo, { distritoDescripcion: v })}
+                      disabled={disabled}
+                    />
+                    <GeoCodeField
+                      idPrefix={`est-${e.codigo}-ciudad`}
+                      label="Ciudad"
+                      code={e.ciudad}
+                      description={e.ciudadDescripcion}
+                      onCodeChange={(v) => onChange(e.codigo, { ciudad: v })}
+                      onDescriptionChange={(v) => onChange(e.codigo, { ciudadDescripcion: v })}
+                      disabled={disabled}
+                    />
+                  </div>
+                }
+              />
             </div>
           ))
         )}
 
         <p className="text-sm text-muted-foreground">
-          Los códigos son los del catálogo geográfico de SIFEN — figuran en el Marangatu, junto
-          con la dirección que declaraste. Copialos tal cual: no se deducen de la dirección ni
-          tienen valor por defecto.
+          El departamento, el distrito y la ciudad salen del catálogo de la autoridad tributaria y
+          se eligen en cascada: el código y la descripción se completan juntos. Tienen que coincidir
+          con el domicilio que declaraste — no se deducen de la dirección ni tienen valor por
+          defecto.
         </p>
       </CardContent>
     </Card>

@@ -159,6 +159,50 @@ final class FactomateProvider implements EInvoiceProvider
         return $this->request('GET', '/api/PaymentMethod/get', null, $bearer, $phone, $environment);
     }
 
+    // ── Catálogo geográfico (mig 207) ───────────────────────────────────
+    //
+    // Verificado contra la API real (2026-09-08):
+    //   - El parámetro de paginación es `size`. `pageSize`, `limit` y `take`
+    //     se IGNORAN — mandarlos devuelve la página por defecto y el sync
+    //     creería que el catálogo tiene 20 filas.
+    //   - `GET /api/District/get` responde **HTTP 500** (roto del lado del
+    //     proveedor). Por eso no hay método `districts()`: el distrito sale
+    //     ANIDADO dentro de la ciudad, que es la fuente completa.
+    //   - Respuesta: `{ Items: [...], TotalSize, Size }`.
+
+    /**
+     * Departamentos. Los 18 entran en una sola llamada — el `size` alto es
+     * para no depender de la página por defecto, no porque haya volumen.
+     */
+    public function departments(string $environment, string $phone, string $bearer, int $size = 500): array
+    {
+        $qs = http_build_query(['size' => $size]);
+        return $this->request('GET', '/api/Department/get?' . $qs, null, $bearer, $phone, $environment);
+    }
+
+    /**
+     * Ciudades (~6.400). Cada ítem trae anidados su distrito y, dentro de
+     * éste, su departamento — con lo cual esta llamada alcanza para armar los
+     * tres niveles de la jerarquía.
+     *
+     * OJO al parsear: la clave anidada del distrito está MAL ESCRITA en la
+     * API del proveedor (`Disctrict`, no `District`). Se respeta tal cual —
+     * corregirla del lado nuestro haría que el sync leyera `null` y guardara
+     * ciudades huérfanas.
+     *
+     * NO hay parámetro de página: el único parámetro de paginación verificado
+     * es `size`, y `size` alcanza para traer el catálogo entero de una. El
+     * sync compara `TotalSize` contra las filas recibidas y, si faltan,
+     * reintenta con `size = TotalSize`; si aun así faltan, CORTA en vez de
+     * inventar un `?page=` que la API podría ignorar en silencio y dejar el
+     * catálogo a medias sin que nadie se entere.
+     */
+    public function cities(string $environment, string $phone, string $bearer, int $size): array
+    {
+        $qs = http_build_query(['size' => $size]);
+        return $this->request('GET', '/api/City/get?' . $qs, null, $bearer, $phone, $environment);
+    }
+
     // ── F1/F2/F3 — sin implementar en F0 ────────────────────────────────
 
     /**
