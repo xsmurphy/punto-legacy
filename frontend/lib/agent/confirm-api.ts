@@ -56,6 +56,41 @@ export interface ConfirmRegistration {
 
 export type ConfirmApiResult<T> = { ok: true; data: T } | { ok: false; error: string }
 
+/**
+ * El sobre del backend. `error` NO es un string: la envoltura canónica de la
+ * API es `{ok: false, error: {message, code}}` (ver `apiError()` en PHP).
+ *
+ * Estaba tipado como `string` y el objeto viajaba tal cual hasta el JSX, donde
+ * React lo rechaza como hijo y TIRA LA PÁGINA ENTERA — pantalla en blanco con
+ * "Minified React error #31" y la conversación perdida, en vez del mensaje de
+ * error que el backend había mandado. Reportado por el owner al confirmar el
+ * alta de facturación electrónica (2026-09-08).
+ *
+ * El tipo se afloja a `unknown` a propósito: mentirle al compilador sobre la
+ * forma del cuerpo de una respuesta HTTP es lo que dejó pasar esto.
+ */
+interface ApiEnvelope<T> {
+  ok?: boolean
+  data?: T
+  error?: unknown
+}
+
+/**
+ * Texto que se le puede mostrar a una persona, venga como venga el error.
+ *
+ * Cubre las tres formas que devuelve la API: el objeto canónico, un string
+ * pelado de algún endpoint viejo, y el ausente. Nunca devuelve un objeto: ese
+ * era el bug.
+ */
+function errorText(error: unknown): string | null {
+  if (typeof error === "string" && error.trim() !== "") return error
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message.trim() !== "") return message
+  }
+  return null
+}
+
 async function postJson<T>(
   url: string,
   authHeader: string,
@@ -71,13 +106,9 @@ async function postJson<T>(
     })
     const bodyText = await res.text()
     console.error(`[agent] ${url}`, res.status, bodyText.slice(0, 300))
-    const json = (bodyText ? (JSON.parse(bodyText) as { ok?: boolean; data?: T; error?: string }) : {}) as {
-      ok?: boolean
-      data?: T
-      error?: string
-    }
+    const json = (bodyText ? (JSON.parse(bodyText) as ApiEnvelope<T>) : {}) as ApiEnvelope<T>
     if (!res.ok || !json.ok) {
-      return { ok: false, error: json.error ?? `${fallbackError} (${res.status})` }
+      return { ok: false, error: errorText(json.error) ?? `${fallbackError} (${res.status})` }
     }
     return { ok: true, data: json.data as T }
   } catch (err) {
