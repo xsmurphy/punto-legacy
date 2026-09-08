@@ -290,7 +290,23 @@ class AiAdminService
             return ['ok' => false, 'error' => 'Capability no encontrada', 'code' => 404];
         }
 
-        $apiKey = defined('OPENROUTER_API_KEY') ? OPENROUTER_API_KEY : '';
+        // La clave se resuelve ACÁ y no se confía en que la constante exista:
+        // `define('OPENROUTER_API_KEY', ...)` vive en `includes/simple.config.php`,
+        // y los endpoints de /admin NO lo cargan — entran por `adminMiddleware()`
+        // (solo `db.php` + `AdminAuth.php`), a diferencia de los de tenant que
+        // pasan por `bootstrap.php` → `head.php` → `simple.config.php`. Con la
+        // clave PRESENTE en el contenedor, `defined()` daba false y el botón
+        // "Probar" de /admin/ai respondía "no configurada en el server"
+        // (2026-09-08): un fallo de orden de includes que se leía como un
+        // problema de infraestructura y mandó a revisar Coolify.
+        //
+        // El fallback a $_ENV/getenv() es el arreglo de raíz: el servicio deja
+        // de depender de qué archivo cargó su caller. Agregar el include al
+        // endpoint habría tapado ESTE caso y dejado la clase igual de frágil
+        // para el próximo.
+        $apiKey = defined('OPENROUTER_API_KEY') && OPENROUTER_API_KEY !== ''
+            ? OPENROUTER_API_KEY
+            : (string) ($_ENV['OPENROUTER_API_KEY'] ?? getenv('OPENROUTER_API_KEY') ?: '');
         if ($apiKey === '') {
             return ['ok' => false, 'error' => 'OPENROUTER_API_KEY no configurada en el server', 'code' => 500];
         }
