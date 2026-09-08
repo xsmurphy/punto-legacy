@@ -431,7 +431,12 @@ function GeoCodeField({
           id={`${idPrefix}-code`}
           inputMode="numeric"
           aria-label={`Código de ${label.toLowerCase()}`}
-          value={code === "" ? "" : String(code)}
+          // `code == null` cubre null Y undefined: el backend devuelve null
+          // cuando el establecimiento todavía no tiene el código cargado, y
+          // `String(null)` pintaba literalmente "null" dentro del input
+          // (reporte del owner 2026-09-08). El `""` solo cubría el caso de
+          // haber borrado el campo a mano.
+          value={code == null || code === "" ? "" : String(code)}
           onChange={(e) => {
             const digits = e.target.value.replace(/\D/g, "")
             onCodeChange(digits === "" ? "" : Number(digits))
