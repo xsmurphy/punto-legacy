@@ -60,16 +60,66 @@ function listRoutes(dir: string): string[] {
  * rutas explican justamente por qué no se reenvía la cookie, y sin quitarlos la
  * palabra "cookie" en la prosa daría un falso positivo en cada archivo bien
  * escrito — el test castigaría documentar la regla.
+ *
+ * ── Por qué es un scanner por línea y no dos regex ──────────────────────────
+ *
+ * Lo era hasta el 2026-09-09: `/\/\*[\s\S]*?\*\//` primero y `/\/\/.*$/gm`
+ * después. Esa combinación tiene un agujero que se disparó solo: los docblocks
+ * de estas rutas mencionan `/v1/*` —una ruta del backend—, y ese texto contiene
+ * la secuencia `/*`. Como los bloques se barrían ANTES que las líneas, ese `/*`
+ * de adentro de un `//` abría un comentario falso que se cerraba en el próximo
+ * cierre de bloque real del archivo, borrando TODO el código del medio. En el
+ * caso que lo
+ * destapó eso incluyó el `if (!/^Bearer\s+\S+/i.test(...))` de
+ * `app/api/pos/agent/chat/route.ts`: el guard más importante de este test.
+ *
+ * Y la nota que estaba acá —"borro de más solo puede producir un falso ROJO"—
+ * era falsa en la dirección que importa: la mitad de las aserciones son
+ * `not.toMatch`, así que borrar código las pone en VERDE. Un `forwardCookie:
+ * true` escrito debajo de un docblock que nombre `/v1/*` habría pasado el
+ * guard sin que nadie lo viera. Es exactamente el escenario de los tres
+ * incidentes de multi-realm que este archivo existe para impedir.
+ *
+ * El scanner mira una línea por vez y respeta la precedencia real: dentro de un
+ * `//` no arranca ningún bloque, y por lo tanto un comentario NUNCA puede
+ * comerse más allá de su propia línea. La aproximación que queda es la misma de
+ * antes —no distingue `//` adentro de un string— pero ahora su peor caso está
+ * acotado a una línea, no al archivo entero.
  */
 function stripComments(src: string): string {
+  let inBlock = false
+
   return src
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    // `//` en cualquier posición, no solo a principio de línea: un comentario
-    // al final de una línea de código que mencione `forwardCookie: true` daría
-    // falso rojo. (Aproximación: no intenta respetar `//` dentro de strings —
-    // en estos handlers no aparece, y errar hacia "borro de más" solo puede
-    // producir un falso ROJO visible, nunca un falso verde.)
-    .replace(/\/\/.*$/gm, "")
+    .split("\n")
+    .map((line) => {
+      let out = ""
+      let i = 0
+      while (i < line.length) {
+        if (inBlock) {
+          const end = line.indexOf("*/", i)
+          if (end === -1) return out
+          inBlock = false
+          i = end + 2
+          continue
+        }
+        const lineComment = line.indexOf("//", i)
+        const blockStart = line.indexOf("/*", i)
+        // El que aparezca PRIMERO manda. Es toda la corrección: con `//`
+        // adelante, el `/*` que venga después es prosa, no un delimitador.
+        if (lineComment !== -1 && (blockStart === -1 || lineComment < blockStart)) {
+          return out + line.slice(i, lineComment)
+        }
+        if (blockStart !== -1) {
+          out += line.slice(i, blockStart)
+          inBlock = true
+          i = blockStart + 2
+          continue
+        }
+        return out + line.slice(i)
+      }
+      return out
+    })
+    .join("\n")
 }
 
 const routeFiles = listRoutes(POS_API_DIR)

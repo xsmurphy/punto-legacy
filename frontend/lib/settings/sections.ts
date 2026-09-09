@@ -11,6 +11,7 @@ import {
   Monitor,
   Palette,
   Plug,
+  Sparkles,
   Printer,
   ScanLine,
   ShieldCheck,
@@ -47,6 +48,7 @@ import {
 export type SettingsSection =
   | "empresa"
   | "pos"
+  | "asistente"
   | "monedas"
   | "documentos"
   | "catalog"
@@ -103,6 +105,13 @@ export const SETTINGS_SECTIONS: SettingsSectionEntry[] = [
   { id: "documentos", label: "Documentos", icon: FileText },
   { id: "catalog", label: "Catálogo", icon: Tag, href: "/settings/catalog" },
   { id: "apariencia", label: "Apariencia", icon: Palette },
+  // Asistente = nombre, personalidad y contexto del negocio (D4 de
+  // context/69). Antes el nombre y el tono se editaban en un dialog lanzado
+  // desde el chat y /settings no tenía tab: sumar el contexto del negocio ahí
+  // habría dejado TRES superficies para una misma config, y dos formularios
+  // sobre el mismo campo divergen. El dialog se eliminó; el botón del chat
+  // deep-linkea acá.
+  { id: "asistente", label: "Asistente", icon: Sparkles },
   { id: "price-lists", label: "Listas de precios", icon: ListOrdered, href: "/settings/price-lists" },
   { id: "outlets", label: "Sucursales", icon: Building2, href: "/outlets" },
   { id: "modules", label: "Módulos", icon: Component },

@@ -2,6 +2,7 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { streamText, convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
 import type { UIMessage } from "ai"
 import { buildPosAgentTools } from "@/lib/pos/agent-tools"
+import { buildBusinessContextBlock } from "@/lib/agent/business-context"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 import { truncationMetadata } from "@/lib/agent/truncation"
 
@@ -113,6 +114,8 @@ export async function POST(req: Request) {
     currency?: string
     country?: string
     timezone?: string
+    /** Contexto del negocio (context/69 F2). Ver el comentario del destructuring. */
+    businessContext?: string
     operatorPermissions?: string[]
   }
   try {
@@ -127,6 +130,7 @@ export async function POST(req: Request) {
     currency = "",
     country = "",
     timezone = "",
+    businessContext = "",
     operatorPermissions = [],
   } = body
 
@@ -138,10 +142,17 @@ export async function POST(req: Request) {
   // consigue que el modelo intente y coma el 403, no que lea de más.
   const canReadSales = operatorPermissions.includes("reports.sales.view")
 
-  // Contexto de formato (moneda, país, zona horaria, nombre del comercio): sale
-  // de la config del POS (`useCatalogStore` → `PosConfig`), que el cliente
-  // manda en el body. No se lee de `/v1/settings`: ese endpoint es
-  // `['panel','mcp']` y la caja ya tiene el dato.
+  // Contexto de formato (moneda, país, zona horaria, nombre del comercio) y el
+  // contexto del negocio que escribió el comercio (context/69): salen de la
+  // config del POS (`useCatalogStore` → `PosConfig`), que el cliente manda en
+  // el body. No se leen de `/v1/settings`: ese endpoint es `['panel','api']` y
+  // la caja ya tiene el dato bajado por el bootstrap.
+  //
+  // Traer el contexto del negocio con un fetch a `/v1/settings` desde acá sería
+  // reintroducir el bug de multi-realm que este archivo entero existe para
+  // evitar (ver el punto 2 del docblock de arriba). Por eso baja por el
+  // bootstrap: es configuración de la caja y hereda context/51 — viaja con el
+  // resto, sobrevive offline, y el panel es el único que la escribe.
   //
   // Que venga del cliente es aceptable porque es COSMÉTICO — decide cómo se
   // escriben los montos en la respuesta, no qué datos se pueden leer. Lo que
@@ -282,7 +293,13 @@ export async function POST(req: Request) {
     `## Formato de salida\n` +
     `Texto plano y listas cortas. Sin tablas, sin bloques de código, sin encabezados de markdown: la pantalla es ` +
     `angosta y se lee de un vistazo. Nunca repitas el mismo párrafo dos veces. Si una tool falla, decí en una ` +
-    `línea que no pudiste obtener el dato — no narres errores internos, validaciones ni reintentos.`
+    `línea que no pudiste obtener el dato — no narres errores internos, validaciones ni reintentos.\n\n` +
+    // MISMO builder que el panel (D5 de context/69) y en la MISMA posición: lo
+    // último del prompt, después de los guardrails. Copiar el bloque acá en vez
+    // de compartirlo es el parche que el plan prohíbe explícitamente — y
+    // moverlo más arriba pondría el texto del tenant a competir de igual a
+    // igual con las reglas que protegen a Punto y al resto de los tenants.
+    buildBusinessContextBlock(businessContext)
 
   // Igual que el panel: el historial llega del cliente y puede traer una tool
   // call sin su resultado (recarga a mitad de stream, pestaña cerrada, timeout).

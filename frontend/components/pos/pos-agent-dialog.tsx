@@ -35,8 +35,9 @@ import { useOnlineStatus } from "@/hooks/use-online-status"
  * `credentials: "omit"`) y `useCatalogStore` (config del POS). Ni un hook con
  * credencial de panel entra en este árbol: `showSettings`, `showCharts`,
  * `showAttachments` y `showCredits` van en `false` justamente porque los
- * componentes que gatean —`AgentSettingsDialog` (useSettings), `AgentChart`
- * (useBootstrap) y el link a `/history-billing`— son del panel.
+ * componentes que gatean —`AgentSettingsLink` (manda a /settings, ruta de
+ * panel), `AgentChart` (useBootstrap) y el link a `/history-billing`— son del
+ * panel.
  *
  * `showActions` SÍ va prendido desde 2026-08-31: el asistente de la caja hace
  * cambios simples, y la tarjeta de confirmación es el control donde la persona
@@ -115,6 +116,7 @@ export function PosAgentDialog() {
     currency: config?.currency ?? "",
     country: config?.country ?? "",
     timezone: config?.timezone ?? "",
+    businessContext: config?.agentBusinessContext ?? "",
   })
 
   return (

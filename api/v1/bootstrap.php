@@ -72,6 +72,13 @@ $row = ncmExecute(
         -- columna propia.
         config->>'settingReturnRefund'                  AS returnrefund,
         config->>'settingReturnAllowIngredientReversal' AS returnallowingredientreversal,
+        -- Contexto del negocio escrito por el comercio (context/69). Baja por
+        -- el bootstrap y NO se lee de /v1/settings desde el BFF del POS: ese
+        -- endpoint es realm ['panel','api'] y la caja es token-only por
+        -- mandato (feedback_pos_token_only_no_realms). Como el resto de la
+        -- config de caja hereda context/51: viaja en el bootstrap, sobrevive
+        -- offline y el panel es el único escritor.
+        config->>'agentBusinessContext'     AS agentbusinesscontext,
         -- moduleData NO es una columna de company: vive DENTRO del JSONB
         -- config (ruteo de ncmUpdate/Schema::split), igual que los settingX de
         -- arriba. Pedirla como columna daba SQLSTATE 42703 y, desde que el
@@ -338,6 +345,14 @@ $payload = [
     'timezone'    => $row['timezone'] ?? '',
     'companyName' => $row['companyname'] ?? '',
     'companyId'   => COMPANY_ID,
+    // Contexto del negocio para el asistente de la CAJA (F2 de context/69).
+    // Se recorta con el MISMO tope que aplica Ajustes al guardarlo: si una
+    // fila vieja quedó más larga, el POS no la va a inyectar entera.
+    'agentBusinessContext' => mb_substr(
+        (string) ($row['agentbusinesscontext'] ?? ''),
+        0,
+        \Punto\Api\Settings\SettingsService::MAX_AGENT_BUSINESS_CONTEXT
+    ),
     // Razón social/RUC/email/sitio del tenant — ticket impreso (flujo NO-FE).
     'companyBillingName' => $row['companybillingname'] ?? '',
     'companyTin'         => $row['companytin'] ?? '',

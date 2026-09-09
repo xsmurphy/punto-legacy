@@ -147,6 +147,29 @@ if ($method === 'POST') {
             : 'professional';
     }
 
+    // Contexto del negocio — TEXTO LIBRE por decisión del owner (D1 de
+    // context/69). Es la excepción explícita a la regla de las dos líneas de
+    // arriba, no un descuido: el punto de la feature es la expresividad
+    // ("vendo repuestos de moto y el 70% de mis clientes son talleres"), que
+    // ningún enum captura.
+    //
+    // Lo único que se hace acá es RECORTAR al tope. El cap tiene que vivir
+    // server-side y no en el `maxLength` del textarea porque el largo es costo
+    // de cada request del chat: un cliente que postea directo al endpoint no
+    // puede inflar el prompt de todas las conversaciones del tenant.
+    //
+    // Lo que NO se hace acá: filtrar palabras ni "detectar" inyecciones. Eso
+    // sería seguridad de mentira. La protección real es posicional y vive en
+    // el builder del prompt (frontend/lib/agent/business-context.ts): el bloque
+    // va DESPUÉS de los guardrails y marcado como dato.
+    if ($present('agentBusinessContext')) {
+        $fields['agentBusinessContext'] = mb_substr(
+            trim($s('agentBusinessContext')),
+            0,
+            \Punto\Api\Settings\SettingsService::MAX_AGENT_BUSINESS_CONTEXT
+        );
+    }
+
     // Redes sociales: viaja como 4 keys flat (facebook/instagram/youtube/
     // twitter), no anidado — el nesting a 'social' es solo interno para
     // SettingsService::updateGeneral(), que mergea contra lo existente

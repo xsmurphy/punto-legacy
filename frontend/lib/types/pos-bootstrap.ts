@@ -62,6 +62,14 @@ export interface PosConfig {
   timezone: string
   companyName: string
   companyId: string | number
+  /**
+   * Contexto del negocio escrito por el comercio (context/69), para el system
+   * prompt del asistente de la caja. "" si no lo cargó.
+   *
+   * El panel es el único escritor —la caja solo lee—, así que no hay conflicto
+   * caja-vs-panel que resolver (regla de context/51 §5).
+   */
+  agentBusinessContext?: string
   /** URL del logo del tenant (S3, público). null/undefined si no hay logo cargado. */
   companyLogo?: string | null
   /** Base URL de screens standalone (impresión, KDS, etc). */

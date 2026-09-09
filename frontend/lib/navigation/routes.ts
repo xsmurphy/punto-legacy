@@ -48,6 +48,7 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   ShoppingBasket,
+  Sparkles,
   SquareKanban,
   Tag,
   TrendingUp,
@@ -773,6 +774,21 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Configuración",
     keywords: ["monedas", "currency", "cotizacion", "dolar", "cambio"],
+  },
+  {
+    // D4 de context/69 — el tab concentra nombre, personalidad y contexto del
+    // negocio del asistente. Las keywords cubren cómo lo busca el dueño ("IA",
+    // "chatbot"), no cómo se llama el tab.
+    to: "/settings?section=asistente",
+    title: "Asistente",
+    paletteTitle: "Configuración · Asistente",
+    icon: Sparkles,
+    surface: "palette",
+    paletteGroup: "Configuración",
+    keywords: [
+      "asistente", "ia", "inteligencia artificial", "agente", "chatbot",
+      "personalidad", "tono", "contexto del negocio", "prompt",
+    ],
   },
   {
     to: "/settings?section=apariencia",

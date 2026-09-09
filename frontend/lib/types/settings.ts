@@ -119,6 +119,19 @@ export interface SettingsGeneral {
   /** Personalidad del asistente — matiz de TONO server-side, nunca contradice
    *  las reglas duras del prompt (anti-invento, idioma, guardrails). */
   agentPersonality: "professional" | "friendly" | "direct" | "teacher"
+  /**
+   * Contexto del negocio en palabras del comercio (context/69, D1 cerrada por
+   * el owner). Texto libre, máx 4000 caracteres, recortado server-side.
+   *
+   * Es lo ÚNICO de este bloque que no es un enum, y a propósito: captura lo
+   * que la BD no puede saber (modelo de negocio, público, estacionalidad,
+   * objetivos). Lo que la BD sí tiene —categorías, sucursales, moneda, país—
+   * el agente lo lee con tools y no se vuelve a pedir acá.
+   *
+   * Se inyecta al FINAL del system prompt, después de los guardrails y
+   * marcado como dato: ver `lib/agent/business-context.ts`.
+   */
+  agentBusinessContext: string
 }
 
 /** Lo que el form de frontend manda al backend. Mismo shape que el GET,

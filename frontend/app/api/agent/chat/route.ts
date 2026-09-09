@@ -3,6 +3,7 @@ import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall, smo
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
+import { buildBusinessContextBlock } from "@/lib/agent/business-context"
 import { buildReadTools } from "@/lib/agent/read-tools"
 import { buildEinvoiceSetupTool } from "@/lib/agent/einvoice-setup"
 import { buildSetupStatusTool } from "@/lib/agent/setup-status"
@@ -15,7 +16,7 @@ export const maxDuration = 60
 
 /**
  * Personalidad del asistente — matiz de TONO configurable por empresa
- * (AgentSettingsDialog). Mapa server-side FIJO: el cliente solo manda un slug
+ * (Ajustes → Asistente). Mapa server-side FIJO: el cliente solo manda un slug
  * validado contra este mismo enum en SettingsService::AGENT_PERSONALITIES —
  * nunca texto libre llega al system prompt. Cada fragmento se inserta
  * DESPUÉS de las reglas duras (anti-invento, idioma, guardrails) y no puede
@@ -124,12 +125,17 @@ export async function POST(req: Request) {
   // Contexto del negocio (server-side, autoritativo): moneda + país + nombre/
   // personalidad del asistente. Para que el agente formatee montos en la
   // moneda correcta (Gs, no $), tenga contexto base, y se presente con el
-  // nombre/tono que configuró la empresa (AgentSettingsDialog → company.config
-  // vía /v1/settings, ver SettingsService::general()).
+  // nombre/tono que configuró la empresa (Ajustes → Asistente → company.config
+  // vía /v1/settings, ver SettingsService::general()), y para leer el contexto
+  // del negocio que se inyecta al final del prompt (context/69).
   let currency = ""
   let country = ""
   let agentName = "Asistente"
   let agentPersonality: AgentPersonality = "professional"
+  // Texto crudo que el comercio escribió sobre su negocio (context/69). Sale
+  // del MISMO fetch de settings que el nombre y el tono — no agrega un
+  // round-trip. Se guarda crudo y se envuelve al final del prompt, nunca acá.
+  let businessContext = ""
   try {
     const setRes = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
     if (setRes.ok) {
@@ -146,6 +152,7 @@ export async function POST(req: Request) {
       if (personalityFromSettings in AGENT_PERSONALITY_PROMPTS) {
         agentPersonality = personalityFromSettings as AgentPersonality
       }
+      businessContext = String(s.agentBusinessContext ?? "")
     } else {
       console.error(`[agent] settings respondió ${setRes.status}, sigue sin contexto extra`)
     }
@@ -235,7 +242,16 @@ export async function POST(req: Request) {
     `5. Llamá register_action con actions=[{action:"tabular_import", payload:{sessionId, kind, mapping, mode}}], summary="Importar N filas a [artículos/contactos] (modo [insert/update])".\n` +
     `6. Esperá la confirmación explícita del usuario antes de proceder.\n` +
     `7. Cuando el usuario confirme, llamá execute_action con {confirmToken} para ejecutar.\n` +
-    `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.`
+    `8. Reportá el resultado: "Se importaron X artículos/contactos. Y actualizados. Z errores." Si hay errores, listalos.\n\n` +
+    // Contexto del negocio — SIEMPRE lo ÚLTIMO del prompt (D2 de context/69).
+    // La posición es parte de la decisión de seguridad, no un detalle de
+    // orden: es el único bloque cuyo contenido escribe el tenant en texto
+    // libre, así que todos los guardrails que protegen a Punto y al resto de
+    // los tenants tienen que estar YA dichos cuando el modelo lo lee.
+    // Moverlo más arriba —o mezclarlo con la sección "Contexto del negocio"
+    // de datos duros que se arma al principio— es una arquitectura
+    // explícitamente rechazada en §6 del plan.
+    buildBusinessContextBlock(businessContext)
 
   // El historial llega del cliente (localStorage) y NO es confiable: puede
   // traer una tool call sin su resultado — recarga a mitad de una confirmación,

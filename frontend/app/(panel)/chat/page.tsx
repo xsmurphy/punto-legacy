@@ -25,7 +25,7 @@ import { MessageAttachment } from "@/components/agent/message-attachment"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
-import { AgentSettingsDialog } from "@/components/agent/agent-settings-dialog"
+import { AgentSettingsLink } from "@/components/agent/agent-settings-link"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import { collectReadyFiles } from "@/lib/agent/collect-files"
 import { useFileDrop, FileDropOverlay } from "@/components/agent/file-drop"
@@ -223,7 +223,7 @@ export default function ChatPage() {
           <h1 className="truncate text-2xl font-semibold">{agentName}</h1>
         </div>
         <div className="flex items-center gap-1">
-          <AgentSettingsDialog />
+          <AgentSettingsLink />
           {messages.length > 0 && <ClearChatButton onClear={clear} />}
         </div>
       </header>
