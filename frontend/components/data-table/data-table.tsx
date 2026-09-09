@@ -56,6 +56,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatInt } from "@/lib/format"
+// Entrega del archivo al usuario — helper compartido (lo usa también el KuDE
+// en PDF desde el POS). Vivía privado en este archivo hasta que apareció el
+// segundo consumidor.
+import { triggerDownload } from "@/lib/download-blob"
 import { cn } from "@/lib/utils"
 
 /**
@@ -780,17 +784,6 @@ function formatCellForExport(v: unknown): string | number | null {
   if (typeof v === "number") return v
   if (typeof v === "string") return v
   return JSON.stringify(v)
-}
-
-function triggerDownload(blob: Blob, fileName: string) {
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = fileName
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
 }
 
 // Extensión del meta para que los `columnDef` puedan declarar className y label

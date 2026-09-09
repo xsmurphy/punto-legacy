@@ -94,9 +94,43 @@ if ($method === 'POST' && $action === 'drain') {
 // cualquier verbo que no sea GET/HEAD para el realm `api` salvo que el endpoint
 // declare `apiWrite` — y acá no se declara, ni se va a declarar: el certificado
 // y el CSC no se cargan por API key (M8 tiene su propio mecanismo).
-$ctx       = apiAuthTenant(
-    $method === 'GET' && $resource === 'account' ? ['panel', 'api'] : ['panel']
-);
+//
+// ── El realm `pos-app` entra SOLO al KuDE, y solo por GET ────────────────────
+//
+// Qué expone: el PDF de UN documento fiscal ya emitido, pedido por su id y
+// resuelto SIEMPRE contra `COMPANY_ID` del token (`kudePdf($companyId, $id)`),
+// así que un device no puede pedir el KuDE de otro comercio. Y es justamente el
+// documento que el comercio le ENTREGA a su propio cliente: negarlo en la caja
+// —el único lugar donde el cliente está parado enfrente— era el agujero
+// (pedido del owner, 2026-09-09). El device ya está autenticado contra esa
+// company y ya ve la venta entera en el detalle de la transacción; el KuDE no
+// le agrega ningún dato que no tuviera.
+//
+// Qué NO expone, y por qué el recorte es por `resource` y no por archivo:
+//   - `documents` (sin `transactionId`) es el LISTADO PAGINADO de todos los
+//     documentos fiscales del tenant, con JOIN a cliente y totales. Una caja no
+//     necesita el histórico fiscal del comercio para descargar el KuDE de la
+//     venta que tiene en pantalla: el POS recibe los documentos DE ESA VENTA
+//     por el detalle de la transacción (`TransactionService::getSingle`, misma
+//     fuente `documentsForTransaction()`), que ya está scopeado por
+//     transacción. Abrirlo acá sería regalar la superficie ancha para resolver
+//     una necesidad angosta.
+//   - `account` / `paymentMethods` son configuración del emisor, no del
+//     comprobante.
+//   - TODO el POST sigue siendo `panel` exclusivo — es donde se cargan el
+//     certificado y el CSC (ver el bloque de arriba, que no se toca).
+//
+// El POS es TOKEN-ONLY (mandato del proyecto, `context/08` §60): esto habilita
+// un Bearer de device, NUNCA una cookie. La contraparte en el front
+// (`app/api/pos/einvoice/kude/route.ts`) va con `requireBearer: true`.
+$realms = ['panel'];
+if ($method === 'GET' && $resource === 'account') {
+    $realms[] = 'api';
+}
+if ($method === 'GET' && $resource === 'kude') {
+    $realms[] = 'pos-app';
+}
+$ctx       = apiAuthTenant($realms);
 $companyId = COMPANY_ID;
 
 $svc = new \Punto\Api\EInvoice\EInvoiceService();
@@ -146,10 +180,24 @@ switch ($method) {
                 apiError('Falta id', 422);
             }
             try {
-                // El panel descarga el MISMO KuDE que recibe el comprador
-                // (K2 de context/73): que el comercio vea otro documento que
-                // su cliente es justo lo que rompe la verificación de paridad.
-                $pdf = $svc->kudePdf($companyId, $id);
+                // ── La CAJA es un canal de ENTREGA, el panel no ─────────────
+                //
+                // Desde el panel, `resource=kude` es la descarga INTERNA: el
+                // comercio mirando su propio documento, y ve el MISMO KuDE que
+                // recibe el comprador (K2 de context/73) — que vea otro es
+                // justo lo que rompe la verificación de paridad.
+                //
+                // Desde el POS el PDF se lo lleva el comprador EN LA MANO, así
+                // que corresponde el mismo gate fiscal que ya aplican los
+                // otros dos canales de entrega (el email de `sendKude()` y el
+                // portal de `portalKude()`): número que coincide con el
+                // comprobante impreso (mig 204), no reemplazado, no anulado,
+                // emitido, y aprobado por SIFEN. Ni el CDC ni el PDF prueban
+                // validez — hay un caso registrado de un documento con CDC
+                // válido que SIFEN rechazó después y cuyo KuDE bajaba igual.
+                $pdf = AUTHED_REALM === 'pos-app'
+                    ? $svc->posKude($companyId, $id)
+                    : $svc->kudePdf($companyId, $id);
             } catch (\RuntimeException $e) {
                 // 409, no 500: "todavía no está listo" / "no se emitió" es un
                 // estado esperado del documento, no una falla del servidor —

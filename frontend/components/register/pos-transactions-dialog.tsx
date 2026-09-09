@@ -10,7 +10,18 @@
 
 import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { CalendarIcon, ChevronLeft, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
+import {
+  Ban,
+  CalendarIcon,
+  ChevronLeft,
+  Download,
+  FileCheck,
+  Filter,
+  Loader2,
+  MoreHorizontal,
+  Receipt,
+  X,
+} from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
 import { parseNaive, formatDateTime } from "@/lib/format-date"
@@ -29,6 +40,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useOnlineStatus } from "@/hooks/use-online-status"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { ActionMenu } from "@/components/ui/action-menu"
 import {
@@ -42,6 +54,9 @@ import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
+// Agrupado del CDC — el MISMO helper que usan el ticket y el KuDE en PDF.
+import { groupCdc } from "@/lib/kude/types"
+import { triggerDownload } from "@/lib/download-blob"
 // Formateador único del correlativo (mig 158) — el mismo que imprime el ticket.
 import { formatDocumentNumber } from "@/lib/documents/format-document-number"
 import { cn } from "@/lib/utils"
@@ -569,6 +584,10 @@ export function TransactionDetail({
   // panel, mismo patrón `parentTransactionId`).
   const [voidDialogOpen, setVoidDialogOpen] = React.useState(false)
   const [returnSheetOpen, setReturnSheetOpen] = React.useState(false)
+  const [downloadingKude, setDownloadingKude] = React.useState(false)
+  // El KuDE se baja del servidor: sin red no hay PDF que entregar. Se consulta
+  // acá para poder decir el motivo EN el control, no después del intento.
+  const online = useOnlineStatus()
 
   if (!encId) {
     return (
@@ -617,6 +636,109 @@ export function TransactionDetail({
   const debt = detail.creditPayments?.debt ?? 0
   const paid = total - debt
   const primary = getPrimaryAction(typeNum, debt)
+
+  // ── Factura electrónica ───────────────────────────────────────────────────
+  //
+  // El documento VIGENTE de esta venta. El backend los devuelve por fecha desc,
+  // pero "el más reciente" no alcanza: una reemisión fallida deja el `error`
+  // arriba y el documento bueno abajo, así que se descarta lo reemplazado
+  // (`supersededBy`) igual que hace el portal del cliente.
+  //
+  // Lista vacía = nunca se encoló (tenant sin FE, emisión automática apagada,
+  // cliente sin RUC con el filtro puesto) y entonces NO se pinta nada — no es
+  // un error y la caja no tiene nada que hacer al respecto.
+  //
+  // La caja NO ofrece emitir: emitir es una acción de gestión (vive en el panel,
+  // detrás de `einvoice.manage`). Acá solo se consulta y se descarga.
+  const einvoiceDocs = detail.einvoiceDocuments ?? []
+  const einvoiceDoc = einvoiceDocs.find((d) => d.supersededBy === null) ?? einvoiceDocs[0] ?? null
+
+  // ¿Se le puede entregar al cliente? Lo decide el BACKEND con el mismo
+  // predicado que aplican el email y el portal (`deliveryBlocker`). La pantalla
+  // lo traduce; no lo recalcula. Si lo recalculara, volvería a existir el caso
+  // de ofrecer una descarga que el endpoint rechaza con 409.
+  const kudeBlocker = einvoiceDoc?.deliveryBlocker ?? null
+  const canDeliverKude = einvoiceDoc !== null && kudeBlocker === null
+
+  // Motivo LEGIBLE del bloqueo, o null si no hay bloqueo.
+  //
+  // FAIL-CLOSED: el `default` del switch cubre cualquier código que este front
+  // todavía no conozca (uno nuevo en el backend, o `not_found`). Un motivo que
+  // no sabemos traducir sigue siendo un motivo — dejar el botón habilitado
+  // "porque no reconozco el código" es justo al revés de lo que corresponde
+  // sobre un documento fiscal.
+  //
+  // La conectividad se evalúa acá y no en el backend porque es una condición
+  // del dispositivo: el KuDE se baja del servidor.
+  //
+  // Va como TEXTO VISIBLE además de deshabilitar el botón: el POS es táctil y
+  // un tooltip no se abre con el dedo, así que el impedimento tiene que leerse
+  // sin hover.
+  function blockerLabel(code: string): string {
+    switch (code) {
+      case "numbering_mismatch":
+        return "El número del documento no coincide con el del comprobante que se le entregó al cliente. No se puede entregar."
+      case "superseded":
+        return "Este documento fue reemplazado por una reemisión."
+      case "cancelled":
+        return "El documento está anulado: no se puede entregar como comprobante."
+      case "not_issued":
+        return "El documento salió pero todavía no volvió su CDC."
+      case "sifen_rejected":
+        return "SIFEN rechazó este documento, así que no se puede entregar como factura."
+      case "sifen_pending":
+        return "SIFEN todavía no lo aprobó. Vas a poder entregarlo cuando figure como aprobado."
+      default:
+        return "Este documento no se puede entregar todavía."
+    }
+  }
+  const kudeBlockedReason: string | null =
+    kudeBlocker !== null
+      ? blockerLabel(kudeBlocker)
+      : canDeliverKude && !online
+        ? "Sin conexión. El KuDE se descarga del servidor."
+        : null
+
+  // Dos superficies, y el corte es "¿es un problema que el comercio tiene que
+  // resolver?". El rechazo de SIFEN y la discrepancia de numeración lo son —
+  // en el segundo caso, además, el CDC que muestra el documento es el de OTRA
+  // operación, así que NO se pinta. El resto (en emisión, anulada, reemplazada)
+  // es estado, no falla.
+  const einvoiceFailed =
+    einvoiceDoc !== null &&
+    (einvoiceDoc.status === "error" ||
+      kudeBlocker === "sifen_rejected" ||
+      kudeBlocker === "numbering_mismatch")
+  // El título sale del ESTADO REAL, no de un booleano "se puede o no se puede":
+  // una factura anulada o reemplazada no está "en emisión", y decirlo en la
+  // pantalla que mira el cajero es afirmar algo falso sobre un documento
+  // fiscal. "Emitida" además se reserva para cuando se puede entregar —
+  // `status` no alcanza, hay un caso registrado de un documento `issued` con
+  // CDC válido que SIFEN rechazó después.
+  const einvoiceCardTitle =
+    kudeBlocker === "cancelled"
+      ? "Factura electrónica anulada"
+      : kudeBlocker === "superseded"
+        ? "Factura electrónica reemplazada"
+        : canDeliverKude
+          ? "Factura electrónica emitida"
+          : "Factura electrónica en emisión"
+
+  async function handleDownloadKude(docId: string) {
+    setDownloadingKude(true)
+    try {
+      const blob = await posApi.getBlob(
+        `/pos/einvoice/kude?id=${encodeURIComponent(docId)}`,
+      )
+      triggerDownload(blob, `kude-${docLabel || docId}.pdf`)
+    } catch (err) {
+      // El backend manda el motivo real en el envelope (409 "todavía no está
+      // listo" / "no se emitió"); se muestra tal cual en vez de un genérico.
+      toast.error(err instanceof Error ? err.message : "No se pudo descargar el KuDE")
+    } finally {
+      setDownloadingKude(false)
+    }
+  }
 
   // Show secondary "Duplicar" button only when primary is Pagar or Facturar
   const showSecondaryDuplicate = primary.action === "pay" || primary.action === "invoice"
@@ -975,6 +1097,99 @@ export function TransactionDetail({
                 )}
               </div>
             )
+          )}
+
+          {/* ── Factura electrónica ───────────────────────────────────────────
+              Va ÚLTIMO, después de Pagos: es el bloque condicional del detalle
+              y desde acá no puede empujar ningún control que ya estuviera en
+              pantalla (regla #10, posiciones estables). Las acciones fijas de
+              la transacción viven en el header y no se tocan — el botón del
+              KuDE es del bloque, no de la barra.
+
+              Ni el CDC ni el PDF prueban validez fiscal: hay un caso registrado
+              de un documento con CDC válido que SIFEN rechazó después y cuyo
+              KuDE se descargaba igual (ver EInvoiceService::reconcile). El
+              único campo que dice si vale es `sifen_status`, que no viaja al
+              POS — por eso el copy dice "emitida" y nunca "válida". */}
+          {einvoiceDoc && !einvoiceFailed && (
+            <div className="mt-4 rounded-lg bg-muted/40 p-4">
+              <div className="flex items-start gap-3">
+                <FileCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-medium">{einvoiceCardTitle}</h3>
+                  {einvoiceDoc.cdc ? (
+                    /* CDC agrupado de a cuatro con el MISMO helper que usan el
+                       ticket y el KuDE en PDF: es requisito de legibilidad de
+                       la norma, y compartir la función es lo que garantiza que
+                       se lea igual en las tres superficies. */
+                    <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                      {groupCdc(einvoiceDoc.cdc)}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      El documento salió pero todavía no volvió su CDC.
+                    </p>
+                  )}
+                  {/* El motivo va siempre que exista — antes colgaba de que
+                      hubiera CDC, que hoy es inocuo (el texto de `not_issued`
+                      está duplicado en la rama de arriba) pero deja mudo a
+                      cualquier bloqueo futuro que conviva con CDC vacío. */}
+                  {kudeBlockedReason && kudeBlocker !== "not_issued" && (
+                    <p className="mt-1 text-xs text-muted-foreground">{kudeBlockedReason}</p>
+                  )}
+                </div>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-3 w-full gap-1.5 max-sm:h-11"
+                disabled={kudeBlockedReason !== null || downloadingKude}
+                onClick={() => handleDownloadKude(einvoiceDoc.id)}
+              >
+                {downloadingKude ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Download className="size-4" />
+                )}
+                Descargar KuDE
+              </Button>
+            </div>
+          )}
+
+          {/* Falla que el comercio tiene que resolver. Se muestra el ESTADO;
+              el motivo de SIFEN es diagnóstico del comercio y no se le pasa al
+              comprador (R1 de context/28 §F7). Tampoco se ofrece reemitir ni
+              reintentar: eso es gestión y vive en el panel.
+
+              El CDC NO se pinta en este bloque: con numeración discrepante, el
+              CDC del documento es el de OTRA operación — mostrarlo al lado de
+              esta venta es el error que el bloqueo viene a evitar. */}
+          {einvoiceDoc && einvoiceFailed && (
+            <div className="mt-4 rounded-lg border border-destructive/40 p-4">
+              <div className="flex items-start gap-3">
+                <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-medium">
+                    {einvoiceDoc.status === "error"
+                      ? "La factura electrónica no se pudo emitir"
+                      : kudeBlocker === "numbering_mismatch"
+                        ? "La numeración del documento no coincide"
+                        : "SIFEN rechazó la factura electrónica"}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {einvoiceDoc.status === "error"
+                      ? (einvoiceDoc.errorMessage ??
+                        "El motor de facturación la rechazó y no informó el motivo.")
+                      : blockerLabel(kudeBlocker ?? "")}
+                  </p>
+                  {einvoiceDoc.status === "error" && einvoiceDoc.attempts > 0 && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Intentos automáticos: {einvoiceDoc.attempts}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
         </div>

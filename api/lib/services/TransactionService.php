@@ -226,6 +226,30 @@ final class TransactionService
             }
         }
 
+        // ── Documentos fiscales de esta venta ────────────────────────────────
+        //
+        // El detalle del PANEL (`TransactionDetailService::getSingle`) ya los
+        // servía, pero el POS entra por OTRO servicio —este— y salía sin nada
+        // de facturación electrónica: la caja no sabía si la factura se emitió,
+        // falló o nunca se encoló, y no tenía el id para pedir el KuDE.
+        //
+        // Se llama al MISMO `documentsForTransaction()` en vez de repetir la
+        // query: qué filas del outbox son "los documentos de esta venta" es una
+        // regla del módulo fiscal y vive en un solo lugar. Una segunda query
+        // acá es la que se olvida de actualizar cuando nazca el próximo doctype.
+        //
+        // Lista vacía = nunca se encoló (tenant sin FE, emisión automática
+        // apagada, cliente sin RUC con el filtro puesto). NO es un error.
+        $einvoiceDocuments = [];
+        try {
+            $einvoiceDocuments = (new \Punto\Api\EInvoice\EInvoiceService())
+                ->documentsForTransaction($companyId, $transactionId);
+        } catch (\Throwable $e) {
+            // La FE nunca puede tirar el detalle de la venta: sin dato, el
+            // bloque no se pinta. Mismo criterio que TransactionDetailService.
+            error_log('[TransactionService] einvoice: ' . $e->getMessage());
+        }
+
         return [
             'transactionId'   => enc($fields['transactionId']),
             'customerId'      => enc($fields['customerId']),
@@ -261,6 +285,7 @@ final class TransactionService
             'creditNotes'      => $creditNotes,
             'appointments'     => $appointments,
             'paymentsReceived' => $paymentsReceived,
+            'einvoiceDocuments' => $einvoiceDocuments,
         ];
     }
 

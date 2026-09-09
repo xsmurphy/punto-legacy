@@ -1196,6 +1196,22 @@ export interface TxDetailFull {
     errorMessage: string | null
     issuedAt: string | null
     attempts: number
+    /** Veredicto FISCAL — distinto de `status`, que es el outbox de Punto. */
+    sifenVerdict: "approved" | "rejected" | "pending"
+    supersededBy: string | null
+    /**
+     * Por qué NO se le puede entregar el KuDE al comprador, o null si sí.
+     * Mismo predicado que aplican el email, el portal y la caja.
+     */
+    deliveryBlocker:
+      | "not_found"
+      | "numbering_mismatch"
+      | "superseded"
+      | "cancelled"
+      | "not_issued"
+      | "sifen_rejected"
+      | "sifen_pending"
+      | null
   }>
 }
 
