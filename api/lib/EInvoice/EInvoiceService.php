@@ -216,6 +216,37 @@ final class EInvoiceService
                 $readiness = $provider->readiness($tenantRef, $bearer);
                 $emitter = $provider->userInfo($environment, $tenantRef, $bearer);
 
+                // ── El ambiente lo manda el PROVEEDOR, no nuestra columna ───
+                //
+                // `einvoice_account.environment` es una COPIA, y una copia se
+                // desincroniza: la de Balloon Party decía `test` mientras el
+                // tenant en FE-PY estaba en `prod` y emitía facturas fiscales
+                // de verdad (2026-09-09). Nadie lo notó porque en FE-PY ese
+                // campo NO elige el host —lo dice su adapter—, así que la
+                // divergencia no rompía la emisión: solo le mentía al comercio
+                // en pantalla sobre si sus documentos valían.
+                //
+                // El `env` del tenant es el único que decide contra qué SIFEN
+                // se emite, así que se lee de ahí y se baja a nuestra fila en
+                // cada verificación. No se elimina la columna porque el
+                // bootstrap y las pantallas la leen sin poder llamar al
+                // proveedor; queda como PROYECCIÓN derivada, con un solo
+                // escritor.
+                $remoteEnv = trim((string) ($emitter['env'] ?? ''));
+                if ($remoteEnv !== '' && $remoteEnv !== $environment) {
+                    error_log(sprintf(
+                        '[EInvoiceService] ambiente desincronizado en %s: local=%s proveedor=%s — se adopta el del proveedor',
+                        $companyId,
+                        $environment,
+                        $remoteEnv
+                    ));
+                    ncmExecute(
+                        'UPDATE einvoice_account SET environment = ?, updated_at = now() WHERE companyid = ?',
+                        [$remoteEnv, $companyId]
+                    );
+                    $environment = $remoteEnv;
+                }
+
                 $failed = array_values(array_filter($readiness['checks'], fn ($c) => empty($c['ok'])));
                 if (!$readiness['ready']) {
                     $message = 'El emisor todavía no está listo: '
