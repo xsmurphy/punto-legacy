@@ -52,30 +52,42 @@
  * El device tenía la caja, se fue sin red, y MIENTRAS TANTO un admin se la
  * quitó desde el panel. Sin red no hay forma de enterarse: ese conflicto es
  * inevitable, y el diseño lo asume. Lo que sí garantiza es que la venta no se
- * pierda — la caja queda LIBRE (nadie más la tomó), así que el device la
- * vuelve a tomar y la venta encolada se sincroniza sola con el mismo número
- * (`REGISTER_RELEASED`, ver `RegisterLeaseService::conflictMessage()` y
- * `use-offline-sync.ts`). El único desenlace realmente terminal es que OTRO
- * device ya la haya tomado, y ahí la venta espera en la cola con el nombre de
- * quien la tiene y qué hacer, nunca se descarta sola.
+ * pierda — la caja queda LIBRE (nadie más la tomó) y desde 2026-09-09 el
+ * servidor acepta ese lote encolado SIN pedir tenencia, con el mismo número
+ * (ver "DRENAR ≠ VENDER" en `api/v1/offline-sync.php`). El único desenlace
+ * realmente terminal es que OTRO device ya la haya tomado, y ahí la venta
+ * espera en la cola con el nombre de quien la tiene y qué hacer, nunca se
+ * descarta sola.
+ *
+ * Lo que el device NO recupera solo es el derecho a EMITIR: tras una
+ * liberación de admin tiene que venir alguien y tocar "Tomar caja" acá. El
+ * servidor lo hace cumplir (`RegisterLeaseService::isAdminRevoked()`), no
+ * este archivo.
  *
  * Estando ONLINE la pérdida de tenencia no espera al TTL ni al próximo latido:
  * `use-realtime-sync.ts` escucha la entity `register-lease` y fuerza un
  * `refreshTenancy()` en el momento.
  *
- * Confirmar no es tomar (2026-09-01)
- * ──────────────────────────────────
+ * Confirmar no es tomar (2026-09-01, cerrado el 2026-09-09)
+ * ────────────────────────────────────────────────────────
  * Todo lo de arriba es CONFIRMACIÓN: preguntarle al servidor si esta caja
- * sigue siendo de este device. TOMAR una caja libre es otra cosa y ya no pasa
- * sola: `refreshTenancy()` solo adquiere con `{ acquire: true }`, y eso lo
- * pasan dos call-sites (el botón del cajero y el drenaje de la cola offline).
+ * sigue siendo de este device. TOMAR una caja libre es otra cosa, y hoy ya no
+ * pasa sola por NINGÚN camino: el único call-site que adquiere es el botón
+ * "Tomar caja" (`RegisterTakenPhase`, pay-dialog.tsx), con
+ * `{ acquire: 'operator' }`.
  *
- * Antes no había distinción y el latido tomaba la caja de paso. El síntoma que
- * reportó el owner: dos dispositivos con la misma caja asignada, el primero la
- * libera, y el segundo sigue sin poder facturar porque el latido del primero
- * se la lleva de nuevo antes de que el cajero llegue a nada. La exclusividad
- * seguía siendo correcta —una caja, un tenedor— pero quién ganaba lo decidía
- * un timer, no una persona.
+ * En 2026-09-01 quedaban dos adquirientes y se sacó el latido. El que quedaba
+ * —`ensureTenancy()`, el drenaje de la cola— produjo el incidente del
+ * 2026-09-09: el ciclo de sync corre cada 30 s y lo llamaba SIEMPRE, con cola
+ * vacía incluida, así que la tablet se apropiaba de la caja apenas el admin la
+ * liberaba desde el panel. El owner liberó dos veces y la tablet la retomó sola
+ * las dos; desde su teléfono la caja se veía ocupada para siempre.
+ *
+ * La corrección de fondo no fue del cliente: el servidor dejó de exigir
+ * tenencia para SUBIR lo ya emitido, así que el drenaje no necesita adquirir
+ * nada, y además VETA la re-adquisición automática del dispositivo que un admin
+ * liberó. Un cliente arreglado no alcanzaba — la tablet puede estar offline con
+ * un bundle viejo y re-adquirir al reconectar.
  */
 
 import { getPosOfflineDB } from '@/lib/pos/offline-db'
@@ -161,6 +173,13 @@ export interface TenancyVerdict {
   holderDeviceName: string | null
   /** Motivo server-side del rechazo, cuando lo hay. */
   denyReason: TenancyDenyReason | null
+  /**
+   * QUIÉN cerró la última tenencia (`'admin:{contactId}'` | `'device:…'`), solo
+   * con `denyReason: 'revoked'`. Lo consume `releasedByAdmin()` en
+   * `register-conflict.ts` para decir "un administrador liberó esta caja" en
+   * vez de un genérico — y para avisar que el aparato NO la retoma solo.
+   */
+  releasedBy: string | null
   /** ISO de la última confirmación conocida, para poder decir desde cuándo. */
   confirmedAt: string | null
 }
@@ -174,6 +193,7 @@ const NO_GRANT: TenancyVerdict = {
   holderDeviceId: null,
   holderDeviceName: null,
   denyReason: null,
+  releasedBy: null,
   confirmedAt: null,
 }
 
@@ -192,6 +212,7 @@ export function evaluateGrant(
     holderDeviceId: grant.holderDeviceId,
     holderDeviceName: grant.holderDeviceName,
     denyReason: grant.denyReason,
+    releasedBy: grant.releasedBy ?? null,
     confirmedAt: grant.confirmedAt,
   }
 
@@ -341,6 +362,22 @@ export async function tenancyHeldSince(registerId: string): Promise<string | nul
   return grant.heldSince ?? null
 }
 
+/**
+ * Qué puede hacer esta llamada con la tenencia.
+ *
+ *   - `false`      — solo preguntar. Latido, evento `online`, evento realtime
+ *                    `register-lease` y montaje del workspace.
+ *   - `'operator'` — el cajero tocó "Tomar caja" EN este aparato. Único valor
+ *                    que toma la caja, y el único que levanta el veto del
+ *                    administrador (ver abajo).
+ *
+ * `true` sigue siendo válido en el protocolo —es lo que mandan los bundles
+ * viejos que todavía están en la calle— y el servidor lo trata como una
+ * adquisición AUTOMÁTICA, sujeta al veto. Este cliente ya no lo emite: desde
+ * 2026-09-09 no queda ningún camino automático que tome la caja.
+ */
+export type TenancyAcquireIntent = false | true | 'operator'
+
 export interface RefreshTenancyOptions {
   /**
    * ¿Esta llamada puede TOMAR la caja si está libre, o solo preguntar?
@@ -351,27 +388,28 @@ export interface RefreshTenancyOptions {
    * cajero del segundo aparato veía la caja liberarse y seguía sin poder
    * facturar, sin nada en pantalla que explicara por qué.
    *
-   * Solo DOS call-sites pasan `true`, y los dos son un acto deliberado:
-   *   1. el botón "Tomar caja" de la pantalla de bloqueo del cobro
-   *      (`RegisterTakenPhase`, pay-dialog.tsx) — el cajero decidiendo;
-   *   2. `ensureTenancy()` en el drenaje de la cola offline — recuperación de
-   *      una venta YA EMITIDA e impresa (context/29, aprobado por el owner).
+   * Desde 2026-09-09 queda UN SOLO call-site que toma la caja: el botón "Tomar
+   * caja" de la pantalla de bloqueo del cobro (`RegisterTakenPhase`,
+   * pay-dialog.tsx), con `'operator'`. `ensureTenancy()` —el drenaje de la cola
+   * offline— dejó de adquirir: el servidor ya acepta una venta YA EMITIDA con
+   * la caja libre, sin pedir tenencia (ver "DRENAR ≠ VENDER" en
+   * `api/v1/offline-sync.php`). Era el último camino automático que tomaba la
+   * caja, y por ahí se colaba el bug del owner.
    *
-   * Latido, evento `online`, evento realtime `register-lease` y montaje del
-   * workspace preguntan y nada más.
-   *
-   * Ojo: el default del SERVIDOR es el contrario (`acquire` ausente ⇒ `true`,
-   * por compatibilidad con bundles viejos), por eso acá viaja SIEMPRE
-   * explícito en el body en vez de omitirse cuando es `false`.
+   * Ojo: el default del SERVIDOR es el contrario (`acquire` ausente ⇒
+   * adquisición automática, por compatibilidad con bundles viejos), por eso acá
+   * viaja SIEMPRE explícito en el body en vez de omitirse cuando es `false`.
    */
-  acquire?: boolean
+  acquire?: TenancyAcquireIntent
 }
 
 export async function refreshTenancy(
   registerId: string,
   opts: RefreshTenancyOptions = {},
 ): Promise<TenancyVerdict> {
-  const acquire = opts.acquire === true
+  // `false` explícito cuando no se pidió nada: omitirlo haría que el servidor
+  // aplique su default de compatibilidad (adquirir), justo al revés.
+  const acquire: TenancyAcquireIntent = opts.acquire ?? false
   try {
     const res = await posApi.post<ClaimResponse>('/v1/register/claim', { acquire })
     const prev = await readGrant()
@@ -390,6 +428,7 @@ export async function refreshTenancy(
       denyReason: null,
       holderDeviceId: null,
       holderDeviceName: null,
+      releasedBy: null,
     }
     await writeGrant(row)
     const verdict = evaluateGrant(row, registerId)
@@ -409,6 +448,7 @@ export async function refreshTenancy(
         denyReason: info.reason ?? 'taken_by_other',
         holderDeviceId: info.holderDeviceId,
         holderDeviceName: info.holderDeviceName,
+        releasedBy: info.releasedBy,
       }
       await writeGrant(row)
       const verdict = evaluateGrant(row, registerId)
@@ -425,13 +465,26 @@ export async function refreshTenancy(
 }
 
 /**
- * "¿Puedo emitir AHORA?" — el punto de entrada de todo lo que necesita el
- * derecho, incluido el drenaje de la cola offline.
+ * "¿Cómo está la tenencia de esta caja AHORA?" — lo que el drenaje de la cola
+ * offline consulta antes de postear un lote.
+ *
+ * NO ADQUIERE (cambio del 2026-09-09). Hasta este cambio pasaba
+ * `{ acquire: true }` y era el ÚNICO camino automático que tomaba la caja. Lo
+ * hacía por una razón real —el servidor exigía tenencia activa para aceptar una
+ * venta ya emitida— pero el efecto en producción fue el bug del owner: el ciclo
+ * de sync corre cada 30 s, llamaba acá SIEMPRE (incluso con la cola vacía) y la
+ * tablet se apropiaba de la caja apenas el admin la liberaba desde el panel.
+ * Liberó dos veces y la tablet la retomó sola las dos.
+ *
+ * El requisito desapareció en el servidor, que es donde correspondía atacarlo:
+ * `offline-sync.php` acepta una venta YA EMITIDA cuando la caja está LIBRE, sin
+ * pedir tenencia (ver "DRENAR ≠ VENDER" ahí). El comprobante impreso sigue
+ * subiendo —§53 intacta— y ya nadie toma la caja por su cuenta. Lo único que
+ * queda terminal es que OTRO dispositivo la tenga tomada, y para eso este
+ * veredicto sigue haciendo falta.
  *
  * Si el veredicto vigente ya es `ok`, no habla con el servidor (barato, se
- * puede llamar en cada ciclo de sync). Si NO lo es y hay conexión, intenta
- * confirmarlo — y ese intento es lo que recupera sola la venta del caso
- * inevitable: la caja quedó libre, el device la vuelve a tomar, la cola drena.
+ * puede llamar en cada ciclo de sync).
  */
 export async function ensureTenancy(registerId: string): Promise<TenancyVerdict> {
   const current = useTenancyStore.getState().verdict
@@ -439,11 +492,5 @@ export async function ensureTenancy(registerId: string): Promise<TenancyVerdict>
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return current ?? hydrateTenancy(registerId)
   }
-  // `acquire: true` — el ÚNICO camino automático que puede tomar la caja, y es
-  // deliberado: acá no se está por empezar una venta, se está recuperando una
-  // que el cajero YA emitió e imprimió. Dejarla en la cola porque la caja
-  // quedó libre mientras el device estaba sin red sería repudiar un
-  // comprobante entregado. Aprobado por el owner en context/29 §4; el resto de
-  // los disparadores automáticos solo pregunta.
-  return refreshTenancy(registerId, { acquire: true })
+  return refreshTenancy(registerId, { acquire: false })
 }

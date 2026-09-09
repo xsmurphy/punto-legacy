@@ -13,6 +13,11 @@
 
 import { describe, expect, it } from "vitest"
 import { evaluateGrant, TENANCY_TTL_MS } from "@/lib/pos/register-tenancy"
+import {
+  registerBlockShortReason,
+  registerConflictMessage,
+  tenancyBlock,
+} from "@/lib/pos/register-conflict"
 import type { TenancyGrantRow } from "@/lib/pos/offline-db"
 
 const REG = "11111111-1111-1111-1111-111111111111"
@@ -164,5 +169,69 @@ describe("evaluateGrant", () => {
 
   it("el TTL son 12 horas — cubre una jornada de corte, no una tablet olvidada", () => {
     expect(TENANCY_TTL_MS).toBe(12 * 60 * 60 * 1000)
+  })
+})
+
+/**
+ * La liberación del ADMIN se cuenta distinto (owner, 2026-09-09).
+ *
+ * El servidor veta la re-adquisición automática del dispositivo al que un admin
+ * le liberó la caja (`RegisterLeaseService::isAdminRevoked()`). El device tiene
+ * que DECIRLO: si el cajero lee "la caja está libre" a secas se queda esperando
+ * a que se arregle sola, y con el veto puesto eso ya no pasa nunca — hay que
+ * tocar "Tomar caja" acá.
+ *
+ * Lo que se prueba es que el texto se bifurque por `releasedBy`, no que el veto
+ * funcione: eso vive en el servidor y lo cubre
+ * `api/tests/register_tenancy_offline_test.php` (caso G).
+ */
+describe("liberación de un administrador", () => {
+  const revoked = (releasedBy: string | null) =>
+    evaluateGrant(
+      grant({
+        status: "denied",
+        denyReason: "revoked",
+        holderDeviceId: null,
+        holderDeviceName: null,
+        releasedBy,
+      }),
+      REG,
+      NOW,
+    )
+
+  it("sigue siendo una caja LIBRE que este device puede pedir", () => {
+    const v = revoked("admin:c-1")
+    expect(v.kind).toBe("free")
+    expect(v.canIssue).toBe(false)
+    // El veto es del SERVIDOR, no del botón: ofrecer tomarla es justo el
+    // remedio correcto, y es el único valor de `acquire` que lo levanta.
+    expect(v.canAcquire).toBe(true)
+  })
+
+  it("el veredicto arrastra quién la liberó", () => {
+    expect(revoked("admin:c-1").releasedBy).toBe("admin:c-1")
+    expect(revoked("device:d-9").releasedBy).toBe("device:d-9")
+  })
+
+  it("el motivo corto nombra al administrador solo cuando lo fue", () => {
+    expect(registerBlockShortReason(revoked("admin:c-1"))).toContain("administrador")
+    expect(registerBlockShortReason(revoked("device:d-9"))).not.toContain("administrador")
+    // Un grant viejo, sin el campo, cae al texto neutro en vez de romper.
+    expect(registerBlockShortReason(revoked(null))).not.toContain("administrador")
+  })
+
+  it("la pantalla bloqueante dice que el dispositivo NO la retoma solo", () => {
+    const { title, body } = registerConflictMessage(
+      tenancyBlock(revoked("admin:c-1"))!.info,
+      null,
+      "free",
+    )
+    expect(title).toContain("administrador")
+    expect(body).toContain("no la vuelve a tomar solo")
+  })
+
+  it("no afirma que el dispositivo estuviera sin conexión (lo hacía y era falso)", () => {
+    const { body } = registerConflictMessage(tenancyBlock(revoked("admin:c-1"))!.info, null, "free")
+    expect(body).not.toContain("sin conexión")
   })
 })

@@ -15,7 +15,8 @@ declare(strict_types=1);
  * (`frontend/lib/pos/invoice-numbering.ts`, "último correlativo de mi
  * caja + 1"), nunca acá.
  *
- * POST { acquire?: bool } → confirma la tenencia y, solo si `acquire`, la toma.
+ * POST { acquire?: false | true | "operator" } → confirma la tenencia y, según
+ * `acquire`, la toma.
  *   200 { registerLeaseId, registerId } — el device es (o pasa a ser) el tenedor.
  *   409 { holderDeviceId, holderDeviceName, expiresAt: null, reason, ... } —
  *       este device NO es el tenedor. `reason` dice por qué (ver
@@ -37,18 +38,50 @@ declare(strict_types=1);
  * fantasma que latían por su cuenta. Esto ataca la otra: que latir tome.)
  *
  * Con `acquire: false` el latido solo PREGUNTA. La caja se toma por un acto
- * deliberado del cajero (el botón "Tomar caja" del POS) o cuando el drenaje de
- * la cola offline recupera una venta YA EMITIDA — nunca por un timer ni por un
- * evento.
+ * deliberado del cajero (el botón "Tomar caja" del POS) — nunca por un timer ni
+ * por un evento.
  *
- * `acquire` ausente ⇒ `true`. Es compatibilidad TRANSITORIA con un cliente que
- * todavía tenga el bundle viejo: ese PWA seguiría ocupando la caja en cada
- * latido hasta que recargue. La ventana es chica y se cierra sola con un
- * reload, y el default opuesto sería peor —un cliente viejo no podría tomar la
- * caja NUNCA—. Sacar este default en cuanto no queden bundles previos a
- * 2026-09-01 en la calle. Ojo: el default del CLIENTE es el contrario
- * (`refreshTenancy()` en `lib/pos/register-tenancy.ts` exige `acquire: true`
- * explícito) — ahí el lado seguro es no tomar.
+ * `acquire` ausente ⇒ automática. Es compatibilidad TRANSITORIA con un cliente
+ * que todavía tenga el bundle viejo: ese PWA seguiría ocupando toda caja libre
+ * en cada latido hasta que recargue. Sacar este default en cuanto no queden
+ * bundles previos a 2026-09-01 en la calle. Ojo: el default del CLIENTE es el
+ * contrario (`refreshTenancy()` en `lib/pos/register-tenancy.ts` exige un
+ * `acquire` explícito) — ahí el lado seguro es no tomar.
+ *
+ * EL VETO DEL ADMIN (owner, 2026-09-09)
+ * ─────────────────────────────────────
+ * Regla del owner: *"si yo libero como administrador una caja, un cajero no
+ * puede pasar por encima de mi acción y retomarla"*. Verificado en producción:
+ * liberó la caja DOS veces desde el panel y la tablet la retomó sola las dos.
+ *
+ * Por eso `acquire` dejó de ser booleano. `true` sigue significando "tomala si
+ * está libre", pero es una adquisición AUTOMÁTICA y el servidor la RECHAZA
+ * cuando la última tenencia de este device sobre esta caja la cerró un admin
+ * (`RegisterLeaseService::isAdminRevoked()`). El único valor que levanta el
+ * veto es `"operator"`, que manda un solo call-site: el botón "Tomar caja" que
+ * toca el cajero en el propio aparato.
+ *
+ * Que un bundle viejo no pueda mandar `"operator"` NO es un efecto colateral,
+ * es la propiedad que se buscaba: la tablet del incidente sigue en la calle con
+ * el bundle anterior y el veto tiene que valer contra ella HOY, sin esperar un
+ * deploy del PWA ni que alguien recargue la app.
+ *
+ * EL COSTO, DECIDIDO Y ASUMIDO. Un aparato con el bundle viejo Y vetado queda
+ * sin salida propia: su botón "Tomar caja" también manda `true`, así que el
+ * cajero puede tocarlo todas las veces que quiera y recibe 409. El remedio es
+ * recargar el POS —el bundle nuevo viaja en el mismo deploy que este cambio— y
+ * después el botón entra.
+ *
+ * Se eligió así a sabiendas, y la alternativa se descartó: tratar `true` como
+ * `"operator"` durante una ventana de compatibilidad haría que el veto NO
+ * valiera contra ningún aparato de la calle, que es exactamente el único lugar
+ * donde tiene que valer. Y el desenlace del error es el correcto: en la ventana
+ * previa al reload la caja queda LIBRE y disponible para el teléfono del owner
+ * —el objetivo—, en vez de tomada por una tablet que nadie autorizó.
+ *
+ * El 409 que devuelve el veto es el `revoked`/`REGISTER_RELEASED` de siempre —
+ * ningún cliente tiene que aprender un código nuevo, y el POS ya lo pinta como
+ * "caja libre, tocá para tomarla".
  *
  * La tenencia YA NO vence por fecha/TTL (context/29 §4, 2026-08-17) — se
  * libera solo al cerrar la caja o por revocación de admin (panel, "Liberar
@@ -67,18 +100,6 @@ require_once dirname(__DIR__, 2) . '/lib/Auth/apiAuthPosContext.php';
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
 }
-
-// `acquire`: ¿este POST puede TOMAR la caja, o solo confirmar si ya es suya?
-// Ver "CONFIRMAR ≠ ADQUIRIR" en el docblock. Default `true` por
-// compatibilidad transitoria con bundles viejos; el cliente actual siempre lo
-// manda explícito.
-// El body sale de `$_POST`, no de un `php://input` propio: `bootstrap.php`
-// (líneas 90-110) ya normaliza el cuerpo de POST/PUT/DELETE/PATCH a `$_POST`
-// para JSON y para form-encoded por igual. Releer el stream acá funcionaba,
-// pero solo parseaba JSON — con un cuerpo form-encoded `acquire` se perdía y
-// caía en el default `true`, o sea justo el comportamiento viejo que este
-// cambio existe para sacar, en silencio.
-$mayAcquire = !array_key_exists('acquire', $_POST) || (bool) $_POST['acquire'];
 
 $authCtx = apiAuthPosContext();
 if (($authCtx['module'] ?? 'pos') !== 'pos') {
@@ -117,6 +138,44 @@ if ($authError !== null) {
     apiError($authError, 422);
 }
 
+// `acquire`: ¿este POST puede TOMAR la caja, y con qué INTENCIÓN?
+// Ver "CONFIRMAR ≠ ADQUIRIR" y "EL VETO DEL ADMIN" en el docblock.
+//
+// El body sale de `$_POST`, no de un `php://input` propio: `bootstrap.php`
+// (líneas 90-110) ya normaliza el cuerpo de POST/PUT/DELETE/PATCH a `$_POST`
+// para JSON y para form-encoded por igual. Releer el stream acá funcionaba,
+// pero solo parseaba JSON — con un cuerpo form-encoded `acquire` se perdía y
+// caía en el default `true`, o sea justo el comportamiento viejo que este
+// cambio existe para sacar, en silencio.
+//
+// El parseo es explícito y NO un `(bool)` desnudo. Con form-encoding un
+// `acquire=false` llega como el STRING "false", y `(bool) "false"` es `true` en
+// PHP: el gate se abría solo, en silencio, justo en el camino que este endpoint
+// existe para cerrar. Los strings de negación se tratan como negación.
+$rawAcquire = $_POST['acquire'] ?? null;
+if (is_string($rawAcquire)) {
+    // Normalizar UNA vez, antes de comparar contra nada: si "operator" se
+    // compara sin `trim` y los truthy con `trim`, un " operator" cae en NONE
+    // por accidente y no por diseño.
+    $rawAcquire = strtolower(trim($rawAcquire));
+}
+if ($rawAcquire === null) {
+    // Ausente ⇒ AUTO. Compatibilidad TRANSITORIA con bundles previos a
+    // 2026-09-01 (ver docblock). Nunca ⇒ OPERATOR: un cliente que no sabe
+    // declarar la intención no puede levantar el veto del admin sin querer.
+    $acquireIntent = \Punto\Api\Services\RegisterLeaseService::ACQUIRE_AUTO;
+} elseif ($rawAcquire === 'operator') {
+    $acquireIntent = \Punto\Api\Services\RegisterLeaseService::ACQUIRE_OPERATOR;
+} elseif (is_string($rawAcquire)) {
+    $acquireIntent = in_array($rawAcquire, ['1', 'true', 'on', 'yes'], true)
+        ? \Punto\Api\Services\RegisterLeaseService::ACQUIRE_AUTO
+        : \Punto\Api\Services\RegisterLeaseService::ACQUIRE_NONE;
+} else {
+    $acquireIntent = $rawAcquire
+        ? \Punto\Api\Services\RegisterLeaseService::ACQUIRE_AUTO
+        : \Punto\Api\Services\RegisterLeaseService::ACQUIRE_NONE;
+}
+
 // F2 (context/29 §4) — exclusividad de caja atada al dispositivo.
 //
 // La DECISIÓN (confirmar / tomar / rechazar, con su lock y su transacción) vive
@@ -129,7 +188,7 @@ $outcome = \Punto\Api\Services\RegisterLeaseService::claim(
     $compId,
     $outletId,
     $deviceId,
-    $mayAcquire
+    $acquireIntent
 );
 
 if ($outcome['conflict'] !== null) {

@@ -41,6 +41,17 @@ require_once __DIR__ . '/_harness.php';
  *      lo que impide que el latido de 5 min del POS se apropie de toda caja
  *      que quede libre — el motivo por el que un segundo dispositivo con la
  *      misma caja asignada nunca lograba facturar.
+ *   G. La liberación del ADMIN es autoritativa (owner, 2026-09-09): tras un
+ *      `close(..., 'forced', 'admin:…')`, ESE dispositivo no vuelve a tomar ESA
+ *      caja por un camino automático — hace falta que alguien toque "Tomar
+ *      caja" en el propio aparato. El veto es contra el DEVICE, no contra la
+ *      caja (otro aparato la toma normalmente), se DERIVA de `register_lease`
+ *      sin estado nuevo, y no lo dispara un `forced` de los caminos del propio
+ *      device.
+ *   H. DRENAR ≠ VENDER: un device vetado igual puede SUBIR lo que ya emitió e
+ *      imprimió (§53) — solo `taken_by_other` frena una venta encolada. Es lo
+ *      que le sacó al drenaje de la cola la necesidad de re-tomar la caja, que
+ *      era el único camino automático que adquiría.
  *   F. La otra cara de `register_lease`: un dispositivo que tuvo una caja NO
  *      se puede borrar (es la cadena de auditoría de qué aparato emitió qué),
  *      y uno sin ningún rastro operativo sí. Verifica de paso el SQL de
@@ -332,7 +343,7 @@ $activeLeaseCount = static function (string $registerId): int {
 
 // E1 — caja tomada por B: A pregunta y recibe el conflicto, sin escribir.
 $rowsBefore = $leaseRowCount($registerId);
-$outE1 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+$outE1 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_NONE);
 check(
     'E1 con la caja tomada por otro, claim(acquire=false) rechaza',
     $outE1['registerLeaseId'] === null
@@ -352,7 +363,7 @@ check(
 
 // E3 — EL CASO DEL BUG: caja libre + acquire=false ⇒ NO se inserta nada.
 $rowsBefore = $leaseRowCount($registerId);
-$outE3 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+$outE3 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_NONE);
 check(
     'E3 caja LIBRE + acquire=false -> NO inserta ninguna fila',
     $leaseRowCount($registerId) === $rowsBefore && $activeLeaseCount($registerId) === 0,
@@ -369,7 +380,7 @@ check(
 );
 
 // E5 — el acto explícito del cajero sí la toma.
-$outE5 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, true);
+$outE5 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_OPERATOR);
 check(
     'E5 acquire=true sobre caja libre SÍ la toma',
     $outE5['registerLeaseId'] !== null
@@ -382,7 +393,7 @@ check(
 
 // E6 — el latido del TENEDOR sigue funcionando: confirma sin escribir.
 $rowsBefore = $leaseRowCount($registerId);
-$outE6 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+$outE6 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_NONE);
 check(
     'E6 el tenedor confirma con acquire=false, misma tenencia y sin filas nuevas',
     $outE6['registerLeaseId'] === $outE5['registerLeaseId']
@@ -395,7 +406,7 @@ check(
 // E7 — `acquire=true` NUNCA le saca la caja a otro (§6, "el último que llega
 // pisa al anterior" fue RECHAZADO). El flag habilita tomar lo LIBRE, no
 // desalojar.
-$outE7 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceB, true);
+$outE7 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceB, RegisterLeaseService::ACQUIRE_OPERATOR);
 check(
     'E7 acquire=true NO le quita la caja al tenedor actual',
     $outE7['registerLeaseId'] === null
@@ -404,6 +415,186 @@ check(
     json_encode($outE7, JSON_UNESCAPED_UNICODE),
     $failures
 );
+
+// ── Caso I — el candado del que ahora depende todo EXISTE ──────────────────
+// Al aceptar una venta ya emitida con la caja libre (caso H), lo único que
+// impide duplicar un correlativo dentro de una misma caja es el índice único de
+// la mig 145. Y ese índice se crea CONDICIONALMENTE: el bloque DO de
+// `145_transaction_invoiceno_uniqueness.sql` hace `RAISE WARNING` + `RETURN` sin
+// crearlo si encuentra duplicados preexistentes. O sea que puede FALTAR en una
+// base concreta sin que nada avise.
+//
+// Este check lo vuelve explícito: si el índice no está, este arnés falla en vez
+// de que el agujero aparezca en producción con un correlativo repetido.
+echo "\n-- I. El índice único de mig 145 está creado --\n";
+
+$idx = ncmExecute("SELECT to_regclass('public.uq_transaction_expedition_invoiceno')::text AS idx");
+check(
+    'I1 uq_transaction_expedition_invoiceno existe (mig 145 lo crea condicionalmente)',
+    $idx !== false && $idx !== 0 && ($idx['idx'] ?? null) !== null,
+    'el índice NO está: la mig 145 abortó su creación por duplicados preexistentes, '
+        . 'y sin él nada impide dos ventas con el mismo invoiceNo en la misma caja',
+    $failures
+);
+
+// ── Caso G — la liberación del ADMIN es autoritativa (owner, 2026-09-09) ────
+// El incidente verificado en producción: el owner liberó una caja desde el
+// panel DOS veces y la tablet la volvió a tomar SOLA las dos, porque el drenaje
+// de la cola offline adquiría en cada ciclo de sync. Desde el teléfono la caja
+// se veía ocupada para siempre — bloqueo mutuo.
+//
+// La regla, textual: "si yo libero como administrador una caja, un cajero no
+// puede pasar por encima de mi acción y retomarla".
+//
+// Se prueba la mitad SERVIDOR, que es donde tiene que vivir: la tablet puede
+// estar offline con un bundle viejo y re-adquirir al reconectar, así que un
+// arreglo solo-cliente perdería la decisión remota del owner sin que nadie se
+// entere.
+echo "\n-- G. El veto del administrador --\n";
+
+// El admin libera la caja que deviceA tomó en E5.
+RegisterLeaseService::close($outE5['registerLeaseId'], 'forced', 'admin:' . $userId, 'forced');
+
+$vetoConflict = RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA);
+check(
+    'G1 el veto se DERIVA de register_lease, sin estado nuevo',
+    RegisterLeaseService::isAdminRevoked($vetoConflict),
+    'isAdminRevoked=false — conflict=' . json_encode($vetoConflict, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// G2 — EL BUG: la caja está LIBRE y el device liberado la pide automáticamente.
+$rowsBefore = $leaseRowCount($registerId);
+$outG2 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_AUTO);
+check(
+    'G2 caja libre + adquisición AUTOMÁTICA del device liberado -> RECHAZADA',
+    $outG2['registerLeaseId'] === null
+        && ($outG2['conflict']['reason'] ?? '') === 'revoked'
+        && $activeLeaseCount($registerId) === 0
+        && $leaseRowCount($registerId) === $rowsBefore,
+    'la tablet se la volvió a tomar sola: ' . json_encode($outG2, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+check(
+    'G3 el rechazo NO miente diciendo que la tiene otro dispositivo',
+    ($outG2['conflict']['holderDeviceId'] ?? null) === null,
+    'holderDeviceId=' . var_export($outG2['conflict']['holderDeviceId'] ?? null, true),
+    $failures
+);
+
+// G4 — el veto es contra el DISPOSITIVO, no contra la caja. Es el objetivo
+// entero: el teléfono del owner tiene que poder tomarla.
+$outG4 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceB, RegisterLeaseService::ACQUIRE_AUTO);
+check(
+    'G4 OTRO dispositivo SÍ la toma (el veto es del device, no de la caja)',
+    $outG4['registerLeaseId'] !== null && $outG4['created'] === true,
+    'el veto se pegó a la caja y bloqueó al otro aparato: ' . json_encode($outG4, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// Vuelve a quedar libre para probar la salida del veto.
+RegisterLeaseService::close($outG4['registerLeaseId'], 'released', 'device:close', 'released');
+
+// G5 — el acto humano explícito en el propio aparato SÍ la toma. Es la única
+// salida del veto, y es la que la regla del owner pide: alguien tiene que
+// decidirlo, no el software.
+$outG5 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_OPERATOR);
+check(
+    'G5 "Tomar caja" del cajero (ACQUIRE_OPERATOR) levanta el veto',
+    $outG5['registerLeaseId'] !== null
+        && $outG5['created'] === true
+        && $activeLeaseCount($registerId) === 1,
+    'el cajero no puede recuperar su propia caja: ' . json_encode($outG5, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+check(
+    'G6 tomada de nuevo, el veto quedó consumido (no es permanente)',
+    !RegisterLeaseService::isAdminRevoked(
+        RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA)
+    ),
+    'el veto sobrevivió a la toma explícita — la tablet quedaría vetada para siempre',
+    $failures
+);
+
+// G7 — solo el ADMIN veta. Un `forced` de los caminos del propio aparato
+// (revocar/desparear/cambiar de caja) NO deja al device sin poder reconectar
+// solo: ahí no hubo una decisión remota que respetar.
+RegisterLeaseService::close($outG5['registerLeaseId'], 'forced', 'device:' . $deviceA, 'forced');
+$deviceForced = RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA);
+check(
+    'G7 un forced NO-admin (releasedBy device:…) no veta',
+    ($deviceForced['reason'] ?? '') === 'revoked'
+        && !RegisterLeaseService::isAdminRevoked($deviceForced),
+    'reason=' . var_export($deviceForced['reason'] ?? null, true)
+        . ' releasedBy=' . var_export($deviceForced['releasedBy'] ?? null, true),
+    $failures
+);
+$outG7 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_AUTO);
+check(
+    'G8 y por eso la adquisición automática sigue entrando en ese caso',
+    $outG7['registerLeaseId'] !== null,
+    json_encode($outG7, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// G9 — el contrato de `$acquire` es cerrado. Un valor que no está en el enum
+// no puede caer en "tomá igual" por un cast silencioso: es exactamente el modo
+// de falla del `(bool) $_POST['acquire']` que este cambio también cerró (el
+// string "false" castea a true en PHP).
+$rejectedBadIntent = false;
+try {
+    RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceB, 'si');
+} catch (\InvalidArgumentException $e) {
+    $rejectedBadIntent = true;
+}
+check(
+    'G9 un $acquire fuera del enum es un error, no una adquisición',
+    $rejectedBadIntent,
+    'claim() aceptó un intent inválido',
+    $failures
+);
+
+// ── Caso H — DRENAR ≠ VENDER: qué frena una venta YA EMITIDA ────────────────
+// `offline-sync.php` dejó de exigir tenencia activa para subir una venta que el
+// cajero ya emitió e imprimió: solo la frena `taken_by_other`. Sin ese cambio,
+// el drenaje tenía que RE-TOMAR la caja, y ese era el único camino automático
+// que adquiría — la puerta por la que entró el bug del owner.
+//
+// Acá se prueba el PREDICADO que usa el endpoint (el endpoint mismo necesita
+// HTTP). Lo que protege el correlativo no es este chequeo sino
+// `uq_transaction_expedition_invoiceno` (mig 145), que sigue intacto.
+echo "\n-- H. Drenar no es vender --\n";
+
+$drainBlocks = static fn (?array $c): bool => $c !== null && ($c['reason'] ?? '') === 'taken_by_other';
+
+// H1 — device vetado por el admin, caja libre: la venta impresa SUBE.
+RegisterLeaseService::close($outG7['registerLeaseId'], 'forced', 'admin:' . $userId, 'forced');
+$hVeto = RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA);
+check(
+    'H1 un device VETADO igual puede subir lo que ya emitió (§53)',
+    RegisterLeaseService::isAdminRevoked($hVeto) && !$drainBlocks($hVeto),
+    'la venta impresa quedaría trabada: ' . json_encode($hVeto, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// H2 — pero NO puede tomar la caja, o sea que no puede emitir NADA nuevo.
+$outH2 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, RegisterLeaseService::ACQUIRE_AUTO);
+check(
+    'H2 y aun así NO puede tomar la caja (subir sí, vender no)',
+    $outH2['registerLeaseId'] === null && $activeLeaseCount($registerId) === 0,
+    json_encode($outH2, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// H3 — con OTRO device emitiendo contra la misma rama de numeración, sí frena.
+$leaseH = takeLease($registerId, $companyId, $outletId, $deviceB);
+check(
+    'H3 con la caja tomada por OTRO, la venta encolada SÍ se frena',
+    $drainBlocks(RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA)),
+    'se aceptaría un correlativo contra una caja que otro está usando',
+    $failures
+);
+RegisterLeaseService::close($leaseH, 'released', 'device:close', 'released');
 
 // ── Caso F — el rastro de tenencia impide borrar el dispositivo ─────────────
 // La otra cara de `register_lease`: además de garantizar un solo tenedor, es

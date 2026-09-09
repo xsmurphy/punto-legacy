@@ -50,8 +50,9 @@ declare(strict_types=1);
  *   9. Liberación forzada de la tenencia de A (simulando el botón "Liberar
  *      caja" del panel, F4, no implementado todavía — mismo
  *      `RegisterLeaseService::close()`): una venta que A intenta
- *      sincronizar DESPUÉS queda rechazada con `REGISTER_NOT_HELD` — A ya
- *      no es el tenedor real, así que su cola offline no puede colarse.
+ *      sincronizar DESPUÉS igual se ACEPTA (§53: la caja quedó libre, no hay
+ *      con quién chocar), pero A no puede RE-TOMAR la caja sola: el claim
+ *      automático choca con el veto del admin (caso 9b).
  *
  * mig 145 (índice único `uq_transaction_expedition_invoiceno` + timbrado
  * congelado — el agujero que quedó al sacar el arriendo: `register_lease`
@@ -191,10 +192,21 @@ function verifyHttp(int $port, string $method, string $path, string $bearer, ?st
     return [$status, is_array($decoded) ? $decoded : []];
 }
 
-/** POST real contra `/v1/register/claim.php` (tomar/confirmar tenencia de caja). */
+/**
+ * POST real contra `/v1/register/claim.php` (tomar/confirmar tenencia de caja).
+ *
+ * `acquire: "operator"` porque lo que este arnés modela es el CAJERO tocando
+ * "Tomar caja" en el aparato — el único acto que toma una caja desde el POS.
+ * Antes mandaba `'{}'`, que el servidor lee como adquisición AUTOMÁTICA por
+ * compatibilidad con bundles viejos; desde el veto del admin (2026-09-09,
+ * `RegisterLeaseService::isAdminRevoked()`) una automática NO entra si a ese
+ * device un admin le liberó esa caja, y el caso 10 re-toma justamente después
+ * de la liberación forzada del caso 9. Con `'{}'` este arnés apagaba con su
+ * propio veto los dos casos que prueban la mig 145.
+ */
 function verifyPostClaim(int $port, string $bearer): array
 {
-    return verifyHttp($port, 'POST', '/v1/register/claim.php', $bearer, '{}');
+    return verifyHttp($port, 'POST', '/v1/register/claim.php', $bearer, '{"acquire":"operator"}', 'application/json');
 }
 
 /** GET real contra `/v1/register.php` (sin resource) — RegisterService::docNumbers(). */
@@ -436,9 +448,24 @@ try {
         }
     }
 
-    // ── Caso 9: liberación forzada de la tenencia de A (simula "Liberar
-    //    caja" del panel, F4) — una venta que A intenta sincronizar
-    //    DESPUÉS queda rechazada: A ya no es el tenedor real. ─────────────
+    // ── Caso 9: DRENAR ≠ VENDER (owner, 2026-09-09) — tras la liberación
+    //    forzada de la tenencia de A (simula "Liberar caja" del panel, F4),
+    //    una venta que A YA EMITIÓ E IMPRIMIÓ sí sincroniza: la caja quedó
+    //    LIBRE, no hay otro dispositivo emitiendo contra la misma rama de
+    //    numeración, y §53 prohíbe repudiar un comprobante entregado.
+    //
+    //    CONTRATO INVERTIDO A PROPÓSITO. Hasta este cambio el caso esperaba
+    //    ok=false, y con eso obligaba al device a RE-TOMAR la caja antes de
+    //    drenar — el único camino automático que adquiría, y por el que entró
+    //    el bug del owner (la tablet se apropiaba de la caja apenas el admin
+    //    la liberaba). Además el código que esperaba, `REGISTER_NOT_HELD`, ya
+    //    no lo produce nadie desde los códigos por-causa del 2026-08-23: este
+    //    caso estaba rojo antes de tocarlo.
+    //
+    //    Lo que protege el correlativo NO es este chequeo sino
+    //    `uq_transaction_expedition_invoiceno` (mig 145), que los casos 10-12
+    //    prueban a continuación. Lo que A NO puede hacer es EMITIR algo nuevo:
+    //    para eso tiene que volver a tomar la caja, y eso es el caso 9b.
     if ($registerLeaseIdA === '') {
         $failures[] = 'Caso 9: no se pudo resolver registerLeaseId de A para simular la liberación forzada';
     } else {
@@ -447,17 +474,41 @@ try {
         $saleUidAfterForce = 'verify-sale-after-force-' . bin2hex(random_bytes(6));
         [$statusAfterForce, $bodyAfterForce] = verifyPostOfflineSync($port, $tokenA, $PY_ITEM, 999_999, $saleUidAfterForce);
         $resultAfterForce = $bodyAfterForce['data']['results'][0] ?? null;
-        $errorCode = $resultAfterForce['error']['code'] ?? null;
 
-        if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? true) !== false || $errorCode !== 'REGISTER_NOT_HELD') {
-            $failures[] = 'Caso 9: sync offline de A tras la liberación forzada esperaba ok=false con error.code=REGISTER_NOT_HELD, llegó status=' . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
+        if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? false) !== true) {
+            $failures[] = 'Caso 9: la venta YA EMITIDA de A tras la liberación del admin esperaba ok=true (§53, la caja quedó libre), llegó status='
+                . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
         } else {
             $txRow = ncmExecute('SELECT 1 FROM transaction WHERE transactionUID = ?', [$saleUidAfterForce]);
             $wasSaved = $txRow !== false && $txRow !== 0;
-            if ($wasSaved) {
-                $failures[] = 'Caso 9: la venta rechazada por REGISTER_NOT_HELD no debía guardarse, pero existe en transaction';
+            if (!$wasSaved) {
+                $failures[] = 'Caso 9: offline-sync devolvió ok=true pero la venta no quedó en transaction';
             } else {
-                echo "[verify_register_lease] OK caso 9: tras la liberación forzada de la tenencia de A, offline-sync.php rechaza su venta encolada con REGISTER_NOT_HELD (sin guardar) — 'una caja no tiene con quién chocar' sigue valiendo cuando la tenencia cambia de dueño\n";
+                echo "[verify_register_lease] OK caso 9: tras la liberación forzada del admin, la venta YA EMITIDA de A igual sincroniza (la caja quedó LIBRE) — drenar no es vender, §53 intacta\n";
+            }
+        }
+
+        // ── Caso 9b: el VETO. La caja está libre, pero A no la recupera sola:
+        //    un `acquire` AUTOMÁTICO (lo que manda cualquier camino del
+        //    software, y todo bundle viejo) tiene que chocar con 409. Es la
+        //    regla del owner —"un cajero no puede pasar por encima de mi
+        //    acción y retomarla"— ejercida sobre el endpoint REAL.
+        [$statusAutoClaim, $bodyAutoClaim] = verifyHttp(
+            $port, 'POST', '/v1/register/claim.php', $tokenA, '{"acquire":true}', 'application/json'
+        );
+        $autoReason = $bodyAutoClaim['error']['details']['reason'] ?? null;
+        if ($statusAutoClaim !== 409 || $autoReason !== 'revoked') {
+            $failures[] = 'Caso 9b: tras la liberación del ADMIN, un claim AUTOMÁTICO de A esperaba 409 reason=revoked (el veto), llegó '
+                . $statusAutoClaim . ' ' . json_encode($bodyAutoClaim);
+        } else {
+            $stillFree = ncmExecute(
+                'SELECT count(*)::int AS n FROM "register_lease" WHERE registerid = ? AND "status" = \'active\'',
+                [$PY_REGISTER]
+            );
+            if ((int) ($stillFree['n'] ?? -1) !== 0) {
+                $failures[] = 'Caso 9b: el claim automático fue rechazado pero igual dejó una tenencia activa';
+            } else {
+                echo "[verify_register_lease] OK caso 9b: la liberación del ADMIN es autoritativa — el claim AUTOMÁTICO de A vuelve 409 revoked y la caja sigue libre (solo \"Tomar caja\" del cajero la levanta, caso 10)\n";
             }
         }
     }

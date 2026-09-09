@@ -58,19 +58,15 @@ foreach ($sales as $item) {
         continue;
     }
 
-    // Exclusividad de caja (context/29 §4) — el device tiene que SEGUIR
-    // siendo el tenedor de la caja para que el número que emitió offline sea
-    // legítimo. Si la caja se liberó, la tomó otro dispositivo, o se forzó
-    // mientras este estaba offline, sincronizar esta venta arriesgaría
-    // duplicar un correlativo que el tenedor real ya haya emitido — mismo
-    // chequeo que el camino online (`sales.php`) ya aplica antes de guardar,
-    // ahora contra `register_lease` DIRECTO (ya no contra `numbering_lease`
-    // — el arriendo de números que ataba cada bloque a una tenencia fue
-    // RECHAZADO por el owner 2026-08-17, ver docblock de
-    // `RegisterLeaseService`). §53: el backend no rechaza una venta ya
-    // EMITIDA por reglas de negocio del POS, pero la exclusividad de caja es
-    // ESTADO COMPARTIDO (distinción explícita de §53) — acá sí corresponde
-    // bloquear, por venta, sin tumbar el resto del lote.
+    // Exclusividad de caja (context/29 §4) — se lee la tenencia REAL de la
+    // caja ahora mismo, contra `register_lease` DIRECTO (ya no contra
+    // `numbering_lease`: el arriendo de números que ataba cada bloque a una
+    // tenencia fue RECHAZADO por el owner 2026-08-17, ver docblock de
+    // `RegisterLeaseService`). Qué se hace con el resultado NO es lo mismo que
+    // en el camino online — ver "DRENAR ≠ VENDER" más abajo: acá la venta ya
+    // está emitida e impresa, y solo bloquea el caso en que otro dispositivo
+    // esté emitiendo contra la misma rama de numeración. Por venta, sin
+    // tumbar el resto del lote.
     //
     // El chequeo va en su propio try: `holderConflict()` LEE de BD y, desde
     // que el wrapper lanza `DbQueryException`, un error de SQL acá tumbaba el
@@ -96,17 +92,38 @@ foreach ($sales as $item) {
         ];
         continue;
     }
-    if ($conflict !== null) {
-        // Un código POR CAUSA, no el `REGISTER_NOT_HELD` único de antes
-        // ("liberada, tomada por otro, o cerrada" — tres causas con tres
-        // remedios distintos en una sola frase). Ver
-        // `RegisterLeaseService::conflictMessage()`: `REGISTER_TAKEN` es el
-        // único terminal; `REGISTER_RELEASED`/`REGISTER_NEVER_HELD` dejan la
-        // caja LIBRE y el POS los resuelve solo tomándola de nuevo y
-        // reintentando esta misma venta con el MISMO número (si ese número ya
-        // no estuviera libre, `uq_transaction_expedition_invoiceno` de mig 145
-        // lo ataja abajo como NUMBER_TAKEN — nunca se duplica un comprobante
-        // por reintentar acá).
+    // DRENAR ≠ VENDER (owner, 2026-09-09)
+    // ───────────────────────────────────
+    // Hasta hoy CUALQUIER conflicto frenaba la venta encolada, y eso obligaba
+    // al device a RE-TOMAR la caja antes de drenar. Ese requisito es lo que
+    // convertía a `ensureTenancy()` en el único camino automático que adquiría
+    // — y por ahí se colaba el bug del owner: la tablet se apropiaba de la caja
+    // sola en cada ciclo de sync, aunque el admin la acabara de liberar.
+    //
+    // La distinción correcta es entre EMITIR y SUBIR LO YA EMITIDO:
+    //
+    //   - `taken_by_other` — OTRO device tiene la caja AHORA y está emitiendo
+    //     contra la misma rama de numeración. Sigue siendo terminal: acá sí hay
+    //     estado compartido en disputa (la distinción explícita de §53).
+    //   - `revoked` / `released` / `never_held` — la caja está LIBRE. No hay
+    //     nadie emitiendo con quien chocar, así que exigir tenencia no compra
+    //     nada: la venta ya está EMITIDA e IMPRESA y el cliente se fue con el
+    //     comprobante. Rechazarla sería repudiar un documento entregado, que es
+    //     exactamente lo que §53 prohíbe.
+    //
+    // Lo que protege el correlativo NO es este chequeo, es
+    // `uq_transaction_expedition_invoiceno` (mig 145): si el número ya se usó,
+    // el INSERT de abajo falla con NUMBER_TAKEN. Ese índice es el invariante
+    // real y sigue intacto — este chequeo era una segunda vuelta de llave que
+    // costaba una re-adquisición de caja.
+    //
+    // Consecuencia buscada: un device VETADO por el admin (ver
+    // `RegisterLeaseService::isAdminRevoked()`) puede terminar de subir lo que
+    // emitió, pero NO puede tomar la caja ni emitir nada nuevo — que es
+    // literalmente lo que pidió el owner.
+    if ($conflict !== null && ($conflict['reason'] ?? '') === 'taken_by_other') {
+        // Ver `RegisterLeaseService::conflictMessage()`: `REGISTER_TAKEN` es el
+        // único terminal, y el mensaje nombra al dispositivo que la tiene.
         [$code, $message] = RegisterLeaseService::conflictMessage($conflict);
         $results[] = [
             'clientTempId' => $tempId,

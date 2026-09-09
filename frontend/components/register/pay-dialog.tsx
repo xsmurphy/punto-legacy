@@ -1013,6 +1013,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           // Misma regla que `evaluateGrant()`: solo "la tiene otro" cierra la
           // puerta. Un 409 sin `reason` legible (backend viejo) deja pedir la
           // caja — el claim lo resolverá con información fresca.
+          //
+          // SE REVISÓ Y SE DEJA COMO ESTÁ (2026-09-09). El síntoma que motivó
+          // mirarlo —desde el teléfono del owner el botón salía deshabilitado y
+          // la caja se veía ocupada para siempre— NO nacía acá: la tablet
+          // re-adquiría la caja en cada ciclo de sync, así que el servidor
+          // contestaba `taken_by_other` de verdad y este gate leía bien un
+          // estado real. Cortado ese camino, la caja queda libre tras la
+          // liberación del admin y el teléfono recibe `released`/`never_held`,
+          // con el botón habilitado. Abrir el gate para permitir tomar una caja
+          // que OTRO dispositivo tiene sería "el último que llega pisa al
+          // anterior", RECHAZADO en context/29 §6.
           canAcquire: info.reason !== "taken_by_other" && info.holderDeviceId === null,
         })
         setPhase("register-taken")
@@ -2059,13 +2070,19 @@ function RegisterTakenPhase({ info, kind, canAcquire, registerId, onRetry, onCan
   const canRetry = canAcquire && isOnline
 
   async function handleRetry() {
-    // `acquire: true` — EL acto explícito del cajero, uno de los dos únicos
-    // call-sites que pueden tomar una caja (el otro es el drenaje de la cola
-    // offline). Todo lo demás en el POS solo pregunta.
+    // `acquire: 'operator'` — EL acto explícito del cajero, y desde 2026-09-09
+    // el ÚNICO call-site del POS que puede tomar una caja: el drenaje de la
+    // cola dejó de adquirir (ver `ensureTenancy()`). Todo lo demás pregunta.
+    //
+    // El valor importa, no es un `true` con otro nombre: es lo único que levanta
+    // el veto que el servidor pone sobre un dispositivo al que un ADMINISTRADOR
+    // le liberó la caja (`RegisterLeaseService::isAdminRevoked()`). El toque de
+    // este botón ES la "acción humana explícita" que la regla del owner exige
+    // para revertir su decisión remota.
     //
     // Va ANTES de `onRetry()` porque el gate del cobro lee el grant local: sin
     // esto el reintento chocaría contra el mismo veredicto viejo.
-    await refreshTenancy(registerId, { acquire: true })
+    await refreshTenancy(registerId, { acquire: "operator" })
     onRetry()
   }
 

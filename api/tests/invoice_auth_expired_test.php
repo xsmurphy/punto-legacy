@@ -231,7 +231,16 @@ $issued = DeviceAuth::issueDeviceToken(
 );
 $bearer   = $issued['token'];
 $deviceId = $issued['deviceId'];
-RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceId, true);
+// `ACQUIRE_OPERATOR`: este device recién pareado toma la caja igual que lo
+// haría el cajero con "Tomar caja". `$acquire` dejó de ser booleano el
+// 2026-09-09 (veto del admin, ver `RegisterLeaseService::isAdminRevoked()`).
+RegisterLeaseService::claim(
+    $registerId,
+    $companyId,
+    $outletId,
+    $deviceId,
+    RegisterLeaseService::ACQUIRE_OPERATOR
+);
 
 $ctx     = TenantContext::fromAuth(compact('companyId', 'outletId', 'userId', 'registerId', 'roleId'));
 $service = new SaleService($ctx, $db);

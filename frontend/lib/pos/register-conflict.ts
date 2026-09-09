@@ -38,6 +38,12 @@ export interface RegisterConflictInfo {
    * `null` solo para respuestas de un backend viejo.
    */
   reason: TenancyDenyReason | null
+  /**
+   * QUIÉN liberó la última tenencia (`'admin:{contactId}'` | `'device:…'`),
+   * tal como lo manda `RegisterLeaseService::holderConflict()`. Solo llega con
+   * `reason: 'revoked'`. `null` para un backend viejo o cualquier otra causa.
+   */
+  releasedBy: string | null
 }
 
 /** Lee `err.payload.error.details` del envelope `{ok:false, error:{...}}`
@@ -54,6 +60,7 @@ export function extractRegisterConflictInfo(err: {
             holderDeviceName?: string | null
             expiresAt?: string | null
             reason?: string | null
+            releasedBy?: string | null
           }
         }
       }
@@ -67,6 +74,10 @@ export function extractRegisterConflictInfo(err: {
     reason: KNOWN_REASONS.includes(rawReason as TenancyDenyReason)
       ? (rawReason as TenancyDenyReason)
       : null,
+    // Nunca se renderiza crudo: solo se le pregunta si empieza con `admin:`
+    // (ver `releasedByAdmin()`), así que un valor inesperado no puede llegar a
+    // la pantalla.
+    releasedBy: typeof details?.releasedBy === 'string' ? details.releasedBy : null,
   }
 }
 
@@ -110,10 +121,24 @@ export function registerConflictMessage(
   }
 
   if (info?.reason === "revoked") {
-    return {
-      title: "Liberaron esta caja",
-      body: "Un administrador liberó esta caja mientras este dispositivo estaba sin conexión. Está libre: volvé a tomarla para seguir vendiendo.",
-    }
+    // El texto ya NO afirma "mientras estabas sin conexión": la liberación del
+    // admin llega igual con el POS conectado —es el caso del incidente del
+    // owner, que liberó desde el panel con la tablet online— y mandar al cajero
+    // a revisar la red lo hace buscar un problema que no existe.
+    //
+    // Y nombra el veto: la caja quedó libre pero ESTE dispositivo no la retoma
+    // solo (`RegisterLeaseService::isAdminRevoked()`). Sin esa frase el cajero
+    // lee "está libre" y espera a que se arregle sola, que es justo lo que ya
+    // no pasa.
+    return releasedByAdmin(info)
+      ? {
+          title: "Un administrador liberó esta caja",
+          body: "La caja quedó libre, y este dispositivo no la vuelve a tomar solo. Tomala de nuevo desde acá para seguir vendiendo.",
+        }
+      : {
+          title: "Liberaron esta caja",
+          body: "Esta caja se liberó desde el comercio. Está libre: volvé a tomarla para seguir vendiendo.",
+        }
   }
 
   if (info?.reason === "released") {
@@ -158,6 +183,24 @@ export function registerConflictMessage(
 }
 
 /**
+ * ¿La última tenencia la cerró un ADMINISTRADOR desde el panel?
+ *
+ * Espejo exacto de `RegisterLeaseService::isAdminRevoked()`, que es lo que el
+ * servidor evalúa para vetar la re-adquisición automática. Acá no decide nada:
+ * solo elige el texto, para que lo que el cajero LEE coincida con lo que el
+ * servidor HACE. El prefijo `admin:` lo escriben `register-lease.php` (panel,
+ * "Liberar caja") y `devices.php` (revocar dispositivo); los caminos del propio
+ * aparato escriben `device:…`.
+ */
+function releasedByAdmin(
+  source: { reason?: TenancyDenyReason | null; denyReason?: TenancyDenyReason | null; releasedBy?: string | null } | null,
+): boolean {
+  const reason = source?.reason ?? source?.denyReason ?? null
+  if (reason !== "revoked") return false
+  return (source?.releasedBy ?? "").startsWith("admin:")
+}
+
+/**
  * Motivo CORTO del bloqueo, para el CONTROL que impide la acción — hoy el
  * tooltip del botón de cobrar (`CartBottom`, cart-panel.tsx).
  *
@@ -179,7 +222,15 @@ export function registerBlockShortReason(verdict: TenancyVerdict | null): string
   // que hacer y que lo hace el cajero — "hay que volver a tomarla" describía
   // un trámite de otro; "tocá para tomarla" nombra la acción y dónde está (el
   // toque abre `RegisterTakenPhase`, con el botón).
-  if (verdict?.kind === "free") return "Esta caja está libre — tocá para tomarla"
+  // El motivo del bloqueo va en el CONTROL de la acción (tooltip del botón de
+  // cobrar), no en una banda: nada se inserta ni mueve los botones del carrito.
+  // Cuando la liberó un admin, decirlo cambia lo que el cajero hace — ya no
+  // alcanza con esperar, el dispositivo no la retoma solo.
+  if (verdict?.kind === "free") {
+    return releasedByAdmin(verdict)
+      ? "Un administrador liberó esta caja — tocá para tomarla de nuevo"
+      : "Esta caja está libre — tocá para tomarla"
+  }
   if (verdict?.kind === "stale") return "Hace más de 12 horas que no se confirma esta caja"
   if (verdict?.kind === "other-register") return "La tenencia confirmada es de otra caja"
   return "Caja sin tenencia confirmada"
@@ -205,6 +256,7 @@ export function tenancyBlock(
       holderDeviceName: verdict?.holderDeviceName ?? null,
       expiresAt: null,
       reason: verdict?.denyReason ?? null,
+      releasedBy: verdict?.releasedBy ?? null,
     },
     kind: verdict?.kind ?? "never",
     // Viaja con el bloqueo y no se recalcula en el JSX: es la misma decisión

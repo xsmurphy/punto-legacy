@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { peekAll, markSynced, markFailed, markRetry, markSyncing, markWaiting, getCount, getFailedCount, revivePendingAfterTenancy, type OfflineSaleRow } from '@/lib/pos/offline-queue'
+import { peekAll, markSynced, markFailed, markRetry, markSyncing, markWaiting, getCount, getFailedCount, revivePendingAfterTenancy, TENANCY_RECOVERABLE_CODES, type OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { isAccountBlocked } from '@/lib/pos/account-block'
 import { posApi as api } from '@/lib/api/pos-client'
@@ -74,29 +74,64 @@ export function useOfflineSync() {
     // marcar el reintento de cada venta del lote.
     let toSync: OfflineSaleRow[] = []
     try {
+      // ── La cola PRIMERO, la tenencia después ────────────────────────────
+      //
+      // El orden estaba al revés hasta 2026-09-09 y era el bug del owner: este
+      // ciclo corre cada 30 s y consultaba la tenencia SIEMPRE, con la cola
+      // vacía incluida. Como esa consulta adquiría (`ensureTenancy()` pasaba
+      // `acquire: true`), un POS abierto e inactivo se apropiaba de la caja a
+      // los pocos segundos de que un admin la liberara desde el panel. El owner
+      // liberó dos veces y la tablet la retomó sola las dos; desde su teléfono
+      // la caja se veía ocupada para siempre.
+      //
+      // Sin nada que subir no hay ninguna pregunta que hacerle al servidor.
+      // "Trabajo" = algo que este ciclo podría llegar a subir: cualquier fila
+      // no-terminal, más las que fallaron por una tenencia que puede haberse
+      // recuperado. Una cola con solo fallas terminales (stock, número tomado)
+      // no tiene nada que preguntar y no debe seguir latiendo contra el
+      // servidor cada 30 s.
+      const queued = await peekAll()
+      const hasWork = queued.some(
+        (r) =>
+          r.status !== 'failed' ||
+          (r.error != null && TENANCY_RECOVERABLE_CODES.has(r.error.code)),
+      )
+      const registerId = useCatalogStore.getState().activeRegisterId
+      if (!hasWork) {
+        // Nada esperando ⇒ nada que esté esperando por falta de pago. Sin este
+        // reset la marca de cuenta impaga sobreviviría a la cola vacía.
+        setAccountBlocked('sales', false)
+        return
+      }
+
       // Tenencia ANTES de postear (incidente 2026-08-23). Sin esto había una
       // carrera real: al volver la red, el evento `online` disparaba este sync
       // en paralelo con el claim del arranque, así que el lote llegaba a
       // `offline-sync.php` cuando `register_lease` todavía estaba vacía y las
       // ventas se rechazaban por "caja sin tenencia" con la caja LIBRE — y el
-      // rechazo era terminal. Confirmar primero convierte esa carrera en una
-      // secuencia.
+      // rechazo era terminal.
       //
-      // `ensureTenancy()` es barato cuando el veredicto ya es `ok` (no toca la
-      // red), así que se puede llamar en cada ciclo. Si NO se puede confirmar,
-      // no se postea nada: las ventas quedan 'pending' y se reintentan en el
-      // próximo ciclo. Nunca se marcan 'failed' por esto — no hubo respuesta
-      // del servidor que lo justifique.
-      const registerId = useCatalogStore.getState().activeRegisterId
+      // Ese rechazo ya no existe: el servidor acepta una venta YA EMITIDA con
+      // la caja libre, sin pedir tenencia ("DRENAR ≠ VENDER" en
+      // `api/v1/offline-sync.php`). Lo que se sigue consultando —sin adquirir—
+      // es el único desenlace terminal que queda: que OTRO dispositivo tenga la
+      // caja tomada. En ese caso no se postea nada y las ventas quedan
+      // 'pending' para el próximo ciclo; nunca se marcan 'failed' por esto,
+      // porque no hubo respuesta del servidor que lo justifique.
+      //
+      // OJO con el gate: es `kind === 'denied'`, NO `!canIssue`. Un device
+      // vetado por el admin tiene `canIssue: false` —no puede VENDER, esa es la
+      // regla— y aun así tiene que poder terminar de subir lo que ya emitió e
+      // imprimió (§53). Gatear por `canIssue` dejaría esos comprobantes
+      // trabados en la cola por una regla que habla de emitir, no de subir.
       if (registerId) {
         const verdict = await ensureTenancy(registerId)
-        if (!verdict.canIssue) return
-        // Con la tenencia recuperada, las ventas que habían fallado por una
-        // tenencia que ya no aplica vuelven a la cola: es el caso inevitable
-        // del diseño (le sacaron la caja al device mientras estaba offline) y
-        // así se resuelve solo, sin que el operador tenga que abrir el
-        // diálogo. Lo que NO vuelve es lo que falló por otra causa (stock,
-        // número tomado, payload inválido) ni por `REGISTER_TAKEN`.
+        if (verdict.kind === 'denied') return
+        // La caja está libre (o es de este device): las ventas que habían
+        // fallado por una tenencia que ya no aplica vuelven a la cola, sin que
+        // el operador tenga que abrir el diálogo y apretar reintentar. Lo que
+        // NO vuelve es lo que falló por otra causa (stock, número tomado,
+        // payload inválido) ni por `REGISTER_TAKEN`.
         await revivePendingAfterTenancy()
       }
 

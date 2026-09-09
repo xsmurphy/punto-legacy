@@ -19,10 +19,14 @@ namespace Punto\Api\Services;
  * necesita alrededor del constraint:
  *
  *   - claim():          la transición LIBRE → TOMADA, y la confirmación de
- *     "sigo siendo el tenedor". Es la única que ESCRIBE tenencias nuevas, y
- *     desde 2026-09-01 solo lo hace con `$acquire = true` — confirmar dejó de
- *     implicar tomar (ver su docblock: mientras las dos cosas fueron una
- *     sola, el latido del POS se quedaba con toda caja que quedara libre).
+ *     "sigo siendo el tenedor". Es la ÚNICA que escribe tenencias nuevas —
+ *     propiedad de la que depende el veto del admin, porque un camino que
+ *     insertara en `register_lease` por afuera lo saltearía entero. Desde
+ *     2026-09-01 solo toma con un `$acquire` que no sea `ACQUIRE_NONE`
+ *     (confirmar dejó de implicar tomar: mientras las dos cosas fueron una
+ *     sola, el latido del POS se quedaba con toda caja que quedara libre), y
+ *     desde 2026-09-09 una adquisición AUTOMÁTICA además tiene que pasar el
+ *     veto (`isAdminRevoked()`).
  *   - holderConflict(): quién tiene la caja tomada AHORA, si no es
  *     `$deviceId` — usado tanto para decidir si un claim nuevo entra, como
  *     para que `sales.php`/`offline-sync.php` rechacen una venta de un
@@ -69,7 +73,95 @@ namespace Punto\Api\Services;
 final class RegisterLeaseService
 {
     /**
-     * CONFIRMAR la tenencia de una caja y, solo si `$acquire`, TOMARLA.
+     * Prefijo de `register_lease.releasedby` cuando quien liberó fue un
+     * ADMINISTRADOR desde el panel — lo escriben `api/v1/register-lease.php`
+     * ("Liberar caja") y `api/v1/devices.php` (revocar dispositivo). Los
+     * caminos del propio aparato escriben `device:…`.
+     *
+     * Es un contrato de string que hasta ahora vivía repetido en cada
+     * call-site; acá está porque `isAdminRevoked()` lo CONVIERTE EN POLÍTICA
+     * (decide si una caja se puede retomar sola), y una política no puede
+     * depender de que cuatro archivos se acuerden de escribir el mismo
+     * prefijo. Hay un espejo en el front —`releasedByAdmin()` en
+     * `frontend/lib/pos/register-conflict.ts`— que solo elige el TEXTO.
+     */
+    public const RELEASED_BY_ADMIN_PREFIX = 'admin:';
+
+    /** Este POST solo pregunta: latido, evento `online`, realtime, montaje. */
+    public const ACQUIRE_NONE = 'none';
+
+    /**
+     * Adquisición AUTOMÁTICA — la dispara el software, no una persona. Es
+     * también donde caen los bundles viejos (que mandan `acquire: true`) y el
+     * default de compatibilidad de `claim.php`. Sujeta al veto del admin.
+     */
+    public const ACQUIRE_AUTO = 'auto';
+
+    /**
+     * Adquisición EXPLÍCITA — el cajero tocó "Tomar caja" en ESTE dispositivo.
+     * Es la única que levanta el veto del admin (ver `isAdminRevoked()`).
+     */
+    public const ACQUIRE_OPERATOR = 'operator';
+
+    /**
+     * LA LIBERACIÓN DEL ADMINISTRADOR ES AUTORITATIVA (owner, 2026-09-09)
+     * ──────────────────────────────────────────────────────────────────
+     * Regla textual del owner: *"si yo libero como administrador una caja, un
+     * cajero no puede pasar por encima de mi acción y retomarla. Más todavía
+     * estando a distancia: este módulo lo hicimos para poder manejar cajas
+     * remotas"*.
+     *
+     * El incidente verificado en producción: el owner liberó una caja desde el
+     * panel DOS veces (dos filas `forced` en `register_lease` lo prueban) y la
+     * tablet la volvió a tomar SOLA las dos veces, porque el drenaje de la cola
+     * offline (`ensureTenancy()`) adquiría con `acquire: true` en cada ciclo de
+     * sync —cada 30 s, incluso con la cola vacía—. Desde el teléfono la caja se
+     * veía permanentemente ocupada: bloqueo mutuo, el panel libera y la tablet
+     * re-adquiere al instante.
+     *
+     * QUÉ ES EL VETO. Tras un `close(..., 'forced', 'admin:…')`, ese
+     * DISPOSITIVO no puede volver a tomar ESA caja por un camino automático.
+     * Hace falta un acto humano en el propio aparato (`ACQUIRE_OPERATOR`).
+     *
+     * SIN ESTADO NUEVO — y a propósito. La condición ya está enteramente
+     * derivada de `register_lease`: `holderConflict()` devuelve `reason =
+     * 'revoked'` exactamente cuando la caja está LIBRE y la última tenencia de
+     * ESTE device sobre ESTA caja se cerró `forced`, y `releasedBy` dice quién
+     * la cerró (`'admin:{contactId}'` lo escriben `register-lease.php` y
+     * `devices.php`; los caminos del propio device escriben `'device:…'`). Una
+     * columna o una tabla de vetos sería estado paralelo que hay que mantener
+     * en sync con el que ya existe — el modo de falla clásico.
+     *
+     * ALCANCE. Contra el DISPOSITIVO liberado, nunca contra la caja: cualquier
+     * OTRO dispositivo la toma normalmente. Eso ES el objetivo (el teléfono del
+     * owner tiene que poder tomarla).
+     *
+     * CUÁNDO CADUCA. Con dos salidas naturales, ninguna por tiempo:
+     *   1. alguien toca "Tomar caja" EN la tablet (`ACQUIRE_OPERATOR`) — es
+     *      literalmente "la acción humana explícita" que pide la regla;
+     *   2. otro dispositivo toma la caja — deja de estar libre y manda
+     *      `taken_by_other`, el veto es irrelevante.
+     * NO hay caducidad por timer, y es una decisión: un veto que se levanta
+     * solo a los N minutos devuelve la decisión de quién factura a un reloj,
+     * que es justo lo que §4.5/§6 rechazaron. El costo de no tener timer es
+     * nulo: la tablet nunca queda inutilizable, está a un toque de volver a
+     * operar, y ese toque es el registro de que un humano decidió.
+     *
+     * @param array{reason?:string,releasedBy?:?string}|null $conflict
+     */
+    public static function isAdminRevoked(?array $conflict): bool
+    {
+        if ($conflict === null) {
+            return false;
+        }
+        if ((string) ($conflict['reason'] ?? '') !== 'revoked') {
+            return false;
+        }
+        return str_starts_with((string) ($conflict['releasedBy'] ?? ''), self::RELEASED_BY_ADMIN_PREFIX);
+    }
+
+    /**
+     * CONFIRMAR la tenencia de una caja y, según `$acquire`, TOMARLA.
      *
      * Es la política de exclusividad de caja del §4 completa, con su
      * transacción y su lock. Vive en el servicio y no en
@@ -79,20 +171,31 @@ final class RegisterLeaseService
      * exactamente la clase de invariante que hay que poder probar contra
      * Postgres real (`api/tests/register_tenancy_offline_test.php`).
      *
-     * `$acquire` es LA distinción que faltaba (owner, 2026-09-01):
+     * `$acquire` es LA distinción que faltaba (owner, 2026-09-01), y desde
+     * 2026-09-09 tiene TRES valores en vez de dos, porque "tomar" tampoco es
+     * una sola cosa:
      *
-     *   - `true`  — si la caja está libre, la toma. Solo dos callers legítimos
-     *               del lado del POS: el botón "Tomar caja" del cajero y el
-     *               drenaje de la cola offline (una venta YA emitida).
-     *   - `false` — pregunta y nada más. Es lo que usan el latido de 5 min, el
-     *               evento `online`, el evento realtime y el montaje del
-     *               workspace. Antes no existía: cada latido tomaba la caja de
-     *               paso, así que un POS abierto se la volvía a llevar apenas
-     *               otro dispositivo la soltaba, y quién facturaba lo decidía
-     *               un timer en vez de una persona.
+     *   - `ACQUIRE_NONE`     — pregunta y nada más. Es lo que usan el latido de
+     *               5 min, el evento `online`, el evento realtime y el montaje
+     *               del workspace. Antes no existía: cada latido tomaba la caja
+     *               de paso, así que un POS abierto se la volvía a llevar
+     *               apenas otro dispositivo la soltaba, y quién facturaba lo
+     *               decidía un timer en vez de una persona.
+     *   - `ACQUIRE_AUTO`     — la toma si está libre, pero es el SOFTWARE quien
+     *               lo pide. Sujeta al veto del admin (`isAdminRevoked()`).
+     *               Acá caen los bundles viejos, que solo saben mandar
+     *               `acquire: true` — y esa es la razón de que el veto viva en
+     *               el servidor: la tablet del incidente está corriendo un
+     *               bundle que no se puede actualizar a tiempo, y offline
+     *               podría re-adquirir al reconectar.
+     *   - `ACQUIRE_OPERATOR` — el cajero tocó "Tomar caja" en ESTE aparato.
+     *               Único valor que levanta el veto. Un bundle viejo no lo
+     *               puede mandar, así que no lo puede eludir sin querer.
      *
      * NUNCA toca la tenencia de OTRO device, con `$acquire` o sin él — "el
-     * último que llega pisa al anterior" fue RECHAZADO (§6).
+     * último que llega pisa al anterior" fue RECHAZADO (§6). `ACQUIRE_OPERATOR`
+     * levanta el veto del admin, NO la exclusividad: si la caja la tiene otro,
+     * el botón del cajero choca igual con `taken_by_other`.
      *
      * @return array{registerLeaseId:?string,created:bool,conflict:?array{holderDeviceId:?string,holderDeviceName:?string,expiresAt:?string,reason:string,releasedBy:?string,releasedAt:?string}}
      *         `conflict !== null` ⇒ este device NO es el tenedor (el `reason`
@@ -106,8 +209,12 @@ final class RegisterLeaseService
         string $companyId,
         string $outletId,
         string $deviceId,
-        bool $acquire,
+        string $acquire,
     ): array {
+        if (!in_array($acquire, [self::ACQUIRE_NONE, self::ACQUIRE_AUTO, self::ACQUIRE_OPERATOR], true)) {
+            throw new \InvalidArgumentException('acquire inválido para claim(): ' . $acquire);
+        }
+
         global $db;
         $db->StartTrans();
 
@@ -153,11 +260,40 @@ final class RegisterLeaseService
         // con `reason` fijo en `taken_by_other`, porque cuando el claim siempre
         // tomaba la caja libre esa era la única causa posible. Corre dentro del
         // lock, así que lee el estado inmediatamente anterior a la respuesta.
-        if ($hasActive || !$acquire) {
+        if ($hasActive || $acquire === self::ACQUIRE_NONE) {
             $conflict = self::holderConflict($registerId, $companyId, $deviceId);
             $db->FailTrans();
             $db->CompleteTrans();
             return ['registerLeaseId' => null, 'created' => false, 'conflict' => $conflict];
+        }
+
+        // VETO DEL ADMINISTRADOR (owner 2026-09-09, ver `isAdminRevoked()`).
+        //
+        // La caja está LIBRE y este device la quiere tomar. Si la última
+        // tenencia de ESTE device sobre ESTA caja la cerró un ADMIN
+        // (`forced` + `releasedBy` = `admin:…`), una adquisición automática no
+        // entra: el admin decidió sacarle la caja a este aparato y el software
+        // del aparato no puede revertir esa decisión solo. Hace falta que
+        // alguien toque "Tomar caja" acá (`ACQUIRE_OPERATOR`).
+        //
+        // Se evalúa EN EL SERVIDOR y no en el cliente porque el cliente no es
+        // confiable para esto en el sentido literal, no en el de seguridad: la
+        // tablet puede estar offline con un bundle viejo y re-adquirir al
+        // reconectar, y ahí la decisión REMOTA del owner —que es todo el punto
+        // del módulo— se perdería sin que nadie se entere.
+        //
+        // Corre dentro del advisory lock, así que lee el estado inmediatamente
+        // anterior al INSERT. El `conflict` que devuelve es el mismo `revoked`
+        // de siempre: el POS ya sabe leerlo (`REGISTER_RELEASED`, caja libre,
+        // botón "Tomar caja" habilitado) — no hay código de error nuevo que
+        // ningún cliente tenga que aprender.
+        if ($acquire !== self::ACQUIRE_OPERATOR) {
+            $vetoConflict = self::holderConflict($registerId, $companyId, $deviceId);
+            if (self::isAdminRevoked($vetoConflict)) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                return ['registerLeaseId' => null, 'created' => false, 'conflict' => $vetoConflict];
+            }
         }
 
         // Defensa en profundidad (context/29 §4, "dispositivo cambia de caja" +
@@ -538,8 +674,13 @@ final class RegisterLeaseService
      *
      * El CÓDIGO gobierna el comportamiento del front, el MENSAJE la
      * comprensión. Solo `REGISTER_TAKEN` es terminal — los otros tres dejan la
-     * caja libre y se resuelven con un claim + reintento, que el POS hace
-     * solo (`ensureTenancy()` en `lib/pos/register-tenancy.ts`).
+     * caja libre.
+     *
+     * Desde 2026-09-09 el camino de DRENAJE (`offline-sync.php`) ya ni siquiera
+     * llega acá con esos tres: una venta ya emitida sube con la caja libre, sin
+     * re-tomarla (ver "DRENAR ≠ VENDER" en ese archivo). Estos mensajes quedan
+     * para los caminos que sí EMITEN —`sales.php` online y `claim.php`— donde
+     * el remedio es que alguien toque "Tomar caja" en el aparato.
      *
      * @param array{holderDeviceId:?string,holderDeviceName:?string,reason?:string,releasedBy?:?string} $conflict
      * @return array{0:string,1:string}
@@ -559,12 +700,21 @@ final class RegisterLeaseService
         }
 
         if ($reason === 'revoked') {
+            // El texto NO afirma "mientras estabas sin conexión" (lo hacía
+            // hasta 2026-09-09): la liberación del admin llega igual con el
+            // device ONLINE —es el caso del incidente del owner, que liberó
+            // desde el panel con la tablet conectada— y decirle al cajero que
+            // estuvo sin red lo manda a buscar un problema que no existe.
+            //
+            // Y nombra el veto: la caja está libre pero este dispositivo NO la
+            // retoma solo. Sin esa frase el cajero ve "está libre" y espera que
+            // se arregle sola, que es exactamente lo que ya no pasa.
             $by = (string) ($conflict['releasedBy'] ?? '');
             return [
                 'REGISTER_RELEASED',
-                str_starts_with($by, 'admin:')
-                    ? 'Un administrador liberó esta caja mientras este dispositivo estaba sin conexión. La caja está libre: volvé a tomarla y la venta se sincroniza sola.'
-                    : 'Esta caja se liberó mientras este dispositivo estaba sin conexión. La caja está libre: volvé a tomarla y la venta se sincroniza sola.',
+                str_starts_with($by, self::RELEASED_BY_ADMIN_PREFIX)
+                    ? 'Un administrador liberó esta caja. Quedó libre, y este dispositivo no la retoma solo: hay que volver a tomarla desde acá para seguir vendiendo.'
+                    : 'Esta caja se liberó desde el comercio. Quedó libre: volvé a tomarla desde acá para seguir vendiendo.',
             ];
         }
 

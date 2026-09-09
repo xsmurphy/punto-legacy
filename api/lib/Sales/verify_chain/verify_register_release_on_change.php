@@ -197,7 +197,10 @@ function verifyReleaseHttp(int $port, string $method, string $path, string $bear
 
 function verifyReleasePostClaim(int $port, string $bearer): array
 {
-    return verifyReleaseHttp($port, 'POST', '/v1/register/claim.php', $bearer, '{}');
+    // `acquire: "operator"` — modela al cajero tocando "Tomar caja". `'{}'` lo
+    // lee el servidor como adquisición AUTOMÁTICA, que desde 2026-09-09 el veto
+    // del admin puede rechazar (`RegisterLeaseService::isAdminRevoked()`).
+    return verifyReleaseHttp($port, 'POST', '/v1/register/claim.php', $bearer, '{"acquire":"operator"}', 'application/json');
 }
 
 function verifyReleasePostActiveRegister(int $port, string $bearer, string $registerId): array

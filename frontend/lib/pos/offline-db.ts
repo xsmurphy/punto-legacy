@@ -123,6 +123,21 @@ export interface TenancyGrantRow {
   denyReason: TenancyDenyReason | null
   holderDeviceId: string | null
   holderDeviceName: string | null
+  /**
+   * QUIÉN cerró la última tenencia, tal como lo escribió el servidor
+   * (`'admin:{contactId}'` | `'device:…'`). Solo viaja con `denyReason:
+   * 'revoked'`, y solo se usa para una cosa: distinguir "un ADMINISTRADOR te
+   * sacó la caja" de "la caja se liberó por un camino del propio aparato".
+   *
+   * Importa desde 2026-09-09 porque las dos situaciones dejaron de tener el
+   * mismo remedio: tras una liberación de admin el dispositivo NO retoma la
+   * caja solo (el veto del servidor), así que el cartel tiene que decirle al
+   * cajero que hay algo que hacer acá y no esperar.
+   *
+   * Opcional: los grants persistidos antes de este campo no lo tienen y se
+   * leen igual — sin él el mensaje cae al texto neutro, nunca rompe.
+   */
+  releasedBy?: string | null
 }
 
 /**
