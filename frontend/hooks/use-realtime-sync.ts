@@ -27,22 +27,23 @@ import { refreshTenancy } from "@/lib/pos/register-tenancy"
  * Entities con scope `dashboard` que el POS SÍ tiene que escuchar.
  *
  * El filtro de scope existe para no reinvalidar el catálogo en cada venta
- * propia, y eso sigue valiendo. Pero se llevaba puestas dos cosas que son
- * exactamente lo que una caja necesita saber de OTRA caja:
+ * propia, y eso sigue valiendo. La excepción es por entity —no se saca el
+ * filtro— y hoy tiene UNA sola:
  *
- *  - `transaction` (`SaleService.php:388`): una venta cobrada en la caja B no
- *    aparecía en el listado de la caja A ni en su total de turno.
  *  - `drawer` (`bootstrap.php:701`): la apertura, el cierre y los movimientos
- *    de turno no se propagaban. Con dos cajas en el mismo turno, cada una
- *    cerraba con cifras distintas — el peor de los huecos de la auditoría
- *    2026-09-08.
+ *    de turno. Con dos cajas en el mismo turno, cada una cerraba con cifras
+ *    distintas — el peor hueco de la auditoría 2026-09-08. Además el turno se
+ *    muestra VIVO en el menú del POS (total vendido, ventas, promedio), así
+ *    que un dato viejo se ve en pantalla sin que nadie lo pida.
  *
- * Se agrega una excepción por entity y no se saca el filtro: sacarlo
- * devolvería el ruido que el filtro vino a cortar. Lo caro de esos dos
- * eventos es acotado — invalidan listados de transacciones y turno, no el
- * catálogo de 5000 ítems.
+ * `transaction` NO está acá, y es deliberado (owner, 2026-09-08): el listado
+ * de transacciones del POS no está a la vista — se pide al abrir Menú → 
+ * Transacciones, y su query tiene `staleTime: 30s` (`use-transactions.ts:170`),
+ * así que al abrirlo ya trae lo último. Invalidarlo en cada venta de cada caja
+ * sería un broadcast a todo el tenant para refrescar una lista que nadie está
+ * mirando.
  */
-const POS_NEEDS_DASHBOARD = new Set(["transaction", "drawer"])
+const POS_NEEDS_DASHBOARD = new Set(["drawer"])
 
 const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   item:              [
