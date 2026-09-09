@@ -1,305 +1,393 @@
-# 74 — Wallet multi-nivel (titular + sub-cuentas)
+# 74 — Módulo Wallet multi-nivel
 
-> Estado: **plan sin implementar** (2026-09-08). Empezó como "saldo a favor de
-> una cantina escolar" y el owner lo elevó a **módulo propio y genérico**: una
-> wallet de titular con sub-cuentas, transferencias internas, histórico y topes
-> de consumo. **D1 y D2 CERRADAS** por el owner. D3-D9 propuestas SIN su OK.
->
-> Renombrado desde `74-saldo-a-favor-por-concepto.md` (el alcance ya no es un
-> saldo, es un módulo).
+> Estado: **plan sin implementar** (2026-09-09). **Módulo NUEVO, diseñado desde
+> cero** — no es una extensión de giftcard ni del crédito interno existentes
+> (esos son mecanismos viejos con su propio alcance; §11 dice qué se hace con
+> ellos, y no condicionan este diseño). **D1 y D2 CERRADAS** por el owner.
+> D3-D10 propuestas SIN su OK.
 
 ## 1. Qué es
 
-Un **titular** (un contacto) tiene una wallet, le carga saldo, y **abre
-sub-cuentas** a las que transfiere parte de ese saldo. Sobre cada sub-cuenta
-conserva control: ve el histórico de consumo y le fija **topes** (diario,
-semanal, por período).
+Un módulo de **dinero prepago con jerarquía y control**.
 
-El caso que lo originó es una cantina escolar —el padre carga, los hijos
-consumen— pero el owner lo quiere genérico. Aplica igual a:
+Un **titular** carga saldo en su wallet, abre **sub-cuentas** para terceros que
+consumen en su nombre, les transfiere fondos, y conserva control sobre ellas:
+ve qué consumieron y les fija **topes** por ventana de tiempo.
 
-- Gimnasio o club: socio titular y su grupo familiar.
-- Empresa con comedor: la empresa carga, cada empleado consume con su tope.
-- Flota: la empresa carga combustible, cada chofer tiene su sub-cuenta.
+Tres ideas, y las tres son el módulo:
 
-**Vocabulario del módulo: titular y sub-cuenta.** "Padre" y "alumno" son la UI
-de un rubro, nunca el schema (misma regla que `markets.ts` con lo que cambia
-por país).
+1. **Prepago** — el dinero entra antes del consumo.
+2. **Jerarquía** — quien paga y quien consume son personas distintas, con una
+   relación de control entre ellas.
+3. **Control** — el titular limita y audita el consumo de sus sub-cuentas sin
+   depender del comercio.
 
-## 2. El caso que lo origina
+## 2. Casos de uso
 
-Cantina de un colegio. Los padres pagan mensualmente el almuerzo y algunos
-adelantan dinero para el consumo en la cantina. Piden:
+| Rubro | Titular | Sub-cuentas | Por qué necesita topes |
+|---|---|---|---|
+| Cantina escolar | el padre | sus hijos | que el chico no gaste todo el lunes |
+| Gimnasio / club | el socio | grupo familiar | control del gasto en buffet |
+| Empresa con comedor | la empresa | empleados | presupuesto diario por persona |
+| Flota | la empresa | choferes | límite de combustible por viaje |
+| Coworking / hotel | la cuenta corporativa | huéspedes o miembros | tope por estadía |
 
-1. Al **pagar el padre**, factura legal.
-2. El dinero entra como **dos saldos separados**: almuerzo y cantina.
-3. Cada **consumo del alumno** debita del saldo que corresponde.
-4. Esas salidas **no vuelven a aparecer como venta** (si no, se duplica el
-   ingreso entre lo que pagó el padre y lo que consumió el hijo).
+**El schema habla de titular y sub-cuenta.** "Padre" y "alumno" son vocabulario
+de UI por rubro, nunca nombres de tabla ni de campo.
 
-El punto 4, que suena difícil, **ya está resuelto** (§3.2).
+## 3. Modelo conceptual
 
-## 3. Qué YA existe (verificado en código, 2026-09-08)
+### 3.1 Wallet
 
-### 3.1 Giftcard y crédito interno son EL MISMO mecanismo
+Una wallet **es un saldo con dueño y reglas**. Dos clases:
 
-Observación del owner que el código confirma: **una giftcard es un adelanto de
-dinero**, igual que el crédito interno. Se emiten en el MISMO loop de venta
-(`SaleService.php:2100-2112`), una al lado de la otra.
+- **Wallet de titular** — la raíz. Se le carga dinero desde afuera (el titular
+  paga).
+- **Sub-wallet** — cuelga de una raíz. **No se carga desde afuera**: solo
+  recibe transferencias de su raíz. Esa restricción es lo que hace que el
+  dinero del titular sea rastreable hasta donde se consumió.
 
-| | Giftcard | Crédito interno |
+Una wallet tiene: saldo, estado (activa/bloqueada), y sus reglas (topes,
+elegibilidad). El **saldo nunca es un campo que se pisa**: es la suma de sus
+movimientos (§3.3).
+
+### 3.2 Bolsillo (concepto)
+
+Dentro de una wallet, el dinero puede estar separado por **concepto**:
+"almuerzo" y "cantina" no se mezclan. Un concepto declara:
+
+- Su **nombre** (lo que ve el usuario).
+- **Qué se puede comprar con él** (elegibilidad — D4).
+- Su **modo de facturación** (§4).
+
+Un comercio que no necesita separar conceptos opera con uno solo, implícito. El
+módulo no obliga a la complejidad de nadie.
+
+### 3.3 Movimiento
+
+**Todo cambio de saldo es un movimiento, y los movimientos no se editan ni se
+borran.** El saldo de una wallet es la suma de sus movimientos; no existe un
+campo "saldo" que alguien pueda pisar.
+
+Es la decisión estructural del módulo, y no es por prolijidad: el módulo
+promete que el titular pueda ver *por qué* su sub-cuenta tiene el saldo que
+tiene, y los topes se calculan sumando consumos en una ventana. Sin historial,
+las dos promesas centrales son imposibles.
+
+Tipos de movimiento:
+
+| Tipo | Qué es | Efecto |
 |---|---|---|
-| Portador | un **código** (anónimo, transferible) | un **contacto** (nominal) |
-| Dónde vive el saldo | `giftCardSold.giftCardSoldValue` | `contact.contactStoreCredit` |
-| Cómo se emite | línea de venta `giftcardId` → `sellGiftCard()` | línea `type='inCredit'` → `persistInCreditItem()` (`:1165`) |
-| Cómo se descuenta | `GREATEST(value - ?, 0)` (`SaleService.php:1240`) | `UPDATE` resta (`Customer.php:104`) |
-| Consumo parcial | sí | sí |
-| En reportes | excluido del total (`NonAddingSales.php:68-70`) | idem |
-| Mueve caja al consumir | no | no (`FinanceLedger.php:270`) |
+| `load` | el titular carga dinero | + en la wallet raíz |
+| `transfer` | la raíz manda a una sub-wallet | − en raíz, + en sub (par atómico) |
+| `spend` | consumo en el punto de venta | − en la wallet que paga |
+| `refund` | reversa de un consumo | + |
+| `adjust` | corrección manual del comercio | ± , siempre con motivo y autor |
+| `expire` | vencimiento de saldo | − (según D8) |
 
-Las dos son **escalares mutados in-place, sin historial**. La wallet es el motor
-que ambas debieron compartir siempre; giftcard migra a él después (D9).
+`transfer` es **un par de movimientos que se aplican juntos o no se aplican**:
+nunca puede existir el débito sin su crédito.
 
-### 3.2 Lo que eso ya resuelve
+### 3.4 Relación de control
 
-El punto 4 del pedido **no hay que construirlo**: el diseño ya reconoce el
-ingreso UNA vez y trata el consumo como entrega contra algo ya vendido.
+El titular controla sus sub-cuentas: crea, transfiere, fija topes, bloquea, y
+ve el histórico. Un consumidor con sub-cuenta **no controla nada** — solo
+consume.
 
-### 3.3 Lo que NO existe — los huecos
-
-1. **Un solo bolsillo, sin jerarquía.** `contactStoreCredit` es un escalar por
-   contacto. No hay sub-cuentas ni vínculo entre contactos (verificado: no
-   existe `parentId` ni tabla de vínculo).
-2. **Sin historial.** El saldo se pisa. No se puede responder "por qué mi hijo
-   tiene este saldo" — que es literalmente lo que el módulo promete mostrar.
-3. **Sin topes, y sin precedente de topes.** `contactCreditLine` existe pero
-   **solo se muestra formateado** (`CustomerService.php:121,189,238`): ningún
-   camino de venta lo enforcea. Los topes de la wallet serían el primer límite
-   que Punto evalúa al vender.
-4. **Sin transferencias.** No hay movimiento de saldo entre contactos.
-5. **Sin superficie en el POS.** `grep storeCredit` en `frontend/` solo devuelve
-   el campo de lectura (`lib/types/pos-bootstrap.ts:437`) y fixtures: no hay
-   forma de cargar saldo ni medio de pago "saldo". Giftcard sí tiene flujo en
-   `pay-dialog`.
-6. **Sin superficie para el titular** — ver D5, es la pieza más grande.
+La relación es **dentro de un mismo comercio**. Una sub-cuenta nunca cuelga de
+un titular de otro tenant.
 
 ## 4. D1 — CERRADA (owner): dos modos de facturación
 
-> Lo correcto es facturar cuando se entrega, pero la percepción del cliente es
-> distinta: quiere la factura al pagar. Punto soporta **los dos** y el comercio
-> elige.
+El dinero entra antes de que se entregue nada. Cuándo se emite el documento
+fiscal es una decisión del comercio, y **Punto soporta las dos**:
 
-**Modo A — factura al cargar.** La carga es una venta con factura. El consumo no
-suma a ventas (`NonAddingSales`) y sale con comprobante interno. Es lo que Punto
-ya hace con giftcard e `inCredit`. *Tensión fiscal a declarar*: el IVA se devenga
-sin saber qué se va a consumir; el bolsillo debe ser homogéneo en tasa (D4) o el
-comercio asume la diferencia.
+**Modo A — factura al cargar.** El titular paga y recibe su factura en el acto.
+Es lo que el cliente espera y pide. El consumo posterior no es una venta nueva:
+entrega mercadería contra algo ya facturado, con comprobante interno.
 
-**Modo B — factura al entregar.** La carga NO es venta: es cobranza anticipada,
-un pasivo con el cliente, con recibo de anticipo. El consumo SÍ es la venta, con
-su IVA real, y SÍ suma a ventas.
+**Modo B — factura al entregar.** La carga es una **cobranza anticipada** — el
+comercio recibe dinero y queda debiendo mercadería. Documento: recibo de
+anticipo, no factura. La venta —con su IVA real— ocurre al consumir.
 
-### Los modos invierten dónde se reconoce el ingreso
+### Lo que cambia entre modos
 
 | | Modo A | Modo B |
 |---|---|---|
 | Documento al cargar | Factura | Recibo de anticipo |
 | Documento al consumir | Comprobante interno | **Factura** |
-| Ingreso suma al cargar | **sí** | no |
-| Ingreso suma al consumir | no (`NonAddingSales`) | **sí** |
-| Movimiento de caja | al cargar | al cargar |
-| IVA | congelado en la carga | real, en el consumo |
+| El ingreso se reconoce | al cargar | al consumir |
+| El IVA se determina | al cargar (sin saber qué se consumirá) | al consumir (real) |
+| Naturaleza contable de la carga | venta | pasivo con el cliente |
 
-Modo B **no es un flag sobre A**: es el camino inverso y `NonAddingSales` deja
-de aplicar al consumo. Implementarlo como "A con un if" duplica o pierde
-ingresos.
+**No son variantes del mismo flujo: son flujos inversos.** El ingreso se
+reconoce en puntos opuestos de la línea de tiempo. Cualquier implementación que
+trate B como "A con una condición" va a duplicar o a perder ingresos según de
+qué lado se equivoque.
 
-### Invariante: el modo se congela en el SALDO, no en la configuración
+### Modo A tiene una tensión fiscal que hay que declarar
 
-Si el comercio cambia de modo con saldos vivos, lo cargado bajo A (ya facturado)
-se volvería a facturar al consumirse: **doble facturación de un ingreso ya
-declarado**. El modo viaja con cada carga; el consumo se comporta según ESE
-valor, no según el switch de hoy. Mismo patrón que el IVA congelado por venta
-(`context/38`) y el timbrado congelado en la transacción (`context/29`).
+Se factura sin saber qué se va a consumir. Si el comercio vende con tasas de
+IVA distintas, el bolsillo **debe ser homogéneo en tasa** — o el comercio
+absorbe la diferencia. El módulo lo advierte al configurar el concepto; la
+elegibilidad (D4) es la herramienta para mantenerlo homogéneo.
+
+### Invariante — el modo se congela en el saldo
+
+Si el comercio cambia de modo teniendo saldos vivos, lo cargado bajo A —ya
+facturado— se volvería a facturar al consumirse. Es doble facturación de un
+ingreso ya declarado.
+
+**Cada carga registra el modo con el que nació**, y el consumo se comporta
+según ESE valor. Cambiar la configuración afecta solo a las cargas nuevas. El
+modo es un atributo del dinero, no del comercio.
 
 ## 5. D2 — CERRADA (owner): la jerarquía es el modelo
 
-Queda descartada la disyuntiva anterior ("¿el saldo es del padre o del
-alumno?"): **son las dos cosas, en jerarquía**. Wallet del titular → sub-cuentas
-→ el titular transfiere y controla.
+No hay disyuntiva entre "el saldo es del que paga" o "del que consume": **son
+los dos, en jerarquía**. De ahí se derivan tres cosas:
 
-Consecuencias directas:
-
-- El **vínculo entre contactos deja de ser un extra** y pasa a ser el corazón
-  del módulo.
+- La **relación entre personas** es el corazón del módulo, no un accesorio.
 - La **transferencia interna** es una operación de primera clase: no es venta,
-  no es cobranza, **no mueve caja** — es un par de movimientos atómicos
-  (débito en origen, crédito en destino) dentro del mismo tenant.
-- El **corte por sub-cuenta** sale gratis del ledger: es la pregunta que el
-  titular hace todos los meses.
+  no es cobranza, **no mueve la caja del comercio**. Es dinero que ya estaba
+  adentro cambiando de bolsillo.
+- El **corte por sub-cuenta** es una consulta directa sobre los movimientos —
+  es la pregunta que el titular hace todos los meses.
 
-## 6. Decisiones abiertas
+## 6. Topes
 
-### D3 — Jerarquía y concepto: ¿un eje o dos?
+Un tope es **un límite de gasto por ventana de tiempo** sobre una sub-cuenta:
+"máximo 20.000 por día", "100.000 por semana".
 
-El caso pide sub-cuentas (por alumno) **y** conceptos (almuerzo / cantina). Son
-ejes distintos y hay que decidir cómo se cruzan:
+### Cómo se evalúa
+
+En el momento del consumo, el módulo suma los `spend` de esa wallet dentro de
+la ventana y decide. **La evaluación y el descuento ocurren en la misma
+operación atómica, del lado del servidor.**
+
+No es un detalle de implementación, es la única forma correcta: dos cajas
+simultáneas leen "lleva 5.000 de 10.000", las dos aprueban 6.000, y el chico
+gastó 11.000. Un tope que se evalúa antes y se aplica después no es un tope.
+
+### Sin conexión
+
+El saldo y los topes son **estado compartido entre puntos de venta**: una caja
+sin red no sabe qué se consumió en otra. Consumir contra wallet **requiere
+conexión** y se bloquea sin ella.
+
+Es coherente con cómo el POS ya trata lo compartido, y con que offline sea
+emergencia y no modo de operación. **Nunca aprobar un consumo contra un saldo
+o un tope calculado localmente**: una decisión así, contra un chico en la fila,
+no se puede revertir después.
+
+### Qué se limita
+
+Monto por ventana en la primera iteración. Limitar *qué* se compra ya lo
+resuelve la elegibilidad del concepto (D4); limitar cantidad de consumos o
+franja horaria queda para después si aparece el pedido.
+
+## 7. Superficie del titular
+
+El titular necesita, sin depender del comercio: ver saldos, ver el histórico de
+cada sub-cuenta, transferir, y fijar topes.
+
+Es una **superficie propia para el cliente final del comercio** — ni el panel
+del comercio ni la caja. Cómo se autentica es D5.
+
+Separación que el diseño impone: **leer y escribir tienen umbrales distintos**.
+Ver un saldo tolera un acceso liviano; cambiar un tope o mover dinero exige
+identidad real.
+
+## 8. Modelo de datos propuesto
+
+Cuatro entidades. Nada más.
+
+```
+wallet
+  id, companyId
+  ownerContactId          -- de quién es
+  parentWalletId          -- NULL = raíz; si no, cuelga de esa raíz
+  conceptId               -- bolsillo (NULL = wallet sin conceptos)
+  status                  -- active | blocked
+  createdAt
+
+wallet_concept            -- catálogo por comercio
+  id, companyId
+  name
+  billingMode             -- A | B  (default de las cargas nuevas)
+  eligibility             -- qué se puede comprar (D4)
+  active
+
+wallet_movement           -- append-only, nunca UPDATE ni DELETE
+  id, companyId, walletId
+  type                    -- load | transfer | spend | refund | adjust | expire
+  amount                  -- con signo
+  balanceAfter            -- saldo resultante, para auditar sin recalcular
+  billingMode             -- CONGELADO en las cargas (§4)
+  transferGroupId         -- une los dos lados de una transferencia
+  sourceType, sourceId    -- qué lo originó (venta, ajuste, etc.)
+  actorContactId          -- quién lo hizo
+  reason, meta
+  createdAt
+
+wallet_limit
+  id, companyId, walletId
+  window                  -- daily | weekly | monthly
+  amount
+  activeFrom
+```
+
+Decisiones que este modelo toma a propósito:
+
+- **`balanceAfter` en cada movimiento**: permite auditar y detectar corrupción
+  sin sumar toda la historia.
+- **`billingMode` en el movimiento, no solo en el concepto**: es lo que hace
+  cumplir la invariante de §4.
+- **`transferGroupId`**: hace verificable que ninguna transferencia quedó a
+  medias.
+- **`actorContactId` siempre**: cada peso movido tiene responsable. En un
+  módulo donde un adulto controla el dinero de un menor, "quién hizo esto" no
+  es opcional.
+- **Sin campo `balance` en `wallet`**: si existe, alguien lo va a escribir.
+
+## 9. Decisiones abiertas
+
+### D3 — Jerarquía y concepto: ¿cómo se cruzan?
+
+El caso pide sub-cuentas por persona **y** conceptos por tipo de gasto.
 
 - **(a) El concepto ES la sub-cuenta.** El titular abre "Juan-almuerzo" y
-  "Juan-cantina". Simple de implementar, combinatorio para el usuario: 3 hijos
-  × 2 conceptos = 6 sub-cuentas que administrar a mano.
-- **(b) Sub-cuenta por persona, con bolsillos por concepto adentro.** Dos
-  niveles de jerarquía más una dimensión de concepto. Es el modelo que el
-  usuario describe en voz alta ("el saldo de almuerzo de Juan"), y el corte por
-  persona y por concepto salen los dos.
-- **(c) Solo sub-cuentas, sin concepto**, y la restricción de qué se puede
-  comprar se resuelve por categoría de ítem sobre la sub-cuenta.
+  "Juan-cantina". Simple, pero combinatorio para el usuario: 3 hijos × 2
+  conceptos = 6 cuentas que administrar a mano.
+- **(b) Sub-cuenta por persona, con bolsillos por concepto adentro.** Es como
+  la gente lo dice en voz alta ("el saldo de almuerzo de Juan"), y los dos
+  cortes —por persona y por concepto— salen naturalmente.
+- **(c) Solo sub-cuentas, sin conceptos**; qué se puede comprar se restringe
+  por categoría sobre la sub-cuenta.
 
-Recomendación: **(b)**. Es más caro que (a) pero (a) empuja la combinatoria al
-usuario y no sobrevive al segundo hijo. En el ledger es una columna más, no una
-tabla más.
+Recomendación: **(b)** — es el modelo de §8 (`conceptId` en la wallet). (a)
+empuja la combinatoria al usuario y no sobrevive al segundo hijo.
 
-### D4 — Cómo se restringe qué puede pagar cada bolsillo
+### D4 — Cómo se define qué puede pagar cada bolsillo
 
-Por **categoría de ítem** (reusa taxonomía existente), por flag en el ítem, o
-por lista explícita. Recomendación: **categoría**, con el concepto declarando
-cuáles acepta. Es lo que el comercio ya mantiene, y en modo A es lo que permite
-mantener el bolsillo homogéneo en tasa.
+Por categoría de producto, por marca/etiqueta, o por lista explícita de
+productos. Recomendación: **por categoría**, que es la clasificación que el
+comercio ya mantiene viva por otras razones, y que además permite mantener el
+bolsillo homogéneo en tasa de IVA (§4).
 
-### D5 — Cómo entra el titular a ver y controlar
+### D5 — Cómo se autentica el titular
 
-El titular necesita ver saldos, histórico y fijar topes. **La credencial de
-cliente final YA EXISTE en el schema vivo** — el legacy la usaba para el login
-de compradores del módulo ecommerce (dato del owner, 2026-09-08):
+- **(a) Identidad propia** (teléfono + verificación), con sesión real.
+  Habilita escritura: transferir, fijar topes, bloquear.
+- **(b) Acceso por link firmado**, sin sesión. Barato y sin fricción, pero un
+  link que mueve dinero o cambia límites es una credencial permanente
+  circulando por mensajería.
+- **(c) El titular no entra**: el comercio administra y le manda el resumen. La
+  wallet funciona; el control del titular, no — y el control es un tercio del
+  módulo (§1).
 
-- `contact.contactPassword CHAR(68)` + `salt`, con
-  `PanelAuth::checkPassword()` — el mismo mecanismo que hoy autentica al dueño
-  del comercio.
-- El rewrite de auth (`context/21`) dejó **`realm` como columna** de
-  `auth_session`: sumar un realm es el mecanismo previsto, no una excepción.
+Recomendación: **(b) para lectura, (a) para escritura**, en ese orden. Ver
+saldo e histórico con link firmado entrega valor desde el primer día; mover
+dinero espera identidad real. **El link de lectura nunca habilita escritura.**
 
-Lo que falta, y es acotado:
+### D6 — Qué pasa cuando el consumo excede saldo o tope
 
-1. **El resolver excluye a los clientes final por diseño.** `findPhoneLogin`
-   (`api/includes/functions.php:2609`) filtra `type = 0 AND ownerRoleSql` — solo
-   el dueño del tenant. Un contacto cliente (`type = 1`) no puede loguear hoy.
-2. **No queda código del login de ecommerce** en el repo (se fue con el panel
-   legacy). El modelo de datos sobrevivió, la superficie no.
-3. **Un realm `customer` nuevo**, con su alcance: un titular solo ve SU wallet y
-   las sub-cuentas que cuelgan de ella.
+¿Se rechaza, se permite deuda, o se cobra la diferencia por otro medio?
+Recomendación: **rechazar, con la diferencia cobrable en el momento** (pago
+mixto). Permitir saldo negativo convierte la wallet en una cuenta corriente,
+que es otro producto con otras reglas.
 
-Sigue siendo trabajo de auth y aplica el MANDATO de no mezclar realms
-(`feedback_pos_token_only_no_realms`, tres incidentes de la misma clase): el
-endpoint del titular no acepta cookie de panel ni Bearer de device, y viceversa.
+### D7 — Quién puede consumir de una sub-cuenta, y cómo se lo identifica
 
-Alternativa barata para la primera iteración: **link firmado por sub-cuenta**,
-extendiendo el patrón del portal de facturas (`context/28` F6, anónimo con token
-firmado). Sirve para LEER; **no para escribir topes** — un link que cambia
-límites es una credencial permanente circulando por WhatsApp.
+Un chico no tiene teléfono ni tarjeta. La caja necesita saber contra qué
+sub-cuenta debitar: ¿código, carnet con QR, búsqueda por nombre, biometría?
+Es una decisión **operativa** y define la velocidad de la fila en un recreo de
+15 minutos. Recomendación: código corto o QR en el carnet; búsqueda por nombre
+como respaldo.
 
-Recomendación: **link firmado para lectura en la primera iteración, realm
-`customer` para escritura**. Con el modelo de credencial ya en el schema, el
-realm dejó de ser el costo que parecía y puede entrar antes de lo previsto.
+### D8 — Vencimiento del saldo
 
-### D6 — Topes: qué se limita y cómo se evalúa
+¿El saldo no consumido se arrastra, se devuelve o vence? Y si vence, ¿cuándo y
+con qué aviso? **Consecuencia fiscal distinta por modo**: en A el ingreso ya se
+declaró (devolver es una nota de crédito); en B el anticipo es un pasivo y su
+vencimiento reconoce un ingreso sin haber entregado nada.
 
-Sin precedente en el código (§3.3). Dos problemas duros, ninguno de UI:
+### D9 — Qué ve el consumidor en el momento de consumir
 
-1. **Carrera entre cajas.** Dos cajas simultáneas leen "lleva 5.000 de 10.000",
-   las dos aprueban 6.000, el alumno consume 11.000. El tope **tiene que
-   evaluarse y aplicarse atómicamente server-side**, en la misma transacción
-   que descuenta el saldo — nunca leyendo y decidiendo en el cliente.
-2. **Offline.** Una caja sin red no sabe cuánto se consumió en otra. Aplica
-   `project_offline_scope`: el saldo y los topes son **estado compartido y
-   pueden bloquearse sin red**. Alineado con
-   `project_offline_es_emergencia_no_operacion`. **Prohibido evaluar un tope
-   contra un saldo local optimista** — es la clase de decisión que después
-   nadie puede revertir contra un alumno.
+¿El chico ve su saldo antes de pedir? ¿La caja se lo muestra? Afecta la
+experiencia y también la dignidad del consumidor menor delante de la fila.
+Recomendación: la caja lo ve siempre; al consumidor se le muestra a pedido.
 
-Falta decidir el alcance: ¿tope por monto, por cantidad de consumos, por
-categoría (ej. "nada de gaseosas")? Recomendación: **monto por ventana
-temporal** en la primera iteración; la restricción por categoría ya la cubre D4.
+### D10 — Alcance de la primera versión
 
-### D7 — Qué pasa si el saldo o el tope no alcanzan
+El módulo completo es grande. ¿La primera versión entra con topes, o topes
+espera? Recomendación: **carga + sub-cuentas + transferencia + consumo primero**
+(es el circuito de dinero completo y ya resuelve el caso del colegio), topes en
+la segunda. Sin el circuito no hay módulo; sin topes hay módulo incompleto pero
+usable.
 
-¿Rechazo, consumo a crédito, o cobro de la diferencia? Recomendación:
-**rechazar, con la diferencia cobrable en efectivo** como pago mixto (ya
-soportado). Saldo negativo mezclaría esto con la cuenta corriente
-(`contactCreditLine`), que es otro mecanismo.
+## 10. Fases propuestas
 
-### D8 — Saldo no consumido (fin de ciclo / fin de año)
-
-¿Se devuelve, se arrastra o vence? **Consecuencia fiscal distinta por modo**: en
-A el ingreso ya se declaró (devolver = nota de crédito, `context/40`); en B el
-anticipo es un pasivo y su vencimiento reconoce ingreso sin entrega. Giftcard ya
-tiene `giftCardSoldExpires` con el mismo problema sin resolver.
-
-### D9 — Alcance de la unificación con giftcard
-
-- **(a)** Motor nuevo, giftcard queda como está (deja dos mecanismos casi
-  iguales — lo que la regla de arquitectura del proyecto prohíbe).
-- **(b)** Motor nuevo, giftcard migra después con su tabla como proyección
-  derivada (patrón `context/34` D2).
-- **(c)** Las dos en la misma tanda.
-
-Recomendación: **(b)**. Giftcard está en producción con datos vivos y flujo en
-`pay-dialog`; migrarla junto con un motor nuevo multiplica el riesgo. Pero el
-motor se diseña desde el principio para soportarla: el portador (código vs
-contacto) es un campo, no una bifurcación.
-
-## 7. Fases propuestas
-
-- **F0 — Motor de wallet.** `wallet` (titular, sub-cuentas vía `parentWalletId`,
-  concepto según D3) + `wallet_ledger` append-only siguiendo el patrón de
-  `ai_credit_ledger` (`db-schema-postgres.sql:781`): `delta` + `balanceAfter` +
-  `reason` + `meta`, saldo = SUM. **Cada carga graba su modo** (§4).
-  `contactStoreCredit` queda como proyección derivada — el POS y los reportes ya
-  la leen, no se rompe nada.
-- **F1 — Carga de saldo desde la caja**, con la bifurcación de D1.
-- **F2 — Cobro con saldo**: medio de pago en el diálogo, selección de bolsillo,
-  validación de elegibilidad (D4) y saldo visible.
-- **F3 — Sub-cuentas y transferencia interna** (par de movimientos atómico, sin
-  tocar caja ni ventas).
-- **F4 — Topes** (D6): definición + evaluación atómica server-side.
+- **F0 — Núcleo.** Entidades de §8, saldo por suma de movimientos, operaciones
+  `load`/`spend` con sus reglas.
+- **F1 — Carga desde la caja**, con la bifurcación de modo (§4).
+- **F2 — Consumo en el punto de venta**: identificación de la sub-cuenta (D7),
+  validación de elegibilidad, descuento atómico.
+- **F3 — Sub-cuentas y transferencia** (par atómico).
+- **F4 — Topes** (§6): definición y evaluación server-side.
 - **F5 — Superficie del titular** (D5): lectura primero.
-- **F6 — Migración de giftcard** al motor (D9).
+- **F6 — Vencimiento y cierre de ciclo** (D8).
 
-## 8. Arquitecturas rechazadas (leer antes de proponer nada)
+## 11. Qué se hace con giftcard y crédito interno
 
-- **Registrar el consumo como venta normal y "restarlo después" en el reporte.**
-  Es el doble conteo que se quiere evitar y ya está resuelto por
-  `NonAddingSales`: el consumo no suma desde el diseño, no por una resta a
-  posteriori.
-- **Columnas por bolsillo** (`contactStoreCreditAlmuerzo`, etc.). Dos hoy, cinco
-  el año que viene, y sin historial no se puede explicar un saldo — que es
-  justo lo que el módulo promete. Ledger, no columnas.
-- **Un `contact` por sub-cuenta sin jerarquía real** (el alumno duplicado por
-  concepto). Rompe el corte por persona, duplica datos personales y contamina
-  los reportes de clientes.
-- **Facturar al titular Y al consumir.** Doble facturación del mismo ingreso —
-  es lo que pasa si el modo se lee de la configuración vigente en vez del saldo
-  (§4).
-- **Modo B como un `if` dentro del modo A.** Invierten dónde se reconoce el
-  ingreso; tratarlos como variantes duplica o pierde ingresos según el lado.
-- **Un mecanismo nuevo al lado de giftcard.** Son el mismo concepto (§3.1);
-  duplicarlo deja dos motores de saldo que se desincronizan.
-- **Evaluar topes en el cliente, o contra saldo local offline.** La carrera
-  entre cajas hace que el chequeo local sea incorrecto por construcción (§D6).
-- **Un link firmado que permita cambiar topes.** Sería una credencial
-  permanente circulando por WhatsApp; la escritura necesita sesión real (§D5).
+Punto ya tiene dos mecanismos de dinero prepago: **giftcard** (saldo atado a un
+código, transferible, anónimo) y **crédito interno** (saldo atado a un
+contacto). Los dos son escalares sin historial, sin jerarquía y sin topes.
 
-## 9. Invariantes
+**No condicionan este diseño.** La wallet se construye por su cuenta y con su
+propio modelo. Cuando esté en producción, la convergencia es una decisión
+aparte —absorberlos, dejarlos como productos distintos, o mantener giftcard
+como "wallet sin titular"—, y se toma con el módulo funcionando, no antes.
+Diseñar la wallet para acomodar dos mecanismos viejos la haría peor.
 
-- El **ingreso se reconoce UNA vez**, en el momento que dicta el modo con el que
-  nació ESE saldo.
-- El **modo viaja con el saldo**, nunca se lee de la configuración vigente.
-- El **stock SÍ se descuenta** al consumir, en los dos modos: la mercadería sale
-  del inventario aunque no haya ingreso nuevo. Dimensiones distintas, las dos
-  correctas.
-- Debitar saldo **no mueve caja** (`FinanceLedger.php:270`): cancela un pasivo
-  con el cliente, no es un cobro. **Transferir entre wallets tampoco** — no sale
-  ni entra dinero del comercio.
-- Los **topes se evalúan server-side y atómicamente**, en la misma transacción
-  que descuenta.
-- Toda la jerarquía vive **dentro de una company**: una sub-cuenta nunca cuelga
-  de un titular de otro tenant.
+## 12. Invariantes del módulo
+
+- **El saldo es la suma de los movimientos.** No existe un campo de saldo
+  autoritativo que se pise.
+- **Los movimientos no se editan ni se borran.** Un error se corrige con un
+  movimiento de signo contrario, con motivo y autor.
+- **El ingreso se reconoce una sola vez**, en el punto que dicta el modo con el
+  que nació ese dinero.
+- **El modo viaja con el dinero**, nunca se lee de la configuración vigente.
+- **Una transferencia es atómica**: sus dos lados existen juntos o no existe
+  ninguno.
+- **Transferir no mueve la caja del comercio**; consumir contra saldo tampoco.
+  El dinero entró una vez, cuando se cargó.
+- **El stock sí se descuenta al consumir**, en los dos modos: la mercadería
+  sale del inventario aunque no haya ingreso nuevo.
+- **Los topes se evalúan y aplican server-side, atómicamente**, junto con el
+  descuento.
+- **Toda la jerarquía vive dentro de un comercio.** Una sub-cuenta nunca cuelga
+  de un titular de otro tenant, y una wallet nunca se consume en un comercio
+  que no la emitió.
+- **Cada movimiento tiene autor.** Sin excepción.
+
+## 13. Arquitecturas rechazadas (leer antes de proponer nada)
+
+- **Campo `balance` en la wallet.** Si existe, alguien lo escribe, y el día que
+  diverge de los movimientos no hay forma de saber cuál miente.
+- **Una columna por bolsillo.** Dos conceptos hoy, cinco el año que viene, y
+  ningún historial para explicar un saldo — que es lo que el módulo promete.
+- **Un contacto por sub-cuenta sin jerarquía real.** Duplica personas, rompe el
+  corte por consumidor y contamina el padrón de clientes del comercio.
+- **Facturar al cargar Y al consumir.** Doble facturación del mismo ingreso —
+  es lo que ocurre si el modo se lee de la configuración actual en vez del
+  movimiento.
+- **Modo B como una condición dentro del modo A.** Son flujos inversos (§4).
+- **Evaluar topes en el cliente, o contra saldo local sin conexión.** La
+  concurrencia entre cajas hace que el chequeo local sea incorrecto por
+  construcción.
+- **Un link firmado que permita transferir o cambiar topes.** Es una credencial
+  permanente en un mensaje reenviable.
+- **Diseñar el módulo alrededor de giftcard o del crédito interno existentes**
+  (§11). Son mecanismos con otro alcance; adaptarse a ellos degrada el modelo.
