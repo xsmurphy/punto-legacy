@@ -277,28 +277,52 @@ Decisiones que este modelo toma a propósito:
 
 ## 9. Decisiones abiertas
 
-### D3 — Jerarquía y concepto: ¿cómo se cruzan?
+### D3 — CERRADA (owner, 2026-09-09): sub-cuenta por persona, bolsillos adentro
 
-El caso pide sub-cuentas por persona **y** conceptos por tipo de gasto.
+Una sub-cuenta **por persona**, y dentro de ella el saldo separado **por
+concepto**. Con dos hijos y dos conceptos son 2 sub-cuentas con 2 bolsillos cada
+una, no 4 cuentas sueltas.
 
-- **(a) El concepto ES la sub-cuenta.** El titular abre "Juan-almuerzo" y
-  "Juan-cantina". Simple, pero combinatorio para el usuario: 3 hijos × 2
-  conceptos = 6 cuentas que administrar a mano.
-- **(b) Sub-cuenta por persona, con bolsillos por concepto adentro.** Es como
-  la gente lo dice en voz alta ("el saldo de almuerzo de Juan"), y los dos
-  cortes —por persona y por concepto— salen naturalmente.
-- **(c) Solo sub-cuentas, sin conceptos**; qué se puede comprar se restringe
-  por categoría sobre la sub-cuenta.
+Es como la gente lo dice en voz alta ("el saldo de almuerzo de Juan"), los dos
+cortes —por persona y por concepto— salen naturalmente, y sobre todo encaja con
+D7: el cajero tipea "Juan", le aparece **una** entrada, y no tiene que decidir
+de qué bolsillo sale un alfajor con la fila esperando.
 
-Recomendación: **(b)** — es el modelo de §8 (`conceptId` en la wallet). (a)
-empuja la combinatoria al usuario y no sobrevive al segundo hijo.
+#### Consecuencia: el bolsillo lo elige el sistema, no el cajero
+
+Si el cajero solo elige a la persona, **algo tiene que decidir de qué bolsillo
+debitar cada ítem**. Ese algo es la elegibilidad del concepto (D4), que deja de
+ser una restricción opcional y pasa a ser el **mecanismo de ruteo** del módulo.
+
+De ahí, tres reglas que el diseño necesita:
+
+1. **Una venta puede repartirse entre varios bolsillos.** El chico lleva el
+   almuerzo y una gaseosa en la misma compra: parte sale de "almuerzo" y parte
+   de "cantina". El pago con wallet **no es un único débito** — es un débito por
+   bolsillo, todos dentro de la misma operación atómica.
+2. **Un ítem elegible en más de un bolsillo necesita una regla de
+   precedencia** — sin ella, dos cajas podrían debitar distinto para la misma
+   compra. Ver D4.
+3. **Un ítem que no es elegible en ningún bolsillo no se paga con wallet.** Se
+   rechaza o se cobra por otro medio (D6), nunca se debita "del que tenga
+   saldo".
 
 ### D4 — Cómo se define qué puede pagar cada bolsillo
 
-Por categoría de producto, por marca/etiqueta, o por lista explícita de
-productos. Recomendación: **por categoría**, que es la clasificación que el
-comercio ya mantiene viva por otras razones, y que además permite mantener el
-bolsillo homogéneo en tasa de IVA (§4).
+Con D3 cerrada, esto ya no es solo una restricción: es el **ruteo** que decide
+de qué bolsillo sale cada ítem.
+
+Por categoría de producto, por marca/etiqueta, o por lista explícita.
+Recomendación: **por categoría**, que es la clasificación que el comercio ya
+mantiene viva por otras razones, y que permite mantener el bolsillo homogéneo en
+tasa de IVA (§4).
+
+Falta además definir la **precedencia ante ambigüedad**, que D3 volvió
+obligatoria: si un ítem cae en dos bolsillos, ¿manda un orden de prioridad
+declarado por el comercio, el bolsillo más específico, o el de mayor saldo?
+Recomendación: **orden explícito de los conceptos**, configurado por el
+comercio. Cualquier regla implícita hace que la misma compra pueda debitar
+distinto según el día.
 
 ### D5 — Cómo se autentica el titular
 
