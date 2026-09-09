@@ -191,6 +191,23 @@ export function getNextInvoiceNo(registerId: string, series: string): number {
 }
 
 /**
+ * El próximo comprobante SIN consumirlo — solo para mostrarlo en pantalla.
+ *
+ * Existe porque el cajero tiene que poder ver con qué número va a salir la
+ * factura ANTES de confirmar el cobro, y `getNextInvoiceNo()` no sirve para
+ * eso: consume el número y lo persiste en el acto. Mirar no puede gastar un
+ * correlativo.
+ *
+ * `null` = este device todavía no conoce el correlativo de esta serie. El
+ * caller no muestra nada; el impedimento de vender sin número ya lo resuelve
+ * el gate del botón de cobro, no este helper.
+ */
+export function peekNextInvoiceNo(registerId: string, series: string): number | null {
+  if (!registerId) return null
+  return loadNext(registerId, series)
+}
+
+/**
  * Persiste el techo del rango autorizado del timbrado (D5, context/37) junto
  * al contador — misma vida y mismo scope por caja. `null` explícito BORRA el
  * valor guardado: si el panel quitó el rango, el preaviso deja de aplicar (no

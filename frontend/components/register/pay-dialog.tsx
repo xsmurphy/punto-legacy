@@ -39,6 +39,7 @@ import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { allocateLineDiscounts, lineGross } from "@/lib/cart/allocate-discounts"
 import { withLineTax } from "@/lib/cart/line-tax"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { formatDocumentNumber } from "@/lib/documents/format-document-number"
 import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
 import { buildSalePayload, buildApiPayload } from "@/lib/commands/create-sale"
@@ -48,7 +49,7 @@ import type {
   CreateSalePayload,
 } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
-import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
+import { getNextInvoiceNo, peekNextInvoiceNo } from "@/lib/pos/invoice-numbering"
 import { invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
 import { resolvePaymentAmount } from "@/lib/pos/payment-amount"
 import {
@@ -1606,6 +1607,41 @@ interface PayPhaseProps {
   onCancel: () => void
 }
 
+/**
+ * Con qué comprobante va a salir esta venta — para MOSTRARLO, no para usarlo.
+ *
+ * El cajero necesita saber el número antes de confirmar el cobro: es la única
+ * oportunidad de detectar que la caja está numerando mal ANTES de entregarle
+ * el comprobante al cliente. En el legacy esto era un tooltip sobre el botón
+ * de pagar; acá no puede serlo, porque el POS es táctil y en una tablet no hay
+ * hover — el cajero nunca lo vería.
+ *
+ * `peekNextInvoiceNo` NO consume: mirar no puede gastar un correlativo. El
+ * número real se toma recién al confirmar, en el mismo lugar de siempre.
+ *
+ * Se arma con el prefijo y el padding del comercio, así lo que se lee en
+ * pantalla es literalmente lo que va a salir impreso en el ticket.
+ *
+ * `null` cuando la serie o el número no se conocen todavía: no se muestra
+ * nada. El impedimento de vender sin número no es asunto de este helper — lo
+ * resuelve el gate del CTA de cobro.
+ */
+function useNextInvoiceLabel(): string | null {
+  const registers = useCatalogStore((st) => st.registers)
+  const activeRegisterId = useCatalogStore((st) => st.activeRegisterId)
+  const padWidth = useCatalogStore((st) => st.invoicePadWidth)
+
+  return React.useMemo(() => {
+    if (!activeRegisterId) return null
+    const series = invoiceSeriesForRegister(registers, activeRegisterId)
+    if (!series) return null
+    const next = peekNextInvoiceNo(activeRegisterId, series)
+    if (next === null) return null
+    const register = (registers ?? []).find((r) => r.id === activeRegisterId)
+    return formatDocumentNumber(next, register?.expeditionPoint ?? null, padWidth)
+  }, [registers, activeRegisterId, padWidth])
+}
+
 function PayPhase({
   total,
   credito,
@@ -1638,6 +1674,7 @@ function PayPhase({
     (m) => m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey),
   )
   const activeCurrencies = currencies.filter((c) => c.value > 0)
+  const nextInvoiceLabel = useNextInvoiceLabel()
   // Estado de red: los medios de pasarela (QR) no pueden operar sin internet.
   const isOnline = useOnlineStatus()
   // El visor muestra lo tipeado si hay algo; si no, muestra el remaining.
@@ -1652,9 +1689,20 @@ function PayPhase({
       <DialogHeader className="pb-3">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
-        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-          {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
-        </span>
+        {/* El número va en la MISMA línea que el label, no en una fila
+            propia: una fila condicional movería el visor y los métodos de pago
+            según haya o no número, que es exactamente lo que la regla de
+            posiciones estables prohíbe (memoria muscular del cajero). */}
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
+          </span>
+          {nextInvoiceLabel && (
+            <span className="text-xs font-medium tabular-nums text-muted-foreground">
+              {nextInvoiceLabel}
+            </span>
+          )}
+        </div>
 
         {/* Los impedimentos de la venta a crédito (sin cliente, cliente sin
             crédito, caja cerrada) NO se pintan acá: viajan al tooltip del CTA
