@@ -66,13 +66,12 @@ datos de prueba). Las facturas 615-619 son documentos fiscales legales, pero
 - Catálogo geográfico (fuente SIFEN) + bot `resolve_geo_codes`, de la tanda
   anterior, ya en prod.
 
-**En vuelo AHORA**: agente en `.claude/worktrees/anular-desde-panel`,
-branch `frontend/anular-desde-panel` — llevar la **anulación de VENTA** al
-panel (`SaleVoidService` ya cancela el documento en cascada; backend ya
-acepta realm panel en `sales-void.php`, permiso `pos.sale.void`). Es
-trabajo de frontend solamente. Restricción del brief: el hook se
-PARAMETRIZA por cliente (panel=cookie, POS=Bearer) — no duplicar, no usar
-`posFetch` desde el panel.
+**Nada en vuelo.** El agente de la anulación desde el panel terminó y su
+trabajo YA ESTÁ MERGEADO en `main` — revisado antes de mergear: el hook y
+el diálogo se comparten con la caja inyectando el cliente por realm, y el
+módulo compartido importa solo el cliente del panel (nada del token del
+device entra a su bundle). Arneses en verde: sale_void, api_realm 29/29,
+permission_enforcement 359/359.
 
 **Deploy verificado al cierre**: Backend en `cc9d0686` (finished). Front
 tenía un deploy `in_progress` para `92e6af91` (el HEAD, cambio de portal) —
@@ -90,8 +89,8 @@ tenía un deploy `in_progress` para `92e6af91` (el HEAD, cambio de portal) —
 - Outbox: drainer + `retry()` — commit `8396c1ac`. Mig 211 (`provider_number`
   44 chars).
 - Portal público del comprador — commit `92e6af91`.
-- `.claude/worktrees/anular-desde-panel` (branch `frontend/anular-desde-panel`)
-  — EN VUELO, revisar diff antes de mergear (toca panel, riesgo medio).
+- `.claude/worktrees/anular-desde-panel` — MERGEADO a `main`, el worktree se
+  puede borrar.
 
 ## Callejones sin salida
 
@@ -107,7 +106,7 @@ tenía un deploy `in_progress` para `92e6af91` (el HEAD, cambio de portal) —
 
 ## La cola del owner, en orden acordado
 
-1. **Anular desde el panel** — EN VUELO (worktree `anular-desde-panel`).
+1. ~~Anular desde el panel~~ — HECHO y mergeado. Falta deployar el Front.
 2. **Serie propia para la nota de crédito** — hoy la numera FE-PY:
    `SaleToFePyMapper::resolveDocumentNumber()` omite el número para tipo 5 y
    `cdcMismatchFor()` ni compara para NC. Contradice que Punto sea dueño de
@@ -120,9 +119,8 @@ tenía un deploy `in_progress` para `92e6af91` (el HEAD, cambio de portal) —
 
 ## Próximo paso
 
-Revisar el diff del agente en `.claude/worktrees/anular-desde-panel` cuando
-termine (branch `frontend/anular-desde-panel`) y mergear si respeta la
-parametrización panel/POS del hook. Después, arrancar el punto 2 de la cola
+Deployar el Front (la anulación desde el panel está en `main` sin deployar) y
+seguir por el punto 2 de la cola: serie propia para la nota de crédito.
 (serie propia para NC) — es prerequisito del punto 3 y toca numeración
 fiscal, así que pasa por `code-reviewer` antes de mergear.
 
