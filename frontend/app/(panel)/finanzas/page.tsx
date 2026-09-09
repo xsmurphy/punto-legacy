@@ -64,15 +64,18 @@ export default function FinanzasResumenPage() {
       {/* Los dos bloques de números van en `StatTile` (gris) y el contenido
           en cards blancas: ese contraste ES la jerarquía de la página. Con
           todo blanco y solo bordes, saldos, totales del período y la tabla
-          pesaban lo mismo (reportado por el owner). `StatsRow` es flex, así
-          que un comercio con una sola cuenta ya no deja dos tercios de la
-          fila vacíos como el grid de 3 columnas. */}
-      <StatsRow className="flex-wrap">
+          pesaban lo mismo (reportado por el owner).
+
+          Grid y no `StatsRow`: la fila de saldos tiene N cuentas, y con el
+          flex un comercio de una sola cuenta se comía el ancho de las tres
+          columnas. Un tile ocupa UNA celda y el resto de la fila queda
+          vacío (regla del owner). */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {accounts.map((account) => (
           <Link
             key={account.id}
             href={`/finanzas/movimientos?accountId=${account.id}`}
-            className="min-w-56 flex-1 rounded-[min(var(--radius-4xl),24px)] transition-opacity hover:opacity-80"
+            className="rounded-[min(var(--radius-4xl),24px)] transition-opacity hover:opacity-80"
           >
             <StatTile
               label={account.name}
@@ -80,7 +83,7 @@ export default function FinanzasResumenPage() {
             />
           </Link>
         ))}
-      </StatsRow>
+      </div>
 
       {/* KPIs del período — neutros, sin color de énfasis (no hay precedente
           de --chart-1 en el repo para este caso; egresos no usan destructive
