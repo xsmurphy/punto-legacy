@@ -1175,6 +1175,28 @@ export interface TxDetailFull {
   quotesOrigin?: TxRelatedDoc[]
   quotesDerived?: TxRelatedDoc[]
   orders?: TxRelatedOrder[]
+  /**
+   * Documentos del outbox de facturación electrónica de esta venta.
+   *
+   * Es el estado CRUDO, y es distinto de `einvoiceCdc`/`einvoiceQrUrl`, que
+   * responden "qué se puede imprimir" — una pregunta más estricta que devuelve
+   * null tanto para "falló" como para "todavía no salió". Sin esto la pantalla
+   * ofrecía emitir una factura YA emitida y no mostraba el motivo del rechazo
+   * (2026-09-09).
+   *
+   * Lista vacía = nunca se encoló (tenant sin FE, emisión automática apagada,
+   * o cliente sin RUC con el filtro activo). No es un error.
+   */
+  einvoiceDocuments?: Array<{
+    id: string
+    doctype: string
+    status: "pending" | "sending" | "issued" | "error" | "cancelled"
+    cdc: string | null
+    documentNumber: string | null
+    errorMessage: string | null
+    issuedAt: string | null
+    attempts: number
+  }>
 }
 
 export function useTransactionDetail(id: string | null) {

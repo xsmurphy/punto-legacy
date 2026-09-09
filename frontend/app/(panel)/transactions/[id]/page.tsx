@@ -36,6 +36,7 @@ import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useVoidCreditPayment } from "@/hooks/use-contacts"
+import { einvoiceKudeUrl } from "@/hooks/use-einvoice"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import {
@@ -126,10 +127,22 @@ function TransactionDetailView({
   const isQuote = isQuoteType(tx.transactionType)
   const canEdit = !isVoid && isEditableSale(tx.transactionType)
   const canManageEinvoice = usePermission("einvoice.manage")
+  // El documento VIGENTE de esta venta (el más reciente que no sea un intento
+  // muerto). El backend los devuelve ordenados por fecha desc.
+  const einvoiceDoc = detail.einvoiceDocuments?.[0] ?? null
+  const einvoiceIssued = einvoiceDoc?.status === "issued" || einvoiceDoc?.status === "sending"
   // Solo contado y crédito llevan factura electrónica — es el mismo mapeo que
   // hace SaleService al encolar. Una anulada no se factura.
+  //
+  // Y NO se ofrece emitir lo que ya está emitido: antes el botón aparecía
+  // igual porque esta pantalla no conocía el estado del outbox, así que le
+  // proponía al comercio reemitir una factura fiscal vigente y el backend lo
+  // rechazaba con un error (reporte del owner, 2026-09-09). `sending` cuenta
+  // como emitida a estos efectos: hay una emisión en vuelo y ofrecer otra es
+  // justamente la carrera que no queremos.
   const canIssueEinvoice =
     !isVoid &&
+    !einvoiceIssued &&
     canManageEinvoice &&
     (isCashSale(tx.transactionType) || isCreditSale(tx.transactionType))
 
@@ -285,6 +298,30 @@ function TransactionDetailView({
               {isCustomerReceipt ? "Anular cobro" : "Anular pago"}
             </Button>
           )}
+          {/* KuDE — la representación impresa del documento electrónico. El
+              endpoint ya existía pero solo se ofrecía desde Ajustes y desde el
+              portal del cliente, no desde la venta, que es donde el comercio
+              la busca (pedido del owner, 2026-09-09). Se abre en pestaña
+              nueva: el PDF viaja como stream mismo-origen y el browser lo
+              maneja nativamente.
+
+              OJO con lo que este botón NO afirma: ni el CDC ni el PDF prueban
+              validez fiscal — hay un caso registrado de un documento con CDC
+              válido que SIFEN rechazó después y cuyo KuDE se descargaba igual
+              (ver EInvoiceService::reconcile). El veredicto vive en
+              `sifen_status`, y por eso el botón se ofrece por `issued` pero la
+              validez la comunica el badge del listado. */}
+          {einvoiceIssued && einvoiceDoc?.id && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(einvoiceKudeUrl(einvoiceDoc.id), "_blank")}
+              className="gap-1.5"
+            >
+              <FileCheck className="size-3.5" />
+              Descargar KuDE
+            </Button>
+          )}
           {canIssueEinvoice && (
             <Button
               variant="outline"
@@ -308,6 +345,34 @@ function TransactionDetailView({
           )}
         </div>
       </header>
+
+      {/* El rechazo de la facturación electrónica, VISIBLE. Antes esta
+          pantalla no decía nada: el comercio veía el badge de error en el
+          listado y al entrar al detalle no encontraba el motivo por ningún
+          lado (reporte del owner, 2026-09-09). Va arriba del todo porque es
+          una venta cobrada SIN documento fiscal válido — no es un detalle
+          más de la ficha. */}
+      {einvoiceDoc?.status === "error" && (
+        <Card className="border-destructive/40">
+          <CardContent className="flex items-start gap-3 py-4">
+            <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-foreground">
+                La factura electrónica no se pudo emitir
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {einvoiceDoc.errorMessage ??
+                  "El motor de facturación la rechazó y no informó el motivo."}
+              </p>
+              {einvoiceDoc.attempts > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Intentos automáticos: {einvoiceDoc.attempts}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <InfoCard title="Datos generales">

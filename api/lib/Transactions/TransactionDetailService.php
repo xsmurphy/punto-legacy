@@ -352,6 +352,7 @@ final class TransactionDetailService
         $einvoiceCdc = null;
         $einvoiceQrUrl = null;
         $einvoicePortalUrl = null;
+        $einvoiceDocuments = [];
         try {
             $einvoice = new \Punto\Api\EInvoice\EInvoiceService();
             // QUÉ se puede imprimir de esta venta lo decide el servicio de FE,
@@ -366,6 +367,15 @@ final class TransactionDetailService
                 $einvoiceQrUrl = $printable['qrUrl'];
             }
             $einvoicePortalUrl = $einvoice->portalUrl($companyId, $id);
+            // Los documentos CRUDOS del outbox, no solo lo imprimible. Sin
+            // esto la pantalla de la transacción no sabía si la factura
+            // electrónica salió, falló o nunca se encoló: le ofrecía "Emitir
+            // factura electrónica" a una venta YA emitida y no mostraba el
+            // motivo cuando el motor la rechazaba (reporte del owner,
+            // 2026-09-09). `printableDocumentFor` no alcanza — responde qué se
+            // puede IMPRIMIR, que es una pregunta distinta y más estricta:
+            // devuelve null tanto para "falló" como para "todavía no salió".
+            $einvoiceDocuments = $einvoice->documentsForTransaction($companyId, $id);
         } catch (\Throwable $e) {
             // La FE nunca puede tirar el detalle: sin dato, los bloques en blanco.
             error_log('[TransactionDetailService] einvoice: ' . $e->getMessage());
@@ -461,6 +471,9 @@ final class TransactionDetailService
             // (`einvoicePortalUrl`), que es nuestro. Los dos son bloques de
             // plantilla separados justamente porque no son lo mismo.
             'einvoiceQrUrl'     => $einvoiceQrUrl,
+            // Estado crudo del outbox — lo que decide si la pantalla ofrece
+            // emitir, muestra el motivo del rechazo, o no dice nada.
+            'einvoiceDocuments' => $einvoiceDocuments,
         ];
 
         return [

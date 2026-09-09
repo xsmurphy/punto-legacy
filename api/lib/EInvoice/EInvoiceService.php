@@ -500,7 +500,7 @@ final class EInvoiceService
     public function documentsForTransaction(string $companyId, string $transactionId): array
     {
         $rs = ncmExecute(
-            "SELECT doctype, status, cdc, document_number, error_message, issued_at, attempts
+            "SELECT einvoicedocid, doctype, status, cdc, document_number, error_message, issued_at, attempts
                FROM einvoice_document
               WHERE companyid = ? AND transactionid = ?
               ORDER BY created_at DESC",
@@ -514,6 +514,11 @@ final class EInvoiceService
             while (!$rs->EOF) {
                 $f = $rs->fields;
                 $out[] = [
+                    // El id hace falta para descargar el KuDE
+                    // (`/v1/einvoice?resource=kude&id=`): sin él, quien
+                    // consume esta lista sabe que la factura existe pero no
+                    // puede pedir su PDF.
+                    'id'             => (string) ($f['einvoicedocid'] ?? ''),
                     'doctype'        => (string) ($f['doctype'] ?? ''),
                     'status'         => (string) ($f['status'] ?? ''),
                     'cdc'            => $f['cdc'] ?? null,
@@ -1163,8 +1168,15 @@ final class EInvoiceService
     public function retry(string $companyId, string $docId): array
     {
         $updated = ncmExecute(
+            // `attempts = 0` NO es cosmético: desde que el drainer corta en
+            // `attempts < MAX_RETRY_ATTEMPTS`, un documento que agotó sus ocho
+            // intentos automáticos quedaría fuera de su alcance y este
+            // reintento manual sería un no-op silencioso — el peor resultado
+            // posible para un botón que el comercio aprieta esperando algo.
+            // Una persona decidiendo reintentar reabre la ventana entera: es
+            // exactamente la intervención humana que el corte pedía.
             "UPDATE einvoice_document
-                SET status = 'pending', next_retry_at = now(), updated_at = now()
+                SET status = 'pending', attempts = 0, next_retry_at = now(), updated_at = now()
               WHERE einvoicedocid = ? AND companyid = ? AND status = 'error'
               RETURNING einvoicedocid",
             [$docId, $companyId]
@@ -2228,6 +2240,14 @@ final class EInvoiceService
         $rs = ncmExecute(
             "SELECT einvoicedocid, companyid FROM einvoice_document
               WHERE status IN ('pending','error') AND next_retry_at <= now()
+                -- El corte de reintentos automáticos. Sin esto el backoff
+                -- capeaba el INTERVALO y no la CANTIDAD: pasado el octavo
+                -- intento la fila se reintentaba cada 4h20 para siempre, y el
+                -- proveedor nos reportó documentos viejos golpeando su API
+                -- todo el día (2026-09-09). `retry()` sigue pudiendo
+                -- reactivarla a mano: resetea `attempts` a 0 y reabre la
+                -- ventana entera.
+                AND attempts < " . self::MAX_RETRY_ATTEMPTS . "
               ORDER BY next_retry_at ASC
               LIMIT ?",
             [$limit],
@@ -3235,6 +3255,13 @@ final class EInvoiceService
         );
     }
 
+    /**
+     * Reintentos automáticos antes de plantarse. Ocho intentos con backoff
+     * exponencial son ~8h30 de ventana: si el motor rechazó todo ese tiempo,
+     * el problema pide una persona, no más reintentos ciegos.
+     */
+    private const MAX_RETRY_ATTEMPTS = 8;
+
     private function markError(string $docId, int $attemptsBefore, string $message): void
     {
         ncmExecute(
@@ -3246,17 +3273,34 @@ final class EInvoiceService
     }
 
     /**
-     * Backoff exponencial: 2^attempts minutos, cap en 8 intentos (~4h20 la
-     * última espera) — a partir de ahí queda en `error` visible sin más
-     * reintento automático (el drainer solo toma next_retry_at <= now(), y
-     * un backoff más allá de 8 no aporta: si Factomate rechazó 8 veces, hace
-     * falta intervención humana, no más reintentos ciegos).
+     * Backoff exponencial: 2^attempts minutos hasta el intento 8, y después
+     * SE PLANTA.
+     *
+     * El `min($attempts, 8)` de antes capeaba el INTERVALO, no la cantidad de
+     * intentos: a partir del octavo reintentaba cada 4h20 para siempre. El
+     * docblock ya decía "a partir de ahí queda en error visible sin más
+     * reintento automático" — la intención estaba bien, el código hacía otra
+     * cosa.
+     *
+     * No era teórico: el proveedor nos reportó (2026-09-09) decenas de
+     * intentos repitiéndose todo el día sobre documentos viejos, incluido un
+     * número que ya había sido emitido, aprobado y anulado. Cada reintento
+     * crea una fila del otro lado.
+     *
+     * El corte NO se hace dejando `next_retry_at` en NULL: esa columna es NOT
+     * NULL y el UPDATE reventaría (verificado contra el esquema de producción
+     * antes de shippear). Se hace en el WHERE del drainer, que ahora exige
+     * `attempts < MAX_RETRY_ATTEMPTS` — la fila conserva su fecha, queda
+     * quieta y visible en `error`, y el estado sigue siendo legible.
+     *
+     * No es un abandono: `retry()` la vuelve a poner en `pending` con
+     * `next_retry_at = now()` cuando una persona decide reintentarla, que es
+     * justo lo que hace falta cuando el motor rechazó ocho veces seguidas.
      */
     private function nextRetryAt(int $attempts): string
     {
-        $capped = min($attempts, 8);
-        $minutes = 2 ** $capped;
-        return date('c', time() + $minutes * 60);
+        $capped = min($attempts, self::MAX_RETRY_ATTEMPTS);
+        return date('c', time() + (2 ** $capped) * 60);
     }
 
     /**
