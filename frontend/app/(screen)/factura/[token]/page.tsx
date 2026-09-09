@@ -316,7 +316,14 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
           rel="noreferrer"
           className="flex flex-col items-center gap-1.5 pt-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
         >
-          <PuntoLogo variant="wordmark" className="h-5 opacity-70" />
+          {/* La caja se ajusta al ARTE, no al revés. `PuntoLogo` trae un box
+              fijo de 100px con `object-left` —que el sidebar necesita— y en un
+              pie centrado eso dejaba el logo pegado a la izquierda con espacio
+              muerto a la derecha (reporte del owner, 2026-09-09). El wordmark
+              es ~2.9:1, así que a 20px de alto son ~58px de ancho: con la caja
+              de ese tamaño el `object-left` deja de importar y queda centrado
+              sin tocar el componente compartido. */}
+          <PuntoLogo variant="wordmark" className="h-5 w-[58px] opacity-70" />
           <span>Usamos www.punto.la</span>
         </a>
       </footer>

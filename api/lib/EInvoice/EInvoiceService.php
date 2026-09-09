@@ -844,7 +844,9 @@ final class EInvoiceService
                     d.cancelled_at, d.sifen_status, d.provider_response, d.numbering_mismatch,
                     t.transactionTotal AS total, t.transactionDiscount AS discount,
                     t.transactionCurrency AS currency, t.transactionDate AS sale_date,
-                    COALESCE(NULLIF(co.config->>'settingName', ''), co.config->>'companyName') AS company_name
+                    COALESCE(NULLIF(co.config->>'settingName', ''), co.config->>'companyName') AS company_name,
+                    co.config->'settingObj'->>'logoUrl'         AS logo_url,
+                    co.config->'settingObj'->>'logoUploadedAt'  AS logo_stamp
                FROM einvoice_document d
                LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
                LEFT JOIN company co ON co.companyId = d.companyid
@@ -889,13 +891,17 @@ final class EInvoiceService
             'status'         => $status,
             'doctype'        => (string) ($row['doctype'] ?? ''),
             'companyName'    => $row['company_name'] ?? null,
-            // Logo del COMERCIO. No es una clave de config: es una ruta
-            // derivada del companyId, la misma convención que arma `data.php`
-            // para el resto del producto (`/assets/80-80/0/<enc(id)>.jpg`).
-            // Se manda derivada y no se pregunta si existe: el portal lo
-            // muestra y, si no hay archivo, cae al nombre del comercio — que
-            // es exactamente lo que ya hacía antes de este campo.
-            'companyLogo'    => '/assets/80-80/0/' . enc($companyId) . '.jpg',
+            // Logo del COMERCIO, de donde vive DE VERDAD: `settingObj.logoUrl`
+            // en la config, que es la URL pública de S3 que escribe
+            // `SettingsService::uploadLogo()` — con su `logoUploadedAt` como
+            // cache-bust, igual que lo consume el panel.
+            //
+            // La primera versión de este campo usaba
+            // `/assets/80-80/0/<enc(id)>.jpg`, la ruta que arma `data.php`.
+            // Eso es LEGACY y no es donde está el archivo: el portal quedaba
+            // pidiendo una imagen inexistente. `null` cuando el comercio no
+            // subió ninguno, y ahí el portal muestra su nombre.
+            'companyLogo'    => self::companyLogoUrl($row['logo_url'] ?? null, $row['logo_stamp'] ?? null),
             // Ya filtrado por el guard de numeración de arriba.
             'cdc'            => $cdcForBuyer,
             'documentNumber' => $row['document_number'] ?? null,
@@ -3995,6 +4001,23 @@ final class EInvoiceService
      * ya está gateado por país. Lo que se corrige acá es el enmascaramiento del
      * NULL, que también tapaba ventas en moneda extranjera de un tenant PY.)
      */
+    /**
+     * URL pública del logo del comercio, o null si no cargó ninguno.
+     *
+     * El cache-bust (`?v=<timestamp>`) es el mismo que usa el panel: sin él,
+     * un comercio que cambia su logo sigue viendo el viejo en el portal de sus
+     * clientes hasta que expire el caché del navegador.
+     */
+    private static function companyLogoUrl(mixed $url, mixed $stamp): ?string
+    {
+        $url = trim((string) ($url ?? ''));
+        if ($url === '') {
+            return null;
+        }
+        $stamp = trim((string) ($stamp ?? ''));
+        return $stamp !== '' ? $url . '?v=' . $stamp : $url;
+    }
+
     private static function resolveCurrency(string $companyId, mixed $stored): string
     {
         $currency = strtoupper(trim((string) ($stored ?? '')));
