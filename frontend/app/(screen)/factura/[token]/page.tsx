@@ -23,6 +23,9 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/empty-state"
+import { QRCodeSVG } from "qrcode.react"
+
+import { PuntoLogo } from "@/components/layout/punto-logo"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/format-date"
@@ -33,6 +36,8 @@ interface PortalDocument {
   status: string
   doctype: string
   companyName: string | null
+  /** Ruta del logo del comercio, derivada del companyId. Puede no existir. */
+  companyLogo: string | null
   cdc: string | null
   documentNumber: string | null
   issuedAt: string | null
@@ -73,6 +78,9 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
   const [doc, setDoc] = React.useState<PortalDocument | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
+  // El logo del comercio es una ruta DERIVADA del companyId, no un campo que
+  // alguien haya cargado: puede no existir. Se intenta y se cae al nombre.
+  const [logoFailed, setLogoFailed] = React.useState(false)
 
   React.useEffect(() => {
     // Sin setLoading(true) acá: el estado ya arranca en `true` y el efecto
@@ -113,13 +121,30 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold">Tu factura electrónica</h1>
-        <p className="text-sm text-muted-foreground">
-          {doc?.companyName
-            ? `Documento emitido por ${doc.companyName}.`
-            : "Documento electrónico habilitado por la SET."}
-        </p>
+      {/* La marca que manda acá es la DEL COMERCIO: el comprador abrió este
+          link porque le compró a ese negocio, no a Punto. El logo cae al
+          nombre si el archivo no existe — la ruta viene derivada del
+          companyId y nadie garantiza que el comercio haya subido uno. */}
+      <header className="flex flex-col items-center gap-3 text-center">
+        {doc?.companyLogo && !logoFailed && (
+          // eslint-disable-next-line @next/next/no-img-element -- ruta servida
+          // por la API del tenant, sin dimensiones conocidas y con fallback
+          // propio a onError; `next/image` exigiría ambas cosas.
+          <img
+            src={doc.companyLogo}
+            alt={doc.companyName ?? "Logo del comercio"}
+            className="h-16 w-16 rounded-full object-cover"
+            onError={() => setLogoFailed(true)}
+          />
+        )}
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Tu factura electrónica</h1>
+          <p className="text-sm text-muted-foreground">
+            {doc?.companyName
+              ? `Documento emitido por ${doc.companyName}.`
+              : "Documento electrónico habilitado por la SET."}
+          </p>
+        </div>
       </header>
 
       {loading ? (
@@ -230,6 +255,24 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
 
             {(doc.kudeAvailable || doc.qrUrl) && <Separator />}
 
+            {/* El QR FIRMADO, dibujado — no solo enlazado.
+                Es el mismo `dCarQR` que va en el KuDE: lleva el DigestValue de
+                la firma y un hash con el CSC, así que no se puede componer acá
+                ni recalcular. Se dibuja el que vino del emisor, tal cual.
+                Dibujarlo importa porque este portal se abre en el teléfono del
+                comprador y a veces frente a otra persona que quiere escanearlo
+                (pedido del owner, 2026-09-09). */}
+            {doc.qrUrl && (
+              <div className="flex flex-col items-center gap-2">
+                <div className="rounded-lg bg-white p-3">
+                  <QRCodeSVG value={doc.qrUrl} size={148} level="M" />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Escaneá para verificar en la SET
+                </p>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-2">
               {doc.kudeAvailable && (
                 <Button asChild>
@@ -260,6 +303,23 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
           ghost={false}
         />
       )}
+
+      {/* Punto al pie, no arriba. Este portal lo abre el cliente FINAL —
+          gente que le compró al comercio y que probablemente no nos conoce—,
+          así que es un canal de marca legítimo, pero la factura es del
+          comercio y su identidad va primero. */}
+      <footer className="mt-auto flex flex-col items-center gap-2 pt-6 text-center">
+        <Separator />
+        <a
+          href="https://www.punto.la"
+          target="_blank"
+          rel="noreferrer"
+          className="flex flex-col items-center gap-1.5 pt-4 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <PuntoLogo variant="wordmark" className="h-5 opacity-70" />
+          <span>Usamos www.punto.la</span>
+        </a>
+      </footer>
     </main>
   )
 }

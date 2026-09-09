@@ -889,6 +889,13 @@ final class EInvoiceService
             'status'         => $status,
             'doctype'        => (string) ($row['doctype'] ?? ''),
             'companyName'    => $row['company_name'] ?? null,
+            // Logo del COMERCIO. No es una clave de config: es una ruta
+            // derivada del companyId, la misma convención que arma `data.php`
+            // para el resto del producto (`/assets/80-80/0/<enc(id)>.jpg`).
+            // Se manda derivada y no se pregunta si existe: el portal lo
+            // muestra y, si no hay archivo, cae al nombre del comercio — que
+            // es exactamente lo que ya hacía antes de este campo.
+            'companyLogo'    => '/assets/80-80/0/' . enc($companyId) . '.jpg',
             // Ya filtrado por el guard de numeración de arriba.
             'cdc'            => $cdcForBuyer,
             'documentNumber' => $row['document_number'] ?? null,
@@ -900,7 +907,19 @@ final class EInvoiceService
             'total'          => $row['total'] !== null
                 ? (float) $row['total'] - (float) ($row['discount'] ?? 0)
                 : null,
-            'currency'       => $row['currency'] ?? null,
+            // La moneda del DOCUMENTO, con la del comercio como respaldo.
+            //
+            // Antes iba `$row['currency']` crudo, y una venta sin moneda
+            // explícita dejaba el portal mostrando "500.00": sin código ISO,
+            // sin bandera y con dos decimales que el guaraní no tiene. El
+            // formateador del front sí sabe qué monedas no llevan decimales,
+            // pero no puede saberlo si no le llega ninguna.
+            //
+            // `resolveCurrency()` NO inventa: si la venta no la trae, usa la
+            // configurada del tenant, que es la que esa venta usó de hecho.
+            // Es el mismo resolver que ya alimenta el mapper del documento
+            // electrónico, así que el portal y el XML dicen lo mismo.
+            'currency'       => self::resolveCurrency($companyId, $row['currency'] ?? null),
             // El estado fiscal sí (el comprador tiene derecho a saber si su
             // comprobante vale), el MOTIVO del rechazo NO: es un diagnóstico
             // operativo del comercio (timbrado vencido, documento duplicado,
