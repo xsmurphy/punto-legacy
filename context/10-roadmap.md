@@ -28,6 +28,48 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
+## El email al comprador como canal propio (pedido del owner 2026-09-09) — sin planificar
+
+**Contexto**: hoy una venta puede disparar DOS correos al cliente final. El
+"detalle de tu compra" (`SaleService::notifyCustomer`), que existe desde antes
+de la facturación electrónica y solo linkea a la pantalla de recibo; y el del
+KuDE (`context/57`), que sale cuando SIFEN aprueba y lleva el documento fiscal.
+
+**D1 CERRADA por el owner (2026-09-09)**: cuando el comercio factura
+electrónicamente, el de "detalle de compra" se APAGA. Un solo correo por venta,
+el que lleva el documento. Para comercios sin FE el de detalle se conserva —
+pero arreglado, porque hoy sale roto (ver abajo).
+
+**Bugs verificados del correo de detalle** (reporte del owner con el HTML
+crudo): saluda `Hola MURPHY,,` —`getCustomerName($contact,'first')` sobre
+"MURPHY, CHRISTIAN" ya devuelve la coma y la plantilla suma otra—; el botón
+apunta a `href="/"` porque `getShortURL()` devolvió vacío; el asunto arma
+`[<comercio>] Detalle de su compra` con `COMPANY_NAME` vacío y sin número de
+comprobante; y no adjunta nada.
+
+**Lo que el owner quiere construir encima, y por qué importa más que un fix de
+copy**: este correo lo abre el cliente DEL cliente — gente que no conoce Punto.
+Es el único canal donde la marca llega a un público que no es el comercio.
+
+  1. **Diseño con el design system de Punto** y marca visible (ver `context/11`
+     y `context/68`: en superficies de marca el verde es protagonista, al revés
+     que en el producto).
+  2. **NPS** — el módulo quedó a medio construir y nunca se terminó. El correo
+     posventa es su disparador natural.
+  3. **Link al perfil del comprador**: puntos acumulados, su NPS, últimas
+     compras. Un portal del cliente final, no solo la factura suelta.
+
+**Sin analizar todavía** (el owner lo dejó explícito: "más adelante analizamos
+bien"). Lo que ya se ve que hay que resolver antes: con qué identidad entra el
+comprador a ese perfil —`contact.contactPassword` existe en el schema vivo pero
+no hay realm `customer`, ver el hallazgo (1) de `context/74`—, y si el NPS se
+guarda por venta o por contacto.
+
+**Relacionado**: `context/57` (entrega digital del KuDE, el correo que SÍ debe
+sobrevivir) y `context/49` (portal del cliente).
+
+---
+
 ## Plantillas de impresión preconfiguradas (pedido del owner 2026-09-09) — sin planificar
 
 **El pedido, textual**: *"necesitamos una sección de plantillas que vamos a definir ya
