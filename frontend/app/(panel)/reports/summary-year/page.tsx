@@ -38,7 +38,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type SummaryYearResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 const MONTH_NAMES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",

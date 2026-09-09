@@ -51,7 +51,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate, formatDateTime } from "@/lib/format-date"
 import type { CustomerRow, CustomersDashboard } from "@/hooks/use-reports"

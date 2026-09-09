@@ -24,7 +24,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate, parseNaive } from "@/lib/format-date"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 type GiftCardStatus = "expired" | "soon" | "used" | "active"
 

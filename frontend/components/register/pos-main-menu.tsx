@@ -89,7 +89,7 @@ import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
 import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
-import { StatTile } from "@/components/domain/reports/stat-tile"
+import { StatTile } from "@/components/stat-tile"
 import { useLockStore } from "@/lib/pos/lock-store"
 import {
   useDrawerStatus,

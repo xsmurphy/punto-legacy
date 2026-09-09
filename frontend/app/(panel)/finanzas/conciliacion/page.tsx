@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -336,33 +337,27 @@ function ReconciliationDetailView({ id, onBack }: { id: string; onBack: () => vo
         </div>
       </div>
 
-      <Card className="sticky top-0 z-10">
-        <CardContent className="grid grid-cols-1 gap-4 pt-6 sm:grid-cols-3">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Saldo extracto</span>
-            <span className="text-xl font-semibold tabular-nums">
-              {formatMoney(session.statementBalance, bootstrap)}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Saldo conciliado</span>
-            <span className="text-xl font-semibold tabular-nums">
-              {formatMoney(reconciledBalance, bootstrap)}
-            </span>
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">Diferencia</span>
-            <span
-              className={cn(
-                "text-xl font-semibold tabular-nums",
-                isBalanced ? "text-green-600 dark:text-green-500" : "text-destructive",
-              )}
-            >
-              {formatMoney(difference, bootstrap)}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
+      {/* El fondo va en el wrapper sticky y no en los tiles: `StatsRow` deja
+          gap entre uno y otro, y por esos huecos se vería pasar la lista de
+          movimientos al scrollear. */}
+      <div className="sticky top-0 z-10 bg-background py-1">
+        <StatsRow>
+          <StatTile
+            label="Saldo extracto"
+            value={formatMoney(session.statementBalance, bootstrap)}
+          />
+          <StatTile
+            label="Saldo conciliado"
+            value={formatMoney(reconciledBalance, bootstrap)}
+          />
+          <StatTile
+            label="Diferencia"
+            value={formatMoney(difference, bootstrap)}
+            tone={isBalanced ? "positive" : "negative"}
+            emphasis
+          />
+        </StatsRow>
+      </div>
 
       {movements.length === 0 ? (
         <EmptyState

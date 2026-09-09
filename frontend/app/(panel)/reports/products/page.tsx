@@ -44,7 +44,7 @@ import {
 } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 /** Link al artículo — mismo destino desde Ranking y Detallado (ver punto 2/3
  *  del pedido: un solo historial, enlazado desde ambos lugares en vez de

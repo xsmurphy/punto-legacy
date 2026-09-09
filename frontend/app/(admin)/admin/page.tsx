@@ -31,7 +31,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import {
   ChartContainer,
   ChartLegend,

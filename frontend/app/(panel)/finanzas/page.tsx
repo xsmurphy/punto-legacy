@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Landmark } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import {
   Table,
   TableBody,
@@ -60,66 +61,45 @@ export default function FinanzasResumenPage() {
         />
       ) : (
         <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Los dos bloques de números van en `StatTile` (gris) y el contenido
+          en cards blancas: ese contraste ES la jerarquía de la página. Con
+          todo blanco y solo bordes, saldos, totales del período y la tabla
+          pesaban lo mismo (reportado por el owner). `StatsRow` es flex, así
+          que un comercio con una sola cuenta ya no deja dos tercios de la
+          fila vacíos como el grid de 3 columnas. */}
+      <StatsRow className="flex-wrap">
         {accounts.map((account) => (
-          <Link key={account.id} href={`/finanzas/movimientos?accountId=${account.id}`}>
-            <Card className="cursor-pointer transition-colors hover:border-primary/40">
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  {account.name}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold tabular-nums">
-                  {formatMoney(account.currentBalance, bootstrap)}
-                </p>
-              </CardContent>
-            </Card>
+          <Link
+            key={account.id}
+            href={`/finanzas/movimientos?accountId=${account.id}`}
+            className="min-w-56 flex-1 rounded-[min(var(--radius-4xl),24px)] transition-opacity hover:opacity-80"
+          >
+            <StatTile
+              label={account.name}
+              value={formatMoney(account.currentBalance, bootstrap)}
+            />
           </Link>
         ))}
-      </div>
+      </StatsRow>
 
       {/* KPIs del período — neutros, sin color de énfasis (no hay precedente
           de --chart-1 en el repo para este caso; egresos no usan destructive
           porque no son un estado de error). */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Ingresos del período
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatMoney(summary?.totalIncome, bootstrap)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Egresos del período
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatMoney(summary?.totalExpense, bootstrap)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Flujo neto
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatMoney(summary?.netFlow, bootstrap)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      <StatsRow>
+        <StatTile
+          label="Ingresos del período"
+          value={formatMoney(summary?.totalIncome, bootstrap)}
+        />
+        <StatTile
+          label="Egresos del período"
+          value={formatMoney(summary?.totalExpense, bootstrap)}
+        />
+        <StatTile
+          label="Flujo neto"
+          value={formatMoney(summary?.netFlow, bootstrap)}
+          emphasis
+        />
+      </StatsRow>
 
       {/* Últimos movimientos */}
       <Card>

@@ -48,7 +48,7 @@ import {
 import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,

@@ -24,7 +24,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type BalanceResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 /** Etiquetas de los tipos de obligación que devuelve `ObligationsService`. */
 const OBLIGATION_LABELS: Record<string, string> = {

@@ -25,7 +25,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CashflowResponse, type CashflowCategory } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 export default function CashflowReportPage() {
   const { data: bootstrap } = useBootstrap()

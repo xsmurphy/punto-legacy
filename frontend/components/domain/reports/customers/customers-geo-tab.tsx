@@ -41,7 +41,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { formatInt } from "@/lib/format"
 import type { CustomersGeo, GeoPlaceRow } from "@/hooks/use-reports"
 import type { Bootstrap } from "@/lib/types/bootstrap"

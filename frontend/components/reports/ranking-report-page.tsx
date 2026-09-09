@@ -27,7 +27,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 interface RankingRow {
   name: string

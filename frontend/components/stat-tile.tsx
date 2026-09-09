@@ -5,11 +5,17 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
 /**
- * StatsRow + StatTile — KPI compacto canónico para reportes.
+ * StatsRow + StatTile — KPI compacto canónico del panel.
  *
- * Reemplaza los divs sueltos (label + número sin card) que cada página de
- * reporte armaba a mano. Ver context/20-design-system.md — entrada
- * 2026-07-31.
+ * Reemplaza los divs sueltos (label + número sin card) que cada página
+ * armaba a mano. Ver context/20-design-system.md — entradas 2026-07-31 y
+ * 2026-09-09.
+ *
+ * Vive en `components/` y no en `components/domain/reports/`: el KPI es del
+ * panel entero, no de reportes — ya lo usan el menú del POS, `/admin` y
+ * `/finanzas`. El fondo gris (`Card variant="soft"`) es lo que separa el
+ * bloque de resumen del contenido: gris = números del período, blanco =
+ * tablas, charts y entidades.
  *
  * Uso:
  *   <StatsRow>

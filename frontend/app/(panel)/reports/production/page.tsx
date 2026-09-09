@@ -28,7 +28,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ProductionReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 export default function ProductionReportPage() {
   const { data: bootstrap } = useBootstrap()

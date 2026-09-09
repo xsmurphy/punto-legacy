@@ -36,7 +36,7 @@ import {
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { AccountStatementSection } from "@/components/domain/contacts/account-statement-section"
 
 type State = "income" | "outcome"

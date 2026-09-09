@@ -24,7 +24,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type RecurringRow, type RecurringReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 const FRECUENCY_LABELS: Record<string, string> = {
   weekly: "Semanal",

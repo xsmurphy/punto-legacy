@@ -68,7 +68,7 @@ import { useUpdateExpense, useDeleteExpense } from "@/hooks/use-expenses"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 export default function ExpensesReportPage() {
   const { data: bootstrap } = useBootstrap()

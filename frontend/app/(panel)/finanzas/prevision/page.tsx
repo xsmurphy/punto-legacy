@@ -6,6 +6,7 @@ import { CalendarClock } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import {
   Table,
   TableBody,
@@ -88,38 +89,23 @@ export default function FinanzasPrevisionPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Obligaciones del período
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold tabular-nums">
-                  {formatMoney(totalObligations, bootstrap)}
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Ingresos conocidos del período
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold tabular-nums">{formatMoney(totalIncome, bootstrap)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium text-muted-foreground">Vencidos</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold tabular-nums text-destructive">{overdueCount}</p>
-              </CardContent>
-            </Card>
-          </div>
+          <StatsRow>
+            <StatTile
+              label="Obligaciones del período"
+              value={formatMoney(totalObligations, bootstrap)}
+            />
+            <StatTile
+              label="Ingresos conocidos del período"
+              value={formatMoney(totalIncome, bootstrap)}
+            />
+            {/* `tone` solo cuando HAY vencidos: en cero el rojo alarma por una
+                cuenta al día. */}
+            <StatTile
+              label="Vencidos"
+              value={overdueCount}
+              tone={overdueCount > 0 ? "negative" : "neutral"}
+            />
+          </StatsRow>
 
           <ForecastTable
             title="Obligaciones (egresos futuros)"
