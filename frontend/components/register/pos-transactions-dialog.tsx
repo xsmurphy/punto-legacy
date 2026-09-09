@@ -78,7 +78,10 @@ import { posApi } from "@/lib/api/pos-client"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
-import { PosVoidSaleDialog } from "@/components/register/pos-void-sale-dialog"
+// Anulación de venta: MISMO componente que el detalle del panel. Lo que
+// cambia por realm entra por props (`transport`, `formatAmount`), no por una
+// copia — ver el docblock de components/domain/transactions/void-sale-dialog.tsx.
+import { VoidSaleDialog } from "@/components/domain/transactions/void-sale-dialog"
 import {
   isCreditSale,
   isQuote,
@@ -657,6 +660,12 @@ export function TransactionDetail({
   // predicado que aplican el email y el portal (`deliveryBlocker`). La pantalla
   // lo traduce; no lo recalcula. Si lo recalculara, volvería a existir el caso
   // de ofrecer una descarga que el endpoint rechaza con 409.
+  // ¿Hay documento que la anulación pueda cancelar? `issued` y nada más: es
+  // exactamente el estado que busca `SaleVoidService` (con `superseded_by IS
+  // NULL`) para cancelar en cascada. Un documento `sending` no tiene qué
+  // cancelar todavía y prometerlo sería mentirle al cajero.
+  const einvoiceCancelable = einvoiceDoc?.status === "issued"
+
   const kudeBlocker = einvoiceDoc?.deliveryBlocker ?? null
   const canDeliverKude = einvoiceDoc !== null && kudeBlocker === null
 
@@ -1277,13 +1286,18 @@ export function TransactionDetail({
           actual resuelta (evita pedir /api/pos/sales-void con un id viejo
           si el cajero cambió de selección mientras el dialog estaba cerrado). */}
       {voidDialogOpen && (
-        <PosVoidSaleDialog
+        <VoidSaleDialog
           open={voidDialogOpen}
           onOpenChange={setVoidDialogOpen}
           transactionId={detail.transactionId}
           invoiceLabel={docLabel}
           total={total}
           dateLabel={formattedDate}
+          formatAmount={(v) => formatMoney(v, config)}
+          // Bearer del device — NUNCA el cliente del panel (`api`), que es el
+          // cruce de realms del invariante de hooks/use-sale-void.ts.
+          transport={{ client: posApi, path: "/pos/sales-void" }}
+          einvoiceIssued={einvoiceCancelable}
           onOfferReturn={() => {
             setVoidDialogOpen(false)
             setReturnSheetOpen(true)

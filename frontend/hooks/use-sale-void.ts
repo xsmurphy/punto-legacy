@@ -1,9 +1,32 @@
 "use client"
 
 /**
- * Hooks de anulación de ventas del POS (F6, context/40-anulacion-y-nota-credito.md).
+ * Hooks de anulación de ventas (F6, context/40-anulacion-y-nota-credito.md).
  *
- * Fuente de datos: BFF /api/pos/sales-void → api/v1/sales-void.php.
+ * Endpoint único: `api/v1/sales-void.php`, autenticado con
+ * `apiAuthTenant(['panel', 'pos-app'])` y gateado por `pos.sale.void`. O sea
+ * que los DOS realms hablan con el mismo backend — lo que cambia es la
+ * credencial y, por eso, el transporte.
+ *
+ * ── Por qué el hook se parametriza y NO se duplica ──────────────────────────
+ * **Un cliente HTTP = un realm** (invariante de `lib/api-client.ts`,
+ * memoria `project_client_per_realm_no_cross_credentials`). El POS manda el
+ * Bearer del device por `posFetch`/`posApi`; el panel manda el Bearer del
+ * panel por `api`. El panel NO puede usar `posFetch` — eso es exactamente el
+ * cruce de realms que ya costó tres incidentes.
+ *
+ * La salida NO es una segunda copia del hook: es inyectar el cliente y su
+ * ruta, igual que `usePrinterBindings(registerId, { client: posApi })`. Dos
+ * copias del flujo de anulación es cómo una se arregla y la otra no.
+ *
+ *   - panel (default) → `api`    + `/v1/sales-void.php`
+ *   - POS             → `posApi` + `/pos/sales-void` (BFF con `requireBearer`)
+ *
+ * Ninguno de los dos transportes vive acá: este módulo importa SOLO `api`.
+ * Exportar un `POS_SALE_VOID` con `posApi` adentro arrastraría
+ * `lib/auth/device-token` al bundle del panel, que es justo lo que el guard
+ * `lib/auth/__tests__/realm-token-separation.test.ts` protege. El call-site
+ * del POS arma su transporte con el cliente que ya tiene importado.
  *
  * `useVoidOptions` — GET: estado de anulabilidad (D4, ventana 48h) + por
  *   cada línea vendida qué es POSIBLE reponer al stock (D2 — el sistema
@@ -14,7 +37,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { api, ApiError, type HttpClient } from "@/lib/api-client"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +77,15 @@ export interface VoidSaleResult {
   voidedAt: string
   restocked: number
   wasted: number
+  /**
+   * ¿La anulación canceló TAMBIÉN el documento electrónico ante SIFEN?
+   *
+   * `SaleVoidService` lo hace en cascada dentro de la MISMA transacción que la
+   * anulación (paso 5): si SIFEN rechaza, revierte todo. Pero es `false`
+   * cuando no había documento vigente que cancelar (nunca se emitió, ya estaba
+   * cancelado, o quedó `superseded_by` por un rechazo previo — mig 201). La UI
+   * informa lo que este flag dice, NO lo que supuso antes de mandar el POST.
+   */
   einvoiceCancelled: boolean
 }
 
@@ -67,46 +99,89 @@ export class VoidSaleError extends Error {
   }
 }
 
-interface ApiEnvelopeError {
-  ok?: false
-  error?: { message?: string; code?: number | string; details?: { errorCode?: string } }
+/**
+ * Transporte del endpoint. Mismo patrón que `usePrinterBindings`: el call-site
+ * inyecta SU cliente (y por lo tanto SU realm) y la ruta que ese cliente
+ * entiende. Omitido = panel.
+ */
+export interface SaleVoidTransport {
+  /** Cliente HTTP del realm. Default `api` (panel). El POS pasa `posApi`. */
+  client?: HttpClient
+  /** Ruta del endpoint EN ESE cliente. Default `/v1/sales-void.php`. El POS pasa `/pos/sales-void`. */
+  path?: string
 }
 
-function errorFrom(payload: unknown, fallback: string): VoidSaleError {
-  const env = payload as ApiEnvelopeError | null
-  return new VoidSaleError(env?.error?.message ?? fallback, env?.error?.details?.errorCode)
+const PANEL_PATH = "/v1/sales-void.php"
+
+function resolveTransport(t: SaleVoidTransport = {}) {
+  const client = t.client ?? api
+  return {
+    client,
+    path: t.path ?? PANEL_PATH,
+    // Discriminador del queryKey: dos realms pueden tener la misma pantalla
+    // abierta en el mismo browser (panel + /pos conviven), y la respuesta se
+    // resuelve con credenciales distintas. Misma clave sería cache compartido
+    // entre realms — el bug que este invariante evita, pero en el cache.
+    realm: client === api ? "panel" : "pos",
+  }
+}
+
+/**
+ * Los dos clientes (`api` y `posApi`) tiran `ApiError` con el envelope crudo
+ * en `payload`, pero ninguno lee `details.errorCode` — es específico de este
+ * endpoint. Se extrae acá, una sola vez, para los dos realms.
+ */
+function toVoidSaleError(err: unknown, fallback: string): VoidSaleError {
+  if (err instanceof ApiError) {
+    const envelope = err.payload as
+      | { error?: { message?: string; details?: { errorCode?: string } } }
+      | null
+    return new VoidSaleError(
+      envelope?.error?.message ?? err.message ?? fallback,
+      envelope?.error?.details?.errorCode,
+    )
+  }
+  if (err instanceof VoidSaleError) return err
+  return new VoidSaleError(err instanceof Error ? err.message : fallback)
 }
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
 
-export function useVoidOptions(transactionId: string | null, enabled = true) {
+export function useVoidOptions(
+  transactionId: string | null,
+  enabled = true,
+  transport: SaleVoidTransport = {},
+) {
+  const { client, path, realm } = resolveTransport(transport)
   return useQuery<VoidOptions, VoidSaleError>({
-    queryKey: ["sale-void-options", transactionId],
+    queryKey: ["sale-void-options", realm, transactionId],
     queryFn: async (): Promise<VoidOptions> => {
-      const res = await posFetch(`/api/pos/sales-void?id=${encodeURIComponent(transactionId!)}`)
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw errorFrom(payload, "No se pudo consultar la anulación")
-      return ((payload as { data?: VoidOptions }).data ?? payload) as VoidOptions
+      try {
+        return await client.get<VoidOptions>(
+          `${path}?id=${encodeURIComponent(transactionId!)}`,
+        )
+      } catch (err) {
+        throw toVoidSaleError(err, "No se pudo consultar la anulación")
+      }
     },
     enabled: enabled && Boolean(transactionId),
     // La ventana de 48h y el estado de devoluciones/recibos vigentes pueden
     // cambiar entre aperturas del dialog — siempre fresh, sin cache.
     staleTime: 0,
+    retry: false,
   })
 }
 
-export function useVoidSale() {
+export function useVoidSale(transport: SaleVoidTransport = {}) {
   const queryClient = useQueryClient()
+  const { client, path } = resolveTransport(transport)
   return useMutation<VoidSaleResult, VoidSaleError, VoidSaleInput>({
     mutationFn: async (input): Promise<VoidSaleResult> => {
-      const res = await posFetch("/api/pos/sales-void", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      })
-      const payload = await res.json().catch(() => ({}))
-      if (!res.ok) throw errorFrom(payload, "No se pudo anular la venta")
-      return ((payload as { data?: VoidSaleResult }).data ?? payload) as VoidSaleResult
+      try {
+        return await client.post<VoidSaleResult>(path, input as unknown as Record<string, unknown>)
+      } catch (err) {
+        throw toVoidSaleError(err, "No se pudo anular la venta")
+      }
     },
     onSuccess: () => {
       // Mismo set que useCreateReturn (hooks/use-returns.ts) — la anulación
@@ -122,6 +197,13 @@ export function useVoidSale() {
       queryClient.invalidateQueries({ queryKey: ["pos-transactions"] })
       queryClient.invalidateQueries({ queryKey: ["pos-transaction"] })
       queryClient.invalidateQueries({ queryKey: ["transactions"] })
+      // El detalle del PANEL (`useTransactionDetail`, hooks/use-reports.ts)
+      // vive bajo su propia clave: sin esto la pantalla desde la que se anula
+      // se queda mostrando la venta viva hasta que expire su staleTime de 30s.
+      queryClient.invalidateQueries({ queryKey: ["transaction-detail"] })
+      // Y el estado de anulabilidad de ESTA venta, en los dos realms: tras
+      // anular, `canVoid.allowed` pasa a false con motivo ALREADY_VOIDED.
+      queryClient.invalidateQueries({ queryKey: ["sale-void-options"] })
       queryClient.invalidateQueries({ queryKey: ["stock"] })
       queryClient.invalidateQueries({ queryKey: ["reports"] })
       queryClient.invalidateQueries({ queryKey: ["dashboard"] })
