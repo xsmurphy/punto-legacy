@@ -5,6 +5,7 @@ namespace Punto\Api\Services;
 require_once __DIR__ . '/RegisterAdminException.php';
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Documents\DocumentSeries;
 use Punto\Api\Sales\SaleType;
 
 /**
@@ -44,10 +45,26 @@ final class RegisterAdminService
      */
     private function numberingByRegister(): array
     {
+        // Desde la mig 209 una caja puede tener VARIAS filas de 'factura' —
+        // una por serie (timbrado + punto de expedición) que usó a lo largo de
+        // su vida. El panel muestra la VIGENTE, así que el filtro se hace en
+        // SQL contra la config actual de la caja; sin él, el loop de abajo se
+        // quedaba con la última fila que devolviera Postgres —o sea, con una
+        // serie retirada, elegida por el orden físico de la tabla—.
+        //
+        // La cotización no tiene serie fiscal: su fila siempre es ('', '').
         $rs = ncmExecute(
-            'SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto, s.padwidth
+            "SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto, s.padwidth
                FROM document_sequence s
-              WHERE s.companyid = ? AND s.scopetype = ?',
+               JOIN register r
+                 ON r.registerId = s.scopeid AND r.companyId = s.companyid
+              WHERE s.companyid = ? AND s.scopetype = ?
+                AND s.invoiceauth = CASE WHEN s.doctype = 'factura'
+                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
+                      ELSE '' END
+                AND s.prefix = CASE WHEN s.doctype = 'factura'
+                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
+                      ELSE '' END",
             [$this->companyId, DocumentNumber::SCOPE_REGISTER],
             false,
             true  // forceObj → recordset
@@ -288,8 +305,13 @@ final class RegisterAdminService
         // datos del alta: `document_sequence` es de dónde sale el próximo
         // número y una caja sin fila ahí le haría mostrar al panel un 1 que no
         // está respaldado por nada.
+        // Serie vacía a propósito: la caja recién insertada TODAVÍA no tiene
+        // timbrado ni punto de expedición (el patch fiscal del alta lo aplica
+        // `update()` unas líneas más abajo, en esta misma transacción). Esa
+        // fila es la secuencia de la caja "sin serie fiscal"; si el alta trae
+        // datos fiscales, `update()` abre además la serie real.
         foreach (self::DOC_TYPES as $docType) {
-            $this->seedSequence($id, $docType, null, null, false, null);
+            $this->seedSequence($id, $docType, null, null, false, DocumentSeries::none());
         }
 
         // El resto del alta reusa update(): mismas validaciones de timbrado,
@@ -438,6 +460,22 @@ final class RegisterAdminService
             }
         }
 
+        // ── Serie EFECTIVA resultante del update (mig 209) ──────────────────
+        // Se calcula acá arriba, antes de la validación de numeración, porque
+        // esa validación tiene que preguntar "¿este número está usado EN ESTA
+        // SERIE?" y no "¿en esta caja alguna vez?".
+        //
+        // El timbrado entra en la comparación igual que el prefix: si el
+        // request cambia solo el timbrado (deja el mismo EEE-PPP), también
+        // puede crear una colisión con otra caja que ya tenga ese par — no
+        // alcanza con mirar $prefixChanged.
+        $effectivePrefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
+            ? (string) ($fiscalPatch['registerInvoicePrefix'] ?? '')
+            : $currentPrefix;
+        $effectiveAuth = array_key_exists('registerInvoiceAuth', $fiscalPatch)
+            ? (string) ($fiscalPatch['registerInvoiceAuth'] ?? '')
+            : $currentAuth;
+
         // ── Numeración por documento ────────────────────────────────────────
         // Un timbrado no siempre arranca en 1: la SET puede autorizar un rango
         // que empieza en, por ejemplo, 2336. Esto es lo que mueve el próximo
@@ -516,16 +554,31 @@ final class RegisterAdminService
                     default      => [],
                 };
                 if ($txTypes !== []) {
+                    // Acotado a la SERIE que va a quedar vigente (mig 209).
+                    // Sin esto, abrir una serie nueva —cambiar el punto de
+                    // expedición— y ponerle su primer número daba 409 porque
+                    // ese número ya existía bajo la serie ANTERIOR de la misma
+                    // caja. O sea: la caja del incidente quedaba encerrada,
+                    // sin poder renumerar, que es exactamente el problema que
+                    // esto viene a resolver. `001-001-838` y `001-002-838` son
+                    // dos documentos legales distintos (context/29 §2).
+                    //
+                    // La cotización no tiene serie fiscal, así que se compara
+                    // contra la serie vacía y su comportamiento no cambia.
+                    $serieAuth   = $docType === 'factura' ? $effectiveAuth   : '';
+                    $seriePrefix = $docType === 'factura' ? $effectivePrefix : '';
                     $ph   = implode(',', array_fill(0, count($txTypes), '?'));
                     $used = ncmExecute(
                         "SELECT 1 FROM transaction
                           WHERE registerid = ? AND companyid = ? AND invoiceno = ?
+                            AND COALESCE(invoiceauth, '')   = ?
+                            AND COALESCE(invoiceprefix, '') = ?
                             AND transactiontype IN ($ph) LIMIT 1",
-                        array_merge([$id, $this->companyId, $n], $txTypes)
+                        array_merge([$id, $this->companyId, $n, $serieAuth, $seriePrefix], $txTypes)
                     );
                     if ($used) {
                         throw new RegisterAdminException(
-                            'Ya existe un documento con el número ' . $n . ' en esta caja: no se puede duplicar',
+                            'Ya existe un documento con el número ' . $n . ' en esta serie de esta caja: no se puede duplicar',
                             409
                         );
                     }
@@ -587,17 +640,6 @@ final class RegisterAdminService
         // Un duplicado preexistente tampoco frena un cambio ajeno (renombrar,
         // caja a ciegas): se exige que el par esté libre al ASIGNARLO o al
         // reactivar una caja que vuelve a emitir con el par que tenía.
-        //
-        // El timbrado entra en la comparación igual que el prefix: si el
-        // request cambia solo el timbrado (deja el mismo EEE-PPP), también
-        // puede crear una colisión con otra caja que ya tenga ese par — no
-        // alcanza con mirar $prefixChanged.
-        $effectivePrefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
-            ? (string) ($fiscalPatch['registerInvoicePrefix'] ?? '')
-            : $currentPrefix;
-        $effectiveAuth = array_key_exists('registerInvoiceAuth', $fiscalPatch)
-            ? (string) ($fiscalPatch['registerInvoiceAuth'] ?? '')
-            : $currentAuth;
         $willBeActive = array_key_exists('status', $fields)
             ? (bool) $fields['status']
             : $currentStatus;
@@ -653,32 +695,36 @@ final class RegisterAdminService
             );
         }
 
-        // El prefijo EEE-PPP viaja a la secuencia de la factura: el asignador
-        // lo necesita para componer el número fiscal completo sin volver a
-        // leer la caja.
-        $prefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
-            ? $fiscalPatch['registerInvoicePrefix']
-            : null;
+        // Serie RESULTANTE del update (mig 209). Se arma con los mismos
+        // valores efectivos que ya validó `assertExpeditionPointFree()` más
+        // arriba, no con el patch crudo: si el request no toca el timbrado,
+        // la serie sigue siendo la que la caja ya tenía.
+        $series = new DocumentSeries($effectiveAuth, $effectivePrefix);
 
-        // La secuencia de la FACTURA se toca si cambió cualquiera de las tres
-        // cosas que viven en ella: el próximo número, el techo del rango o el
-        // prefijo del timbrado. Los tres llegan por caminos distintos del
-        // request, de ahí el OR — un cambio de solo prefijo también tiene que
-        // bajar a la secuencia.
-        // `$padWidths['factura']` entra en el OR por el mismo motivo: cambiar
-        // solo la cantidad de dígitos también tiene que bajar a la secuencia.
-        if (isset($numbering['factura']) || $rangeToTouched || $prefix !== null || isset($padWidths['factura'])) {
+        // La secuencia de la FACTURA se toca si cambió cualquiera de las cosas
+        // que viven en ella: el próximo número, el techo del rango, el ancho —
+        // o la SERIE misma (timbrado y/o punto de expedición), que ya no
+        // reetiqueta la fila vigente sino que abre una nueva arrancando en 1.
+        //
+        // `$authChanged` entra en el OR desde la mig 209: antes, cambiar solo
+        // el timbrado no bajaba a la secuencia porque el timbrado no vivía
+        // ahí. Ahora es media identidad de la serie — sin esto, el talonario
+        // nuevo no tendría fila y el panel no podría mostrar su rango ni su
+        // ancho hasta la primera venta.
+        if (isset($numbering['factura']) || $rangeToTouched || $prefixChanged
+            || $authChanged || isset($padWidths['factura'])) {
             $this->seedSequence(
                 $id,
                 'factura',
                 $numbering['factura'] ?? null,
                 $rangeTo,
                 $rangeToTouched,
-                $prefix,
+                $series,
                 $padWidths['factura'] ?? null,
             );
         }
-        // La cotización no lleva timbrado propio: solo su contador y su ancho.
+        // La cotización no lleva timbrado propio: serie vacía, una sola
+        // secuencia por caja con su contador y su ancho.
         if (isset($numbering['cotizacion']) || isset($padWidths['cotizacion'])) {
             $this->seedSequence(
                 $id,
@@ -686,7 +732,7 @@ final class RegisterAdminService
                 $numbering['cotizacion'] ?? null,
                 null,
                 false,
-                null,
+                DocumentSeries::none(),
                 $padWidths['cotizacion'] ?? null,
             );
         }
@@ -746,12 +792,25 @@ final class RegisterAdminService
     }
 
     /**
-     * Crea o mueve la secuencia de un documento de esta caja.
+     * Crea o mueve la secuencia de un documento de esta caja, DENTRO de una
+     * serie (mig 209).
      *
      * `$next === null` deja el contador donde está (solo se está tocando el
-     * rango o el prefijo). Nunca se llama desde el camino de emisión: mover un
+     * rango o el ancho). Nunca se llama desde el camino de emisión: mover un
      * contador es una operación de administración y ya viene validada contra lo
      * realmente emitido por el caller.
+     *
+     * ── Editar el punto de expedición resuelve a OTRA fila ──
+     * Antes de la mig 209 el `prefix` era una columna que este método PISABA
+     * dejando el `nextnumber`: cambiar el punto de `001-001` a `001-002`
+     * reetiquetaba la serie vieja y su contador seguía corriendo bajo el punto
+     * nuevo. Así se mandó el número 838 contra un punto que iba por 614.
+     *
+     * Ahora el par (timbrado, punto) es parte de la clave única, así que el
+     * `ON CONFLICT` no matchea la fila vieja: el INSERT crea la serie nueva
+     * arrancando en `COALESCE($next, 1)` y la anterior queda intacta, como
+     * registro de lo que emitió. No hay reseteo de contadores ni edición
+     * destructiva — nace una fila.
      */
     private function seedSequence(
         string $registerId,
@@ -759,10 +818,15 @@ final class RegisterAdminService
         ?int $next,
         ?int $rangeTo,
         bool $rangeTouched,
-        ?string $prefix,
+        DocumentSeries $series,
         ?int $padWidth = null,
     ): void {
         global $db;
+
+        // El prefijo YA NO es un parámetro aparte: es la identidad de la fila.
+        // Escribirlo distinto de `$series->prefix` crearía una fila cuya clave
+        // no coincide con su propio contenido.
+        $prefix = $series->prefix;
 
         // El SET del rango se arma en PHP y no con un placeholder booleano:
         // PDO bindea `false` como '' / 0 y PG rechaza `CASE WHEN 0` ("argument
@@ -781,25 +845,31 @@ final class RegisterAdminService
         // `padwidth` sigue el mismo patrón COALESCE que el resto: null = "no
         // se tocó", y en el INSERT cae al DEFAULT legal de la mig 159 (7).
         // Nunca se borra: una secuencia siempre tiene ancho.
+        // `prefix` e `invoiceauth` salen del ON CONFLICT DO UPDATE: son la
+        // CLAVE de la fila, y una fila no puede reescribir su propia identidad
+        // (si difirieran, el UPDATE ni siquiera se está ejecutando sobre esa
+        // fila). Van solo en el INSERT, que es el camino por el que nace una
+        // serie nueva.
         $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, nextnumber, rangefrom, rangeto, prefix, padwidth)
-             VALUES (?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint, ?::varchar,
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix,
+                  nextnumber, rangefrom, rangeto, padwidth)
+             VALUES (?, ?, ?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint,
                      COALESCE(?::smallint, ' . DocumentNumber::DEFAULT_PAD_WIDTH . '))
-             ON CONFLICT (companyid, doctype, scopetype, scopeid) DO UPDATE SET
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix) DO UPDATE SET
                  nextnumber = COALESCE(?::bigint, document_sequence.nextnumber),
                  ' . $rangeSet . '
-                 prefix     = COALESCE(?::varchar, document_sequence.prefix),
                  padwidth   = COALESCE(?::smallint, document_sequence.padwidth),
                  updated_at = now()',
             array_merge(
                 [
                     $this->companyId, $docType, DocumentNumber::SCOPE_REGISTER, $registerId,
-                    $next, $next, $rangeTo, $prefix, $padWidth,
+                    $series->auth, $prefix,
+                    $next, $next, $rangeTo, $padWidth,
                     $next,
                 ],
                 $rangeParams,
-                [$prefix, $padWidth]
+                [$padWidth]
             )
         );
     }

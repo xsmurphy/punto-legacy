@@ -358,7 +358,11 @@ final class ScheduleService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r['transactionId']] = [
-                'invoice' => (string) ($r['invoicePrefix'] ?? '') . (string) ($r['invoiceNo'] ?? ''),
+                // Formateador único (mig 159 / 209): la concatenación pelada
+                // daba "001-002838" desde que la venta congela el punto.
+                'invoice' => \Punto\Api\Documents\DocumentNumber::format(
+                    $r['invoiceNo'] ?? null, (string) ($r['invoicePrefix'] ?? '')
+                ),
                 'txId'    => (string) $r['transactionId'],
             ];
         }
@@ -401,7 +405,11 @@ final class ScheduleService
         $byUid = [];
         foreach ($txs as $t) {
             $byUid[(string) $t['transactionUID']] = [
-                'invoice' => (string) ($t['invoicePrefix'] ?? '') . (string) ($t['invoiceNo'] ?? ''),
+                // Formateador único (mig 159 / 209): la concatenación pelada
+                // daba "001-002838" desde que la venta congela el punto.
+                'invoice' => \Punto\Api\Documents\DocumentNumber::format(
+                    $t['invoiceNo'] ?? null, (string) ($t['invoicePrefix'] ?? '')
+                ),
                 'txId'    => (string) $t['transactionId'],
             ];
         }

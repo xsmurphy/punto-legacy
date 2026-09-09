@@ -40,6 +40,20 @@ use Punto\Api\Sales\SaleType;
  * manda en el payload, tanto online como offline. `advanceTo()` es el
  * complemento: mantiene esta secuencia consistente con lo que el device ya
  * emitió, sin ser quien decide el número.
+ *
+ * ── LA SERIE ES LA IDENTIDAD (mig 209) ──
+ * Una secuencia NO se identifica por (empresa, documento, scope): eso daba UNA
+ * fila por caja para toda su vida, con el punto de expedición como atributo
+ * MUTABLE. Editar el punto en el panel reetiquetaba esa fila y le dejaba el
+ * contador, así que la caja siguió numerando por la serie vieja bajo el punto
+ * nuevo — mandó el 838 contra un punto que iba por 614.
+ *
+ * La identidad real es la SERIE: (timbrado, punto de expedición) — ver
+ * `DocumentSeries` y context/29 §2. Cambiar cualquiera de los dos abre una
+ * serie NUEVA que arranca en 1; la vieja queda intacta como registro de lo que
+ * emitió. Todos los métodos de acá aceptan una `?DocumentSeries`, y `null` es
+ * "documento sin serie fiscal" (merma, producción, orden, cotización…), que
+ * sigue teniendo una sola secuencia por scope igual que antes.
  */
 final class DocumentNumber
 {
@@ -60,6 +74,10 @@ final class DocumentNumber
      * @param string $docType   'factura' | 'cotizacion' | 'orden' | ...
      * @param string $scopeType una de las constantes SCOPE_*
      * @param string $scopeId   registerId | outletId | companyId según $scopeType
+     * @param ?DocumentSeries $series serie fiscal (timbrado + punto de
+     *        expedición) a la que pertenece el número. `null` = documento sin
+     *        serie fiscal (merma, producción, orden…), que sigue teniendo una
+     *        sola secuencia por scope como antes de la mig 209.
      *
      * @throws RangeExhaustedException si el número cae fuera del rango
      *         autorizado del timbrado (`rangeto`).
@@ -70,27 +88,34 @@ final class DocumentNumber
         string $scopeType,
         string $scopeId,
         string $companyId,
+        ?DocumentSeries $series = null,
     ): int {
         global $db;
 
         if (!in_array($scopeType, [self::SCOPE_REGISTER, self::SCOPE_OUTLET, self::SCOPE_COMPANY], true)) {
             throw new \InvalidArgumentException('scopeType inválido: ' . $scopeType);
         }
+        $series ??= DocumentSeries::none();
 
         // Un solo statement resuelve los dos casos. Si la secuencia no existe
-        // todavía (documento que nunca se emitió en ese scope), el INSERT la
-        // crea con nextnumber=2 y devuelve 1; si existe, el DO UPDATE la
-        // incrementa y devuelve el valor previo. Sin SELECT-then-INSERT, que
-        // sería una race entre dos cajas arrancando a la vez.
+        // todavía (documento que nunca se emitió en ese scope, o SERIE nueva
+        // recién abierta por un cambio de timbrado/punto), el INSERT la crea
+        // con nextnumber=2 y devuelve 1; si existe, el DO UPDATE la incrementa
+        // y devuelve el valor previo. Sin SELECT-then-INSERT, que sería una
+        // race entre dos cajas arrancando a la vez.
+        //
+        // La serie va en el INSERT *y* en el ON CONFLICT (mig 209): el
+        // conflict target tiene que ser exactamente el índice único, y ese
+        // índice ahora incluye timbrado y punto de expedición.
         $rs = $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, nextnumber)
-             VALUES (?, ?, ?, ?, 2)
-             ON CONFLICT (companyid, doctype, scopetype, scopeid)
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, nextnumber)
+             VALUES (?, ?, ?, ?, ?, ?, 2)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix)
              DO UPDATE SET nextnumber = document_sequence.nextnumber + 1,
                            updated_at = now()
              RETURNING nextnumber - 1 AS allocated, rangeto',
-            [$companyId, $docType, $scopeType, $scopeId]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
         );
 
         if ($rs === false || $rs->EOF) {
@@ -147,6 +172,15 @@ final class DocumentNumber
      * rechaza/revierte una venta ya emitida). Un fallo acá deja la secuencia
      * momentáneamente atrás; el próximo `advanceTo()` con un número mayor la
      * corrige sola.
+     *
+     * ── El GREATEST vale DENTRO de la serie, nunca entre series (mig 209) ──
+     * `$series` tiene que ser la serie CONGELADA en la transacción
+     * (`DocumentSeries::fromFrozen()`), no la vigente de la caja. Si el admin
+     * cambió el punto de expedición entre la emisión offline y el sync,
+     * avanzar la serie NUEVA con un número de la serie VIEJA la empujaría a un
+     * correlativo que nunca emitió — que es exactamente el incidente que la
+     * mig 209 corrige (838 contra un punto que iba por 614). Con la serie en
+     * la clave, cada `GREATEST` toca solo su propia rama de numeración.
      */
     public static function advanceTo(
         string $docType,
@@ -154,6 +188,7 @@ final class DocumentNumber
         string $scopeId,
         string $companyId,
         int $invoiceNo,
+        ?DocumentSeries $series = null,
     ): void {
         global $db;
 
@@ -163,15 +198,16 @@ final class DocumentNumber
         if ($invoiceNo < 1) {
             return;
         }
+        $series ??= DocumentSeries::none();
 
         $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, nextnumber)
-             VALUES (?, ?, ?, ?, ?::bigint + 1)
-             ON CONFLICT (companyid, doctype, scopetype, scopeid)
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, nextnumber)
+             VALUES (?, ?, ?, ?, ?, ?, ?::bigint + 1)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix)
              DO UPDATE SET nextnumber = GREATEST(document_sequence.nextnumber, ?::bigint + 1),
                            updated_at = now()',
-            [$companyId, $docType, $scopeType, $scopeId, $invoiceNo, $invoiceNo]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $invoiceNo, $invoiceNo]
         );
     }
 
@@ -188,12 +224,20 @@ final class DocumentNumber
         string $scopeType,
         string $scopeId,
         string $companyId,
+        ?DocumentSeries $series = null,
     ): int {
+        $series ??= DocumentSeries::none();
+
+        // Sin fila para esta serie devuelve 1, y eso es CORRECTO: una serie
+        // recién abierta (timbrado o punto de expedición nuevos) arranca en 1
+        // por definición. No se cae a la serie anterior — heredar su contador
+        // es justamente el bug de la mig 209.
         $row = ncmExecute(
             'SELECT nextnumber FROM document_sequence
               WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
+                AND invoiceauth = ? AND prefix = ?
               LIMIT 1',
-            [$companyId, $docType, $scopeType, $scopeId]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
         );
 
         return $row ? (int) ($row['nextnumber'] ?? 1) : 1;
@@ -279,8 +323,9 @@ final class DocumentNumber
         string $scopeId,
         string $companyId,
         int|string|null $number,
+        ?DocumentSeries $series = null,
     ): string {
-        $meta = self::sequenceMeta($docType, $scopeType, $scopeId, $companyId);
+        $meta = self::sequenceMeta($docType, $scopeType, $scopeId, $companyId, $series);
 
         return self::format($number, $meta['prefix'], $meta['padWidth']);
     }
@@ -298,16 +343,24 @@ final class DocumentNumber
         string $scopeType,
         string $scopeId,
         string $companyId,
+        ?DocumentSeries $series = null,
     ): array {
+        $series ??= DocumentSeries::none();
+
         $row = ncmExecute(
             'SELECT prefix, padwidth, rangeto FROM document_sequence
               WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
+                AND invoiceauth = ? AND prefix = ?
               LIMIT 1',
-            [$companyId, $docType, $scopeType, $scopeId]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
         );
 
         return [
-            'prefix'   => (string) ($row['prefix'] ?? ''),
+            // Sin fila (serie recién abierta) el prefijo sale de la serie que
+            // se pidió, no vacío: es el punto de expedición con el que la caja
+            // está emitiendo ahora mismo, aunque todavía no haya asignado su
+            // primer número.
+            'prefix'   => (string) ($row['prefix'] ?? ($series->prefix !== '' ? $series->prefix : '')),
             'padWidth' => self::normalizePadWidth($row ? ($row['padwidth'] ?? null) : null),
             // Techo autorizado del timbrado (D5, context/37). null = sin rango
             // cargado — el preaviso de "se agota el timbrado" no aplica.

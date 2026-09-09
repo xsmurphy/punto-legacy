@@ -498,9 +498,19 @@ $regSvc = new RegisterAdminService($companyId);
  */
 function secuenciaDeFacturaDe(string $registerId, string $companyId): mixed
 {
+    // Acotado a la SERIE VIGENTE de la caja (mig 209). Una caja creada CON
+    // datos fiscales tiene DOS filas de 'factura': la que siembra `create()`
+    // antes de aplicar el timbrado (serie vacía, la caja todavía no lo tenía)
+    // y la que abre `update()` con el timbrado y el punto reales. Sin el
+    // filtro, esta lectura devolvía cualquiera de las dos según el orden
+    // físico de la tabla — un verde o un rojo aleatorios.
     $row = ncmExecute(
-        'SELECT nextnumber, rangeto, padwidth, prefix FROM document_sequence
-          WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?',
+        "SELECT s.nextnumber, s.rangeto, s.padwidth, s.prefix
+           FROM document_sequence s
+           JOIN register r ON r.registerId = s.scopeid AND r.companyId = s.companyid
+          WHERE s.companyid = ? AND s.doctype = ? AND s.scopetype = ? AND s.scopeid = ?
+            AND s.invoiceauth = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
+            AND s.prefix      = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')",
         [$companyId, 'factura', DocumentNumber::SCOPE_REGISTER, $registerId]
     );
     return $row ?: null;
