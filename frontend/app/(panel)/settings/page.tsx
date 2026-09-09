@@ -11,7 +11,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { FormSection } from "@/components/forms/form-section"
+import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -523,7 +523,14 @@ function SettingsPageInner() {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(onSubmit)}
-              className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[220px_1fr]"
+              // `sm:grid-rows-[minmax(0,1fr)]` no es decorativo: sin él la
+              // fila implícita del grid es `auto` y crece con el contenido
+              // más alto, así que en una sección larga (POS) el panel se
+              // pasaba de los 80vh del modal, el `overflow-hidden` del
+              // DialogContent lo recortaba y el `overflow-y-auto` interno
+              // nunca llegaba al final — el contenido de abajo quedaba
+              // inalcanzable.
+              className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[220px_1fr] sm:grid-rows-[minmax(0,1fr)]"
             >
               {/* Sidebar interno. Vertical en desktop, horizontal scrolleable
                   en mobile. pr-12 mobile deja lugar al botón X absolute. */}
@@ -756,7 +763,7 @@ function EmpresaTab({
 
 function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <FormSectionColumns>
       <Section title="Idioma y zona horaria">
         <FormField
           control={form.control}
@@ -954,7 +961,7 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           )}
         />
       </Section>
-    </div>
+    </FormSectionColumns>
   )
 }
 
@@ -962,7 +969,7 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
 
 function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <FormSectionColumns>
       <Section title="Ventas">
         <ToggleField
           form={form}
@@ -1187,7 +1194,7 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           desc="Quien arma la orden de pago no puede aprobarla: la autoriza otra persona. Apagado (por default), el dueño que arma y aprueba solo trabaja sin fricción. Esto es una restricción ADICIONAL: el permiso para aprobar sigue siendo el que manda, se prenda o no."
         />
       </Section>
-    </div>
+    </FormSectionColumns>
   )
 }
 
@@ -1609,7 +1616,7 @@ function AparienciaTab() {
 
 function TabSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <FormSectionColumns>
       {[0, 1, 2].map((i) => (
         <Card key={i}>
           <CardHeader>
@@ -1622,7 +1629,7 @@ function TabSkeleton() {
           </CardContent>
         </Card>
       ))}
-    </div>
+    </FormSectionColumns>
   )
 }
 
