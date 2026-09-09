@@ -1,135 +1,162 @@
-# Hand-off — 2026-09-08 (continuación)
+# Hand-off — 2026-09-09
 
 ## Objetivo
 
-Vivo, textual del owner: **"lo que quiero es que el bot pueda configurar 100%
-la facturación electrónica"** — el operador carga la constancia de RUC (PDF)
-y el domicilio, y el agente resuelve todo lo demás; lo único que sigue
-cargándose a mano es el certificado `.p12` y el CSC (secretos fiscales, no
-viajan por chat). El catálogo geográfico SIFEN es un paso de ese objetivo,
-no un fin en sí mismo.
+Terminar de dejar la facturación electrónica operativa con **FE-PY** (motor
+propio, https://fepy.punto.la) como único proveedor — Factomate está FUERA
+por decisión explícita del owner ("hacé como que Factomate no existe y no lo
+vamos a usar"), no un plan B. En el camino apareció un bug de numeración
+fiscal en producción (caja mandó a SIFEN un número duplicado) que pasó a ser
+la prioridad: la serie fiscal completa (timbrado + punto de expedición +
+número) tiene que vivir bien modelada, no solo el número.
+
+**Punto está en producción con clientes reales.** Hubo comercios sin poder
+facturar durante esta ventana — la urgencia de todo lo de abajo viene de ahí.
 
 ## Estado al cerrar
 
-`main` = post-merge de `frontend/geo-sifen-y-bot-fe`. El catálogo geográfico
-fiscal quedó COMPLETO y sobre la fuente correcta, y el bot ya no le pide
-códigos numéricos al usuario.
+Nada llegó a SIFEN todavía como factura legal — las transacciones existentes
+son pruebas que quedaron solo en la base de Punto. Eso es lo que permitió
+simplificar la corrección manual del incidente de numeración (no hay
+documentos fiscales reales en juego, solo el contador).
 
-Cómo se llegó acá, porque el error importa más que el resultado: el catálogo
-se mergeó primero (mig 207, `8accf37b`) **sincronizado contra Factomate**, que
-Punto ya no usa — el motor vigente es FE-PY propio (https://fepy.punto.la).
-Los catálogos no coinciden (Factomate 6419 ciudades vs SIFEN/FE-PY 6766) y el
-que valida el XML es FE-PY. Peor: la extracción SIFEN correcta YA EXISTÍA en
-un worktree parado que el hand-off anterior mencionaba, y no se leyó antes de
-lanzar el agente. **Lección: leer `_handoff.md` ANTES de lanzar un agente
-sobre un tema que quedó a medias.**
+**Mergeado y deployado** (`main`, commits `04d8894f..0de3923d`):
+- Alta de FE con Asunción + Régimen Contable preseleccionados, bot deriva
+  tipo de contribuyente del RUC y toma el email de la constancia.
+- Fix del crash del chat (React error #31 por el sobre de error mal tipado).
+- Rechequeo de `last_error` al cargar cert/CSC.
+- Emisión manual de factura (`issueForSaleOnDemand` + botón en el detalle
+  de transacción) para ventas que cayeron en una de las 3 salidas silenciosas
+  del encolado y quedaban sin factura para siempre.
+- Teléfono del establecimiento ahora obligatorio (XSD de SIFEN lo exige).
+- Auditoría completa de realtime del POS: excepción de scope para `drawer`,
+  queryKeys que no matcheaban, y el embudo `apiAuthPosContext()` que no
+  publicaba nada (ventas parkeadas/flush de cola offline mutaban en
+  silencio).
+- `DELETE /v1/transactions` corregido: un comprobante con número se anula,
+  nunca se borra.
 
-Lo que corrigió el merge siguiente:
+**En vuelo, NO mergeado**: agente en `.claude/worktrees/serie-fiscal`,
+branch `frontend/serie-fiscal`, construyendo el fix estructural del
+incidente de numeración (ver abajo).
 
-1. **Fuente SIFEN.** Seed versionado `api/database/seeds/sifen-geo.json`
-   (18 depto / 272 distrito / 6766 ciudad) extraído de `constants.service.ts`
-   de FE-PY con `scripts/extract-sifen-geo.mjs`. Carga al boot del container
-   (`api/docker-entrypoint.sh` → `seed_geo_catalog.php`, upsert con
-   `unnest()`, 7056 filas en 0,19s, idempotente); el cron semanal salió —un
-   seed del repo cambia con el deploy, no los domingos—. `FactomateGeoSource`
-   borrado y los métodos de geo sacados de `FactomateProvider`. Mig 208: las
-   filas de Factomate quedan `active=FALSE` (no se borran: un código ya
-   guardado tiene que poder resolverse a su nombre) y `providerid` dropeada.
-   Verificado en prod ANTES de tocar: cero códigos geográficos guardados, las
-   tablas `geo_*` ni existían.
-2. **`resolve_geo_codes`** en `frontend/lib/agent/read-tools.ts` (compartido
-   panel+MCP): nombre de ciudad → códigos, insensible a acentos por
-   `searchname`. **666 nombres de ciudad están repetidos** en el catálogo
-   ("SAN ANTONIO" 35 veces en departamentos distintos), así que ante
-   homónimos devuelve TODAS las candidatas con `resolved: null` y el bot
-   pregunta — elegir una sería declarar el domicilio fiscal en el
-   departamento equivocado. `confirm-tool.ts` reescrito: se eliminó la
-   instrucción que le ORDENABA pedirle los códigos al usuario, y `regimeId`
-   y `taxpayerType` ahora viajan con su lista de valores (el modelo leía
-   "Régimen Contable" y no tenía cómo saber que es el 8).
+**Deploy**: Front en `93bead22`, Backend en `7fa6457c` + deploy encolado
+para `0de3923d` (guard del borrado, API-only) disparado al cierre de la
+sesión anterior — verificar que terminó `finished` antes de asumir que está
+en prod. Los commits `fb114c94`/`bd87109a` (sesión paralela, `context/74`)
+son solo docs, no requieren deploy.
 
-Verificación: build `✓ 18.5s`, `tsc --noEmit` limpio, arnés
-`run_geo_catalog_test.sh` 31/31, `code-reviewer` sin P0 ni P1. Las 6 fallas de
-vitest son idénticas en `main` y preexistentes.
+## El incidente de numeración (lo más importante de la sesión)
 
-**Lo que el bot todavía pide a mano** (y por qué, para no "arreglarlo"):
-`.p12` y CSC por pantalla (mandato: secretos fiscales no van por chat); el
-email de facturación si no figura en la constancia (alguien tiene que leer esa
-casilla); y `regimeId`, que el bot PROPONE con su fundamento pero pide
-confirmar — la constancia lista obligaciones y no siempre las nombra con las
-palabras de SIFEN.
+La caja de Balloon Party mandó a SIFEN el número **838** contra el punto de
+expedición `001-002`, que iba por 614. Causa raíz: `uq_document_sequence ON
+(companyid, doctype, scopetype, scopeid)` — ni el timbrado ni el punto de
+expedición forman parte de la clave, así que una caja tiene UNA fila para
+toda su vida. Al cambiar el punto de expedición, el prefijo se actualizó
+pero el contador siguió la serie vieja.
 
-## Worktrees — todos descartables
+Agravado por dos reglas de "nunca bajar" que son correctas DENTRO de una
+serie y sin sentido ENTRE series: `DocumentNumber::advanceTo()` con
+`GREATEST` y `primeInvoiceNumbering()` en el localStorage del device.
 
-Los tres worktrees de agentes quedaron consumidos y se pueden borrar:
-`geo-sifen-y-bot-fe` (mergeado), `agent-aa0fb08127953c581` (su extractor y
-JSON viven ahora en `scripts/` y `api/database/seeds/`) y
-`agent-aa6a0986b93c2240e` (el catálogo contra Factomate, mergeado y después
-corregido).
+**Corregido A MANO en producción**: `document_sequence.nextnumber = 615`
+para la caja `01a067cb-9017-759a-b372-873af6cd9278`.
 
-## Archivos y cambios (commits `87ac7f33..8accf37b`, 14)
+El agente en `frontend/serie-fiscal` construye el fix estructural, cuatro
+piezas: (1) clave de `document_sequence` con timbrado y punto de expedición,
+con migración; (2) clave del contador local del device por serie; (3)
+`transaction` congelando también el punto de expedición (hoy congela solo
+el timbrado, por eso una factura vieja se reimprime con el punto nuevo);
+(4) `GREATEST` acotado a la serie, y `RegisterAdminService::seedSequence()`
+resolviendo a otra fila al cambiar el punto en vez de pisar la que hay.
 
-- `ad5741cf` — **fix crítico**: nadie podía registrarse, el endpoint de
-  signup tiraba `termsAccepted` antes de llegar al servicio.
-- `571b7412` — eliminado bypass `?debug` de seguridad + handler JSON que
-  devolvía la excepción cruda al cliente.
-- `c1ac80e3`/`b0add9ce` — adjuntos del agente: PDF/imagen llegan al modelo,
-  visibles en el hilo, drag&drop en `/chat`, tope total de archivos.
-- `c2890fb6` — fix `/admin/ai` Probar decía `OPENROUTER_API_KEY no
-  configurada` con la clave presente.
-- `87f7feba` — bienvenida del panel centrada, copy dice qué es Punto.
-- `ac7ab2b2`/`e7b2af5e`/`c77fb8ae`/`a6ce4b7f` — `context/74`: saldo a favor
-  elevado a módulo Wallet multi-nivel, D1 (dos modos de facturación) y D2
-  (jerarquía titular/sub-cuenta) cerradas por el owner. Sin implementar.
-- `348bbcf7`/`740c2766`/`8accf37b` — catálogo geográfico (ver arriba, fuente
-  equivocada, en corrección).
+## Decisiones cerradas por el owner (no relitigar)
+
+- **Factomate está fuera.** FE-PY es el único proveedor. Código de Factomate
+  que quede en el repo es deuda a remover, no un fallback vigente.
+- **La serie fiscal es (timbrado, punto de expedición, número).** El
+  correlativo no existe solo. La caja es el único lugar donde se editan esos
+  datos; todo lo demás deriva. Cambiar timbrado o punto **abre una serie
+  nueva**, no resetea nada.
+- **Una factura se anula, nunca se borra** (regla por número, no por tipo de
+  documento).
+- El listado de transacciones del POS **no necesita WebSocket**: se pide al
+  abrir el menú, `staleTime` de 30s.
+
+## Archivos y cambios
+
+- `frontend/lib/agent/*` (alta FE, `resolve_geo_codes`, `find_section`) —
+  mergeado en la sesión previa, sigue vigente.
+- `.../confirm-api.ts` + `app/(panel)/error.tsx` — fix del sobre de error
+  tipado como string.
+- `.../issueForSaleOnDemand` + acción `issueForSale` + botón en detalle de
+  transacción — emisión manual.
+- Auditoría realtime: ver commits `7fa6457c`/`93bead22` para el listado
+  completo de queryKeys y canales tocados.
+- `.claude/worktrees/serie-fiscal` (branch `frontend/serie-fiscal`) — las 4
+  piezas del fix estructural de numeración, EN VUELO.
+- `frontend/numeracion-fe-atada` (branch, sin mergear) — **NO mergear tal
+  cual**: su decisión central (arrastrar el contador al punto de expedición
+  nuevo) es lo que el owner descartó. Rescatable de ahí: `NumberingAdvisor`
+  (clasifica de dónde sale el próximo número por fuente) y el hallazgo de
+  que **FE-PY no expone `CurrentNumber`** (devuelve null a propósito) — el
+  próximo número no se puede derivar del emisor.
 
 ## Callejones sin salida
 
-- **Sincronizar el catálogo geográfico desde Factomate** — Punto ya no usa
-  Factomate como motor de FE (es FE-PY propio). Se construyeron ~20 min de
-  sync/cron/arnés antes de que el owner corrigiera. Causa raíz: no se leyó
-  este mismo hand-off (versión anterior) antes de lanzar el agente — ya
-  documentaba que existía trabajo con la fuente correcta parado en un
-  worktree. **Lección: leer `_handoff.md` ANTES de lanzar un agente sobre un
-  tema que quedó a medias**, no confiar en el resumen que uno recuerda.
-- **Reset completo de FE de Balloon Party** — se mapeó el estado y se
-  entregó el script (borrar `einvoice_account` destruye la credencial
-  cifrada de Factomate, irrecuperable). El owner decidió NO hacerlo. El
-  estado de FE de ese tenant queda como lo dejó la sesión anterior (ver
-  "Trampas conocidas" de la entrada previa, heredadas abajo).
-- Heredados de cierres previos (siguen vetados, no repetir): alta de tenant
-  por CLI en FE-PY — VETADA, el tenant se purgó; `baseUrl` con `/v1` en
-  `platform_config.integration.fepy` → 404 (doble prefijo).
+- Confiar en el proveedor para saber el próximo número de factura — FE-PY
+  no lo expone. La numeración tiene que ser 100% propia de Punto, sin
+  consultarle nada al emisor.
+- Arrastrar el contador de `document_sequence` al cambiar el punto de
+  expedición (rama `frontend/numeracion-fe-atada`) — parece intuitivo pero
+  es exactamente la causa del incidente: mezcla series distintas bajo un
+  mismo contador.
 
 ## Próximo paso
 
-1. **Probar el alta de FE conversando con el bot** — es el objetivo vivo.
-   Mandarle la constancia de RUC de Balloon Party en PDF y ver hasta dónde
-   llega solo: RUC, actividades, tipo de contribuyente, domicilios y códigos
-   geográficos deberían salir sin que el operador tipee un número. Anotar
-   TODO lo que siga preguntando de más.
-2. Con eso medido, seguir podando `provision_einvoice` con el mismo criterio:
-   lo que ya se puede leer, que se deje de preguntar.
-3. Borrar los tres worktrees de agentes (todos consumidos, ver arriba).
+Revisar y mergear `frontend/serie-fiscal` cuando el agente termine las 4
+piezas — es la prioridad de la sesión siguiente. Antes de mergear, confirmar
+con `code-reviewer` (toca schema/migración + lógica de numeración fiscal,
+alto riesgo).
 
-## Trampas conocidas (heredadas, siguen vigentes)
+## Abierto, esperando decisión del owner
+
+- **FE-PY no expone endpoint para actualizar el timbrado del tenant.**
+  Renovar timbrado desde Punto es imposible hoy. ¿Se les pide el endpoint o
+  el proceso es re-alta del emisor?
+- **La nota de crédito la numera el proveedor**, no Punto —
+  `SaleToFePyMapper::resolveDocumentNumber()` omite el campo para el tipo 5
+  y `cdcMismatchFor()` excluye la comprobación del número para NC, así que
+  la divergencia ni se detecta. Contradice que Punto sea dueño de la
+  numeración.
+- Permisos del operador cacheados en `sessionStorage` (`lock-store.ts:122`)
+  — NO es agujero de seguridad (el servidor evalúa en vivo con
+  `OperatorContext::resolve()`), es la UI mostrando un botón que el backend
+  igual rechaza. Refrescarlo sin PIN necesita un endpoint que no existe.
+- Dos hallazgos de la auditoría de realtime sin atacar: el canal
+  `{companyId}:spaces:{outletId}` se publica y nadie lo escucha (los
+  espacios sobreviven por poll de 20s), y `price_resolve` emite un broadcast
+  a todo el tenant en cada resolución de carrito, sin mapeo. Ruido, no
+  pérdida de datos.
+
+## Trampas conocidas
 
 - **Cambios A MANO en prod, no están en git**:
+  - `document_sequence.nextnumber = 615` para la caja
+    `01a067cb-9017-759a-b372-873af6cd9278` (corrección del incidente de
+    numeración, ver arriba).
   - `platform_config` key `integration.fepy`: `{keyEnc: <API key de FE-PY
-    cifrada>, baseUrl: "https://fepy.punto.la"}` (SIN `/v1`).
+    cifrada>, baseUrl: "https://fepy.punto.la"}` (SIN `/v1` — con `/v1` da
+    404, doble prefijo).
   - Balloon Party (`companyid 01a067cb-8fff-72cd-bb12-0b483dcb7dbf`)
-    `einvoice_account` reseteado a cero desde la sesión anterior
-    (`provider='fepy'`, `provider_tenant_ref=NULL`, `status='provisioning'`)
-    — columnas de Factomate INTACTAS como fallback. Custodia local de
-    cert/CSC VACÍA, se recarga en el alta por UI.
-  - FE-PY prod: tenant CLI `01a080c1-a13f-75fa-82f4-7ce2b20a606a` PURGADO.
-    Company de Punto: `01a08081-413a-7025-b64e-9f3bd112e2c2`. RUC
-    `3595193-1` libre. Numeración objetivo FE=614/NC=2 (próximos: 615/3).
-  - Códigos geográficos de los dos establecimientos de Asunción de Balloon
-    Party: departamento=1 (CAPITAL), distrito=1, ciudad=1.
-- `context/73-kude-propio.md` y `context/74-wallet-multinivel.md` ya están en
-  la tabla de `CLAUDE.md`.
+    `einvoice_account` ya NO está en `provisioning`: estado `ok`,
+    `provider_tenant_ref = 01a0835d-cc70-770a-a656-3a4ea0708b09`,
+    certificado y CSC cargados. Numeración FE=614→615 corregido/NC=2.
+  - FE-PY: alta de tenant por CLI VETADA — el tenant CLI ya fue purgado, el
+    proceso real es 100% UI.
+- `.claude/worktrees/` a limpiar cuando `serie-fiscal` mergee: `agent-*`,
+  `geo-sifen-y-bot-fe` y `realtime-pos-gaps` quedaron consumidos y se pueden
+  borrar (contenido ya integrado en `main` o descartado).
 - Deploy del Front puede ir unos commits atrás de `main` si lo último fue
   API-only — verificar con `git log --stat` antes de asumir que sirve.
 - Más antiguas: sin backfill del histórico de fecha, Cloudflare "Block AI
