@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Landmark } from "lucide-react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { StatsRow, StatTile } from "@/components/stat-tile"
+import { StatTile } from "@/components/stat-tile"
 import {
   Table,
   TableBody,
@@ -61,15 +61,21 @@ export default function FinanzasResumenPage() {
         />
       ) : (
         <>
-      {/* Los dos bloques de números van en `StatTile` (gris) y el contenido
-          en cards blancas: ese contraste ES la jerarquía de la página. Con
-          todo blanco y solo bordes, saldos, totales del período y la tabla
+      {/* Los números van en `StatTile` (gris) y el contenido en cards
+          blancas: ese contraste ES la jerarquía de la página. Con todo
+          blanco y solo bordes, saldos, totales del período y la tabla
           pesaban lo mismo (reportado por el owner).
 
-          Grid y no `StatsRow`: la fila de saldos tiene N cuentas, y con el
-          flex un comercio de una sola cuenta se comía el ancho de las tres
-          columnas. Un tile ocupa UNA celda y el resto de la fila queda
-          vacío (regla del owner). */}
+          Saldos por cuenta y totales del período comparten UNA grilla, no
+          dos filas: son N + 3 tiles y separarlos dejaba al comercio de una
+          sola cuenta con un tile arriba y dos tercios de fila en blanco.
+          Fluyendo juntos, el hueco cae recién al final. Las cuentas van
+          primero porque son estado de hoy; los totales, del período
+          elegido. Se distinguen por el label y porque la cuenta es un link.
+
+          Los totales van neutros, sin color de énfasis: no hay precedente
+          de --chart-1 en el repo para este caso, y los egresos no usan
+          `destructive` porque no son un estado de error. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {accounts.map((account) => (
           <Link
@@ -83,12 +89,6 @@ export default function FinanzasResumenPage() {
             />
           </Link>
         ))}
-      </div>
-
-      {/* KPIs del período — neutros, sin color de énfasis (no hay precedente
-          de --chart-1 en el repo para este caso; egresos no usan destructive
-          porque no son un estado de error). */}
-      <StatsRow>
         <StatTile
           label="Ingresos del período"
           value={formatMoney(summary?.totalIncome, bootstrap)}
@@ -102,7 +102,7 @@ export default function FinanzasResumenPage() {
           value={formatMoney(summary?.netFlow, bootstrap)}
           emphasis
         />
-      </StatsRow>
+      </div>
 
       {/* Últimos movimientos */}
       <Card>
