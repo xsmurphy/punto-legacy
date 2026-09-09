@@ -31,10 +31,26 @@
  *     escribió a mano exactamente "Dirección:" en una hoja — en cuyo caso el
  *     resultado es el que quería igual, porque el rótulo lo pone su diseño.
  *
- * El mapa es la UNIÓN de LABELS_179 y de los tipos que la 174/178 cubrían,
- * más las variantes de tokens de país que `substituteLabels` produce
- * (`R.U.C.:`/`C.I.:` los estampó la 179 en literal, pero un tenant no-PY pudo
- * quedar con otra etiqueta desde el editor).
+ * El mapa es la UNIÓN de lo que escribieron las tres migs —incluidas las
+ * variantes que después cambiaron ("Forma de pago:" de la 174 vs "Formas de
+ * pago:" de la 179, "Razón Social:" vs "Cliente:", "Destino:" vs "Espacio:")—
+ * más las etiquetas de documento de otros países, porque `substituteLabels`
+ * las produce desde el editor aunque la 179 haya estampado las paraguayas en
+ * literal.
+ *
+ * DOS TIPOS QUEDAN AFUERA A PROPÓSITO:
+ *
+ *  - `document_number`. Limpiar su label no lo saca del papel: cuando está
+ *    vacío, `blocks.ts` repone un título DINÁMICO por tipo de documento
+ *    ("Factura Nro.:" / "Recibo Nro.:", ver DOC_NUMBER_LABELS). Tocarlo acá
+ *    no cambiaría nada. Límite conocido: una hoja que dibuje "Factura Nro.:"
+ *    como texto estático Y tenga el bloque sigue duplicando, y esta mig no
+ *    puede arreglarlo — hay que borrar uno de los dos en el editor.
+ *  - Los por-tasa (`subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate`).
+ *    Ahí el label del bloque ES el rótulo de la columna ("Subtotal 10%:") y
+ *    la plantilla NO lo dibuja aparte — verificado en el KuDE real que
+ *    reportó el owner, donde esos salen una sola vez. Limpiarlos dejaría el
+ *    monto sin decir a qué tasa corresponde, que es peor que el bug.
  *
  * IDEMPOTENTE: correrla dos veces no cambia nada la segunda.
  */
@@ -50,7 +66,9 @@ const STAMPED_212 = [
     'date'                 => ['Fecha:'],
     'duedate'              => ['Vencimiento:'],
     'sale_type'            => ['Condición:'],
-    'payment_methods'      => ['Formas de pago:'],
+    // Plural desde la 179; la 174 escribió el singular en las plantillas de
+    // venta más viejas.
+    'payment_methods'      => ['Formas de pago:', 'Forma de pago:'],
     'associated_document'  => ['Documento asociado:'],
     'discount'             => ['Descuento:'],
     'subtotal'             => ['Subtotal:'],
@@ -63,7 +81,7 @@ const STAMPED_212 = [
     'auth_number'          => ['Timbrado No.:'],
     'auth_start_date'      => ['Válido desde:'],
     'auth_expiration'      => ['Válido hasta:'],
-    'customer_name'        => ['Cliente:'],
+    'customer_name'        => ['Cliente:', 'Razón Social:'],
     'customer_full_name'   => ['Cliente:'],
     'customer_tin'         => ['R.U.C.:', 'RUC:', 'CUIT:', 'NIT:', 'RUT:', 'RFC:'],
     'customer_ci'          => ['C.I.:', 'CI:', 'DNI:', 'CC:', 'CURP:'],
@@ -71,7 +89,7 @@ const STAMPED_212 = [
     'customer_phone'       => ['Teléfono:'],
     'customer_email'       => ['Email:'],
     'order_number'         => ['Orden Nro.:'],
-    'order_destination'    => ['Espacio:'],
+    'order_destination'    => ['Espacio:', 'Destino:'],
     'table_number'         => ['Mesa:'],
     'transfer_reason'      => ['Motivo:'],
     'transfer_origin'      => ['Origen:'],

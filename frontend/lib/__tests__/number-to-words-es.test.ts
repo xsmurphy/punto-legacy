@@ -27,6 +27,13 @@ describe("amountToWordsEs", () => {
       [1000001, "Un millón uno"],
       [20000, "Veinte mil"],
       [999999, "Novecientos noventa y nueve mil novecientos noventa y nueve"],
+      // El apócope alcanza a TODO el grupo delante de "millones", no solo al
+      // millón exacto: acá salía "veintiuno millones" (P1 del review).
+      [21000000, "Veintiún millones"],
+      [31000000, "Treinta y un millones"],
+      [121000000, "Ciento veintiún millones"],
+      [1021000, "Un millón veintiún mil"],
+      [21021021, "Veintiún millones veintiún mil veintiuno"],
     ]
     for (const [n, esperado] of casos) {
       expect(amountToWordsEs(n, 0), `${n}`).toBe(esperado)
