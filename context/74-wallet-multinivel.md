@@ -39,13 +39,15 @@ de UI por rubro, nunca nombres de tabla ni de campo.
 
 ### 3.1 Wallet
 
-Una wallet **es un saldo con dueño y reglas**. Dos clases:
+Una wallet **es un saldo con dueño y reglas**. Su clase no es un atributo
+propio: **la determina el contacto dueño** (§3.4).
 
-- **Wallet de titular** — la raíz. Se le carga dinero desde afuera (el titular
-  paga).
-- **Sub-wallet** — cuelga de una raíz. **No se carga desde afuera**: solo
-  recibe transferencias de su raíz. Esa restricción es lo que hace que el
-  dinero del titular sea rastreable hasta donde se consumió.
+- **Wallet de titular** — la de un contacto sin padre. Es la única a la que
+  entra dinero desde afuera.
+- **Wallet de hijo** — la de un contacto con padre. **No se carga desde
+  afuera**: solo recibe transferencias de la wallet del padre. Esa restricción
+  es lo que hace que el dinero sea rastreable desde que entró hasta dónde se
+  consumió.
 
 Una wallet tiene: saldo, estado (activa/bloqueada), y sus reglas (topes,
 elegibilidad). El **saldo nunca es un campo que se pisa**: es la suma de sus
@@ -88,14 +90,29 @@ Tipos de movimiento:
 `transfer` es **un par de movimientos que se aplican juntos o no se aplican**:
 nunca puede existir el débito sin su crédito.
 
-### 3.4 Relación de control
+### 3.4 La jerarquía vive en el CONTACTO (owner, 2026-09-09)
 
-El titular controla sus sub-cuentas: crea, transfiere, fija topes, bloquea, y
-ve el histórico. Un consumidor con sub-cuenta **no controla nada** — solo
-consume.
+El consumidor **es un contacto más del comercio**, dado de alta como **hijo de
+otro contacto**. La relación padre→hijo es un hecho del padrón de clientes, no
+del módulo de wallet: la wallet la hereda.
 
-La relación es **dentro de un mismo comercio**. Una sub-cuenta nunca cuelga de
-un titular de otro tenant.
+De ahí salen tres reglas que el módulo no puede romper:
+
+1. **La cuenta del padre es la que recibe el dinero.** Se le factura a ella y en
+   ella se acreditan las cargas. Una cuenta hija **nunca se carga desde afuera**.
+2. **Desde la cuenta padre se distribuye** a las hijas por transferencia
+   interna. Es lo que hace que cada peso sea rastreable desde que entró hasta
+   dónde se consumió.
+3. **El sujeto fiscal es siempre el padre**, en los dos modos. En modo A la
+   factura de la carga va a su nombre; en modo B, la factura del consumo del
+   hijo también — el hijo consume, pero el documento sale a nombre de quien
+   pagó. Un menor no es sujeto de facturación.
+
+El titular controla a sus hijos: crea, transfiere, fija topes, bloquea y ve el
+histórico. Un contacto hijo **no controla nada** — solo consume.
+
+Toda la relación vive **dentro de un mismo comercio**: un contacto hijo nunca
+cuelga de un titular de otro tenant.
 
 ## 4. D1 — CERRADA (owner): dos modos de facturación
 
@@ -203,13 +220,18 @@ identidad real.
 Cuatro entidades. Nada más.
 
 ```
+contact                   -- entidad EXISTENTE del comercio
+  parentContactId         -- NULL = titular; si no, es hijo de ese contacto
+                          -- ÚNICA fuente de verdad de la jerarquía (§3.4)
+
 wallet
   id, companyId
   ownerContactId          -- de quién es
-  parentWalletId          -- NULL = raíz; si no, cuelga de esa raíz
   conceptId               -- bolsillo (NULL = wallet sin conceptos)
   status                  -- active | blocked
   createdAt
+  -- SIN parentWalletId: si el contacto dueño tiene padre, esta wallet es hija.
+  -- Dos fuentes para la misma jerarquía terminan contradiciéndose.
 
 wallet_concept            -- catálogo por comercio
   id, companyId
@@ -249,6 +271,9 @@ Decisiones que este modelo toma a propósito:
   módulo donde un adulto controla el dinero de un menor, "quién hizo esto" no
   es opcional.
 - **Sin campo `balance` en `wallet`**: si existe, alguien lo va a escribir.
+- **Sin `parentWalletId`**: la jerarquía es de contactos (§3.4). Duplicarla en
+  la wallet crea el día en que las dos versiones no coinciden y nadie sabe cuál
+  manda.
 
 ## 9. Decisiones abiertas
 
@@ -297,13 +322,45 @@ Recomendación: **rechazar, con la diferencia cobrable en el momento** (pago
 mixto). Permitir saldo negativo convierte la wallet en una cuenta corriente,
 que es otro producto con otras reglas.
 
-### D7 — Quién puede consumir de una sub-cuenta, y cómo se lo identifica
+### D7 — CERRADA (owner, 2026-09-09): el cajero busca al consumidor en el POS
 
-Un chico no tiene teléfono ni tarjeta. La caja necesita saber contra qué
-sub-cuenta debitar: ¿código, carnet con QR, búsqueda por nombre, biometría?
-Es una decisión **operativa** y define la velocidad de la fila en un recreo de
-15 minutos. Recomendación: código corto o QR en el carnet; búsqueda por nombre
-como respaldo.
+**Por el momento**, el cajero —que conoce a los chicos— lo busca por nombre en
+la caja, y al seleccionarlo **ve su crédito disponible**. Sin credencial física,
+sin código, sin QR.
+
+Consecuencias de diseño:
+
+- **La búsqueda tiene que ser instantánea**: un recreo dura 15 minutos y la fila
+  es toda al mismo tiempo. Búsqueda incremental por nombre, sin pasos previos.
+- **Buscar puede ser local; ver saldo y consumir, no.** El padrón de
+  sub-cuentas puede vivir en la caja para que la búsqueda no dependa de la red,
+  pero el saldo se resuelve en línea al seleccionar — es estado compartido
+  (§6). Nunca mostrar un saldo cacheado como si fuera el vigente.
+- **El riesgo real es seleccionar a la persona equivocada**, y ahí se debita el
+  dinero de otro. Con hermanos, apellidos repetidos u homónimos es un error
+  fácil de cometer y con consecuencia de plata. La lista **debe mostrar un dato
+  que desambigüe** —grado/curso, o foto si el comercio la carga— y no solo el
+  nombre. Un `refund` lo corrige, pero el chico ya se fue con el alfajor.
+- **Esto depende de que el cajero conozca a los consumidores.** Funciona en una
+  cantina chica; no escala a un colegio grande ni sobrevive a personal
+  rotativo, y esa es exactamente la razón por la que el owner lo marcó como
+  "por el momento". La evolución natural —código corto, QR en el carnet— entra
+  después sin cambiar el modelo: es otra forma de resolver la misma
+  sub-cuenta, no otro modelo de datos.
+
+### D11 — El contacto hijo dentro del padrón de clientes
+
+Si el consumidor es un contacto más (§3.4), un colegio suma cientos de contactos
+que **no son clientes comerciales**: no se les factura, no se les vende, no
+entran en una campaña. Sin distinguirlos, ensucian el padrón, los buscadores y
+los reportes de clientes del comercio.
+
+Opciones: marcarlos con un tipo/rol propio y excluirlos por defecto de los
+listados comerciales; o dejarlos como contactos normales y que el comercio
+filtre.
+
+Recomendación: **marcarlos y excluirlos por defecto**, visibles con un filtro
+explícito. Quien busca "mis clientes" no está buscando a los chicos.
 
 ### D8 — Vencimiento del saldo
 
@@ -312,11 +369,15 @@ con qué aviso? **Consecuencia fiscal distinta por modo**: en A el ingreso ya se
 declaró (devolver es una nota de crédito); en B el anticipo es un pasivo y su
 vencimiento reconoce un ingreso sin haber entregado nada.
 
-### D9 — Qué ve el consumidor en el momento de consumir
+### D9 — Qué ve el CONSUMIDOR en el momento de consumir
 
-¿El chico ve su saldo antes de pedir? ¿La caja se lo muestra? Afecta la
-experiencia y también la dignidad del consumidor menor delante de la fila.
-Recomendación: la caja lo ve siempre; al consumidor se le muestra a pedido.
+Que el cajero ve el saldo ya quedó decidido en D7. Falta el otro lado: ¿el
+consumidor ve el suyo? Afecta la experiencia y, con menores, también su
+exposición delante de la fila — "no te alcanza" dicho en voz alta es distinto
+que un rechazo discreto.
+
+Recomendación: mostrárselo a pedido, y que el rechazo por saldo o tope se
+comunique sin anunciarlo al resto de la fila.
 
 ### D10 — Alcance de la primera versión
 
