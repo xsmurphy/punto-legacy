@@ -49,6 +49,7 @@ import type {
 } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
 import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
+import { invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
 import { resolvePaymentAmount } from "@/lib/pos/payment-amount"
 import {
   extractRegisterConflictInfo,
@@ -685,7 +686,20 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
       let invoiceNo: number
       try {
-        invoiceNo = getNextInvoiceNo(activeRegisterId)
+        // El contador es por SERIE (timbrado + punto de expedicion), no por
+        // caja: cambiar cualquiera de las dos abre una serie nueva que arranca
+        // en 1, y seguir con el contador de la anterior es como se mando el
+        // numero 838 contra un punto que iba por 614. La serie se lee del
+        // store en el momento del click, igual que el veredicto de tenencia.
+        const series = invoiceSeriesForRegister(
+          useCatalogStore.getState().registers,
+          activeRegisterId,
+        )
+        // Serie desconocida (la caja activa no esta en el catalogo del device)
+        // se trata igual que no tener numero: se corta ANTES de emitir en vez
+        // de numerar bajo una serie inventada.
+        if (series === null) throw new Error("NO_INVOICE_NUMBER")
+        invoiceNo = getNextInvoiceNo(activeRegisterId, series)
       } catch {
         throw new Error(
           'No se pudo determinar el próximo número de comprobante de esta caja — conectate a internet e intentá de nuevo.',

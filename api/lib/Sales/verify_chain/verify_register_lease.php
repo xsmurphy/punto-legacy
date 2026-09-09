@@ -610,9 +610,17 @@ try {
     if ($statusClaimC !== 200) {
         $failures[] = 'Caso 13: setup — depende del device C de la caja 2, que no quedó disponible';
     } else {
+        // Acotado a la SERIE VIGENTE de la caja (mig 209): una caja puede
+        // tener varias filas de 'factura' —una por timbrado/punto que usó— y
+        // `docNumbers` lee solo la vigente. Sin este filtro el UPDATE tocaba
+        // todas y el arnés seguía en verde aunque el lector mirara otra fila.
         ncmExecute(
-            "UPDATE document_sequence SET padwidth = 9
-              WHERE scopetype = 'register' AND scopeid = ? AND doctype = 'factura'",
+            "UPDATE document_sequence s SET padwidth = 9
+               FROM register r
+              WHERE r.registerId = s.scopeid AND r.companyId = s.companyid
+                AND s.scopetype = 'register' AND s.scopeid = ? AND s.doctype = 'factura'
+                AND s.invoiceauth = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
+                AND s.prefix      = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')",
             [$PY_REGISTER_2]
         );
         [$statusPad, $bodyPad] = verifyGetDocNumbers($port, $tokenC);
@@ -644,8 +652,11 @@ try {
         }
         // El entero guardado no se tocó — el padding es presentación.
         $seqRow = ncmExecute(
-            "SELECT nextnumber, padwidth FROM document_sequence
-              WHERE scopetype = 'register' AND scopeid = ? AND doctype = 'factura'",
+            "SELECT s.nextnumber, s.padwidth FROM document_sequence s
+               JOIN register r ON r.registerId = s.scopeid AND r.companyId = s.companyid
+              WHERE s.scopetype = 'register' AND s.scopeid = ? AND s.doctype = 'factura'
+                AND s.invoiceauth = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
+                AND s.prefix      = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')",
             [$PY_REGISTER_2]
         );
         $storedNext = ($seqRow !== false && $seqRow !== 0) ? (string) ($seqRow['nextnumber'] ?? '') : '';

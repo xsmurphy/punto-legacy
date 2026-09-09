@@ -226,7 +226,11 @@ final class GiftcardsService
         $map = [];
         foreach ($res as $r) {
             $no = (string) ($r['invoiceNo'] ?? '');
-            $map[(string) $r['transactionId']] = $no !== '' ? ((string) ($r['invoicePrefix'] ?? '') . $no) : '-';
+            // Formateador único (mig 159 / 209): la concatenación pelada daba
+            // "001-002838" desde que la venta congela el punto de expedición.
+            $map[(string) $r['transactionId']] = $no !== ''
+                ? \Punto\Api\Documents\DocumentNumber::format($no, (string) ($r['invoicePrefix'] ?? ''))
+                : '-';
         }
         return $map;
     }

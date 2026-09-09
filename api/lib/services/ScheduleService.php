@@ -272,7 +272,11 @@ final class ScheduleService
                     'id'        => enc($f['transactionId']),
                     'title'     => $f['itemName'],
                     'date'      => niceDate($f['itemSoldDate']),
-                    'docNumber' => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    // Formateador único (mig 159 / 209) — la concatenación pelada
+                    // daba "#001-002838" desde que la venta congela el punto.
+                    'docNumber' => ' #' . \Punto\Api\Documents\DocumentNumber::format(
+                        $f['invoiceNo'], (string) $f['invoicePrefix']
+                    ),
                     'amount'    => formatCurrentNumber($f['itemPrice'], $dec, $ts),
                     'label'     => '<span class="label bg-primary text-xs">Sesiones</span>',
                     'type'      => 13,
@@ -370,7 +374,11 @@ final class ScheduleService
                     'id'          => enc($f['transactionId']),
                     'title'       => $name . ' ' . $cusName,
                     'date'        => niceDate($f['fromDate']),
-                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    // Formateador único (mig 159 / 209) — la concatenación pelada
+                    // daba "#001-002838" desde que la venta congela el punto.
+                    'docNumber'   => ' #' . \Punto\Api\Documents\DocumentNumber::format(
+                        $f['invoiceNo'], (string) $f['invoicePrefix']
+                    ),
                     'amount'      => $icon . $timeFrame,
                     'label'       => $typeOfSale,
                     'type'        => $f['transactionType'],

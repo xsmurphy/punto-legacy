@@ -237,12 +237,19 @@ if ($input->invoiceNo !== null) {
     // fallar una venta emitida — se loguea y la respuesta sale igual. Mismo
     // criterio que rollupMarkDirty y que el camino offline (offline-sync.php).
     try {
+        // La serie sale de lo CONGELADO en la venta (mig 209), no de la config
+        // vigente de la caja: si el admin cambió el timbrado o el punto de
+        // expedición entre la emisión y este momento, avanzar la serie NUEVA
+        // con un número de la serie VIEJA la empujaría a un correlativo que
+        // nunca emitió — que es exactamente el incidente del 838 contra un
+        // punto que iba por 614.
         \Punto\Api\Documents\DocumentNumber::advanceTo(
             'factura',
             \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
             $regId,
             $compId,
             $input->invoiceNo,
+            \Punto\Api\Documents\DocumentSeries::forTransaction($result->transactionId, $compId),
         );
     } catch (\Throwable $e) {
         error_log('[sales] advanceTo falló (venta ya persistida): ' . $e->getMessage());

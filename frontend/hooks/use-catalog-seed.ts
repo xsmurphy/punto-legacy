@@ -32,6 +32,7 @@ import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { primeWatermarks } from "@/lib/catalog/delta-sync"
 import { primeInvoiceNumbering, primeInvoiceRange } from "@/lib/pos/invoice-numbering"
+import { invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 
 const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
@@ -75,7 +76,15 @@ export function useCatalogSeed() {
       // esta caja fixture — sin esto, vender bajo NEXT_PUBLIC_USE_FIXTURES=1
       // explota con NO_INVOICE_NUMBER (ver lib/pos/invoice-numbering.ts).
       const fixtureRegisterId = fixtureBootstrap.registers[0]?.id ?? ""
-      if (fixtureRegisterId) primeInvoiceNumbering(fixtureRegisterId, 1)
+      if (fixtureRegisterId) {
+        const fixtureSeries = invoiceSeriesForRegister(
+          fixtureBootstrap.registers,
+          fixtureRegisterId,
+        )
+        if (fixtureSeries !== null) {
+          primeInvoiceNumbering(fixtureRegisterId, fixtureSeries, 1)
+        }
+      }
       return
     }
 
@@ -148,12 +157,28 @@ export function useCatalogSeed() {
         // llama en CADA hidratación (no solo la primera), no solo al montar,
         // para que un cambio de caja o una corrección server-side se reflejen.
         if (bootstrap.activeRegisterId) {
-          primeInvoiceNumbering(bootstrap.activeRegisterId, bootstrap.nextInvoiceNo)
-          // Techo del timbrado (D5, context/37) — se persiste junto al
-          // contador para que el preaviso "quedan N números" funcione
-          // offline. `?? null` y no un skip: si el panel QUITÓ el rango,
-          // hay que borrar el techo guardado, no dejar el viejo avisando.
-          primeInvoiceRange(bootstrap.activeRegisterId, bootstrap.invoiceRangeTo ?? null)
+          // La SERIE (timbrado + punto de expedicion) es parte de la clave del
+          // contador local desde 2026-09-09: cambiar cualquiera de las dos
+          // abre una serie nueva que arranca en 1, y el contador de la serie
+          // anterior no debe seguirla. Sale del bootstrap, que ya trae las dos
+          // mitades en cada caja (`PosRegister.authNumber`/`expeditionPoint`).
+          const series = invoiceSeriesForRegister(
+            bootstrap.registers,
+            bootstrap.activeRegisterId,
+          )
+          // `null` = el bootstrap no trajo la caja activa (el BFF degrada
+          // `registers` a [] si ese fetch falla). Sembrar ahí escribiria el
+          // contador bajo la serie VACIA y la venta siguiente lo buscaria bajo
+          // la serie real: NO_INVOICE_NUMBER con el cajero conectado. Se
+          // saltea y la proxima hidratacion, con las cajas ya cargadas, siembra.
+          if (series !== null) {
+            primeInvoiceNumbering(bootstrap.activeRegisterId, series, bootstrap.nextInvoiceNo)
+            // Techo del timbrado (D5, context/37) — se persiste junto al
+            // contador para que el preaviso "quedan N números" funcione
+            // offline. `?? null` y no un skip: si el panel QUITÓ el rango,
+            // hay que borrar el techo guardado, no dejar el viejo avisando.
+            primeInvoiceRange(bootstrap.activeRegisterId, series, bootstrap.invoiceRangeTo ?? null)
+          }
         }
       }
     }

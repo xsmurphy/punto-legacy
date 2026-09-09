@@ -41,6 +41,7 @@ import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { peekInvoiceRemaining } from "@/lib/pos/invoice-numbering"
+import { invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
 import { timbradoLevel } from "@/lib/documents/timbrado-warning"
 import { invoiceAuthNoticeLabel } from "@/lib/documents/invoice-auth-expiry"
 import { tenantNow } from "@/lib/format-date"
@@ -110,7 +111,16 @@ export function OfflineStatusPill() {
   // importa. Se recalcula en cada render: el pill re-renderiza con cada
   // venta (el store de sync cambia), así el número no se queda viejo.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
-  const remaining = activeRegisterId ? peekInvoiceRemaining(activeRegisterId) : null
+  // El contador y el techo viven por SERIE (timbrado + punto de expedicion),
+  // no por caja: al abrirse una serie nueva el preaviso tiene que mirar el
+  // rango de ESA serie, no el que le quedaba a la anterior. `registers` es el
+  // mismo selector que ya usa el aviso de vencimiento, unas lineas mas abajo.
+  const registers = useCatalogStore((s) => s.registers)
+  const series = invoiceSeriesForRegister(registers, activeRegisterId)
+  const remaining =
+    activeRegisterId && series !== null
+      ? peekInvoiceRemaining(activeRegisterId, series)
+      : null
   const timbrado = timbradoLevel(remaining)
 
   // Timbrado por VENCER (context/29): el otro final del mismo talonario — allá
@@ -121,7 +131,6 @@ export function OfflineStatusPill() {
   //
   // La fecha se compara contra el día DEL TENANT, no contra el del device:
   // `tenantNow` usa la TZ del bootstrap y funciona sin conexión.
-  const registers = useCatalogStore((s) => s.registers)
   const timezone = useCatalogStore((s) => s.config?.timezone)
   const authExpiration = activeRegisterId
     ? (registers.find((r) => r.id === activeRegisterId)?.authExpiration ?? null)

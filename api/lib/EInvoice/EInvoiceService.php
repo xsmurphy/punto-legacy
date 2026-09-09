@@ -2580,7 +2580,7 @@ final class EInvoiceService
     private function fePyPointForDocument(string $companyId, string $transactionId): array
     {
         $tx = ncmExecute(
-            'SELECT t.registerId, r.registerName, r.data
+            'SELECT t.registerId, t.invoicePrefix, r.registerName, r.data
                FROM transaction t
           LEFT JOIN register r ON r.registerId = t.registerId AND r.companyId = t.companyId
               WHERE t.transactionId = ? AND t.companyId = ?',
@@ -2590,10 +2590,23 @@ final class EInvoiceService
         $registerId = trim((string) ($tx['registerId'] ?? ''));
 
         if ($registerId !== '') {
+            // ── El punto CONGELADO manda sobre el vigente (mig 209) ──
+            // Este es el lector más consecuente de todos: es el punto de
+            // expedición con el que el documento sale a SIFEN. Leer el vivo
+            // significaba que, si el admin cambiaba el punto entre la venta y
+            // la emisión —o mientras el documento esperaba en el outbox—, el
+            // documento se declaraba contra un punto distinto del que el
+            // comprobante ya llevaba impreso, con el correlativo de la serie
+            // vieja. Fallback al vivo SOLO para ventas anteriores a la mig 209,
+            // que no tienen el dato congelado.
+            //
             // `data` viene aplanado por Query::flattenJsonb, así que
             // `registerInvoicePrefix` llega como clave de la fila. Mismo
             // patrón —y mismo bug evitado— que `registerStamps()`.
-            $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
+            $prefix = trim((string) ($tx['invoicePrefix'] ?? ''));
+            if ($prefix === '') {
+                $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
+            }
             if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
                 return ['establecimiento' => $m[1], 'punto' => $m[2]];
             }

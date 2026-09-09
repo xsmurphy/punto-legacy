@@ -153,7 +153,7 @@ final class SaleService
         // `register.data->>'registerInvoiceAuth'` para esta venta. Si el
         // timbrado de la caja cambia mañana, este documento sigue mostrando
         // (y siendo comparado contra) el timbrado con el que se emitió.
-        [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration] = $this->resolveFrozenInvoiceAuth();
+        [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration, $invoicePrefix] = $this->resolveFrozenInvoiceAuth();
 
         // ¿El timbrado congelado ya estaba VENCIDO en la fecha de la operación?
         // Se calcula acá, en el único lugar por donde pasan los dos caminos de
@@ -200,6 +200,7 @@ final class SaleService
                 invoiceAuthStart:       $invoiceAuthStart,
                 invoiceAuthExpiration:  $invoiceAuthExpiration,
                 invoiceAuthExpiredAtEmission: $invoiceAuthExpiredAtEmission,
+                invoicePrefix:          $invoicePrefix,
             );
 
             // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -746,7 +747,16 @@ final class SaleService
      * este repo, ver lease.php); el chequeo real es is_array() || ArrayAccess
      * (mismo criterio que moduleEnabled() arriba y enrichWithTaxes()).
      *
-     * @return array{0: ?string, 1: ?string, 2: ?string} [invoiceAuth, invoiceAuthStart, invoiceAuthExpiration]
+     * ── El PUNTO DE EXPEDICIÓN se congela igual que el timbrado (mig 209) ──
+     * La mig 145 congeló el timbrado y dejó afuera el punto, así que una
+     * factura vieja se reimprimía con el punto ACTUAL de su caja: cambiado el
+     * punto, todo el historial cambiaba de número. Y la serie es la tripleta
+     * completa (timbrado, punto, correlativo) — context/29 §2 —, así que
+     * congelar media serie no alcanza para saber a qué talonario pertenece un
+     * documento ya emitido.
+     *
+     * @return array{0: ?string, 1: ?string, 2: ?string, 3: ?string}
+     *         [invoiceAuth, invoiceAuthStart, invoiceAuthExpiration, invoicePrefix]
      */
     private function resolveFrozenInvoiceAuth(): array
     {
@@ -755,17 +765,19 @@ final class SaleService
             [$this->ctx->registerId, $this->ctx->companyId]
         );
         if (!(is_array($row) || $row instanceof \ArrayAccess)) {
-            return [null, null, null];
+            return [null, null, null, null];
         }
 
-        $auth  = trim((string) ($row['registerInvoiceAuth']           ?? ''));
-        $start = trim((string) ($row['registerInvoiceAuthStart']      ?? ''));
-        $exp   = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
+        $auth   = trim((string) ($row['registerInvoiceAuth']           ?? ''));
+        $start  = trim((string) ($row['registerInvoiceAuthStart']      ?? ''));
+        $exp    = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
+        $prefix = trim((string) ($row['registerInvoicePrefix']         ?? ''));
 
         return [
-            $auth  === '' ? null : $auth,
-            $start === '' ? null : $start,
-            $exp   === '' ? null : $exp,
+            $auth   === '' ? null : $auth,
+            $start  === '' ? null : $start,
+            $exp    === '' ? null : $exp,
+            $prefix === '' ? null : $prefix,
         ];
     }
 
@@ -802,6 +814,7 @@ final class SaleService
         ?string $invoiceAuthStart = null,
         ?string $invoiceAuthExpiration = null,
         bool $invoiceAuthExpiredAtEmission = false,
+        ?string $invoicePrefix = null,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -882,6 +895,20 @@ final class SaleService
             'invoiceAuth'            => $invoiceAuth,
             'invoiceAuthStart'       => $invoiceAuthStart,
             'invoiceAuthExpiration'  => $invoiceAuthExpiration,
+            // mig 209 — PUNTO DE EXPEDICIÓN congelado, la otra mitad de la
+            // serie. Sin esto la reimpresión de una factura vieja salía con el
+            // punto ACTUAL de la caja: cambiado el punto, todo el historial
+            // cambiaba de número ante el cliente y ante la SET.
+            //
+            // La columna `invoicePrefix` está OCUPADA para otra cosa en otros
+            // tipos de transacción —el prefijo del documento del PROVEEDOR en
+            // compras, el hack `"<n>/"` de las sesiones de paquete tipo 13
+            // (createPackageSessions, más abajo)—, pero ninguno de esos pasa
+            // por este builder con un valor propio: acá siempre es la venta.
+            // `null` en el camino de `saveQuote()`, que no pasa estos
+            // parámetros — una cotización no lleva timbrado ni punto, y sus
+            // lectores ya caen al prefijo vivo de la caja.
+            'invoicePrefix'          => $invoicePrefix,
             'timestamp'              => $input->timestamp,
             'transactionUID'         => $input->uid,
             'transactionCurrency'    => $input->currency,

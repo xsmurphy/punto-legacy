@@ -342,7 +342,12 @@ final class ProductsService
                 'itemId'        => $iid,
                 'outletName'    => $outlets[(string) $l['outletId']] ?? '',
                 'registerName'  => $regs[(string) $l['registerId']] ?? '',
-                'invoiceNo'     => (string) $l['invoicePrefix'] . (string) $l['invoiceNo'],
+                // Formateador único (mig 159 / 209): la concatenación pelada daba
+                // "001-002838", que no tiene ninguna lectura válida. Desde que la
+                // venta congela el punto de expedición estas filas SÍ traen prefijo.
+                'invoiceNo'     => \Punto\Api\Documents\DocumentNumber::format(
+                    $l['invoiceNo'], (string) $l['invoicePrefix']
+                ),
                 'userName'      => $users[$uid] ?? '',
                 'customerName'  => $custs[(string) $l['customer']] ?? '',
                 'date'          => (string) $l['itemSoldDate'],

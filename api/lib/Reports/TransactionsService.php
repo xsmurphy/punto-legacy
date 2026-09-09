@@ -44,7 +44,7 @@ final class TransactionsService
         $cols = "transactionId, transactionDate, transactionDiscount, transactionTax,
                  transactionTotal, transactionPaymentType, transactionType, transactionNote,
                  transactionDueDate, transactionStatus, transactionComplete, invoiceNo,
-                 invoicePrefix, customerId, registerId, userId, outletId, ivaRemoved,
+                 invoicePrefix, invoiceAuth, customerId, registerId, userId, outletId, ivaRemoved,
                  meta->>'tags' AS tags";
 
         if ($filters['singleRow']) {
@@ -130,7 +130,15 @@ final class TransactionsService
             }
 
             $reg = $registers[(string) $f['registerId']] ?? [];
-            $invoiceAuth   = (string) ($reg['invoiceAuth'] ?? '');
+            // Serie CONGELADA con fallback al vivo (migs 145 y 209). Las dos
+            // mitades siguen el mismo criterio: el timbrado leía el VIVO de la
+            // caja aunque la mig 145 ya lo congelara en la transacción, así que
+            // un cambio de timbrado reetiquetaba el historial entero en el
+            // listado. El fallback cubre solo las filas anteriores al congelado.
+            $invoiceAuth = (string) ($f['invoiceAuth'] ?? '');
+            if ($invoiceAuth === '') {
+                $invoiceAuth = (string) ($reg['invoiceAuth'] ?? '');
+            }
             $invoicePrefix = (string) ($f['invoicePrefix'] ?? '');
             if ($invoicePrefix === '') {
                 $invoicePrefix = (string) ($reg['invoicePrefix'] ?? '');
@@ -780,11 +788,26 @@ final class TransactionsService
         // El mapa docType→ancho terminaba con UN solo docType y el resto de
         // los documentos de esa caja caía al default genérico de
         // `DocumentNumber::format()` en vez de usar el ancho configurado.
+        //
+        // Acotado además a la SERIE VIGENTE de cada caja (mig 209): desde que
+        // la serie es parte de la clave, una caja tiene una fila de 'factura'
+        // por cada timbrado/punto que usó, y este `foreach` se quedaba con la
+        // que Postgres devolviera última — o sea, con el ancho de una serie
+        // retirada, elegido por el orden físico de la tabla. Mismo filtro que
+        // `RegisterAdminService::numberingByRegister()`.
         $padByRegister = [];
         $seqRes = ncmRows(
-            "SELECT scopeid, doctype, padwidth
-               FROM document_sequence
-              WHERE companyid = ? AND scopetype = 'register' AND scopeid IN ($ph)",
+            "SELECT s.scopeid, s.doctype, s.padwidth
+               FROM document_sequence s
+               JOIN register r
+                 ON r.registerId = s.scopeid AND r.companyId = s.companyid
+              WHERE s.companyid = ? AND s.scopetype = 'register' AND s.scopeid IN ($ph)
+                AND s.invoiceauth = CASE WHEN s.doctype = 'factura'
+                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
+                      ELSE '' END
+                AND s.prefix = CASE WHEN s.doctype = 'factura'
+                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
+                      ELSE '' END",
             array_merge([$companyId], $ids)
         );
         foreach ($seqRes as $s) {

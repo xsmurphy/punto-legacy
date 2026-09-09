@@ -259,12 +259,18 @@ foreach ($sales as $item) {
     // que no reuse un número que el POS ya gastó) NO puede volver ok=false una
     // venta emitida — se loguea y sigue. Mismo criterio que rollupMarkDirty.
     try {
+        // Serie CONGELADA en la venta, no la vigente de la caja (mig 209).
+        // Acá importa el doble: una venta encolada offline puede llegar días
+        // después de que el panel haya cambiado el punto de expedición, y
+        // avanzar la serie nueva con el número de la vieja la dejaría con un
+        // correlativo que nunca emitió.
         DocumentNumber::advanceTo(
             'factura',
             DocumentNumber::SCOPE_REGISTER,
             $regId,
             $compId,
             $no,
+            \Punto\Api\Documents\DocumentSeries::forTransaction($result->transactionId, $compId),
         );
     } catch (\Throwable $e) {
         error_log('[offline-sync] advanceTo falló para ' . $tempId . ' (venta ya persistida): ' . $e->getMessage());

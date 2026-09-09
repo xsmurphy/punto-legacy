@@ -867,7 +867,11 @@ final class TransactionService
                 'customerDoc'     => $customerDoc,
                 'date'            => $dateStr,
                 'rawDate'         => (string) ($f['transactionDate'] ?? ''),
-                'docNumber'       => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                // Formateador único (mig 159 / 209) — la concatenación pelada daba
+                // "#001-002838" desde que la venta congela el punto de expedición.
+                'docNumber'       => ' #' . \Punto\Api\Documents\DocumentNumber::format(
+                    $f['invoiceNo'], (string) $f['invoicePrefix']
+                ),
                 'invoiceNo'       => (string) ($f['invoiceNo'] ?? ''),
                 'invoicePrefix'   => (string) ($f['invoicePrefix'] ?? ''),
                 'amount'          => $inTotal,
@@ -975,7 +979,10 @@ final class TransactionService
                     'id'          => enc($f['transactionId']),
                     'title'       => $txName . ' ' . $cusName,
                     'date'        => niceDate($f['transactionDate']),
-                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    // Formateador único (mig 159 / 209), mismo motivo que arriba.
+                    'docNumber'   => ' #' . \Punto\Api\Documents\DocumentNumber::format(
+                        $f['invoiceNo'], (string) $f['invoicePrefix']
+                    ),
                     'amount'      => formatCurrentNumber($f['transactionTotal'], $dec, $ts),
                     'label'       => $cfg['label'],
                     'type'        => $f['transactionType'],

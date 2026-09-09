@@ -68,9 +68,18 @@ final class RegisterService
         // que el ancho y el prefijo tienen que estar EN el bootstrap. Sin
         // esto el ticket offline saldría con el número pelado y el mismo
         // documento se vería distinto en la factura y en el panel.
+        // Serie VIGENTE de la caja (timbrado + punto de expedición, mig 209).
+        // Todo lo que baja al POS —próximo correlativo, techo del rango,
+        // prefijo— es de ESTA serie: si el admin cambió el punto, la caja
+        // arranca una serie nueva en 1 y el device tiene que enterarse por
+        // acá, no heredar el contador de la serie anterior.
+        $series = \Punto\Api\Documents\DocumentSeries::forRegister($registerId, $companyId);
+
         $facturaMeta = \Punto\Api\Documents\DocumentNumber::sequenceMeta(
-            'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+            'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId, $series
         );
+        // La cotización no lleva timbrado propio (`RegisterAdminService::update`
+        // le pasa prefix=null): serie vacía, una sola secuencia por caja.
         $quoteMeta = \Punto\Api\Documents\DocumentNumber::sequenceMeta(
             'cotizacion', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
         );
@@ -79,6 +88,12 @@ final class RegisterService
             'registerId' => $register['registerId'],
             'invoicePadWidth' => $facturaMeta['padWidth'],
             'invoicePrefix'   => $facturaMeta['prefix'],
+            // Timbrado de la serie vigente. Baja al POS junto con el prefijo
+            // porque el device necesita las DOS partes para saber a qué serie
+            // pertenece su contador local (`lib/pos/invoice-numbering.ts`):
+            // con solo el punto, cambiar de timbrado sobre el mismo punto
+            // reusaría el contador de la serie anterior.
+            'invoiceAuth'     => $series->auth,
             'quotePadWidth'   => $quoteMeta['padWidth'],
             // Factura y cotización ya salen de `document_sequence` (F2,
             // context/37): son las dos que tienen emisor migrado, así que leer
@@ -90,7 +105,7 @@ final class RegisterService
             // su contador local contra este techo, sin red).
             'invoiceRangeTo' => $facturaMeta['rangeTo'],
             'invoiceNo'  => \Punto\Api\Documents\DocumentNumber::peek(
-                'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+                'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId, $series
             ),
             'quoteNo'    => \Punto\Api\Documents\DocumentNumber::peek(
                 'cotizacion', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId

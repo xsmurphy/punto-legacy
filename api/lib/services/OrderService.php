@@ -491,7 +491,11 @@ final class OrderService
                     'id'          => enc($f['transactionId']),
                     'title'       => ' ' . $cusName,
                     'date'        => niceDate($f['transactionDate']),
-                    'docNumber'   => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
+                    // Formateador único (mig 159 / 209) — la concatenación pelada
+                    // daba "#001-002838" desde que la venta congela el punto.
+                    'docNumber'   => ' #' . \Punto\Api\Documents\DocumentNumber::format(
+                        $f['invoiceNo'], (string) $f['invoicePrefix']
+                    ),
                     'amount'      => formatCurrentNumber($f['transactionTotal'], $dec, $ts),
                     'label'       => '<span class="label bg-success text-xs">Orden</span>',
                     'type'        => $f['transactionType'],
