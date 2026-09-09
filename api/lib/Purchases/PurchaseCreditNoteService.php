@@ -352,7 +352,13 @@ final class PurchaseCreditNoteService
                     $result = \Punto\App\Domain\Inventory::manageStock([
                         'itemId'        => $pi['itemId'],
                         'outletId'      => $outletId,
-                        'date'          => date('Y-m-d'),
+                        // El movimiento se fecha en el INSTANTE en que sale
+                        // la mercadería, igual que el `itemSold` de arriba
+                        // (NOW()). Con `date('Y-m-d')` entraba como medianoche
+                        // del día local y quedaba ANTES de la compra que
+                        // reversa dentro del mismo día, inflando cualquier
+                        // saldo reconstruido a una hora previa.
+                        'date'          => date('Y-m-d H:i:s'),
                         'locationId'    => null,
                         'count'         => $pi['qty'],
                         'type'          => '-', // el proveedor se lleva la mercadería — resta stock (espejo de PurchasesService::create, que suma)

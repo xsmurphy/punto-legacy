@@ -287,12 +287,20 @@ final class StockReversalPolicy
             return;
         }
 
+        // El reverso se fecha en el INSTANTE en que se repone, no al día.
+        // `date('Y-m-d')` entraba como medianoche del día local y dejaba la
+        // reposición ANTES de la venta que reversa dentro del mismo día: un
+        // saldo reconstruido a cualquier hora anterior a la venta contaba una
+        // unidad de más. La venta escribe su datetime completo (SaleService,
+        // `$input->date`), así que el reverso también.
+        $now = date('Y-m-d H:i:s');
+
         if ($d['kind'] === 'ownStock') {
             $locRow = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$d['itemId'], $companyId]);
             Inventory::manageStock([
                 'itemId'        => $d['itemId'],
                 'outletId'      => $outletId,
-                'date'          => date('Y-m-d'),
+                'date'          => $now,
                 'locationId'    => $locRow['locationid'] ?? null,
                 'count'         => $d['qty'],
                 'type'          => '+',
@@ -312,7 +320,7 @@ final class StockReversalPolicy
                 Inventory::manageStock([
                     'itemId'        => $leafItemId,
                     'outletId'      => $outletId,
-                    'date'          => date('Y-m-d'),
+                    'date'          => $now,
                     'locationId'    => $locRow['locationid'] ?? null,
                     'count'         => abs((float) $leafQty),
                     'type'          => '+',
