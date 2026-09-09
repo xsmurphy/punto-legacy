@@ -1987,12 +1987,163 @@ final class EInvoiceService
         // exclusion constraint matching the ON CONFLICT specification" en cada
         // venta. La garantía es la misma de siempre: una venta encolada dos
         // veces no duplica el documento.
+        $this->enqueueDocument($companyId, $transactionId, $doctype);
+    }
+
+    /**
+     * El INSERT del outbox, en UN solo lugar.
+     *
+     * Lo comparten el encolado automático de la venta y la emisión A PEDIDO
+     * (`issueForSaleOnDemand`). El predicado `WHERE superseded_by IS NULL` NO
+     * es opcional: desde la mig 201 el índice de idempotencia es PARCIAL (solo
+     * los documentos ACTIVOS — una reemisión deja la fila vieja como registro)
+     * y Postgres exige repetir el predicado del índice parcial en el
+     * conflict_target para poder inferirlo. Sin eso: "no unique or exclusion
+     * constraint matching the ON CONFLICT specification" en cada venta.
+     *
+     * La garantía es la de siempre, y ahora vale también para el botón manual:
+     * una venta encolada dos veces no duplica el documento.
+     */
+    private function enqueueDocument(string $companyId, string $transactionId, string $doctype): void
+    {
         ncmExecute(
             "INSERT INTO einvoice_document (companyid, transactionid, doctype, status)
              VALUES (?, ?, ?, 'pending')
              ON CONFLICT (companyid, transactionid, doctype) WHERE superseded_by IS NULL DO NOTHING",
             [$companyId, $transactionId, $doctype]
         );
+    }
+
+    /**
+     * Emite la factura electrónica de una venta YA HECHA, a pedido.
+     *
+     * ── Por qué existe ───────────────────────────────────────────────────
+     *
+     * Hasta el 2026-09-08 el ÚNICO momento en que una venta podía entrar al
+     * outbox era el instante de guardarla, y ese camino tiene tres salidas
+     * SILENCIOSAS (`enqueueForSale`): cuenta no conectada, `autoIssue`
+     * apagado, y `onlyWithTaxId` con un cliente sin RUC/CI. Una venta que
+     * caía en cualquiera de las tres quedaba sin factura electrónica PARA
+     * SIEMPRE: `retry()` sale de `status='error'` y `reissue()` exige un
+     * documento rechazado por SIFEN — las dos necesitan una fila que nunca se
+     * creó.
+     *
+     * El efecto real, reportado por el owner: hizo una venta con `autoIssue`
+     * apagado, el ticket se imprimió con su número, y ese número quedó
+     * consumido sin documento electrónico. La venta siguiente lleva el
+     * número que sigue, así que el talonario ante la SET arranca con un hueco
+     * que el comercio no puede cerrar por ningún medio.
+     *
+     * ── Qué gates saltea y cuáles NO ─────────────────────────────────────
+     *
+     * Saltea `autoIssue` y `onlyWithTaxId`: son política de AUTOMATIZACIÓN
+     * ("¿facturo solo?", "¿facturo también sin RUC?"), y una emisión pedida a
+     * mano ya es la respuesta a esas dos preguntas. Respetarlas acá haría que
+     * el botón no hiciera nada, en silencio, que es el bug que viene a cerrar.
+     *
+     * NO saltea nada fiscal. La cuenta tiene que estar conectada (`status =
+     * 'ok'`), el tipo de venta tiene que ser facturable, y el documento sale
+     * por el MISMO camino de emisión que el automático — así que la
+     * verificación de numeración (`assertNumberingCoherence`) y el timbrado
+     * congelado se comprueban igual. El número que viaja es el que la venta
+     * ya tiene congelado: por eso esto cierra el hueco en vez de abrir otro.
+     *
+     * @return array{status:string,docId:string,message:string}
+     * @throws \RuntimeException con el mensaje que ve el comercio.
+     */
+    public function issueForSaleOnDemand(string $companyId, string $transactionId): array
+    {
+        $tx = ncmExecute(
+            'SELECT transactionType FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        if (!$tx) {
+            throw new \RuntimeException('La venta no existe.');
+        }
+
+        // Mismo mapeo que `SaleService::enqueueElectronicInvoice()`, contra
+        // `Punto\Api\Sales\SaleType`: 0 = contado, 3 = crédito. Cualquier
+        // otro tipo (compra, presupuesto, pago de crédito) no es una venta que
+        // se facture, y decirlo es mejor que encolar algo que el mapper
+        // rechazaría después.
+        $doctype = match ((int) ($tx['transactionType'] ?? -1)) {
+            0 => 'FC',
+            3 => 'FCR',
+            default => null,
+        };
+        if ($doctype === null) {
+            throw new \RuntimeException(
+                'Esta transacción no es una venta al contado ni a crédito, así que no lleva factura electrónica.'
+            );
+        }
+
+        $account = ncmExecute('SELECT status FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        if (!$account || (string) ($account['status'] ?? '') !== 'ok') {
+            throw new \RuntimeException(
+                'La facturación electrónica no está conectada. Verificá la conexión en Configuración → '
+                . 'Facturación electrónica y volvé a intentar.'
+            );
+        }
+
+        $existing = ncmExecute(
+            "SELECT einvoicedocid, status FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND doctype = ? AND superseded_by IS NULL
+              LIMIT 1",
+            [$companyId, $transactionId, $doctype]
+        );
+        if ($existing && (string) ($existing['status'] ?? '') === 'issued') {
+            throw new \RuntimeException('Esta venta ya tiene su factura electrónica emitida.');
+        }
+
+        // Idempotente: si ya había una fila en `pending`/`error`, el ON
+        // CONFLICT no la duplica y seguimos al intento de emisión — que es
+        // exactamente lo que el comercio pidió al apretar el botón.
+        $this->enqueueDocument($companyId, $transactionId, $doctype);
+
+        $doc = ncmExecute(
+            "SELECT einvoicedocid, status FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND doctype = ? AND superseded_by IS NULL
+              LIMIT 1",
+            [$companyId, $transactionId, $doctype]
+        );
+        if (!$doc) {
+            throw new \RuntimeException('No se pudo encolar el documento. Volvé a intentar.');
+        }
+        $docId = (string) $doc['einvoicedocid'];
+
+        // CAS antes de emitir — mismo patrón que `tryIssueInline()` y que el
+        // drainer: si el cron ya tomó esta fila, no se emite dos veces. Se
+        // acepta también `error` porque un documento que falló es justamente
+        // el que el comercio está reintentando a mano.
+        $claimed = ncmExecute(
+            "UPDATE einvoice_document SET status = 'sending', updated_at = now()
+              WHERE einvoicedocid = ? AND status IN ('pending', 'error')
+              RETURNING einvoicedocid",
+            [$docId]
+        );
+        if (!$claimed) {
+            return [
+                'status'  => 'in_progress',
+                'docId'   => $docId,
+                'message' => 'El documento ya se está emitiendo. Actualizá en unos segundos para ver el resultado.',
+            ];
+        }
+
+        $this->issueClaimedDocument($docId, $companyId);
+
+        $after = ncmExecute(
+            'SELECT status, error_message FROM einvoice_document WHERE einvoicedocid = ?',
+            [$docId]
+        );
+        $status = (string) ($after['status'] ?? 'error');
+
+        return [
+            'status'  => $status,
+            'docId'   => $docId,
+            'message' => $status === 'issued'
+                ? 'Factura electrónica emitida.'
+                : ('No se pudo emitir: ' . (string) ($after['error_message'] ?? 'error desconocido')),
+        ];
     }
 
     /**

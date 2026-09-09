@@ -9,6 +9,7 @@
  *   POST /v1/einvoice?action=uploadCert         → sube el certificado de firma (.pfx base64 + contraseña) al emisor y lo deja en custodia cifrada
  *   POST /v1/einvoice?action=deleteCert         → borra de Punto el certificado en custodia (el emisor lo conserva)
  *   POST /v1/einvoice?action=csc                → guarda el CSC de producción (id + secreto) y lo aplica al emisor
+ *   POST /v1/einvoice?action=issueForSale&transactionId= → emite a mano la factura de una venta ya hecha
  *   POST /v1/einvoice?action=testSet            → prueba de humo del certificado contra SIFEN (consulta de RUC)
  *   POST /v1/einvoice?action=test               → re-verifica la cuenta (auth + timbrado) y refresca el cache
  *   GET  /v1/einvoice?resource=paymentMethods   → proxy de códigos de medio de pago
@@ -272,6 +273,28 @@ switch ($method) {
             break;
         }
 
+        if ($action === 'issueForSale') {
+            // Emitir a mano la factura de una venta YA HECHA. Existe porque el
+            // encolado automático tiene tres salidas silenciosas (cuenta no
+            // conectada, `autoIssue` apagado, `onlyWithTaxId` sin RUC) y una
+            // venta que caía en cualquiera de ellas quedaba sin documento para
+            // siempre: `retry` sale de `error` y `reissue` exige un rechazo de
+            // SIFEN — las dos necesitan una fila que nunca se creó.
+            //
+            // Toma el transactionId y no un docId JUSTAMENTE por eso: el
+            // documento todavía no existe.
+            $txId = (string) ($_GET['transactionId'] ?? '');
+            if ($txId === '') {
+                apiError('Falta transactionId', 422);
+            }
+            try {
+                apiOk($svc->issueForSaleOnDemand($companyId, $txId));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
         if ($action === 'retry') {
             $id = (string) ($_GET['id'] ?? '');
             if ($id === '') {
@@ -356,7 +379,7 @@ switch ($method) {
             break;
         }
 
-        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|retry|reissue|cancel|reconcile|sendKude)', 422);
+        apiError('action inválida (esperado: provision|config|uploadCert|deleteCert|csc|testSet|test|issueForSale|retry|reissue|cancel|reconcile|sendKude)', 422);
         break;
 
     default:

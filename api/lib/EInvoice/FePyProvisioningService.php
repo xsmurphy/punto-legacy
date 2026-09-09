@@ -484,7 +484,14 @@ final class FePyProvisioningService
                 continue;
             }
             $missing = [];
-            foreach (['direccion', 'departamento', 'departamentoDescripcion', 'distrito', 'distritoDescripcion', 'ciudad', 'ciudadDescripcion'] as $field) {
+            // `telefono` está en la lista por SIFEN, no por FE-PY: nuestro
+            // motor crea el emisor sin él, pero termina en el XML como
+            // `dTelEmi`, cuyo XSD exige 6 caracteres mínimo. Sin esto el alta
+            // sale "exitosa" y la PRIMERA VENTA REAL muere con un error de
+            // validación XSD que no dice nada del alta — le pasó al owner el
+            // 2026-09-08. Un dato que el documento fiscal necesita se pide al
+            // dar de alta, no se descubre facturando.
+            foreach (['direccion', 'telefono', 'departamento', 'departamentoDescripcion', 'distrito', 'distritoDescripcion', 'ciudad', 'ciudadDescripcion'] as $field) {
                 if (trim((string) ($row[$field] ?? '')) === '') {
                     $missing[] = $field;
                 }

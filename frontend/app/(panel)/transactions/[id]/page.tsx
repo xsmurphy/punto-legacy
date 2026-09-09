@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Ban, Banknote, Loader2, Printer, Receipt } from "lucide-react"
+import { ArrowLeft, Ban, Banknote, FileCheck, Loader2, Printer, Receipt } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -125,6 +125,13 @@ function TransactionDetailView({
   const isCredit = isCreditSale(tx.transactionType)
   const isQuote = isQuoteType(tx.transactionType)
   const canEdit = !isVoid && isEditableSale(tx.transactionType)
+  const canManageEinvoice = usePermission("einvoice.manage")
+  // Solo contado y crédito llevan factura electrónica — es el mismo mapeo que
+  // hace SaleService al encolar. Una anulada no se factura.
+  const canIssueEinvoice =
+    !isVoid &&
+    canManageEinvoice &&
+    (isCashSale(tx.transactionType) || isCreditSale(tx.transactionType))
 
   // Gate cliente — espejo de hasPermission('pos.sale.creditPayment') que
   // enforce api/v1/credit-payments.php. No es el boundary de seguridad (eso
@@ -161,6 +168,7 @@ function TransactionDetailView({
   const [editDialogOpen, setEditDialogOpen] = React.useState(false)
   const [receiptPrompt, setReceiptPrompt] = React.useState<{ paymentId: string } | null>(null)
   const [printingReceipt, setPrintingReceipt] = React.useState(false)
+  const [issuingEinvoice, setIssuingEinvoice] = React.useState(false)
 
   // El panel no tiene bindings de hardware (impresoras de red/USB por
   // register) — reimprimir va directo a printTicketInBrowser (plantilla del
@@ -173,6 +181,41 @@ function TransactionDetailView({
       await printTicketInBrowser({ docType, data })
     } catch {
       toast.error("No se pudo imprimir")
+    }
+  }
+
+  /**
+   * Emitir a mano la factura electrónica de esta venta.
+   *
+   * El botón se ofrece en TODA venta al contado o a crédito no anulada, sin
+   * consultar antes si ya tiene documento: el detalle de la transacción no
+   * trae el estado de facturación electrónica (sí lo trae el LISTADO, que
+   * corre otra query), y el backend es la autoridad — responde "Esta venta ya
+   * tiene su factura electrónica emitida" y el mensaje llega tal cual. Mostrar
+   * un botón de más es mejor que esconder el único camino que tiene el
+   * comercio para cerrar el hueco. Plumbear el estado hasta acá para que el
+   * botón se etiquete solo queda como seguimiento.
+   */
+  async function handleIssueEinvoice() {
+    setIssuingEinvoice(true)
+    try {
+      const res = await api.post<{ status: string; message: string }>(
+        `/v1/einvoice?action=issueForSale&transactionId=${tx.transactionId}`,
+      )
+      if (res.status === "issued") {
+        toast.success(res.message)
+      } else {
+        // `in_progress` y `error` NO son éxito: el drainer puede haberla
+        // tomado, o el motor puede haberla rechazado. El mensaje del backend
+        // ya explica cuál de las dos.
+        toast.warning(res.message)
+      }
+    } catch (e) {
+      toast.error("No se pudo emitir la factura electrónica", {
+        description: e instanceof Error ? e.message : undefined,
+      })
+    } finally {
+      setIssuingEinvoice(false)
     }
   }
 
@@ -240,6 +283,22 @@ function TransactionDetailView({
             >
               <Ban className="size-3.5" />
               {isCustomerReceipt ? "Anular cobro" : "Anular pago"}
+            </Button>
+          )}
+          {canIssueEinvoice && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleIssueEinvoice}
+              disabled={issuingEinvoice}
+              className="gap-1.5"
+            >
+              {issuingEinvoice ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <FileCheck className="size-3.5" />
+              )}
+              Emitir factura electrónica
             </Button>
           )}
           {canEdit && (
