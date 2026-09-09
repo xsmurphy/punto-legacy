@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, Download, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
+import { AlertCircle, ArrowLeft, Banknote, Ban, Check, Copy, Download, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -594,11 +594,17 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             // los primeros minutos. Se distingue de la aprobada (badge
             // atenuado) en vez de afirmar una validez que nadie confirmó.
             const confirmed = verdict === "approved"
+            // Una marca, no el CDC. El CDC son 44 dígitos que truncados a 32px
+            // no dicen nada y llenan la columna de ruido: lo que el comercio
+            // necesita de un vistazo es "salió / no salió". El código completo
+            // sigue a un hover de distancia, y entero en el detalle de la venta
+            // (pedido del owner, 2026-09-09).
             return (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant={confirmed ? "default" : "outline"} className="max-w-32 truncate">
-                    {r.einvoiceCdc ?? "Emitida"}
+                  <Badge variant={confirmed ? "default" : "outline"} className="gap-1">
+                    <Check className="size-3" />
+                    Emitida
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>

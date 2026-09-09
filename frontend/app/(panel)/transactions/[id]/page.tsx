@@ -37,6 +37,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useVoidCreditPayment } from "@/hooks/use-contacts"
 import { einvoiceKudeUrl } from "@/hooks/use-einvoice"
+import { groupCdc } from "@/lib/kude/types"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import {
@@ -352,6 +353,36 @@ function TransactionDetailView({
           lado (reporte del owner, 2026-09-09). Va arriba del todo porque es
           una venta cobrada SIN documento fiscal válido — no es un detalle
           más de la ficha. */}
+      {/* Factura electrónica EMITIDA. El comercio necesita ver el CDC entero
+          en algún lado —en el listado va truncado a un check— y este es ese
+          lado. Reemplaza al botón de emitir, que hasta ahora aparecía sobre
+          ventas ya emitidas ofreciendo rehacer un documento fiscal vigente
+          (reporte del owner, 2026-09-09).
+
+          El CDC va agrupado de a cuatro con el MISMO helper que usan el ticket
+          y el KuDE en PDF: es requisito de legibilidad de la norma, y
+          compartir la función es lo que garantiza que el código se lea igual
+          en las tres superficies. */}
+      {einvoiceIssued && (
+        <Card>
+          <CardContent className="flex items-start gap-3 py-4">
+            <FileCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <p className="text-sm font-medium text-foreground">Factura electrónica emitida</p>
+              {einvoiceDoc?.cdc ? (
+                <p className="break-all font-mono text-xs text-muted-foreground">
+                  {groupCdc(einvoiceDoc.cdc)}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  El documento salió pero todavía no volvió su CDC.
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {einvoiceDoc?.status === "error" && (
         <Card className="border-destructive/40">
           <CardContent className="flex items-start gap-3 py-4">
