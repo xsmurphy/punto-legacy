@@ -66,6 +66,7 @@ const ACTION_LABELS: Record<WriteAction, string> = {
   create_register: "Crear caja",
   set_fiscal_data: "Cargar datos fiscales",
   provision_einvoice: "Dar de alta la facturación electrónica",
+  set_register_numbering: "Cargar desde qué número factura la caja",
   tabular_import: "Importar archivo",
 }
 

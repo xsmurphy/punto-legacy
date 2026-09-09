@@ -11,6 +11,7 @@ import type {
   EInvoiceFiscalForm,
   EInvoicePaymentMethod,
   EInvoiceReconcileResult,
+  EInvoiceRegisterNumbering,
   EInvoiceSecretStatus,
   EInvoiceSendKudeResult,
   EInvoiceTestResult,
@@ -243,4 +244,53 @@ export function useReconcileEinvoiceDocuments() {
  */
 export function einvoiceKudeUrl(id: string): string {
   return `/api/v1/einvoice?resource=kude&id=${encodeURIComponent(id)}`
+}
+
+const NUMBERING_KEY = ["einvoice", "numbering"]
+
+/**
+ * Desde qué número emite cada caja, y de dónde sale ese número.
+ *
+ * Lectura barata (el backend usa solo el caché del talonario del emisor), así
+ * que se puede pintar en la pantalla sin costar una llamada al proveedor. El
+ * dato real se busca UNA vez, al dar de alta el emisor.
+ */
+export function useEinvoiceNumbering(enabled = true) {
+  return useQuery<{ registers: EInvoiceRegisterNumbering[] }>({
+    queryKey: NUMBERING_KEY,
+    queryFn: () =>
+      api.get<{ registers: EInvoiceRegisterNumbering[] }>("/v1/einvoice?resource=numbering"),
+    enabled,
+  })
+}
+
+/**
+ * La respuesta a "¿cuál fue la última factura que emitiste con este
+ * talonario?". Se manda el ÚLTIMO emitido, no el próximo: es el dato que el
+ * comercio tiene delante en su último comprobante, y el servidor nunca baja la
+ * secuencia, así que una respuesta corta se corrige contra el piso en vez de
+ * pisar un documento.
+ *
+ * `lastInvoiceNumber: 0` es la respuesta explícita "talonario nuevo".
+ */
+export function useAnswerEinvoiceNumbering() {
+  const qc = useQueryClient()
+  return useMutation<
+    EInvoiceRegisterNumbering,
+    Error,
+    { registerId: string; lastInvoiceNumber: number }
+  >({
+    mutationFn: (body) =>
+      api.post<EInvoiceRegisterNumbering>("/v1/einvoice?action=numbering", {
+        registerId: body.registerId,
+        lastInvoiceNumber: String(body.lastInvoiceNumber),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: NUMBERING_KEY })
+      // La numeración vive en `document_sequence` y el panel de cajas la lee
+      // de ahí: sin esto, Sucursales → Cajas seguiría mostrando el número
+      // viejo hasta un refresh manual.
+      qc.invalidateQueries({ queryKey: ["registers", "admin"] })
+    },
+  })
 }

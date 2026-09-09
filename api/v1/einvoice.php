@@ -4,6 +4,9 @@
  * F1: outbox de emisión (context/28-facturacion-electronica-plan.md).
  *
  *   GET  /v1/einvoice?resource=account          → estado del emisor (fiscal, timbrado, certificado, config)
+ *   GET  /v1/einvoice?resource=numbering        → desde qué número emite cada caja y de dónde sale ese número
+ *   POST /v1/einvoice?action=numbering          → respuesta del comercio: último número emitido con el talonario de una caja
+ *                                                  (registerId + lastInvoiceNumber; 0 = talonario nuevo)
  *   POST /v1/einvoice?action=provision          → F7: crea/retoma el emisor con los datos legales (white-label)
  *   POST /v1/einvoice?action=config             → guarda config de emisión (autoIssue/onlyWithTaxId/paymentMethodMap)
  *   POST /v1/einvoice?action=uploadCert         → sube el certificado de firma (.pfx base64 + contraseña) al emisor y lo deja en custodia cifrada
@@ -94,7 +97,7 @@ if ($method === 'POST' && $action === 'drain') {
 // declare `apiWrite` — y acá no se declara, ni se va a declarar: el certificado
 // y el CSC no se cargan por API key (M8 tiene su propio mecanismo).
 $ctx       = apiAuthTenant(
-    $method === 'GET' && $resource === 'account' ? ['panel', 'api'] : ['panel']
+    $method === 'GET' && in_array($resource, ['account', 'numbering'], true) ? ['panel', 'api'] : ['panel']
 );
 $companyId = COMPANY_ID;
 
@@ -104,6 +107,16 @@ switch ($method) {
     case 'GET':
         if ($resource === 'account') {
             apiOk($svc->getAccount($companyId));
+            break;
+        }
+
+        if ($resource === 'numbering') {
+            // Desde qué número emite cada caja, y de dónde sale ese número.
+            // Lectura barata a propósito: `survey()` sin `allowRemote` usa solo
+            // el caché del talonario, porque esto lo pinta una pantalla y lo
+            // lee una tool del agente. El dato real se busca UNA vez, al
+            // provisionar (`NumberingAdvisor::applyDerived`).
+            apiOk(['registers' => \Punto\Api\EInvoice\NumberingAdvisor::survey($companyId)]);
             break;
         }
 
@@ -165,7 +178,7 @@ switch ($method) {
             exit;
         }
 
-        apiError('resource inválido (esperado: account|paymentMethods|documents|kude)', 422);
+        apiError('resource inválido (esperado: account|numbering|paymentMethods|documents|kude)', 422);
         break;
 
     case 'POST':
@@ -189,6 +202,37 @@ switch ($method) {
 
             try {
                 apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->provision($companyId, $form));
+            } catch (\RuntimeException $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
+
+        if ($action === 'numbering') {
+            // La respuesta a "¿desde qué número sigue esta caja?" cuando no hay
+            // de dónde deducirlo (migración de un talonario que venía de otro
+            // sistema o de papel). Se manda el ÚLTIMO emitido, no el próximo:
+            // es lo que el comercio tiene delante, en el último comprobante
+            // que dio, y así el `GREATEST` de `advanceTo()` hace el resto.
+            //
+            // `0` es una respuesta VÁLIDA y explícita ("talonario nuevo"), no
+            // un campo vacío: por eso se distingue de la ausencia del
+            // parámetro, que sí es un 422.
+            $registerId = trim((string) ($_POST['registerId'] ?? ''));
+            $lastRaw    = $_POST['lastInvoiceNumber'] ?? null;
+            if ($registerId === '') {
+                apiError('Falta la caja (registerId)', 422);
+            }
+            if (!is_scalar($lastRaw) || !preg_match('/^\d+$/', trim((string) $lastRaw))) {
+                apiError('El último número emitido tiene que ser un entero (0 = talonario nuevo)', 422);
+            }
+
+            try {
+                apiOk(\Punto\Api\EInvoice\NumberingAdvisor::applyLastIssued(
+                    $companyId,
+                    $registerId,
+                    (int) trim((string) $lastRaw)
+                ));
             } catch (\RuntimeException $e) {
                 apiError($e->getMessage(), 422);
             }

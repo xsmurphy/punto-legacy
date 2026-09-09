@@ -242,6 +242,30 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
             // llegan al usuario tal cual por el resultado de la acción.
             break;
 
+        case 'set_register_numbering':
+            // La caja se nombra como la nombró el usuario; el uuid casi nunca
+            // lo tiene el modelo. La resolución por nombre y el 404 con la
+            // lista de cajas viven en `execute`, que es quien puede mirar la
+            // base — acá solo se exige que venga ALGUNA forma de nombrarla.
+            if (empty(trim((string) ($payload['id'] ?? ''))) && empty(trim((string) ($payload['registerName'] ?? '')))) {
+                apiError('Falta la caja cuya numeración se está cargando (id o registerName)', 400);
+            }
+            // El 0 es una respuesta VÁLIDA ("talonario nuevo, arranca en 1") y
+            // por eso se exige `is_numeric` y no un truthy: `empty(0)` es true
+            // y habría rechazado justo la respuesta más común de un comercio
+            // que recién empieza.
+            if (!is_numeric($payload['lastIssuedInvoiceNumber'] ?? null)) {
+                apiError(
+                    'Falta el último número de factura emitido con el talonario de esa caja ' .
+                    '(lastIssuedInvoiceNumber; 0 si el talonario es nuevo)',
+                    400
+                );
+            }
+            if ((int) $payload['lastIssuedInvoiceNumber'] < 0) {
+                apiError('El último número emitido no puede ser negativo', 400);
+            }
+            break;
+
         case 'assign_role':
             // El usuario va por id, no por nombre: "Juan" puede ser dos
             // personas y equivocarse de Juan es darle o quitarle accesos a

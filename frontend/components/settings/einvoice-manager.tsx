@@ -52,8 +52,10 @@ import { EmptyState } from "@/components/empty-state"
 import { EInvoiceDocumentsCard } from "@/components/settings/einvoice-documents-table"
 
 import {
+  useAnswerEinvoiceNumbering,
   useDeleteEinvoiceCert,
   useEinvoiceAccount,
+  useEinvoiceNumbering,
   useEinvoicePaymentMethods,
   useProvisionEinvoice,
   useSaveEinvoiceConfig,
@@ -77,11 +79,13 @@ import {
   establishmentsForCodes,
 } from "@/lib/einvoice/establecimientos"
 import { SIFEN_TAX_REGIMES, SIFEN_TAXPAYER_TYPES, taxRegimeLabel } from "@/lib/einvoice/tax-regimes"
+import { formatDocumentNumber } from "@/lib/documents/format-document-number"
 import type {
   EInvoiceActivity,
   EInvoiceConfig,
   EInvoiceEstablishment,
   EInvoiceFiscalForm,
+  EInvoiceRegisterNumbering,
   EInvoiceStatus,
 } from "@/lib/types/einvoice"
 import Link from "next/link"
@@ -343,16 +347,149 @@ function CompanyFiscalFields({
 }
 
 /**
- * Resumen de timbrados por caja — SOLO LECTURA. El timbrado se configura
- * donde se configuran las cajas (Sucursales → sucursal → Cajas → editar
- * caja), tenga o no el comercio este módulo: es dato fiscal de la caja, no
- * del módulo de facturación electrónica. Acá solo se muestra qué cajas
- * están listas para emitir, con link a donde se cargan.
+ * Desde qué número emite UNA caja.
+ *
+ * Dos estados, y la diferencia entre ellos es el punto entero de esta
+ * sección: cuando el sistema PUEDE saberlo, lo dice y ya está aplicado — no
+ * hay nada que tipear. Cuando NO puede (una migración: el emisor arranca en 1
+ * y el talonario de papel venía en 614), pregunta una vez, en vez de mandar al
+ * comercio a Sucursales → Cajas a cargar un número que nadie le dijo cuál es.
+ *
+ * Se pide el ÚLTIMO emitido, no el próximo: es el dato que el comercio tiene
+ * delante, impreso en el último comprobante que dio. Y el servidor nunca baja
+ * la secuencia, así que una respuesta corta se corrige contra lo ya emitido en
+ * lugar de duplicar un documento.
  */
-function RegisterStampsSummary() {
+function RegisterNumberingRow({
+  numbering,
+  padWidth,
+  canManage,
+}: {
+  numbering: EInvoiceRegisterNumbering
+  padWidth?: number
+  canManage: boolean
+}) {
+  const [value, setValue] = React.useState("")
+  const answer = useAnswerEinvoiceNumbering()
+
+  const submit = (lastInvoiceNumber: number) => {
+    answer.mutate(
+      { registerId: numbering.registerId, lastInvoiceNumber },
+      {
+        onSuccess: (res) => {
+          setValue("")
+          toast.success(
+            res.adjusted
+              ? `La caja arranca en la ${res.current}: es el primer número libre después de lo que ya se emitió.`
+              : `Listo — la próxima factura de esta caja es la ${res.current}.`,
+          )
+        },
+        onError: (err) => toast.error(err.message),
+      },
+    )
+  }
+
+  if (!numbering.needsAnswer) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {numbering.detail}{" "}
+        <span className="tabular-nums text-foreground">
+          {formatDocumentNumber(numbering.current, numbering.invoicePrefix, padWidth)}
+        </span>
+      </p>
+    )
+  }
+
+  if (!canManage) {
+    return <p className="text-sm text-muted-foreground">{numbering.detail}</p>
+  }
+
+  const parsed = Number.parseInt(value, 10)
+  const valid = value !== "" && Number.isFinite(parsed) && parsed >= 1
+
+  return (
+    <Alert>
+      <AlertDescription className="flex flex-col gap-3">
+        <span className="text-sm">{numbering.question}</span>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor={`numbering-${numbering.registerId}`}>Última factura emitida</Label>
+            <Input
+              id={`numbering-${numbering.registerId}`}
+              value={value}
+              onChange={(e) => setValue(e.target.value.replace(/\D/g, ""))}
+              placeholder="614"
+              className="tabular-nums sm:w-40"
+              disabled={answer.isPending}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              disabled={!valid || answer.isPending}
+              onClick={() => submit(parsed)}
+            >
+              {answer.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
+              Guardar
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={answer.isPending}
+              onClick={() => submit(0)}
+            >
+              Es un talonario nuevo
+            </Button>
+          </div>
+        </div>
+        {valid ? (
+          <span className="text-sm text-muted-foreground tabular-nums">
+            La próxima factura sería{" "}
+            {formatDocumentNumber(parsed + 1, numbering.invoicePrefix, padWidth)}
+          </span>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+/**
+ * Resumen de timbrados por caja. El timbrado se configura donde se configuran
+ * las cajas (Sucursales → sucursal → Cajas → editar caja), tenga o no el
+ * comercio este módulo: es dato fiscal de la caja, no del módulo de
+ * facturación electrónica.
+ *
+ * Lo que SÍ vive acá es la NUMERACIÓN, y no es una excepción a lo de arriba:
+ * el número desde el que sigue cada caja solo se puede resolver contra el
+ * emisor, así que este es el único lugar donde el dato existe. Hasta hoy el
+ * alta terminaba mandando al comercio a tipearlo a mano sin decirle de dónde
+ * sacarlo — pedido del owner, textual: "al configurar la FE debería
+ * configurar la numeración".
+ *
+ * `showNumbering` es false antes del alta: sin emisor no hay contra qué
+ * resolver, y una respuesta cargada ahí no tendría dónde guardarse.
+ */
+function RegisterStampsSummary({
+  showNumbering = false,
+  canManage = false,
+}: {
+  showNumbering?: boolean
+  canManage?: boolean
+}) {
   const { data, isLoading } = useRegistersAdmin()
+  const { data: numberingData } = useEinvoiceNumbering(showNumbering)
   const registers = (data?.registers ?? []).filter((r) => r.status)
   const withStamp = registers.filter((r) => r.fiscal.invoiceAuth !== "")
+
+  const numberingById = React.useMemo(() => {
+    const map = new Map<string, EInvoiceRegisterNumbering>()
+    for (const n of numberingData?.registers ?? []) map.set(n.registerId, n)
+    return map
+  }, [numberingData])
+
+  const pendientes = (numberingData?.registers ?? []).filter((n) => n.needsAnswer).length
 
   return (
     <Card>
@@ -361,6 +498,10 @@ function RegisterStampsSummary() {
         <CardDescription>
           Cada caja es un punto de expedición. El timbrado se carga en la configuración de la
           caja; las cajas sin timbrado no emiten factura electrónica.
+          {showNumbering && pendientes > 0
+            ? " Falta decir desde qué número sigue " +
+              (pendientes === 1 ? "una caja." : `${pendientes} cajas.`)
+            : ""}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -377,23 +518,35 @@ function RegisterStampsSummary() {
             ghost={false}
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {registers.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3">
-                <p className="text-sm">
-                  {r.name}
-                  <span className="ml-2 text-xs text-muted-foreground">{r.outletName}</span>
-                </p>
-                {r.fiscal.invoiceAuth ? (
-                  <span className="text-sm tabular-nums">
-                    {r.fiscal.invoiceAuth}
-                    {r.fiscal.invoicePrefix ? ` · ${r.fiscal.invoicePrefix}` : ""}
-                  </span>
-                ) : (
-                  <Badge variant="secondary">Sin timbrado</Badge>
-                )}
-              </div>
-            ))}
+          <div className="flex flex-col gap-3">
+            {registers.map((r) => {
+              const numbering = numberingById.get(r.id)
+              return (
+                <div key={r.id} className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm">
+                      {r.name}
+                      <span className="ml-2 text-xs text-muted-foreground">{r.outletName}</span>
+                    </p>
+                    {r.fiscal.invoiceAuth ? (
+                      <span className="text-sm tabular-nums">
+                        {r.fiscal.invoiceAuth}
+                        {r.fiscal.invoicePrefix ? ` · ${r.fiscal.invoicePrefix}` : ""}
+                      </span>
+                    ) : (
+                      <Badge variant="secondary">Sin timbrado</Badge>
+                    )}
+                  </div>
+                  {showNumbering && numbering ? (
+                    <RegisterNumberingRow
+                      numbering={numbering}
+                      padWidth={r.padWidth?.factura}
+                      canManage={canManage}
+                    />
+                  ) : null}
+                </div>
+              )
+            })}
           </div>
         )}
         <p className="text-sm text-muted-foreground">
@@ -1121,7 +1274,7 @@ function ProvisionedView({
         </CardContent>
       </Card>
 
-      <RegisterStampsSummary />
+      <RegisterStampsSummary showNumbering canManage={canManage} />
 
       <CertificateCard
         canManage={canManage}

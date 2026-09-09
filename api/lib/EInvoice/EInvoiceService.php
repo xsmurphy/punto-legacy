@@ -2746,6 +2746,60 @@ final class EInvoiceService
     }
 
     /**
+     * Lectura PÚBLICA de la fila del timbrado, para quien necesita el estado
+     * del talonario fuera del camino de emisión — hoy `NumberingAdvisor`, que
+     * la usa para dejar la numeración de la caja configurada en vez de
+     * pedírsela tipeada al comercio.
+     *
+     * Es un envoltorio de `remoteStampRow()` y no una segunda implementación:
+     * el caché, la invalidación por `Id` nuevo y el criterio de "timbrado dado
+     * de baja no sirve" tienen que ser LOS MISMOS que usa la emisión, o el
+     * número que se configura y el que se valida al emitir saldrían de dos
+     * lecturas que pueden discrepar.
+     *
+     * Dos diferencias, las dos deliberadas:
+     *
+     *   - `$allowRemote = false` responde SOLO con lo cacheado. Esta lectura
+     *     la hacen una pantalla del panel y una tool del agente, y no pueden
+     *     costar una llamada HTTP al proveedor por render.
+     *   - Devuelve `null` en vez de lanzar. Acá "no se pudo leer el talonario"
+     *     degrada a preguntarle al comercio, que es seguro; en la emisión
+     *     tiene que cortar, y por eso `remoteStampRow()` sigue lanzando.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function remoteStampDetails(string $companyId, string $stampId, bool $allowRemote = false): ?array
+    {
+        if ($stampId === '') {
+            return null;
+        }
+
+        if (!$allowRemote) {
+            $account = ncmExecute('SELECT provisioning FROM einvoice_account WHERE companyid = ?', [$companyId]);
+            if (!$account) {
+                return null;
+            }
+            $provisioning = $this->decodeJsonb($account['provisioning'] ?? null);
+            $cache = is_array($provisioning['stampDetails'] ?? null) ? $provisioning['stampDetails'] : [];
+            $row = $cache[$stampId] ?? null;
+
+            return (is_array($row) && $row !== []) ? $row : null;
+        }
+
+        $account = ncmExecute('SELECT * FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        if (!$account) {
+            return null;
+        }
+
+        try {
+            return $this->remoteStampRow($companyId, $account, $stampId);
+        } catch (\Throwable $e) {
+            error_log('[EInvoiceService] remoteStampDetails ' . $stampId . ': ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Fila del timbrado (`BranchDocumentType`) tal como la ve Factomate,
      * cacheada en `provisioning.stampDetails[<stampId>]`.
      *

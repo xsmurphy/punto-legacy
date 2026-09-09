@@ -202,6 +202,15 @@ final class EInvoiceProvisioningService
                     (string) ($result['lastError'] ?? 'El emisor se creó pero la verificación final falló.')
                 );
             }
+
+            // Dejar la numeración de las cajas LISTA es parte de configurar la
+            // facturación electrónica, no un trámite posterior en otra
+            // pantalla: acá es donde el contador del talonario del emisor está
+            // a mano. Nunca lanza — un alta completa no puede caerse porque no
+            // se pudo leer un correlativo, y lo que pasa si falla es que la
+            // pantalla pregunta, que es el estado anterior y es seguro.
+            NumberingAdvisor::applyDerived($companyId);
+
             return $svc->getAccount($companyId);
         } catch (\RuntimeException $e) {
             ncmExecute(
@@ -1100,6 +1109,74 @@ final class EInvoiceProvisioningService
     }
 
     /** @return array{0:string,1:int,2:string} [environment, tenantId, login] */
+    /**
+     * Vuelve a registrar en el emisor el timbrado de UNA caja.
+     *
+     * Es el camino de propagación de `EInvoiceRegisterSync`: editar el
+     * timbrado o el punto de expedición de una caja invalida lo que el emisor
+     * tiene registrado para ella, y el checkpoint por caja
+     * (`provisioning.stampRegisters[registerId]`) es justamente la caché de
+     * "esto ya se lo dijimos". La entrada del cambio es quien tiene que
+     * invalidarla — dejar el checkpoint puesto es lo que hacía que la caja
+     * quedara desincronizada en silencio hasta la primera factura.
+     *
+     * Se apoya en `ensureStampsCreated()` sin duplicar una línea: Factomate no
+     * EDITA un `BranchDocumentType`, crea uno nuevo con `Id` nuevo, y el
+     * `stampMap` repunta solo. Por eso también se limpian las cachés que
+     * quedan colgadas del `Id` VIEJO (`stampDetails`, `numberingPreflight`):
+     * sin eso, `assertNumberingCoherence()` seguiría comparando contra el
+     * talonario anterior.
+     *
+     * Solo Factomate. FE-PY no tiene ABM de timbrados —sus tres métodos de
+     * provisioning lanzan `LogicException`— y por eso su caso se FRENA al
+     * editar en vez de llegar hasta acá.
+     *
+     * @throws \RuntimeException si el emisor no está provisionado o rechaza el alta.
+     */
+    public function reprovisionRegisterStamp(string $companyId, string $registerId): void
+    {
+        [$environment, , $login] = $this->requireProvisioned($companyId);
+
+        $stamps = array_values(array_filter(
+            self::registerStamps($companyId),
+            static fn (array $s): bool => (string) ($s['registerId'] ?? '') === $registerId
+        ));
+        if ($stamps === []) {
+            // La caja no participa de la facturación electrónica (sin timbrado
+            // o dada de baja). Nada que registrar, y no es un error.
+            return;
+        }
+
+        $row  = ncmExecute('SELECT provisioning FROM einvoice_account WHERE companyid = ?', [$companyId]);
+        $prov = json_decode((string) ($row['provisioning'] ?? '{}'), true);
+        $prov = is_array($prov) ? $prov : [];
+
+        $done = is_array($prov['stampRegisters'] ?? null) ? $prov['stampRegisters'] : [];
+        unset($done[$registerId]);
+
+        $map     = is_array($prov['stampMap'] ?? null) ? $prov['stampMap'] : [];
+        $stale   = is_array($map[$registerId] ?? null) ? array_map('strval', array_values($map[$registerId])) : [];
+        $details = is_array($prov['stampDetails'] ?? null) ? $prov['stampDetails'] : [];
+        $preflight = is_array($prov['numberingPreflight'] ?? null) ? $prov['numberingPreflight'] : [];
+        foreach ($stale as $oldStampId) {
+            unset($details[$oldStampId], $preflight[$oldStampId]);
+        }
+
+        self::mergeProvisioning($companyId, [
+            'stampRegisters'     => $done,
+            'stampDetails'       => $details,
+            'numberingPreflight' => $preflight,
+        ]);
+
+        $this->ensureStampsCreated(
+            $companyId,
+            $stamps,
+            $environment,
+            $login,
+            $this->session->getBearer($companyId)
+        );
+    }
+
     private function requireProvisioned(string $companyId): array
     {
         $row = ncmExecute(

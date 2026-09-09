@@ -111,6 +111,15 @@ final class FePyProvisioningService
                     (string) ($result['lastError'] ?? 'El emisor se creó pero la verificación final falló.')
                 );
             }
+
+            // Igual que en el camino de Factomate: configurar la facturación
+            // electrónica deja la numeración de las cajas lista. Con FE-PY la
+            // fuente `emitter` no responde (su contador no se publica), así
+            // que lo que se aplica sale de nuestro propio historial o de lo ya
+            // cargado — y lo que no se pueda derivar queda como pregunta
+            // explícita en la pantalla, no como un número inventado.
+            NumberingAdvisor::applyDerived($companyId);
+
             return $svc->getAccount($companyId);
         } catch (\RuntimeException $e) {
             ncmExecute(
@@ -225,6 +234,7 @@ final class FePyProvisioningService
         }
 
         $timbrado = self::singleStampNumber($stamps);
+        $establecimientos = self::establecimientos($form, $fiscal, $stamps);
 
         $payload = [
             // `externalId`: nuestro companyId. FE-PY lo guarda y lo indexa
@@ -243,7 +253,7 @@ final class FePyProvisioningService
             // Zod). El formulario ya lo pide; sin él no se adivina.
             'tipoContribuyente' => self::requireInt($fiscal['taxpayerType'] ?? null, 1, 2, 'tipo de contribuyente'),
             'tipoRegimen'       => self::requireInt($fiscal['regimeId'] ?? null, 1, 15, 'régimen tributario'),
-            'establecimientos'  => self::establecimientos($form, $fiscal, $stamps),
+            'establecimientos'  => $establecimientos,
             'actividadesEconomicas' => self::actividades($fiscal),
             // `env` decide contra qué SIFEN firma el emisor y se fija ACÁ,
             // para siempre. Sale de EINVOICE_DEFAULT_ENVIRONMENT, que es
@@ -257,7 +267,20 @@ final class FePyProvisioningService
             'UPDATE einvoice_account SET provider_tenant_ref = ?, updated_at = now() WHERE companyid = ?',
             [$created['tenantRef'], $companyId]
         );
-        EInvoiceProvisioningService::mergeProvisioning($companyId, ['fepyTenantCreated' => true]);
+        // Qué establecimientos vio el emisor, guardado como HECHO y no
+        // recalculable después: los códigos salen de las cajas, así que
+        // reconstruirlos más tarde daría el estado ACTUAL de las cajas, que es
+        // justo lo que `EInvoiceRegisterSync` necesita comparar contra lo que
+        // se declaró. FE-PY no tiene endpoint para agregar un establecimiento,
+        // y sin este registro no habría cómo avisarle al comercio que el punto
+        // de expedición que está por cargar no existe del otro lado.
+        EInvoiceProvisioningService::mergeProvisioning($companyId, [
+            'fepyTenantCreated'  => true,
+            'fepyEstablishments' => array_values(array_unique(array_map(
+                static fn (array $e): string => (string) ($e['codigo'] ?? ''),
+                $establecimientos
+            ))),
+        ]);
     }
 
     /**

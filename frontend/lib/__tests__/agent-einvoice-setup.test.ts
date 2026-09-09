@@ -203,6 +203,64 @@ describe("deriveEinvoiceSetup", () => {
   })
 })
 
+describe("deriveEinvoiceSetup — desde qué número emite cada caja", () => {
+  const caja = (over: Record<string, unknown> = {}) => ({
+    registerId: "reg-1",
+    registerName: "Caja 1",
+    outletName: "Central",
+    invoiceAuth: "12345678",
+    invoicePrefix: "001-001",
+    current: 1,
+    floor: 1,
+    proposal: null,
+    source: null,
+    needsAnswer: false,
+    detail: "",
+    question: "",
+    ...over,
+  })
+
+  it("no agrega el paso si no hay numeración que leer (emisor todavía inexistente)", () => {
+    // Sin emisor no hay contra qué resolver el número. El checklist tiene que
+    // quedar como estaba, no sumar un paso en rojo que nadie puede cerrar.
+    const setup = deriveEinvoiceSetup(completeSources())
+    expect(setup.steps.map((s) => s.id)).not.toContain("numeracion")
+  })
+
+  it("queda LISTO cuando toda caja tiene de dónde deducir su próximo número", () => {
+    const sources = { ...completeSources(), numbering: { registers: [caja({ current: 616, source: "emitter", proposal: 616 })] } }
+    const paso = byId(deriveEinvoiceSetup(sources).steps, "numeracion")
+    expect(paso.state).toBe("listo")
+    expect(paso.detail).toContain("616")
+    // Nada que preguntar: el alta ya lo dejó aplicado.
+    expect(paso.agentActions).toEqual([])
+  })
+
+  it("pide el último emitido —textual— cuando es una migración", () => {
+    // El caso del owner: emisor nuevo cuyo contador arranca en 1 contra un
+    // talonario de papel que venía en 614. Ese número no existe en ningún
+    // sistema, así que la única salida correcta es preguntarlo.
+    const pregunta = "¿Cuál fue la ÚLTIMA factura que emitiste con el talonario de la caja \"Caja 1\" (timbrado 12345678 · 001-001)?"
+    const sources = {
+      ...completeSources(),
+      numbering: { registers: [caja({ needsAnswer: true, question: pregunta })] },
+    }
+    const paso = byId(deriveEinvoiceSetup(sources).steps, "numeracion")
+    expect(paso.state).toBe("falta")
+    expect(paso.agentActions).toEqual(["set_register_numbering"])
+    // La pregunta viaja TAL CUAL: el bot la hace en la conversación en vez de
+    // mandar al usuario a otra pantalla.
+    expect(paso.missing).toEqual([pregunta])
+    // Y el modelo tiene que saber que estimar acá no es una opción.
+    expect(paso.detail).toMatch(/NUNCA lo estimes/)
+  })
+
+  it("una lectura que falló no se reporta como pendiente", () => {
+    const sources = { ...completeSources(), numbering: { error: "Error 500" } }
+    expect(byId(deriveEinvoiceSetup(sources).steps, "numeracion").state).toBe("no se pudo leer")
+  })
+})
+
 describe("get_einvoice_setup — registro de la tool", () => {
   it("se construye con una descripción que le dice al modelo cuándo usarla", () => {
     const tools = buildEinvoiceSetupTool(ctx)

@@ -86,6 +86,10 @@ final class AgentActor
         // el RUC" desde el mostrador habría funcionado.
         'set_fiscal_data',
         'provision_einvoice',
+        // Mover la numeración de una caja es una decisión fiscal del dueño con
+        // el talonario delante, no una tarea de mostrador: un número mal
+        // cargado desde la caja saltea correlativos de todo el comercio.
+        'set_register_numbering',
     ];
 
     /**
@@ -121,6 +125,10 @@ final class AgentActor
         // El alta del emisor tiene clave propia desde que existe la pantalla.
         'set_fiscal_data'    => 'settings.company.edit',
         'provision_einvoice' => 'einvoice.manage',
+        // La numeración se resuelve CONTRA el emisor (de ahí sale el número) y
+        // la pantalla donde se contesta es la de facturación electrónica: el
+        // gate es el de ese módulo, no el de cajas.
+        'set_register_numbering' => 'einvoice.manage',
     ];
 
     /**

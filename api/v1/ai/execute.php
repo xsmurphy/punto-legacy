@@ -625,6 +625,74 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             ];
         }
 
+        case 'set_register_numbering': {
+            // ── Desde qué número sigue facturando una caja ────────────────
+            //
+            // La ÚNICA acción del agente sobre numeración fiscal, y existe por
+            // un motivo acotado: cuando el comercio migra un talonario que
+            // venía de otro sistema o de papel, el último número emitido no
+            // está en ningún lado —ni en el emisor ni en Punto— y hay que
+            // preguntárselo. Todo lo que SÍ se puede deducir ya lo dejó
+            // aplicado `NumberingAdvisor::applyDerived()` al dar de alta al
+            // emisor, así que acá no se pasa por un número que el sistema ya
+            // sabía.
+            //
+            // La regla fiscal NO se replica acá: el servicio nunca baja una
+            // secuencia (`DocumentNumber::advanceTo` es un GREATEST en la
+            // base), así que un número corto se corrige contra lo ya emitido
+            // en vez de duplicar un documento. Una segunda copia de esa regla
+            // en el ejecutor es la copia que se queda vieja.
+            $registerId = trim((string) ($payload['id'] ?? ''));
+            if ($registerId === '') {
+                $wanted = trim((string) ($payload['registerName'] ?? ''));
+                $rs = ncmExecute(
+                    'SELECT registerId, registerName FROM register
+                      WHERE companyId = ? AND registerStatus = TRUE AND LOWER(registerName) = LOWER(?)',
+                    [$companyId, $wanted],
+                    false,
+                    true
+                );
+                // forceObj devuelve un RECORDSET, no un array (footgun de
+                // CLAUDE.md): se itera con while(!$rs->EOF).
+                $found = [];
+                if ($rs && is_object($rs)) {
+                    while (!$rs->EOF) {
+                        $found[] = (string) ($rs->fields['registerid'] ?? $rs->fields['registerId'] ?? '');
+                        $rs->MoveNext();
+                    }
+                    $rs->Close();
+                }
+                if (count($found) === 0) {
+                    throw new \InvalidArgumentException("La caja '$wanted' no existe o está dada de baja");
+                }
+                if (count($found) > 1) {
+                    // Dos cajas con el mismo nombre en sucursales distintas.
+                    // Elegir una sería mover la numeración fiscal de la caja
+                    // equivocada — se devuelve el empate y se repregunta.
+                    throw new \InvalidArgumentException(
+                        "Hay más de una caja llamada '$wanted' (ids: " . implode(', ', $found) . '). ' .
+                        'Preguntale al usuario cuál es y repetí la acción con id.'
+                    );
+                }
+                $registerId = $found[0];
+            }
+
+            $lastIssued = (int) ($payload['lastIssuedInvoiceNumber'] ?? 0);
+            $res = \Punto\Api\EInvoice\NumberingAdvisor::applyLastIssued($companyId, $registerId, $lastIssued);
+
+            return [
+                'registerId'   => $registerId,
+                'registerName' => (string) ($res['registerName'] ?? ''),
+                // El número que la caja va a emitir, explícito: es el dato que
+                // el usuario tiene que poder cotejar contra su talonario.
+                'nextInvoiceNumber' => (int) ($res['current'] ?? 0),
+                // `true` = lo que dijo el usuario era menor que lo ya emitido y
+                // la secuencia se levantó igual. Que el bot lo diga, no que lo
+                // tape: el comercio esperaba otro número.
+                'adjusted' => (bool) ($res['adjusted'] ?? false),
+            ];
+        }
+
         case 'set_fiscal_data': {
             // ── La razón social la trae el PADRÓN, nunca el modelo ────────
             //

@@ -320,3 +320,42 @@ export interface EInvoiceSendKudeResult {
   queued: boolean
   recipient: string
 }
+
+/**
+ * De dónde salió el número desde el que emite una caja. Es la distinción que
+ * evita preguntarle al comercio algo que el sistema ya sabe — y, al revés, la
+ * que hace explícito cuándo NO se sabe y hay que preguntar en vez de adivinar.
+ *
+ *  - `emitter`  el talonario del lado del emisor ya tiene documentos emitidos
+ *  - `history`  esta caja ya facturó en Punto
+ *  - `sequence` la numeración ya estaba cargada por encima de su valor inicial
+ *  - `operator` el comercio contestó la pregunta de abajo
+ *  - `null`     con `needsAnswer: true`: no hay de dónde deducirlo
+ */
+export type EInvoiceNumberingSource = "emitter" | "history" | "sequence" | "operator"
+
+/** Estado de la numeración fiscal de UNA caja (`GET ?resource=numbering`). */
+export interface EInvoiceRegisterNumbering {
+  registerId: string
+  registerName: string
+  outletName: string
+  invoiceAuth: string
+  invoicePrefix: string
+  /** Lo que la caja va a emitir hoy si nadie toca nada. */
+  current: number
+  /** Mínimo seguro: por debajo se duplicaría un documento ya emitido. */
+  floor: number
+  /** Lo que se aplicaría. `null` cuando hay que preguntar. */
+  proposal: number | null
+  source: EInvoiceNumberingSource | null
+  needsAnswer: boolean
+  detail: string
+  /** La pregunta concreta, ya redactada. Vacía si no hay que preguntar. */
+  question: string
+  /**
+   * Solo en la respuesta de `action=numbering`: la respuesta era MENOR que el
+   * piso y la secuencia se levantó igual. Se muestra — el comercio tiene que
+   * saber que su caja no arranca donde dijo, y por qué.
+   */
+  adjusted?: boolean
+}

@@ -5,6 +5,7 @@ namespace Punto\Api\Services;
 require_once __DIR__ . '/RegisterAdminException.php';
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\EInvoice\EInvoiceRegisterSync;
 use Punto\Api\Sales\SaleType;
 
 /**
@@ -303,7 +304,12 @@ final class RegisterAdminService
             // acciones que faltan). Salir de acá con la TX abierta le dejaría
             // la conexión envenenada a todo lo que venga después.
             try {
-                $this->update($id, $fields);
+                // `syncEmitter: false` — el aviso al emisor electrónico va
+                // después de cerrar ESTA transacción, no adentro (ver update()).
+                // Sus validaciones, en cambio, sí corren acá: una caja con un
+                // timbrado incompatible con el emisor no tiene que llegar a
+                // crearse.
+                $this->update($id, $fields, false);
             } catch (\Throwable $e) {
                 $db->FailTrans();
                 $db->CompleteTrans();
@@ -314,13 +320,36 @@ final class RegisterAdminService
         $db->CompleteTrans();
 
         realtimePublish('register', 'create', $id);
-        return ['id' => $id, 'name' => $name];
+
+        // Una caja NUEVA con timbrado también hay que registrarla en el
+        // emisor: hasta hoy el provisioning la ignoraba (su checkpoint por
+        // caja nunca volvía a correr) y la primera factura fallaba.
+        $fiscal = is_array($extra['fiscal'] ?? null) ? $extra['fiscal'] : [];
+        $newAuth   = trim((string) ($fiscal['invoiceAuth'] ?? ''));
+        $newPrefix = trim((string) ($fiscal['invoicePrefix'] ?? ''));
+        $warning = ($newAuth !== '' || $newPrefix !== '')
+            ? EInvoiceRegisterSync::afterChange($this->companyId, $id, $name, '', '', $newAuth, $newPrefix)
+            : null;
+
+        $out = ['id' => $id, 'name' => $name];
+        if ($warning !== null) {
+            $out['warning'] = $warning;
+        }
+
+        return $out;
     }
 
     /**
      * Actualiza nombre y/o status de una caja.
      */
-    public function update(string $id, array $fields): array
+    /**
+     * @param bool $syncEmitter Si el aviso al emisor electrónico corre acá.
+     *        `create()` lo pasa en `false` y lo hace él después de cerrar SU
+     *        transacción: este método se llama anidado dentro de ella, y una
+     *        llamada HTTP al proveedor con una transacción abierta la
+     *        sostendría durante toda la latencia del alta.
+     */
+    public function update(string $id, array $fields, bool $syncEmitter = true): array
     {
         // Guard: caja existe y pertenece al tenant
         $reg = ncmExecute(
@@ -610,6 +639,41 @@ final class RegisterAdminService
             $this->assertExpeditionPointFree($id, $effectiveAuth, $effectivePrefix);
         }
 
+        // ── La caja y el emisor electrónico van atados por el TIMBRADO ──────
+        // Pedido del owner: "si yo modifico el punto de expedición en sucursal
+        // → caja, ¿se modifica en la configuración de FE? … tienen que estar
+        // atados por el timbrado". El vínculo ya existía como bloqueo AL
+        // EMITIR (`assertNumberingCoherence`, caso A); lo que faltaba es
+        // evaluarlo ACÁ, cuando todavía se puede hacer algo, en vez de dejar
+        // que se guarde y el comercio se entere al no poder facturar.
+        //
+        // Frena solo lo que el emisor no puede reconciliar (FE-PY: su timbrado
+        // y sus establecimientos se fijan en el alta). Lo reconciliable se
+        // propaga después del commit, más abajo.
+        //
+        // `$reactivating` entra por el mismo motivo que en el guard de arriba:
+        // una caja dada de baja pudo haber quedado con un timbrado que ya no
+        // es compatible con el emisor (o el emisor pudo darse de alta después),
+        // y volver a activarla es ponerla a emitir con ese par.
+        if ($willBeActive && ($prefixChanged || $authChanged || $reactivating)) {
+            try {
+                EInvoiceRegisterSync::assertChangeAllowed(
+                    $this->companyId,
+                    (string) ($reg['registerName'] ?? $reg['registername'] ?? ''),
+                    $currentAuth,
+                    $currentPrefix,
+                    $effectiveAuth,
+                    $effectivePrefix,
+                    $reactivating
+                );
+            } catch (\RuntimeException $e) {
+                // 409 y no 422: el dato que mandó el usuario es válido, lo que
+                // no es compatible es el ESTADO del emisor — misma semántica
+                // que el choque de punto de expedición de acá arriba.
+                throw new RegisterAdminException($e->getMessage(), 409);
+            }
+        }
+
         if (empty($setParts) && empty($fiscalPatch) && $numbering === [] && !$rangeToTouched) {
             return ['ok' => true];
         }
@@ -696,7 +760,25 @@ final class RegisterAdminService
         // Después del commit: anunciar un cambio que todavía puede revertirse
         // desincroniza a los dispositivos.
         realtimePublish('register', 'update', $id);
-        return ['ok' => true];
+
+        // Y por el mismo motivo, recién ahora se le cuenta al emisor
+        // electrónico. Nunca lanza: la caja ya se guardó y su timbrado es dato
+        // fiscal de la caja, así que un proveedor caído no puede tirar atrás
+        // lo que el comercio acaba de cargar. Lo que devuelve es el AVISO, que
+        // viaja en la respuesta del guardado para que se vea en el acto.
+        $warning = ($syncEmitter && ($prefixChanged || $authChanged))
+            ? EInvoiceRegisterSync::afterChange(
+                $this->companyId,
+                $id,
+                (string) ($reg['registerName'] ?? $reg['registername'] ?? ''),
+                $currentAuth,
+                $currentPrefix,
+                $effectiveAuth,
+                $effectivePrefix
+            )
+            : null;
+
+        return $warning === null ? ['ok' => true] : ['ok' => true, 'warning' => $warning];
     }
 
     /**

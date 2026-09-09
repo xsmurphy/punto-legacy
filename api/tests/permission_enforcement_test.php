@@ -1076,6 +1076,12 @@ foreach ([
     // "cargá el RUC" habría funcionado desde el mostrador.
     'set_fiscal_data'    => 'settings.company.edit',
     'provision_einvoice' => 'einvoice.manage',
+    // Mover el correlativo de una caja es una decisión fiscal con el talonario
+    // delante. Va gateada por el módulo de facturación electrónica y no por el
+    // de cajas porque el número se resuelve CONTRA el emisor, y bloqueada en
+    // el mostrador por la misma razón que las dos de arriba: un número mal
+    // cargado desde la caja saltea correlativos de todo el comercio.
+    'set_register_numbering' => 'einvoice.manage',
 ] as $accion => $claveEsperada) {
     check("agente: $accion exige $claveEsperada",
         ($mapaAccionPermiso[$accion] ?? null) === $claveEsperada,

@@ -398,6 +398,75 @@ function checkSecrets(account: unknown): EinvoiceStep {
 }
 
 /**
+ * 5 — Desde qué número emite cada caja.
+ *
+ * Va DESPUÉS del emisor y es el paso que cierra el agujero que dejaba el alta:
+ * hasta hoy terminaba mandando al comercio a tipear a mano el próximo número
+ * de factura de cada caja, sin decirle de dónde sacarlo. El backend
+ * (`NumberingAdvisor`) ya resolvió lo que se puede deducir —del talonario del
+ * emisor, de lo que la caja ya facturó en Punto, o de lo que estaba cargado— y
+ * lo dejó aplicado. Acá solo queda lo que NADIE puede saber: el último número
+ * de un talonario que venía de otro sistema o de papel.
+ *
+ * `missing` lleva las preguntas TEXTUALES, una por caja, para que el bot las
+ * haga en la misma conversación en vez de mandar al usuario a otra pantalla —
+ * que es justo lo que `set_register_numbering` existe para poder resolver.
+ */
+function checkNumbering(numbering: unknown): EinvoiceStep {
+  const id = "numeracion"
+  const title = "Desde qué número emite cada caja"
+  const where = "Configuración → Facturación electrónica (sección Timbrados por caja)"
+
+  if (failed(numbering)) {
+    return unreadable(id, title, "la numeración de las cajas", ["set_register_numbering"], where)
+  }
+  const rows = rowsFrom(numbering, "registers")
+  if (rows === null) {
+    return unreadable(id, title, "la numeración de las cajas", ["set_register_numbering"], where)
+  }
+  if (rows.length === 0) {
+    return {
+      id,
+      title,
+      state: "falta",
+      detail: "Ninguna caja activa tiene timbrado, así que no hay numeración fiscal que resolver.",
+      agentActions: ["create_register"],
+      where: "Sucursales → Cajas",
+    }
+  }
+
+  const pendientes = rows.filter((r) => r.needsAnswer === true)
+  if (pendientes.length === 0) {
+    return {
+      id,
+      title,
+      state: "listo",
+      detail: rows
+        .map((r) => `${str(r, "registerName")}: próxima factura ${r.current ?? "?"}`)
+        .join("; "),
+      agentActions: [],
+      where,
+    }
+  }
+
+  return {
+    id,
+    title,
+    state: "falta",
+    detail:
+      `${pendientes.length} de ${rows.length} caja(s) no tienen de dónde deducir desde qué número siguen: ` +
+      "el emisor arranca en 1 y Punto todavía no facturó con ese talonario. " +
+      "Preguntale al usuario cuál fue la ÚLTIMA factura que emitió con cada una y registrá " +
+      "set_register_numbering con ese número. Si es un talonario nuevo, va 0 y la caja arranca en la 1. " +
+      "NUNCA lo estimes ni lo deduzcas: un número de más se salta un correlativo (legal), uno de menos " +
+      "duplicaría una factura ya emitida (multa por cada documento).",
+    missing: pendientes.map((r) => str(r, "question")).filter((q) => q !== ""),
+    agentActions: ["set_register_numbering"],
+    where,
+  }
+}
+
+/**
  * Deriva el estado completo. PURA: no toca la red, así que se prueba con
  * respuestas de ejemplo sin mockear nada.
  *
@@ -409,6 +478,12 @@ export function deriveEinvoiceSetup(sources: {
   settings: unknown
   registers: unknown
   account: unknown
+  /**
+   * Opcional a propósito: la numeración solo se puede resolver contra un
+   * emisor que ya existe, así que el paso se agrega cuando hay algo que leer.
+   * Omitirlo NO deja el checklist incompleto — deja el checklist anterior.
+   */
+  numbering?: unknown
 }): EinvoiceSetup {
   const steps: EinvoiceStep[] = [
     checkFiscalIdentity(sources.settings),
@@ -416,6 +491,10 @@ export function deriveEinvoiceSetup(sources: {
     checkProvisioning(sources.account),
     checkSecrets(sources.account),
   ]
+
+  if (sources.numbering !== undefined) {
+    steps.push(checkNumbering(sources.numbering))
+  }
 
   const done = steps.filter((s) => s.state === "listo").length
   const pending = steps.filter((s) => s.state === "falta").length
@@ -477,13 +556,14 @@ export function buildEinvoiceSetupTool(ctx: ToolContext) {
       execute: async () => {
         // En paralelo: tres lecturas independientes, encadenarlas triplicaría
         // la espera de una sola pregunta.
-        const [settings, registers, account] = await Promise.all([
+        const [settings, registers, account, numbering] = await Promise.all([
           read.get_settings.execute({}),
           fetchRaw(ctx.apiUrl, ctx.authHeader, "/v1/register?resource=listAll"),
           fetchRaw(ctx.apiUrl, ctx.authHeader, "/v1/einvoice?resource=account"),
+          fetchRaw(ctx.apiUrl, ctx.authHeader, "/v1/einvoice?resource=numbering"),
         ])
 
-        return deriveEinvoiceSetup({ settings, registers, account })
+        return deriveEinvoiceSetup({ settings, registers, account, numbering })
       },
     }),
   }
