@@ -29,7 +29,8 @@
 import type { BlockType, PrintBlock } from "@/lib/types/print-template"
 import { formatAmount as formatAmountShared, formatMoney as formatMoneyShared } from "@/lib/format-money"
 import { formatPhone } from "@/lib/phone"
-import { resolveNumberLocale } from "@/lib/tenant-locale"
+import { resolveDecimals, resolveNumberLocale } from "@/lib/tenant-locale"
+import { amountToWordsEs } from "@/lib/number-to-words-es"
 import { KUDE_CONSULTA_TEXT, KUDE_LEYENDA, kudeDocumentName } from "@/lib/einvoice/kude"
 // Helpers del KuDE PDF que Punto renderiza — compartidos a propósito para que
 // el CDC y la URL de consulta del ticket sean idénticos a los del PDF.
@@ -466,11 +467,17 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // IVA por tasa, pagos— salen como número pelado. La moneda se declara una
   // vez, donde el cliente la busca.
   total: (data) => formatMoney(data.total, data),
-  // ⚠ nums_to_words: requiere conversión número→letras en español (ej. "Cien
-  // mil guaraníes"). No hay librería ni función propia hoy — implementar un
-  // total-en-letras incorrecto en un comprobante fiscal es peor que no
-  // imprimirlo. Ver flag en el reporte.
-  nums_to_words: () => null,
+  // Total en letras. Estuvo devolviendo `null` mientras no hubo conversor —
+  // un total en letras INCORRECTO en un comprobante fiscal es peor que
+  // ninguno. Desde que un bloque sin valor imprime su título solo (owner
+  // 2026-09-04) eso dejaba un "Son:" pelado en la factura, reportado por el
+  // owner el 2026-09-09.
+  //
+  // No nombra la moneda ("Son: veinte mil", no "…guaraníes"): el bootstrap
+  // trae el CÓDIGO, no el nombre en palabras, y adivinarlo en un documento
+  // fiscal no va. El comercio que quiera nombrarla la escribe en el TÍTULO
+  // del bloque, que ya se imprime delante del valor.
+  nums_to_words: (data) => amountToWordsEs(data.total, resolveDecimals(data)),
   sale_type: (data) => saleTypeLabel(data.docType),
   sale_type_contado: (data) => (saleTypeLabel(data.docType) === "Contado" ? "X" : ""),
   sale_type_credit: (data) => (saleTypeLabel(data.docType) === "Crédito" ? "X" : ""),

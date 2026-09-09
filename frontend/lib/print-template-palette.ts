@@ -455,8 +455,8 @@ const BLOCK_TYPE_DEFAULT_TEXT: Partial<Record<BlockType, string>> = (() => {
  * Texto a mostrar en el canvas cuando `resolveSingleBlockPreview` (blocks.ts)
  * NO devuelve nada para este bloque contra `buildDemoTicketData()` — un
  * campo que la venta de ejemplo no puebla (`transfer_reason` fuera de
- * remisión, `table_number` fuera de comanda), un cálculo no implementado
- * (`nums_to_words`) o una tasa del tenant sin línea de ejemplo que la
+ * remisión, `table_number` fuera de comanda) o una tasa del tenant sin
+ * línea de ejemplo que la
  * matchee (`subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate` para un
  * impuesto "Exento" — `buildDemoTicketData` solo arma ítems con las dos
  * tasas "rate" más altas, ver su comentario).

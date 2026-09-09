@@ -1828,11 +1828,38 @@ final class EInvoiceService
                 $sifenStatus = mb_substr($sifenStatus, 0, 20);
             }
 
+            // El QR se RECUPERA acá si la emisión no lo trajo.
+            //
+            // FE-PY empezó a devolver `qrUrl` (el `dCarQR` del XML firmado)
+            // después de que estos documentos se emitieran, así que su
+            // `provider_response` guardado no lo tiene y el bloque `fe_qr` del
+            // ticket sale en blanco al reimprimir. La reconsulta sí lo trae:
+            // se fusiona en el `provider_response` existente en vez de
+            // pisarlo, porque ahí vive lo que devolvió la EMISIÓN y eso es
+            // registro, no caché.
+            //
+            // `jsonb ||` es merge superficial: solo agrega la clave nueva. Si
+            // el documento ya la tenía, el valor entrante es el mismo.
+            $freshQr = self::extractQrUrl($bulk);
+            $qrPatch = $freshQr !== null
+                ? json_encode(['qrUrl' => $freshQr], JSON_UNESCAPED_UNICODE)
+                : null;
+
             ncmExecute(
                 "UPDATE einvoice_document
-                    SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now()
+                    SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now(),
+                        provider_response = CASE
+                            WHEN ?::jsonb IS NULL THEN provider_response
+                            ELSE COALESCE(provider_response, '{}'::jsonb) || ?::jsonb
+                        END
                   WHERE einvoicedocid = ?",
-                [$sifenStatus, json_encode($bulk, JSON_UNESCAPED_UNICODE), $docId]
+                [
+                    $sifenStatus,
+                    json_encode($bulk, JSON_UNESCAPED_UNICODE),
+                    $qrPatch,
+                    $qrPatch,
+                    $docId,
+                ]
             );
 
             // E2 de context/57 — ACÁ es donde nace la entrega digital del KuDE,
@@ -3287,6 +3314,22 @@ final class EInvoiceService
             return null;
         }
 
+        // FE-PY lo devuelve PLANO, en `qrUrl` (su commit e424023): es el
+        // `dCarQR` exacto extraído del XML firmado, ya desescapado y listo para
+        // codificar en el QR. Se lee PRIMERO porque es el motor vigente.
+        //
+        // No se recalcula por nuestra cuenta y no es un detalle de comodidad:
+        // la cadena lleva `cHashQR` —un hash con el CSC— además de
+        // `DigestValue` e `IdCSC`. Reimplementarlo sería una segunda versión
+        // del mismo dato firmado, y el día que difieran imprimiríamos un QR
+        // que no valida contra el documento que el emisor firmó.
+        $flat = $providerResponse['qrUrl'] ?? $providerResponse['dCarQR'] ?? null;
+        if (is_string($flat) && trim($flat) !== '') {
+            return trim($flat);
+        }
+
+        // Shape anidado del proveedor anterior. Se conserva para los documentos
+        // ya emitidos con él, cuyo `provider_response` quedó guardado así.
         foreach ((array) ($providerResponse['Items'] ?? $providerResponse['items'] ?? []) as $item) {
             if (!is_array($item)) {
                 continue;

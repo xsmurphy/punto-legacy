@@ -430,9 +430,9 @@ function BlockContent({
   // para señalar que es preview, no real.
   const preview = resolveSingleBlockPreview(block, data)
   // Nunca vacío ni identificador interno (pedido owner): cuando la venta de
-  // ejemplo no puebla este campo (transfer_reason fuera de remisión,
-  // nums_to_words sin implementar, una tasa "Exento" sin línea de ejemplo
-  // que la matchee), en vez de un "…" genérico se muestra el MOLDE del dato
+  // ejemplo no puebla este campo (transfer_reason fuera de remisión, una
+  // tasa "Exento" sin línea de ejemplo que la matchee), en vez de un "…"
+  // genérico se muestra el MOLDE del dato
   // que va a ir ahí (getBlockPlaceholder — reusa el mismo `defaultText` de
   // PALETTE que ya usa el editor al insertar el bloque, nunca una segunda
   // lista de textos de ejemplo).

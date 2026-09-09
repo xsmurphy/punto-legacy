@@ -294,13 +294,22 @@ export function TemplateEditor({ existing }: Props) {
 
   const handleAddBlock = (item: PaletteItem) => {
     const block = defaultBlock(item.type, item.defaultText)
-    // Título sugerido: del catálogo por tipo, o el que traiga el ítem de la
-    // paleta (los bloques por-tasa lo arman con la tasa). Es un default
-    // editable, no una regla — ver `DEFAULT_BLOCK_LABELS`.
-    block.label = substituteLabels(
-      item.defaultLabel ?? DEFAULT_BLOCK_LABELS[item.type] ?? "",
-      { tin: tinName, doc: docName, tax: bootstrapQuery.data?.taxName },
-    )
+    // Título sugerido, SOLO en rollo. En un ticket el bloque es una línea
+    // suelta y sin rótulo el dato no se entiende ("7659394-0" a secas); en
+    // una hoja el rótulo ya está dibujado en la plantilla —el encabezado de
+    // la celda o la columna— así que estamparlo también en el bloque lo
+    // imprime dos veces ("RUC: RUC: 7659394-0", reportado por el owner
+    // 2026-09-09 sobre el KuDE de factura).
+    //
+    // Sigue siendo un default editable, no una regla: el operador puede
+    // escribir un título en una hoja si su diseño no lo trae — ver
+    // `DEFAULT_BLOCK_LABELS`.
+    block.label = ticket
+      ? substituteLabels(
+          item.defaultLabel ?? DEFAULT_BLOCK_LABELS[item.type] ?? "",
+          { tin: tinName, doc: docName, tax: bootstrapQuery.data?.taxName },
+        )
+      : ""
     if (ticket) {
       // En tickets, los bloques ocupan toda la fila — left=0, width = canvas
       // (regla owner 2026-08-18: 100% del ancho siempre, sin excepción). El
