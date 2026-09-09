@@ -39,7 +39,56 @@ datos de prueba). Las facturas 615-619 son documentos fiscales legales, pero
 
 ## Estado al cerrar
 
-**Mergeado y deployado** (`main`, commits `67d08f5a..92e6af91`, 26 commits):
+### Lo que pasó DESPUÉS del cierre anterior (leer esto primero)
+
+- **Anulación desde el panel: MERGEADA y deployada.** El hook y el diálogo se
+  comparten con la caja inyectando el cliente por realm; el módulo compartido
+  importa solo el cliente del panel, así que el token del device no entra a su
+  bundle. Avisa antes de confirmar que anular cancela también ante SIFEN y
+  después informa el resultado real leyendo `einvoiceCancelled`.
+- **Portal público de la factura** (`/factura/{token}`): logo del comercio
+  arriba, Punto al pie con "Usamos www.punto.la", QR firmado DIBUJADO (no solo
+  enlazado) y la moneda por `resolveCurrency()` — el total salía "500.00" con
+  decimales que el guaraní no tiene. El logo se corrigió DOS veces: primero
+  apuntaba a `/assets/80-80/0/<enc(id)>.jpg` (ruta legacy de `data.php`,
+  archivo inexistente) y ahora sale de `settingObj.logoUrl`, la URL de S3 que
+  escribe `SettingsService::uploadLogo()`, con `logoUploadedAt` de cache-bust.
+
+### 🔴 BLOQUEANTE PARA EL OWNER — `INTERNAL_RENDER_KEY` no existe
+
+**El KuDE propio de Punto NUNCA se usó en producción.** El log lo dice:
+
+```
+[KudeService] render propio falló — se sirve el de Factomate:
+INTERNAL_RENDER_KEY no configurada — no se llama al renderer.
+```
+
+`KudeService::pdf()` renderiza el KuDE A4 propio (`context/73`, K1-K3) y solo
+cae al del proveedor si el nuestro falla. Falta la variable, así que cae
+SIEMPRE. Eso explica de un saque las dos quejas del owner sobre el PDF: el
+banner rojo es del template Jasper del proveedor, y el logo del comercio no
+sale porque ese template no lo conoce.
+
+**Verificado con `list_env_keys`: la clave no existe en NINGUNA de las dos
+apps.** Hay que crearla en las DOS con el MISMO valor —el backend la manda
+como credencial, el front la valida— y redeployar:
+
+| App | UUID |
+|---|---|
+| Punto Backend | `z645wx54kwtcciczaeoldwvc` |
+| Punto Front | `nzmay2ytcdup3sgylspq39z6` |
+
+Valor sugerido: `openssl rand -hex 32`. Es un secreto y lo tiene que crear el
+owner en Coolify.
+
+**Y después de configurarla hay que PURGAR el caché**: `KudeService` guarda el
+PDF en S3 por CDC, así que los ya generados se siguen sirviendo con el banner
+aunque el renderer funcione.
+
+(Nota: para Balloon Party el logo igual no va a salir — `settingObj.hasLogo`
+está vacío, el comercio nunca subió uno. Eso es correcto, no un bug.)
+
+### Mergeado y deployado antes del cierre anterior (`67d08f5a..92e6af91`, 26 commits):
 - Series fiscales (migs 209+210): identidad de numeración = (timbrado,
   punto, número) en `document_sequence`, contador local del POS,
   `transaction` congelada y lo declarado a FE-PY.
@@ -106,26 +155,61 @@ tenía un deploy `in_progress` para `92e6af91` (el HEAD, cambio de portal) —
 
 ## La cola del owner, en orden acordado
 
-1. ~~Anular desde el panel~~ — HECHO y mergeado. Falta deployar el Front.
-2. **Serie propia para la nota de crédito** — hoy la numera FE-PY:
-   `SaleToFePyMapper::resolveDocumentNumber()` omite el número para tipo 5 y
-   `cdcMismatchFor()` ni compara para NC. Contradice que Punto sea dueño de
-   la numeración. Prerequisito del punto 3.
+1. ~~Anular desde el panel~~ — HECHO, mergeado y deployado.
+2. **Serie propia para la nota de crédito** — **EN VUELO** (ver abajo). Hoy la
+   numera FE-PY: `SaleToFePyMapper::resolveDocumentNumber()` omite el número
+   para tipo 5 y `cdcMismatchFor()` ni compara para NC. Prerequisito del 3.
 3. **NC desde la caja (UI)**, encima del 2.
 4. **Logo del tenant en el KuDE** — FE-PY ya expone `logoUrl` en el tenant
    (POST/PATCH); falta que Punto lo mande.
 5. **Email del KuDE con la marca de Punto** — ver roadmap "El email al
    comprador como canal propio" (commit `4b9a5698`).
 
+## En vuelo AHORA
+
+Agente en `.claude/worktrees/serie-nota-credito`, branch
+`frontend/serie-nota-credito` — el punto 2 de la cola.
+
+**Decisión ya CERRADA por el owner, no relitigar**: la nota de crédito
+**hereda la caja de la factura que corrige**, y de ahí su punto de expedición
+y su serie. Fundamento verificado contra el Manual Técnico v150 de la DNIT:
+`C005 dEst` y `C006 dPunExp` son obligatorios `1-1` para TODO documento
+electrónico y forman parte del CDC (`A002` = `C002, D101, D102, C005, C006,
+C007, D103, D002, B002…`). SIFEN vincula la NC a la factura **por el CDC del
+documento asociado**, NO exigiendo que el punto coincida — así que heredar la
+caja es coherencia NUESTRA, no requisito de la SET. Su ventaja: elimina el
+fallback que hoy adivina el punto cuando la devolución sale del panel
+(`fePyPointForDocument()` cae al "primer register activo por nombre" si
+`transaction.registerid` es NULL, `ReturnService.php:519`).
+
+**Terreno limpio, ya consultado en producción**: 0 NC en el outbox, 0
+devoluciones con número, ninguna secuencia de `nota_credito`. La migración
+crea las series desde cero, sin historia que preservar.
+
+Al terminar: revisar el diff (toca numeración fiscal, lo más riesgoso del
+repo), `code-reviewer`, mergear y deployar.
+
 ## Próximo paso
 
-Deployar el Front (la anulación desde el panel está en `main` sin deployar) y
-seguir por el punto 2 de la cola: serie propia para la nota de crédito.
-(serie propia para NC) — es prerequisito del punto 3 y toca numeración
-fiscal, así que pasa por `code-reviewer` antes de mergear.
+1. Crear `INTERNAL_RENDER_KEY` (ver el bloqueante de arriba) y purgar el caché
+   de KuDE — es lo que destraba el banner rojo y el logo del comercio.
+2. Revisar y mergear el agente de la serie de la NC.
+3. Seguir por el punto 3 de la cola (NC desde la caja).
 
 ## Trampas conocidas
 
+- **FE-PY deployó cosas nuevas hoy que todavía no consumimos**: `logoUrl` en el
+  tenant (para el logo del KuDE), `POST …/de/{cdc}/kude/regenerar` (rehace el
+  PDF desde el XML firmado sin re-emitir), consulta por txnId y por
+  (establecimiento, punto, número). El banner rojo de su KuDE ya lo
+  corrigieron de su lado — pero mientras `INTERNAL_RENDER_KEY` no exista
+  seguimos sirviendo SU PDF, no el nuestro.
+- **El Manual Técnico v150 de la DNIT** se descargó a `/tmp/mt150.pdf` durante
+  la sesión y se pierde al reiniciar. Si hace falta de nuevo:
+  https://www.dnit.gov.py/documents/20123/420592/Manual+T%C3%A9cnico+Versi%C3%B3n+150.pdf
+  Las secciones que importaron: §13.4 (estructura del KuDE), §13.6 (formato
+  cinta de papel — en v150 SÍ lleva QR, la v141 de 2018 no: no confundirlas),
+  §13.8 (conformación del QR).
 - **Cambios A MANO en producción, no están en git**:
   - `document_sequence.nextnumber = 615` para la caja
     `01a067cb-9017-759a-b372-873af6cd9278` (corrección del incidente de
