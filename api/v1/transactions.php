@@ -84,8 +84,15 @@ if ($method === 'DELETE') {
         }
         apiOk(['deleted' => true]);
     }
-    if (!$svc->delete($transactionId, $companyId)) {
-        apiError('No se pudo eliminar la transacción', 500);
+    try {
+        if (!$svc->delete($transactionId, $companyId)) {
+            apiError('No se pudo eliminar la transacción', 500);
+        }
+    } catch (\RuntimeException $e) {
+        // 409 y no 500: el motivo es una REGLA cumpliéndose (el comprobante
+        // ya tomó número, se anula en vez de borrarse), no una falla. El
+        // mensaje del servicio es el que ve el cajero y ya le dice qué hacer.
+        apiError($e->getMessage(), 409);
     }
 
     // Realtime best-effort, scope 'all': este endpoint corre con

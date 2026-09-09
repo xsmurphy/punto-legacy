@@ -312,6 +312,43 @@ final class TransactionService
      */
     public function delete(string $transactionId, string $companyId): bool
     {
+        // ── Un documento con número NO se borra: se anula ────────────────────
+        //
+        // Regla del owner (2026-09-09) y es sobre el NÚMERO, no sobre el tipo:
+        // si la fila tomó un correlativo, borrarla deja ese número consumido
+        // sin nada que lo explique. En una factura o una boleta el hueco se lo
+        // tenés que explicar a la autoridad tributaria; en una cotización o un
+        // pedido es interno, pero sigue siendo un comprobante que alguien
+        // recibió y que después no aparece — el mismo patrón de fraude que la
+        // anulación de ítems vino a cerrar en 2026-09-06.
+        //
+        // Por el número y no por una lista de tipos a propósito: una lista hay
+        // que acordarse de actualizarla cuando nace el próximo doctype, y
+        // olvidarse es exactamente como nació este agujero. TODOS los tipos
+        // guardan su correlativo en `invoiceno` — venta, devolución
+        // (ReturnService.php:516) y cotización (SaleService.php:2481).
+        //
+        // Lo que SÍ se borra es lo que nunca tomó número: una venta guardada
+        // que se abandona, un carrito parkeado. Eso es un borrador, no un
+        // documento.
+        //
+        // La anulación ya existe y hace lo que hay que hacer: `PUT
+        // ?resource=void` conserva la fila, exige motivo y lo atribuye al
+        // operador del PIN. Este DELETE la esquivaba entera.
+        $row = ncmExecute(
+            'SELECT invoiceNo FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$transactionId, $companyId]
+        );
+        if (!$row) {
+            return false; // no existe o es de otro tenant — el caller responde 404/500
+        }
+        if ((int) ($row['invoiceNo'] ?? 0) > 0) {
+            throw new \RuntimeException(
+                'Este comprobante ya tiene número asignado, así que no se puede eliminar: se anula. '
+                . 'Borrarlo dejaría un hueco en la numeración que después no se puede justificar.'
+            );
+        }
+
         $res = $this->db->Execute(
             'DELETE FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
