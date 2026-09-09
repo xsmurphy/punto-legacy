@@ -51,7 +51,7 @@ export function useSettings() {
  * SettingsService::updateGeneral — ver api/v1/settings.php). Mandar `{}` es
  * un no-op válido. El caller decide el alcance: el modal de Settings manda
  * las keys de la sección activa (ver SECTION_FIELDS en
- * app/(panel)/settings/page.tsx), AgentSettingsDialog manda solo sus 2 campos.
+ * app/(panel)/settings/page.tsx).
  */
 export function useUpdateSettings() {
   const qc = useQueryClient()
@@ -122,7 +122,7 @@ const SERIALIZE_STRING_FIELDS: (keyof SettingsFormValues)[] = [
   "name", "address", "website", "email", "ruc", "phone", "city", "country",
   "language", "timeZone", "currency", "taxName", "billingName", "tin",
   "billDetail", "category", "slug", "thousandSeparator", "itemsSaleLimit",
-  "agentName", "agentPersonality",
+  "agentName", "agentPersonality", "agentBusinessContext",
 ]
 
 // D7/E1b de context/48-escalamiento-de-datos.md — mismo passthrough que

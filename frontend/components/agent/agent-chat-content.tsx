@@ -15,7 +15,7 @@ import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
-import { AgentSettingsDialog } from "@/components/agent/agent-settings-dialog"
+import { AgentSettingsLink } from "@/components/agent/agent-settings-link"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import type { AttachmentDraft } from "@/lib/agent/attachment-types"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
@@ -65,8 +65,9 @@ import { cn } from "@/lib/utils"
  * que son dos: `showActions` y `showCharts`. Los demás hijos
  * se auditaron import por import y son presentación pura: `MessageMarkdown`,
  * `MessageActions`, `AgentInputBox`, `ThinkingIndicator`, `ClearChatButton`.
- * `AgentSettingsDialog` sí usa `useSettings()`/`useUpdateSettings()` → va detrás
- * de `showSettings`.
+ * `AgentSettingsLink` no llama a ningún hook de panel (es un link a
+ * /settings), pero sigue detrás de `showSettings` porque manda a una ruta que
+ * la credencial de la caja no abre — ver el docblock de ese componente.
  */
 
 /** Estado del `useChat` del SDK (`ChatStatus`). Union literal para no acoplar el tipo. */
@@ -348,7 +349,7 @@ export function AgentChatContent({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {showSettings && <AgentSettingsDialog />}
+              {showSettings && <AgentSettingsLink />}
               {messages.length > 0 && <ClearChatButton onClear={onClear} />}
               {onClose && (
                 <Button variant="ghost" size="icon" aria-label="Cerrar" onClick={onClose}>

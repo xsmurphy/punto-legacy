@@ -31,7 +31,7 @@ const ctx = {
 describe("catálogo de tools de lectura", () => {
   const tools = buildReadTools(ctx)
 
-  it("expone las 24 tools, todas con nombre de lectura o presentación", () => {
+  it("expone las 25 tools, todas con nombre de lectura o presentación", () => {
     const names = Object.keys(tools)
     // 20 al extraer el catálogo + `get_sales_kpis` (2026-08-31), que expone el
     // widget donde el backend calcula el ticket promedio + `lookup_taxpayer`
@@ -41,8 +41,12 @@ describe("catálogo de tools de lectura", () => {
     // ciudad del domicilio fiscal, que hasta entonces el bot tenía que pedirle
     // al usuario — y nadie los sabe de memoria, así que el alta se frenaba ahí
     // + `find_section` (2026-09-08): el mapa del producto, para que el bot
-    // pueda dar el link directo a una pantalla en vez de nombrarla al aire.
-    expect(names).toHaveLength(24)
+    // pueda dar el link directo a una pantalla en vez de nombrarla al aire
+    // + `get_business_context` (2026-09-09, F3 de context/69): lo que el
+    // comercio escribió sobre su negocio. Existe para el MCP —el agente del
+    // panel y el de la caja ya lo reciben por prompt—, que si no analiza los
+    // números sin saber de qué negocio son.
+    expect(names).toHaveLength(25)
     // Si alguna vez entra una `create_*`/`update_*`/`delete_*` acá, es que se
     // movió una mutación al catálogo read-only. Ver D5. `lookup_*` y
     // `resolve_*` no matchean a propósito: consultan catálogos y no escriben.

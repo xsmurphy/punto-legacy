@@ -129,6 +129,12 @@ interface UpstreamBootstrap {
   timezone: string
   companyName: string
   companyId: string | number
+  /**
+   * Contexto del negocio para el asistente de la caja (F2 de context/69).
+   * Ausente = `/api` desplegado anterior a la feature: el reshaper cae a "" y
+   * el prompt de la caja simplemente no lleva el bloque.
+   */
+  agentBusinessContext?: string
   logoUrl?: string
   publicUrl: string
   user: { id: string | number; role: number }
@@ -394,6 +400,10 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     timezone: bs.timezone ?? "",
     companyName: bs.companyName ?? "",
     companyId: bs.companyId ?? "",
+    // Baja por el bootstrap y no por `/v1/settings`: ese endpoint es realm
+    // ['panel','api'] y el BFF del asistente de la caja es token-only. Como
+    // toda config de caja (context/51), viaja acá y sobrevive offline.
+    agentBusinessContext: bs.agentBusinessContext ?? "",
     companyLogo: bs.logoUrl || null,
     publicUrl: bs.publicUrl ?? "",
     companyBillingName: bs.companyBillingName || null,

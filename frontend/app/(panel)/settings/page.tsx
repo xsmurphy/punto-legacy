@@ -13,8 +13,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
 import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Dialog,
@@ -105,6 +108,30 @@ const TIME_ZONES: { value: string; label: string }[] = [
 // del código resolvía esos huecos inventando Paraguay.
 const COUNTRY_LOCALE = TENANT_COUNTRY_LOCALE
 
+/**
+ * Tope del contexto del negocio. Espejo de
+ * `SettingsService::MAX_AGENT_BUSINESS_CONTEXT` — el que MANDA es el del
+ * backend (recorta al guardar); acá el número existe para el contador y para
+ * que el usuario no escriba 6000 caracteres y pierda 2000 sin aviso.
+ */
+const AGENT_BUSINESS_CONTEXT_MAX = 4000
+
+/**
+ * Personalidades del asistente. Enum cerrado que el backend re-valida
+ * (`SettingsService::AGENT_PERSONALITIES`); el prompt real de cada una vive
+ * server-side en el route del agente, acá solo se elige el slug.
+ */
+const AGENT_PERSONALITIES: {
+  value: SettingsFormValues["agentPersonality"]
+  label: string
+  desc: string
+}[] = [
+  { value: "professional", label: "Profesional", desc: "Tono neutro, va al punto con cortesía." },
+  { value: "friendly", label: "Cercano", desc: "Tono cálido, tuteo relajado." },
+  { value: "direct", label: "Directo", desc: "Respuestas mínimas, el dato primero." },
+  { value: "teacher", label: "Didáctico", desc: "Explica el porqué de los números." },
+]
+
 const settingsSchema = z.object({
   name: z.string(),
   address: z.string(),
@@ -175,12 +202,14 @@ const settingsSchema = z.object({
   // modal lo manda (el merge parcial del backend lo deja intacto).
   settingPeriodCloseMonths: z.number(),
   settingDrawerTolerance: z.number(),
-  // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
-  // modal. Viven en el schema porque el form los hidrata desde el GET, pero
-  // ninguna seccion de este modal los manda: el merge parcial del backend los
-  // deja intactos al guardar Empresa o POS (ver SECTION_FIELDS).
-  agentName: z.string(),
+  // Asistente IA — se editan en el tab "asistente" de este mismo modal (D4 de
+  // context/69). Antes vivían en un dialog lanzado desde el chat, que se
+  // eliminó: dos formularios sobre el mismo campo divergen.
+  agentName: z.string().max(40, "Máximo 40 caracteres"),
   agentPersonality: z.enum(["professional", "friendly", "direct", "teacher"]),
+  // El tope también se aplica server-side (SettingsService::MAX_AGENT_BUSINESS_CONTEXT):
+  // el largo es costo de CADA request del chat, así que no puede depender del form.
+  agentBusinessContext: z.string().max(AGENT_BUSINESS_CONTEXT_MAX, `Máximo ${AGENT_BUSINESS_CONTEXT_MAX} caracteres`),
 })
 
 // Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
@@ -203,7 +232,7 @@ function normalize(s: string): string {
 // este form (ver SECTION_FIELDS, su lista es vacía). Mientras estuvo en la
 // lista, la sección mostraba un "Guardar" que mandaba un payload vacío y
 // devolvía un toast de éxito sin haber guardado nada — un botón que miente.
-const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos"]
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos", "asistente"]
 
 // Qué keys del form manda cada sección al guardar — el merge parcial del
 // backend (SettingsService::updateGeneral) solo toca las keys presentes en
@@ -235,6 +264,10 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
   ],
   apariencia: [],
+  // D4 de context/69 — los tres campos del asistente en un solo lugar. Sin
+  // esta entrada el tab renderiza y "Guardar" no manda nada: el payload sale
+  // de acá, no de los <FormField> que el tab pinta.
+  asistente: ["agentName", "agentPersonality", "agentBusinessContext"],
 }
 
 export default function SettingsPage() {
@@ -418,6 +451,7 @@ function SettingsPageInner() {
       deletedItemsHistory: !!data.deletedItemsHistory,
       agentName: data.agentName ?? "",
       agentPersonality: data.agentPersonality ?? "professional",
+      agentBusinessContext: data.agentBusinessContext ?? "",
     })
   }, [data, form])
 
@@ -581,6 +615,7 @@ function SettingsPageInner() {
                   {section === "monedas"    && <MonedasTab />}
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
                   {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
+                  {section === "asistente" && (isLoading ? <TabSkeleton /> : <AsistenteTab form={form} />)}
                   {section === "apariencia" && <AparienciaTab />}
                   {section === "modules"    && <ModuleCatalogPanel kind="module" />}
                   {section === "integraciones" && <ModuleCatalogPanel kind="integration" />}
@@ -1417,6 +1452,143 @@ function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
   )
 }
 
+// ── ASISTENTE ───────────────────────────────────────────────────────────────
+
+/**
+ * Nombre, personalidad y contexto del negocio del asistente IA (D4 de
+ * context/69).
+ *
+ * Los tres juntos y en /settings a propósito: hasta el 2026-09-09 el nombre y
+ * el tono se editaban en un dialog lanzado desde el chat y esta pantalla no
+ * tenía tab de asistente. Sumar el contexto del negocio en un tercer lugar
+ * dejaba tres superficies para la misma config, así que el dialog se eliminó y
+ * el botón del chat pasó a deep-linkear acá.
+ */
+function AsistenteTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
+  // Contador de caracteres: el campo es el único del producto donde el largo
+  // tiene un costo real por cada mensaje del chat, así que el usuario tiene que
+  // ver cuánto le queda ANTES de que el backend recorte en silencio.
+  const businessContextLength = (form.watch("agentBusinessContext") ?? "").length
+
+  return (
+    <div className="flex flex-col gap-8">
+      <Subsection
+        title="Identidad"
+        description="Cómo se presenta el asistente con tu equipo."
+      >
+        <FormField
+          control={form.control}
+          name="agentName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Nombre del asistente</FormLabel>
+              <FormControl>
+                <Input {...field} placeholder="Asistente" maxLength={40} />
+              </FormControl>
+              <FormDescription>
+                Con qué nombre se presenta en el chat del panel y de la caja.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="agentPersonality"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Personalidad</FormLabel>
+              <FormControl>
+                <RadioGroup value={field.value} onValueChange={field.onChange}>
+                  {AGENT_PERSONALITIES.map((p) => (
+                    // `Label` y no `FormLabel`: el label del CAMPO es
+                    // "Personalidad", uno solo. Estos cuatro rotulan cada
+                    // opción del radio, y un FormLabel de más se pinta en
+                    // destructive cuando el campo tiene error.
+                    <Label
+                      key={p.value}
+                      htmlFor={`agent-personality-${p.value}`}
+                      className={cn(
+                        "flex cursor-pointer items-start gap-3 rounded-md border p-3 font-normal",
+                        field.value === p.value
+                          ? "border-foreground/30 bg-accent/50"
+                          : "border-border",
+                      )}
+                    >
+                      <RadioGroupItem
+                        value={p.value}
+                        id={`agent-personality-${p.value}`}
+                        className="mt-0.5"
+                      />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">{p.label}</span>
+                        <span className="text-sm text-muted-foreground">{p.desc}</span>
+                      </div>
+                    </Label>
+                  ))}
+                </RadioGroup>
+              </FormControl>
+              <FormDescription>
+                Es un matiz de tono. No cambia qué datos puede consultar ni qué puede hacer.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </Subsection>
+
+      <Subsection
+        title="Contexto del negocio"
+        description="Lo que el asistente no puede deducir de tus datos. Con esto interpreta los números en vez de solo leerlos."
+      >
+        <FormField
+          control={form.control}
+          name="agentBusinessContext"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Contá de qué va tu negocio</FormLabel>
+              <FormControl>
+                {/* `rows` explícito: el wrapper pasa a alto fijo cuando se lo
+                    pide (ver components/ui/textarea.tsx). Un campo que arranca
+                    con 2 líneas para un texto de 4000 caracteres se lee como si
+                    esperara una frase. */}
+                <Textarea
+                  {...field}
+                  rows={10}
+                  maxLength={AGENT_BUSINESS_CONTEXT_MAX}
+                  placeholder={
+                    "Somos una rotisería de barrio con dos locales. Vendemos comida lista para llevar; " +
+                    "el 70% de la venta pasa entre las 11 y las 14, y los fines de semana se duplica el " +
+                    "delivery. El público es familia del barrio y oficinistas del centro comercial de " +
+                    "enfrente. Diciembre y enero caen fuerte porque la zona se vacía. Competimos con dos " +
+                    "rotiserías a tres cuadras: no peleamos por precio, apostamos a la calidad. " +
+                    "Este año queremos crecer con el catering para oficinas."
+                  }
+                />
+              </FormControl>
+              <FormDescription>
+                Sirve contar: a qué te dedicás, cómo vendés (mostrador, delivery, mayorista),
+                en qué zona estás y a quién le vendés, qué meses son fuertes y cuáles flojos,
+                contra quién competís y qué te propusiste para este año. No hace falta que
+                cargues tus categorías, sucursales ni moneda: eso ya lo lee de tus datos.
+              </FormDescription>
+              {/* El contador va abajo del campo y no en el label: es un dato de
+                  estado, no parte del nombre del campo. */}
+              <p className="text-sm text-muted-foreground">
+                {businessContextLength} de {AGENT_BUSINESS_CONTEXT_MAX} caracteres
+              </p>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </Subsection>
+    </div>
+  )
+}
+
+// ── APARIENCIA ──────────────────────────────────────────────────────────────
+
 function AparienciaTab() {
   // Sin Card — el ThemePicker (3 cards visuales lado a lado) ya es bastante
   // contenido visual; envolverlo en otro Card era desprolijo. Subsection da
@@ -1505,5 +1677,6 @@ function emptyValues(): SettingsFormValues {
     settingPeriodCloseMonths: 1,
     agentName: "",
     agentPersonality: "professional",
+    agentBusinessContext: "",
   }
 }

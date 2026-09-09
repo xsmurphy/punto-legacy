@@ -48,6 +48,22 @@ final class SettingsService
     public const AGENT_PERSONALITIES = ['professional', 'friendly', 'direct', 'teacher'];
 
     /**
+     * Tope del contexto del negocio que el comercio le escribe al asistente
+     * (D3 de context/69-contexto-del-negocio.md).
+     *
+     * A diferencia de `agentName`, esto NO es un tope cosmético: el texto se
+     * paga en CADA request del chat (panel y caja), así que el largo es costo
+     * recurrente. 4000 caracteres ≈ 1000 tokens, despreciable contra el resto
+     * del prompt. Si algún día queda corto, la salida NO es subir el número
+     * —engorda todas las requests— sino pasar el contexto a tool
+     * (`get_business_context`, que ya existe para el MCP).
+     *
+     * El cap se aplica ACÁ y en api/v1/settings.php a propósito: el form no es
+     * el que decide cuánto entra al prompt.
+     */
+    public const MAX_AGENT_BUSINESS_CONTEXT = 4000;
+
+    /**
      * Techo de la ventana de anulación de ítems de comanda, en minutos (24 h).
      *
      * No es una regla de negocio: es el guard que evita que un typo en Ajustes
@@ -191,6 +207,19 @@ final class SettingsService
             'agentPersonality'    => in_array($r['agentPersonality'] ?? null, self::AGENT_PERSONALITIES, true)
                 ? (string) $r['agentPersonality']
                 : 'professional',
+            // Contexto del negocio en palabras del comercio (D1 de context/69,
+            // cerrada por el owner): TEXTO LIBRE, a sabiendas de que contradice
+            // la regla de al lado —agentPersonality es enum justamente para que
+            // no llegue texto libre al prompt—. La mitigación no es filtrar el
+            // texto sino DÓNDE se inyecta: va al final del system prompt,
+            // después de los guardrails y marcado como DATO, no como
+            // instrucción (ver frontend/lib/agent/business-context.ts). Acá
+            // solo se lee y se recorta al tope.
+            'agentBusinessContext' => mb_substr(
+                (string) ($r['agentBusinessContext'] ?? ''),
+                0,
+                self::MAX_AGENT_BUSINESS_CONTEXT
+            ),
             // Listas fijas de conteo (D3 de context/63). Clave top-level de
             // `config` con el array serializado (mismo trato que settingObj):
             // ncmUpdate enruta las claves desconocidas al JSONB con merge no
@@ -448,6 +477,17 @@ final class SettingsService
             $record['agentPersonality'] = in_array($f['agentPersonality'], self::AGENT_PERSONALITIES, true)
                 ? (string) $f['agentPersonality']
                 : 'professional';
+        }
+        // `array_key_exists` y no `!empty`: el comercio tiene que poder VACIAR
+        // el contexto (mandar '') y que eso se persista. Con `??`/`isset` un
+        // borrado se leería como "no lo tocó" y el texto viejo seguiría
+        // entrando al prompt para siempre. Ver el docblock del merge parcial.
+        if (array_key_exists('agentBusinessContext', $f)) {
+            $record['agentBusinessContext'] = mb_substr(
+                (string) $f['agentBusinessContext'],
+                0,
+                self::MAX_AGENT_BUSINESS_CONTEXT
+            );
         }
 
         if (!$record) {

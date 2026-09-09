@@ -65,6 +65,10 @@
  *                        del comercio en su propia config (`useCatalogStore`
  *                        → `PosConfig`), que viaja en el body del request.
  *                        Abrir superficie para un dato que ya tenemos, no.
+ *   get_business_context el contexto del negocio YA está en el system prompt de
+ *                        la caja (F2 de context/69), inyectado desde
+ *                        `PosConfig`. Una tool para pedir lo que el modelo ya
+ *                        leyó solo gasta un turn de la fila.
  *   render_chart         ya la excluye `buildReadOnlyFetchTools` (es de
  *                        PRESENTACIÓN). En una tablet de caja un gráfico
  *                        tampoco es la respuesta.

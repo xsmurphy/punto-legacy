@@ -99,6 +99,7 @@ export function usePosAgentChat({
   currency,
   country,
   timezone,
+  businessContext,
 }: {
   /** Nombre del comercio — de `useCatalogStore` (config del POS), no del bootstrap del panel. */
   companyName: string
@@ -108,6 +109,20 @@ export function usePosAgentChat({
   country: string
   /** TZ IANA del tenant (`PosConfig.timezone`) — define qué día es "hoy" para el modelo. */
   timezone: string
+  /**
+   * Contexto del negocio escrito por el comercio (`PosConfig.agentBusinessContext`,
+   * context/69 F2).
+   *
+   * Viaja en el BODY y no lo lee el BFF de `/v1/settings`: ese endpoint es
+   * realm ['panel','api'] y la caja es token-only por mandato. Baja por el
+   * bootstrap, igual que la moneda y el nombre del comercio.
+   *
+   * Que venga del cliente es aceptable por lo mismo que el resto de este body:
+   * el texto es del PROPIO tenant y no decide qué datos se pueden leer —
+   * eso lo gobierna la credencial, que va en el header. El bloque igual se
+   * arma server-side y va después de los guardrails (business-context.ts).
+   */
+  businessContext: string
 }) {
   // Permisos del operador desbloqueado. Viajan en el body —no como credencial,
   // que ya va en el header— para que el BFF no le ofrezca al modelo una lectura
@@ -131,9 +146,9 @@ export function usePosAgentChat({
             ? { Authorization: `Bearer ${token}`, "X-Operator-Token": operatorToken }
             : { Authorization: `Bearer ${token}` }
         },
-        body: { companyName, currency, country, timezone, operatorPermissions },
+        body: { companyName, currency, country, timezone, businessContext, operatorPermissions },
       }),
-    [companyName, currency, country, timezone, operatorPermissions],
+    [companyName, currency, country, timezone, businessContext, operatorPermissions],
   )
 
   const chat = useChat({
