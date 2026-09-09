@@ -471,13 +471,17 @@ final class TransactionDetailService
             // (`einvoicePortalUrl`), que es nuestro. Los dos son bloques de
             // plantilla separados justamente porque no son lo mismo.
             'einvoiceQrUrl'     => $einvoiceQrUrl,
-            // Estado crudo del outbox — lo que decide si la pantalla ofrece
-            // emitir, muestra el motivo del rechazo, o no dice nada.
-            'einvoiceDocuments' => $einvoiceDocuments,
         ];
 
         return [
             'transaction'      => $txData,
+            // Estado CRUDO del outbox de facturación electrónica. Va al nivel
+            // de arriba y no dentro de `transaction` —donde lo puse primero y
+            // por eso el front no lo veía— porque es una COLECCIÓN relacionada,
+            // como `creditNotes` o `items`, no un campo de la fila de la venta.
+            // Es lo que decide si la pantalla ofrece emitir, muestra el motivo
+            // del rechazo, o no dice nada.
+            'einvoiceDocuments' => $einvoiceDocuments,
             'items'            => $items,
             'taxByRate'        => $taxByRate,
             'creditNotes'      => $creditNotes,

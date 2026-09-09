@@ -137,10 +137,6 @@ function fmtDate(iso: string): string {
   return formatDateTime(iso, "d MMM yyyy, HH:mm")
 }
 
-function fmtRangeDate(d: Date): string {
-  return formatDateTime(d.toISOString(), "d MMM yyyy")
-}
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface TransactionsListProps {
@@ -158,18 +154,11 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   // cada montaje — el usuario elegía un rango, entraba a otra sección y al
   // volver tenía que elegirlo de nuevo.
   //
-  // `isCustom` reemplaza al viejo flag local `rangeCustomized`: el flag
-  // arrancaba en `false` en cada montaje, así que el chip de filtro
-  // desaparecía aunque el rango elegido siguiera aplicándose. El hook lo
-  // deriva de si hay un rango guardado, que es estable entre montajes.
-  //
   // El scope va atado al `mode`: este mismo componente se monta en el panel y
   // en la caja, que comparten origin y por lo tanto localStorage. Sin separar,
   // el rango largo que el dueño dejó puesto en un reporte se le aparecería al
   // cajero buscando la venta que acaba de emitir.
-  const { range, setRange, isCustom: rangeCustomized, clearRange } = useDateRange(
-    mode === "pos" ? "pos" : "panel",
-  )
+  const { range, setRange } = useDateRange(mode === "pos" ? "pos" : "panel")
 
   // Filtros de Método de pago / Tipo de venta (chips removibles, ver
   // ActiveFilters más abajo). Método de pago sale de una fuente DISTINTA
@@ -192,18 +181,6 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     if (!paymentMethodName) return true
     return (payments ?? []).some((p) => p.name === paymentMethodName)
   }
-  const dateFilterItem: ActiveFilterItem | null = rangeCustomized
-    ? {
-        key: "range",
-        label: "Rango",
-        value: `${fmtRangeDate(range.from)} – ${fmtRangeDate(range.to)}`,
-        // Quitar el chip vuelve al default en todas las pantallas del scope,
-        // no solo acá: el filtro que el chip representa es compartido, así que
-        // un "limpiar" que solo afectara a esta pantalla dejaría al usuario
-        // con dos rangos distintos vigentes a la vez.
-        onRemove: clearRange,
-      }
-    : null
   const paymentFilterItem: ActiveFilterItem | null = paymentMethodName
     ? {
         key: "paymentMethod",
@@ -317,17 +294,18 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     [cobrosRows, paymentMethodName],
   )
 
+  // El rango NO tiene chip: lo muestra el <DateRangePicker> del header, que
+  // es el mismo control compartido por todas las pantallas del scope, y sus
+  // presets ya incluyen el default. Un chip al lado repetía el mismo dato en
+  // esta única pantalla. Acá quedan solo los filtros propios del listado.
   const txActiveFilters: ActiveFilterItem[] = [
-    dateFilterItem,
     saleTypeFilterItem,
     paymentFilterItem,
   ].filter((i): i is ActiveFilterItem => i !== null)
-  const cobrosActiveFilters: ActiveFilterItem[] = [dateFilterItem, paymentFilterItem].filter(
+  const cobrosActiveFilters: ActiveFilterItem[] = [paymentFilterItem].filter(
     (i): i is ActiveFilterItem => i !== null,
   )
-  const quotesActiveFilters: ActiveFilterItem[] = [dateFilterItem].filter(
-    (i): i is ActiveFilterItem => i !== null,
-  )
+  const quotesActiveFilters: ActiveFilterItem[] = []
 
   // POS-mode: Sheet state
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -905,7 +883,11 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
 
       {mode === "panel" ? (
         <Tabs defaultValue="transacciones">
-          <TabsList>
+          {/* `w-full justify-start`: la lista ocupa el ancho de la página como
+              en el resto de las secciones con tabs de módulo (finanzas), pero
+              los triggers conservan su ancho natural — con solo tres, dejarlos
+              repartirse el ancho da tabs de un tercio de pantalla cada una. */}
+          <TabsList className="w-full justify-start">
             <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
             <TabsTrigger value="cobros">Pagos recibidos</TabsTrigger>
             <TabsTrigger value="quotes">Cotizaciones</TabsTrigger>
