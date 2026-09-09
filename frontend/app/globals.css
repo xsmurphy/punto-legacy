@@ -44,6 +44,7 @@
     --color-secondary-foreground: var(--secondary-foreground);
     --color-muted: var(--muted);
     --color-muted-foreground: var(--muted-foreground);
+    --color-table-band: var(--table-band);
     --color-accent: var(--accent);
     --color-accent-foreground: var(--accent-foreground);
     --color-destructive: var(--destructive);
@@ -245,6 +246,13 @@
     --background: oklch(1 0 0);
 
     --foreground: oklch(0.262 0.010 245.3);
+
+    /* Banda gris de la tabla: encabezado y pie de totales. Mismo tono que
+       el hover de una fila (`bg-muted/50`) pero resuelto a un color OPACO,
+       porque la primera columna puede ser sticky y con un fondo
+       semitransparente se le ve el contenido pasando por debajo al
+       scrollear en horizontal. */
+    --table-band: color-mix(in oklch, var(--muted) 50%, var(--background));
 }
 
 /* DARK — canvas casi negro (#010102 vibe). Primary = verde Punto sobre
@@ -274,6 +282,7 @@
     --secondary-foreground: oklch(0.967 0.003 264.54);
     --muted: #1A1D1F;
     --muted-foreground: oklch(0.708 0 0);
+    --table-band: color-mix(in oklch, var(--muted) 50%, var(--background));
     --accent: #1A1D1F;
     --accent-foreground: oklch(0.967 0.003 264.54);
 

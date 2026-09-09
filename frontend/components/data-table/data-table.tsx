@@ -58,6 +58,15 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatInt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
+/**
+ * Opciones del selector "Filas por página". La paginación de <DataTable> es
+ * CLIENT-SIDE: el tope de 1000 no trae más datos del server, solo deja ver de
+ * una lo que la pantalla ya bajó (`totalCount` avisa cuando el server recortó
+ * antes). Elegir 1000 renderiza 1000 filas sin virtualizar — es lento a
+ * propósito, para exportar o revisar de corrido, no para el uso diario.
+ */
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200, 500, 1000] as const
+
 export interface DataTableProps<T> {
   /** Stable id del listado — usado para persistir visibilidad de columnas en localStorage. */
   tableId: string
@@ -318,8 +327,12 @@ export function DataTable<T>({
     const idxNombre   = enableSelection ? 1 : 0
     if (index !== idxCheckbox && index !== idxNombre) return {}
 
+    // Los tres fondos tienen que ser OPACOS: la columna es sticky y tapa lo
+    // que scrollea por debajo (`bg-muted/50` dejaba ver las filas pasando
+    // abajo del pie). El encabezado va un tono MÁS oscuro que el resto del
+    // <thead> a propósito: marca dónde termina el bloque fijo.
     const fondo =
-      variant === "head" ? "bg-muted" : variant === "foot" ? "bg-muted/50" : "bg-background"
+      variant === "head" ? "bg-muted" : variant === "foot" ? "bg-table-band" : "bg-background"
 
     return {
       className: cn(
@@ -636,7 +649,7 @@ export function DataTable<T>({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {[10, 25, 50, 100, 200].map((n) => (
+                {PAGE_SIZE_OPTIONS.map((n) => (
                   <SelectItem key={n} value={String(n)}>
                     {n}
                   </SelectItem>

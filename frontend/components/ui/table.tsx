@@ -23,7 +23,18 @@ function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return (
     <thead
       data-slot="table-header"
-      className={cn("[&_tr]:border-b", className)}
+      // El fondo gris del encabezado es decisión de diseño del owner: marca
+      // dónde empieza la tabla cuando la página ya trae filtros y toolbar
+      // arriba. Vive en el primitive y no en <DataTable> para que las 33
+      // pantallas que arman una <Table> a mano se vean igual sin repetirlo.
+      // El token `--table-band` es `bg-muted/50` resuelto a opaco (ver
+      // globals.css); `hover:` lo repite para neutralizar el `hover:bg-muted/50`
+      // que <TableRow> trae de serie — sin eso el encabezado se ACLARA al pasar
+      // el mouse.
+      className={cn(
+        "bg-table-band [&_tr]:border-b [&_tr:hover]:bg-table-band",
+        className
+      )}
       {...props}
     />
   )
