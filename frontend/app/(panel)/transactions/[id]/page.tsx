@@ -33,9 +33,19 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Separator } from "@/components/ui/separator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useVoidCreditPayment } from "@/hooks/use-contacts"
+// Anulación de VENTA — mismo hook y mismo diálogo que la caja. Acá van sin
+// `transport`: el default es el cliente del panel (`api`, Bearer del panel).
+// Pasarle `posFetch` sería el cruce de realms que el invariante prohíbe.
+import { useVoidOptions } from "@/hooks/use-sale-void"
 import { einvoiceKudeUrl } from "@/hooks/use-einvoice"
 import { groupCdc } from "@/lib/kude/types"
 import { usePermission } from "@/hooks/use-permissions"
@@ -54,6 +64,7 @@ import { buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticke
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
 import { TransactionEditDialog } from "@/components/domain/transactions/transaction-edit-dialog"
+import { VoidSaleDialog } from "@/components/domain/transactions/void-sale-dialog"
 import {
   isCashSale,
   isCreditSale,
@@ -174,6 +185,43 @@ function TransactionDetailView({
       })
     }
   }
+
+  // ── Anular la VENTA (no "cancelar la factura electrónica") ────────────────
+  //
+  // Hasta ahora esto solo se podía desde la caja. Lo que se trae al panel es la
+  // anulación de la VENTA, entera: `SaleVoidService` cancela el documento
+  // electrónico EN CASCADA dentro de la misma transacción de BD. Cancelar el
+  // documento sin anular la venta dejaría una venta viva en Punto sin
+  // documento fiscal — dos verdades sobre el mismo hecho.
+  //
+  // Gate cliente = espejo de `hasPermission('pos.sale.void')` que enforcea
+  // api/v1/sales-void.php (que ya acepta el realm `panel`). No es el boundary
+  // de seguridad; evita ofrecer un botón que va a 403.
+  const canVoidSalePerm = usePermission("pos.sale.void")
+  // NO es `einvoiceIssued`: ese incluye `sending`, y un documento en vuelo no
+  // tiene todavía nada que cancelar (`SaleVoidService` busca `status='issued'`
+  // con `superseded_by IS NULL`). Nombre propio para que nadie "reuse la
+  // variable de arriba" y el diálogo termine prometiendo una cancelación que
+  // el backend no va a hacer.
+  const einvoiceCancelable = einvoiceDoc?.status === "issued"
+  // Solo ventas: un recibo se anula por el otro camino (soft-void, arriba) y
+  // una cotización no es una venta. El resto de la regla —ventana de 48h,
+  // devoluciones o cobros vigentes— NO se reimplementa acá: la responde el
+  // backend en `canVoid` y la pantalla la traduce.
+  const isSale = isCashSale(tx.transactionType) || isCredit
+  const voidSaleGate = canVoidSalePerm && isSale && !isVoid
+  const { data: voidOptions, isLoading: voidOptionsLoading } = useVoidOptions(
+    tx.transactionId,
+    voidSaleGate,
+  )
+  const [voidSaleOpen, setVoidSaleOpen] = React.useState(false)
+  // El impedimento va EN EL CONTROL (botón deshabilitado + motivo en tooltip),
+  // no en una banda — context/14 §Regla #10 y memoria
+  // `feedback_pos_alerts_on_the_action_not_banners`.
+  const voidBlockedReason =
+    voidOptions && !voidOptions.canVoid.allowed
+      ? (voidOptions.canVoid.reason ?? "Esta venta no se puede anular.")
+      : null
 
   const { data: pmData } = usePaymentMethods()
   const panelPaymentMethods = pmData?.paymentMethods ?? []
@@ -298,6 +346,35 @@ function TransactionDetailView({
               <Ban className="size-3.5" />
               {isCustomerReceipt ? "Anular cobro" : "Anular pago"}
             </Button>
+          )}
+          {/* Anular venta. El botón se muestra en cuanto el usuario TIENE el
+              permiso y la transacción es una venta viva; si el backend dice
+              que no se puede, queda deshabilitado con el motivo en el tooltip
+              —el impedimento vive en el control, no en una banda—. */}
+          {voidSaleGate && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={voidOptionsLoading || !!voidBlockedReason}
+                      onClick={() => setVoidSaleOpen(true)}
+                    >
+                      <Ban className="size-3.5" />
+                      Anular venta
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {(voidBlockedReason || voidOptionsLoading) && (
+                  <TooltipContent>
+                    {voidOptionsLoading ? "Consultando si se puede anular…" : voidBlockedReason}
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
           )}
           {/* KuDE — la representación impresa del documento electrónico. El
               endpoint ya existía pero solo se ofrecía desde Ajustes y desde el
@@ -690,6 +767,30 @@ function TransactionDetailView({
           detail={detail}
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
+        />
+      )}
+
+      {/* Anulación de venta — el MISMO componente que usa la caja
+          (components/domain/transactions/void-sale-dialog.tsx). Sin
+          `transport`: el default es el cliente del panel.
+
+          Se monta solo cuando está abierto, por la misma razón que en el POS:
+          `useVoidOptions` no debe salir a preguntar por una tx que ya no es la
+          que el usuario está mirando. Sin `onOfferReturn` — la hoja de
+          devolución vive en el POS y el panel no la tiene; ofrecerla acá sería
+          un botón que no lleva a ningún lado. */}
+      {voidSaleOpen && (
+        <VoidSaleDialog
+          open={voidSaleOpen}
+          onOpenChange={setVoidSaleOpen}
+          transactionId={tx.transactionId}
+          invoiceLabel={tx.docNo ?? tx.invoiceNo ?? ""}
+          total={tx.transactionTotal}
+          dateLabel={
+            tx.transactionDate ? formatDateTime(tx.transactionDate, "d MMM yyyy, HH:mm") : "—"
+          }
+          formatAmount={(v) => formatMoney(v, bootstrap)}
+          einvoiceIssued={einvoiceCancelable}
         />
       )}
 

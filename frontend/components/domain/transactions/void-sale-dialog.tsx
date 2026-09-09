@@ -1,21 +1,40 @@
 "use client"
 
 /**
- * PosVoidSaleDialog — anulación de venta (F6, context/40-anulacion-y-nota-credito.md).
+ * VoidSaleDialog — anulación de una VENTA (F6, context/40-anulacion-y-nota-credito.md).
  *
- * Abierto desde el detalle de transacción del POS (`pos-transactions-dialog.tsx`,
- * `TransactionDetail`) para ventas contado/crédito (`typeNum` 0/3) no anuladas.
+ * Compartido por los DOS realms: el detalle de transacción del POS
+ * (`components/register/pos-transactions-dialog.tsx`) y el del panel
+ * (`app/(panel)/transactions/[id]/page.tsx`). Es el mismo hecho de negocio,
+ * el mismo endpoint y las mismas reglas, así que es el mismo componente —
+ * copiarlo al panel era garantizar que un día se arregle un caso y el otro no.
  *
- * Consulta `useVoidOptions` (GET /api/pos/sales-void) para el estado real de
- * anulabilidad — D4 (ventana de 48h desde `transactionDate`) y D2 (qué línea
- * PUEDE volver a stock, ver docblock de `hooks/use-sale-void.ts`). El botón
- * deshabilitado de la UI es comodidad: el guard real vive en `SaleVoidService`
- * y responde 409/422 con `errorCode` si igual se manda el POST.
+ * Lo que cambia por realm entra por props, no por una segunda copia:
+ *   - `transport` → qué cliente HTTP (y por lo tanto qué credencial) usa el
+ *     hook. Ver el invariante "un cliente = un realm" en `hooks/use-sale-void.ts`.
+ *   - `formatAmount` → el POS formatea con la config del catálogo offline
+ *     (`lib/format-money`), el panel con la del bootstrap (`lib/format`).
+ *   - `onOfferReturn` → solo el POS tiene la hoja de devolución; en el panel
+ *     se omite y el bloqueo se explica sin ofrecer un camino que no existe.
  *
- * Si `canVoid.allowed === false` no hay checklist — se explica el motivo y
- * se ofrece el camino correcto (D4: pasado el plazo, nota de crédito, acá
- * materializada como "Hacer devolución" — F6 solo tiene devolución, la NC
- * fiscal propiamente dicha es una fase posterior de context/40).
+ * Consulta `useVoidOptions` para el estado REAL de anulabilidad — D4 (ventana
+ * de 48h desde `transactionDate`) y D2 (qué línea PUEDE volver a stock, ver
+ * docblock de `hooks/use-sale-void.ts`). El botón deshabilitado de la UI es
+ * comodidad: el guard real vive en `SaleVoidService` y responde 409/422 con
+ * `errorCode` si igual se manda el POST.
+ *
+ * Si `canVoid.allowed === false` no hay checklist — se explica el motivo y,
+ * cuando el caller lo ofrece, el camino correcto (D4: pasado el plazo, nota de
+ * crédito, acá materializada como "Hacer devolución" — F6 solo tiene
+ * devolución, la NC fiscal propiamente dicha es una fase posterior de
+ * context/40).
+ *
+ * ── El documento fiscal ─────────────────────────────────────────────────────
+ * Anular la venta CANCELA en cascada su documento electrónico, dentro de la
+ * misma transacción de BD (`SaleVoidService` paso 5). Eso no puede ser una
+ * sorpresa: con `einvoiceIssued` el diálogo lo dice ANTES de confirmar, en el
+ * cuerpo y en la confirmación. Y al terminar informa lo que REALMENTE pasó
+ * leyendo `einvoiceCancelled` de la respuesta — no lo que se anticipó.
  */
 
 import * as React from "react"
@@ -43,9 +62,13 @@ import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { formatMoney } from "@/lib/format-money"
-import { useCatalogStore } from "@/lib/catalog/store"
-import { useVoidOptions, useVoidSale, VoidSaleError, type VoidLine } from "@/hooks/use-sale-void"
+import {
+  useVoidOptions,
+  useVoidSale,
+  VoidSaleError,
+  type SaleVoidTransport,
+  type VoidLine,
+} from "@/hooks/use-sale-void"
 
 interface Props {
   open: boolean
@@ -55,22 +78,33 @@ interface Props {
   invoiceLabel: string
   total: number
   dateLabel: string
-  /** El cajero eligió "Hacer devolución" (ventana vencida / bloqueado, o error HAS_RETURNS/VOID_WINDOW_EXPIRED del POST) — el caller cierra este dialog y abre PosReturnSheet con la misma tx. */
-  onOfferReturn: () => void
+  /** Formateador de moneda del realm que abre el diálogo (Regla #7 de context/14 — nunca `Intl` a mano acá). */
+  formatAmount: (value: number) => string
+  /** Cliente HTTP + ruta upstream. Omitido = panel. Ver `hooks/use-sale-void.ts`. */
+  transport?: SaleVoidTransport
+  /** ¿Esta venta tiene factura electrónica vigente? Si sí, el diálogo avisa que anular la cancela ante SIFEN. */
+  einvoiceIssued?: boolean
+  /** El cajero eligió "Hacer devolución" (ventana vencida / bloqueado, o error HAS_RETURNS/VOID_WINDOW_EXPIRED del POST) — el caller cierra este dialog y abre PosReturnSheet con la misma tx. Omitido: no se ofrece (el panel no tiene esa hoja). */
+  onOfferReturn?: () => void
 }
 
-export function PosVoidSaleDialog({
+const EINVOICE_NOTICE =
+  "Esta venta tiene factura electrónica emitida. Al anularla se cancela también el documento ante SIFEN, en el mismo acto."
+
+export function VoidSaleDialog({
   open,
   onOpenChange,
   transactionId,
   invoiceLabel,
   total,
   dateLabel,
+  formatAmount,
+  transport,
+  einvoiceIssued = false,
   onOfferReturn,
 }: Props) {
-  const config = useCatalogStore((s) => s.config)
-  const { data, isLoading, isError } = useVoidOptions(transactionId, open)
-  const voidSale = useVoidSale()
+  const { data, isLoading, isError } = useVoidOptions(transactionId, open, transport)
+  const voidSale = useVoidSale(transport)
   const [reason, setReason] = React.useState("")
   const [restockByLine, setRestockByLine] = React.useState<Record<string, boolean>>({})
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -102,15 +136,28 @@ export function PosVoidSaleDialog({
     voidSale.mutate(
       { id: transactionId, reason: reason.trim(), lines },
       {
-        onSuccess: () => {
-          toast.success("Factura anulada")
+        onSuccess: (res) => {
+          // El resultado del documento fiscal se INFORMA, no se asume: puede
+          // no haber habido documento vigente que cancelar (nunca emitido, ya
+          // cancelado, o reemplazado por un rechazo previo — mig 201). Si el
+          // diálogo prometió la cancelación y el backend dice que no la hubo,
+          // eso es un aviso, no un éxito silencioso.
+          if (res.einvoiceCancelled) {
+            toast.success("Venta anulada. La factura electrónica quedó cancelada ante SIFEN.")
+          } else if (einvoiceIssued) {
+            toast.warning(
+              "Venta anulada, pero no se canceló ningún documento electrónico. Revisá el estado de la factura.",
+            )
+          } else {
+            toast.success("Venta anulada")
+          }
           setConfirmOpen(false)
           onOpenChange(false)
         },
         onError: (err) => {
           setConfirmOpen(false)
           const code = err instanceof VoidSaleError ? err.errorCode : undefined
-          if (code === "HAS_RETURNS" || code === "VOID_WINDOW_EXPIRED") {
+          if (onOfferReturn && (code === "HAS_RETURNS" || code === "VOID_WINDOW_EXPIRED")) {
             toast.error(err.message, {
               action: { label: "Hacer devolución", onClick: onOfferReturn },
             })
@@ -132,10 +179,10 @@ export function PosVoidSaleDialog({
         <ResponsiveDialogContent className="sm:max-w-2xl">
           <ResponsiveDialogHeader>
             <ResponsiveDialogTitle>
-              Anular factura{invoiceLabel ? ` #${invoiceLabel}` : ""}
+              Anular venta{invoiceLabel ? ` #${invoiceLabel}` : ""}
             </ResponsiveDialogTitle>
             <ResponsiveDialogDescription>
-              {dateLabel} · {formatMoney(total, config)}
+              {dateLabel} · {formatAmount(total)}
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
 
@@ -155,9 +202,11 @@ export function PosVoidSaleDialog({
           {!isLoading && blocked && (
             <div className="flex flex-col gap-4 py-2">
               <p className="text-sm text-muted-foreground">{canVoid?.reason}</p>
-              <Button variant="secondary" size="lg" onClick={onOfferReturn}>
-                Hacer devolución
-              </Button>
+              {onOfferReturn && (
+                <Button variant="secondary" size="lg" onClick={onOfferReturn}>
+                  Hacer devolución
+                </Button>
+              )}
             </div>
           )}
 
@@ -169,7 +218,7 @@ export function PosVoidSaleDialog({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm truncate">{line.name}</p>
                       <p className="text-xs text-muted-foreground tabular-nums">
-                        {line.qty} × {formatMoney(line.unitPrice, config)}
+                        {line.qty} × {formatAmount(line.unitPrice)}
                       </p>
                       {!line.canRestock && (
                         <p className="text-xs text-muted-foreground">No repone stock</p>
@@ -192,13 +241,20 @@ export function PosVoidSaleDialog({
                 ))}
               </div>
 
+              {/* El efecto fiscal, ANTES de confirmar. No es una banda de
+                  estado: es parte de lo que la acción hace, y por eso vive
+                  pegado al formulario de la acción. */}
+              {einvoiceIssued && (
+                <p className="text-sm text-muted-foreground">{EINVOICE_NOTICE}</p>
+              )}
+
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="void-reason">Motivo</Label>
                 <Textarea
                   id="void-reason"
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
-                  placeholder="Por qué se anula esta factura"
+                  placeholder="Por qué se anula esta venta"
                   rows={3}
                 />
               </div>
@@ -213,7 +269,7 @@ export function PosVoidSaleDialog({
                 disabled={!reason.trim() || voidSale.isPending}
                 onClick={() => setConfirmOpen(true)}
               >
-                Anular factura
+                Anular venta
               </Button>
             </ResponsiveDialogFooter>
           )}
@@ -225,8 +281,9 @@ export function PosVoidSaleDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>Confirmar anulación</AlertDialogTitle>
             <AlertDialogDescription>
-              El número de factura{invoiceLabel ? ` #${invoiceLabel}` : ""} queda usado —no se
-              libera— y esta venta deja de sumar al total vendido. Esta acción no se puede deshacer.
+              El número{invoiceLabel ? ` #${invoiceLabel}` : ""} queda usado —no se libera— y esta
+              venta deja de sumar al total vendido.
+              {einvoiceIssued ? ` ${EINVOICE_NOTICE}` : ""} Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -236,7 +293,7 @@ export function PosVoidSaleDialog({
                 cierra el dialog al click, antes de que `isPending` alcance a
                 bloquear un doble-click. */}
             <Button variant="destructive" disabled={voidSale.isPending} onClick={handleVoid}>
-              {voidSale.isPending ? "Anulando…" : "Anular factura"}
+              {voidSale.isPending ? "Anulando…" : "Anular venta"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
