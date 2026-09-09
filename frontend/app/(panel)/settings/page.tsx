@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
@@ -1501,7 +1502,11 @@ function AsistenteTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
               <FormControl>
                 <RadioGroup value={field.value} onValueChange={field.onChange}>
                   {AGENT_PERSONALITIES.map((p) => (
-                    <FormLabel
+                    // `Label` y no `FormLabel`: el label del CAMPO es
+                    // "Personalidad", uno solo. Estos cuatro rotulan cada
+                    // opción del radio, y un FormLabel de más se pinta en
+                    // destructive cuando el campo tiene error.
+                    <Label
                       key={p.value}
                       htmlFor={`agent-personality-${p.value}`}
                       className={cn(
@@ -1520,7 +1525,7 @@ function AsistenteTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
                         <span className="text-sm font-medium">{p.label}</span>
                         <span className="text-sm text-muted-foreground">{p.desc}</span>
                       </div>
-                    </FormLabel>
+                    </Label>
                   ))}
                 </RadioGroup>
               </FormControl>
