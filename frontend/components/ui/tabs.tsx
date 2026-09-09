@@ -24,8 +24,20 @@ function Tabs({
   )
 }
 
+// El default es ANCHO COMPLETO alineado a la izquierda: las tabs de una
+// sección marcan dónde empieza el contenido y con `w-fit` cada pantalla
+// arrancaba con una píldora de ancho distinto según el largo de sus labels
+// (regla del owner 2026-09-09, ver context/20-design-system.md).
+//
+// La excepción son las tabs que NO navegan una sección sino que actúan de
+// control dentro de una barra — un filtro al lado de un texto, un toggle de
+// modo junto a un <Select>, un selector con `ml-auto` en un header. Esas
+// declaran `w-fit` en su className y ganan por el merge de Tailwind.
+//
+// `justify-start` no afecta a quien pide `grid grid-cols-N` para repartir los
+// triggers en partes iguales: ese patrón sigue funcionando igual.
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-2xl p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:p-1 data-[variant=line]:rounded-none",
+  "group/tabs-list flex w-full items-center justify-start rounded-2xl p-[3px] text-muted-foreground group-data-horizontal/tabs:h-8 group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:p-1 data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {

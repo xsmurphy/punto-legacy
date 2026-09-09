@@ -248,7 +248,8 @@ export function LayoutEditor({ outletId }: { outletId: string }) {
           </Select>
 
           <Tabs value={mode} onValueChange={(v) => setMode(v as "layout" | "grid")}>
-            <TabsList>
+            {/* `w-fit`: toggle de modo en la toolbar, al lado de un <Select>. */}
+            <TabsList className="w-fit">
               <TabsTrigger value="layout" className="gap-1.5">
                 <MoveDiagonal2 className="size-3.5" />
                 Layout

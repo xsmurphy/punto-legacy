@@ -52,7 +52,7 @@ export default function FinanzasLayout({ children }: { children: React.ReactNode
           default en TabsTrigger) se reparten el ancho en una sola fila en
           md+, el Separator solo ocupa su ancho fijo.
         */}
-        <TabsList className="flex w-full justify-start gap-1 overflow-x-auto md:overflow-visible">
+        <TabsList className="gap-1 overflow-x-auto md:overflow-visible">
           {TABS.map((tab, i) => (
             <React.Fragment key={tab.href}>
               {i === GROUP_BREAK_INDEX && (

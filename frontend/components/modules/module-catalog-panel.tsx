@@ -276,7 +276,9 @@ export function ModuleCatalogPanel({ kind }: { kind: ModuleKind }) {
             value={statusFilter}
             onValueChange={(v) => setStatusFilter(v as StatusFilter)}
           >
-            <TabsList>
+            {/* `w-fit`: filtro dentro de una fila con el resumen a la
+                izquierda, no las tabs de la sección. */}
+            <TabsList className="w-fit">
               <TabsTrigger value="all">Todos</TabsTrigger>
               <TabsTrigger value="on">Activos</TabsTrigger>
               <TabsTrigger value="off">Inactivos</TabsTrigger>

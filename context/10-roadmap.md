@@ -10,7 +10,9 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-31 (Balance y Flujo de efectivo gerenciales implementados — `context/60-balance-y-flujo-de-efectivo.md`; snapshot de balance a hoy + flujo de efectivo reescrito sobre `fin_movement`/`fin_account`, sin partida doble)
+> **Última actualización:** 2026-09-09 (plantillas de impresión preconfiguradas — pedido del owner; ver primera sección)
+>
+> 2026-08-31 (Balance y Flujo de efectivo gerenciales implementados — `context/60-balance-y-flujo-de-efectivo.md`; snapshot de balance a hoy + flujo de efectivo reescrito sobre `fin_movement`/`fin_account`, sin partida doble)
 >
 > 2026-08-28 (tres módulos pedidos por el owner: consignación, alquiler y subproductos/reproceso en producción — ver primera sección; el reproceso resultó ya posible con el motor actual)
 >
@@ -23,6 +25,70 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 > 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
 >
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+
+---
+
+## Plantillas de impresión preconfiguradas (pedido del owner 2026-09-09) — sin planificar
+
+**El pedido, textual**: *"necesitamos una sección de plantillas que vamos a definir ya
+todas pre configuradas para no tener que hacer bloque por bloque con cada tenant siendo
+que la mayoría usan casi la misma configuración"*.
+
+Hoy dar de alta un comercio incluye dibujar sus tickets bloque por bloque en el editor de
+`/settings/print-templates`. Es trabajo manual repetido por cada tenant para un resultado
+que, entre comercios del mismo rubro y el mismo ancho de papel, es casi idéntico.
+
+### Qué ya existe (no re-construir)
+
+- `document_template` guarda `(companyId, docType)` con `config` JSONB **abierto**: el
+  shape lo define el frontend, no una migración (`DocumentTemplateService.php:9-12`). Un
+  preset es exactamente un `config` — no hace falta modelo nuevo para representarlo.
+- El service ya sostiene el invariante de un solo `isDefault=true` por `(companyId,
+  docType)` y normaliza `config` venga como string, stdClass o array.
+- `blocks.ts` es el catálogo único de tipos de bloque, compartido por el editor y los tres
+  renderers. Un preset se escribe contra ese catálogo, no contra un renderer.
+
+### El punto duro: un preset NO es un JSON congelado que se copia tal cual
+
+Hay bloques cuyo `text` guarda un **id del tenant**, no un valor literal —
+`item_total_if_rate`, `tax_single` y la familia `*_by_rate` llevan ahí el `taxId`
+(`context/modules/18-impresion.md` reglas 15 y 17). El match es por IDENTIDAD del
+impuesto y a propósito: `kind=exempt` y `kind=rate,rate=0` son fiscalmente distintos, y dos
+impuestos del catálogo pueden compartir tasa. Un preset que traiga el `taxId` de otro
+tenant **no falla: imprime en blanco**, que es el peor modo de fallo posible para una
+factura.
+
+O sea, instanciar un preset es RESOLVER referencias contra el tenant destino, no un
+`INSERT` del JSON. Lo mismo aplica, en menor grado, a los bloques gateados por módulo
+(`fe_py`/`fe_cdc` solo existen en la paleta con `einvoicePy` activo).
+
+### Decisiones abiertas para el owner
+
+- **D1 — ¿Dónde viven los presets?** Código versionado del repo (se corrigen con un
+  deploy, no hay UI de mantenimiento) vs. tabla propia editable desde `/admin` (se
+  arreglan sin deploy, pero es un CRUD más y una superficie de datos nueva). Vale la
+  comparación con `api/database/seeds/sifen-geo.json`, donde ya se eligió el seed
+  versionado sobre el sync.
+- **D2 — ¿El preset se copia o se hereda?** Copiar deja al tenant dueño de su plantilla y
+  desacoplado de mejoras futuras; heredar permite mejorar el preset para todos, pero un
+  comercio que tocó dos bloques ya divergió y hay que decidir qué gana.
+- **D3 — ¿Cuántos presets y cortados por qué?** El eje real no es el rubro sino el
+  **soporte**: rollo 58/76/80mm y hoja A4 son geometrías distintas (`context/modules/18`
+  regla 16: hoja y rollo tienen modelos OPUESTOS para el listado de ítems). Un mismo
+  "ticket de venta" necesita un preset por ancho.
+- **D4 — ¿Qué pasa al aplicar un preset sobre una plantilla que ya tiene bloques?** Pisa,
+  duplica o crea una plantilla nueva. Un comercio que ya imprime no puede perder su
+  formato por tocar un botón.
+- **D5 — ¿Los presets se aplican solos en el alta?** Encaja con el onboarding conducido
+  por el agente (`context/66`): si el comercio ya declaró rubro y ancho de papel, la
+  plantilla podría quedar lista sin que nadie abra el editor.
+
+### Por qué importa más allá de la comodidad
+
+Un comercio sin plantilla cae al **fallback genérico** — un HTML monoespaciado armado a
+mano, sin pasar por `PrintBlock[]` (`print-in-browser.ts:178-201`). Funciona, pero no es
+el documento que el comercio quiere dar. Los presets convierten ese piso en algo
+presentable desde el día uno.
 
 ---
 

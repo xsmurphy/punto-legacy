@@ -365,7 +365,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
               `shrink-0` en cada trigger, que si no se comprimen para entrar.
               `min-w-0` en el Tabs raíz evita que el ancho intrínseco de la tira
               empuje el formulario. */}
-          <TabsList className="w-full justify-start gap-1 overflow-x-auto sm:gap-0 [&::-webkit-scrollbar]:hidden">
+          <TabsList className="gap-1 overflow-x-auto sm:gap-0 [&::-webkit-scrollbar]:hidden">
             <TabsTrigger value="general" className="shrink-0">General</TabsTrigger>
             <TabsTrigger value="behavior" className="shrink-0">Comportamiento</TabsTrigger>
             <TabsTrigger value="categories" className="shrink-0">Categorías</TabsTrigger>

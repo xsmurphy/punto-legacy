@@ -111,7 +111,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
         <Tabs defaultValue="item" className="flex h-full flex-col overflow-hidden">
           {/* Tabs + buscador en el header */}
           <div className="space-y-3 px-6 pb-3 pt-6">
-            <TabsList className="w-full">
+            <TabsList>
               <TabsTrigger value="item" className="flex-1">
                 Artículo
               </TabsTrigger>

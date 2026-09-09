@@ -883,11 +883,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
 
       {mode === "panel" ? (
         <Tabs defaultValue="transacciones">
-          {/* `w-full justify-start`: la lista ocupa el ancho de la página como
-              en el resto de las secciones con tabs de módulo (finanzas), pero
-              los triggers conservan su ancho natural — con solo tres, dejarlos
-              repartirse el ancho da tabs de un tercio de pantalla cada una. */}
-          <TabsList className="w-full justify-start">
+          <TabsList>
             <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
             <TabsTrigger value="cobros">Pagos recibidos</TabsTrigger>
             <TabsTrigger value="quotes">Cotizaciones</TabsTrigger>
@@ -1423,7 +1419,7 @@ export function TransactionDetailContent({
               Documentos asociados
             </p>
             <Tabs defaultValue={defaultTab}>
-              <TabsList className="w-full">
+              <TabsList>
                 {hasNC && (
                   <TabsTrigger value="nc" className="flex-1">
                     NC ({tx.creditNotes!.length})

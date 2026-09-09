@@ -230,7 +230,9 @@ export default function DisplayPage() {
         {loading && <RefreshCw className="size-4 animate-spin text-muted-foreground" />}
         {!threeColsFit && (
           <Tabs value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as BoardStatus)} className="ml-auto">
-            <TabsList>
+            {/* `w-fit`: no navega una sección, es un selector de columna en el
+                header — con el ancho completo del default empujaría el título. */}
+            <TabsList className="w-fit">
               {COLUMNS.map((c) => (
                 <TabsTrigger key={c.status} value={c.status}>
                   {STATUS_LABEL[c.status as OrderStatus]}
