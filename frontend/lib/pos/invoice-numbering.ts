@@ -97,16 +97,15 @@ export function primeInvoiceNumbering(
 ): void {
   if (!registerId || serverNext === null || !Number.isFinite(serverNext) || serverNext < 1) return
 
-  let local = loadNext(registerId, series)
-  if (local === null) {
-    local = adoptLegacyCounter(registerId, serverNext)
-  }
-  // El máximo, y se escribe SIEMPRE. Escribir siempre importa por el piso
-  // adoptado de la clave vieja: si ese piso es MAYOR que el del servidor
-  // (ventas offline que el server todavía no vio), un `if (serverNext > local)`
-  // no guardaría nada y la clave nueva quedaría vacía — el cobro siguiente
-  // cortaría con NO_INVOICE_NUMBER teniendo el número a mano. Cuando `local`
-  // sale de la clave nueva y ya es el mayor, reescribirlo es un no-op.
+  discardLegacyCounter(registerId)
+  const local = loadNext(registerId, series)
+  // El máximo DENTRO DE LA SERIE, nunca entre series: `local` sale de la clave
+  // nueva, que ya lleva la serie, así que comparar es legítimo. Si el device
+  // está adelante (ventas emitidas offline que el servidor todavía no vio), su
+  // valor manda — bajarlo reemitiría un número ya usado por este mismo device.
+  //
+  // Se escribe siempre, incluso cuando `local` ya es el mayor: es un no-op
+  // barato y deja la clave sembrada aunque el flujo llegue acá dos veces.
   saveNext(registerId, series, Math.max(local ?? 0, serverNext))
 }
 
@@ -139,16 +138,34 @@ export function primeInvoiceNumbering(
  * serie posterior la adoptara por error, y el dato ya se usó (o se descartó a
  * conciencia) en la primera hidratación.
  */
-function adoptLegacyCounter(registerId: string, serverNext: number): number | null {
+/**
+ * Descarta el contador de la clave VIEJA (la que no llevaba serie).
+ *
+ * Se borra y NO se adopta como piso, y esa es una decisión deliberada del
+ * owner (2026-09-09). La adopción existía para no perder el piso de un device
+ * con ventas emitidas offline que el servidor todavía no vio — pero ese valor
+ * NO sabe a qué serie pertenecía, porque la clave vieja no guardaba serie.
+ *
+ * En la caja del incidente eso resucitaba el bug entero: el device tenía 839
+ * de la serie `001-001`, el servidor decía 615 para `001-002`, y el
+ * `Math.max` devolvía 839 — el número que se mandó contra el punto
+ * equivocado y que originó todo este trabajo.
+ *
+ * Se puede descartar sin pérdida porque al momento de este cambio NO hay
+ * ningún documento emitido: nada llegó a SIFEN, nada se imprimió, y no hay
+ * ventas offline pendientes de sincronizar. Protegía algo que no existe a
+ * cambio de un riesgo que sí.
+ *
+ * De acá en adelante el piso lo protege la clave nueva, que sí lleva la
+ * serie: dentro de una misma serie el local adelantado sigue mandando.
+ */
+function discardLegacyCounter(registerId: string): void {
   try {
-    const raw = localStorage.getItem(KEY_PREFIX + registerId)
     localStorage.removeItem(KEY_PREFIX + registerId)
     localStorage.removeItem(RANGE_KEY_PREFIX + registerId)
-    if (!raw || serverNext <= 1) return null
-    const n = Number(raw)
-    return Number.isFinite(n) && n >= 1 ? n : null
   } catch {
-    return null
+    // localStorage bloqueado (incógnito, cuota llena): no hay nada que
+    // limpiar y tampoco nada que adoptar. El bootstrap siembra igual.
   }
 }
 

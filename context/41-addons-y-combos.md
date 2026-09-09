@@ -363,3 +363,145 @@ add-ons, escalado por el owner 2026-08-16).
 - La ficha de producto del POS (`product-info-dialog`, 2026-08-14) muestra
   stock por sucursal: cuando existan add-ons, esa ficha NO necesita cambios —
   los add-ons son productos y ya se consultan individualmente.
+
+## Grupos por CATEGORÍA — reabierto 2026-09-09
+
+> Pedido del owner: "que en vez de seleccionar artículos que vayan dentro del
+> combo se seleccionen categorías; al querer vender, listar los ítems dentro de
+> cada categoría seleccionada".
+>
+> **Estado: plan sin implementar.** D5 cerrada por el owner; D6-D9 PROPUESTAS
+> sin su OK.
+
+### Esto ya existió y se eliminó a propósito
+
+`combo_group.sourceType='category'` (mig 20) era exactamente esto: "cualquier
+ítem de esta categoría", y agregar un ítem a la categoría lo exponía solo en el
+combo. La **mig 136 lo expandió a un snapshot** de los ítems activos al momento
+de migrar. La nota C de esa migración lo declara: *"agregar un ítem a la
+categoría ya NO lo expone automáticamente en el combo — hay que agregarlo como
+opción en la ficha. Es el precio de que la venta por fin lea estos grupos."*
+
+O sea: no es una feature nueva, es **recuperar una capacidad que se cambió por
+que la venta funcionara**. Lo que se recupera ahora tiene que sobrevivir a lo
+que la mató — la venta, el offline y la validación server-side.
+
+### D5 — Origen categoría, con interruptor de precio y límites propios. **Cerrada por el owner (2026-09-09).**
+
+Al elegir la categoría como origen del grupo, el dueño marca **si suma al
+precio final o no**, más los límites mínimo y máximo de selección.
+
+Es un BOOLEANO POR GRUPO, no un delta por opción — y ahí está la diferencia con
+D2, que asigna el precio opción por opción (`priceDelta`). Un grupo por
+categoría no tiene dónde poner ese delta: sus opciones no existen como filas.
+
+- `addsToPrice = false` → todos los ítems de la categoría entran sin recargo.
+  El combo cobra su precio base. Caso "combo con bebida a elección".
+- `addsToPrice = true` → cada ítem suma **su precio de venta vigente**, leído en
+  vivo. Caso "armá tu plato".
+
+Se descartó el recargo fijo por grupo (un delta único para toda la categoría):
+el owner pidió un interruptor, no un tercer modo.
+
+**Consecuencia declarada de `addsToPrice=true`**: el precio del combo pasa a
+depender de la lista de precios vigente y se mueve solo cuando el dueño retoca
+precios del catálogo. Es la contracara de que la lista sea viva; no es un bug.
+
+Los `minSelect`/`maxSelect` de `addon_group` ya existen y sirven tal cual — no
+hace falta nada nuevo para los límites.
+
+### Modelo *(propuesta)*
+
+`addon_group` gana el origen. NO se revive `combo_group`: está deprecada y su
+defecto era justamente que la venta no la leía.
+
+```sql
+ALTER TABLE addon_group
+  ADD COLUMN sourcetype       VARCHAR(20) NOT NULL DEFAULT 'items',
+  ADD COLUMN sourcecategoryid UUID REFERENCES taxonomy(taxonomyid),
+  ADD COLUMN addstoprice      BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD CONSTRAINT addon_group_source_chk CHECK (
+    (sourcetype = 'items'    AND sourcecategoryid IS NULL) OR
+    (sourcetype = 'category' AND sourcecategoryid IS NOT NULL)
+  );
+```
+
+Un grupo `sourcetype='category'` NO tiene filas en `addon_group_option`: sus
+opciones se resuelven. Un grupo `'items'` se comporta exactamente como hoy —
+`addstoprice` no lo toca, ahí manda `pricedelta` (D2).
+
+⚠ **CASING — lowercase sin comillas.** La mig **150** normalizó el schema de
+add-ons entero a lowercase: hoy las columnas reales son `maxqty`, `minselect`,
+`qtymode`. El docblock de `AddonService.php` prometía camelCase quoted, quedó
+desactualizado, y confiar en él tiró la primera corrida de la mig 203. Las
+únicas comillas que sobreviven son las de palabras reservadas (`"name"`,
+`"sort"`, `"status"`), que igual apuntan a la columna lowercase.
+
+### Producción directa + add-ons: ya conviven (verificado 2026-09-09)
+
+Consulta del owner. El gate de la sección Add-ons en la ficha es
+`itemCanSale`, NO el kind (`app/(panel)/items/[id]/page.tsx:1931`), y
+`produccion_directa` tiene `itemCanSale: 1` — así que un ítem que se arma al
+vender puede tener grupos sin nada que habilitar.
+
+Los dos descuentos corren por caminos separados: el padre explota su receta
+(`explodeRecipe`) y cada opción elegida descuenta lo suyo, multiplicada por
+las unidades del padre; si la opción es a su vez producción directa, explota
+la propia. El recargo se le resta al padre y se le da a la línea hija, así que
+la plata no se cuenta dos veces. Cubierto por
+`api/lib/Sales/verify_chain/verify_addon_stock.php` contra `SaleService::save()`
+real.
+
+Vale para el origen categoría también: lo que se resuelve son ítems del
+catálogo, y cada uno descuenta como lo que es.
+
+### D6 — Un solo resolvedor, corriendo en los dos lados. *(propuesta)*
+
+"Qué ítems tiene esta categoría" se responde en UN lugar, y ese lugar corre
+tanto en el POS (contra el catálogo local, para que funcione sin conexión) como
+en el backend al validar la venta.
+
+**El servidor no puede confiar en la lista que mandó el cliente.** Si el POS
+manda las selecciones y el backend solo chequea min/max, un cliente
+manipulado mete cualquier ítem como si fuera de la categoría —y con
+`addsToPrice=false` se lo lleva sin recargo. La revalidación server-side de
+`SaleInput` tiene que resolver la categoría de nuevo, igual que ya revalida
+`priceDelta` desde la BD.
+
+### D7 — La categoría de un ítem vive en DOS lugares. *(propuesta, pero es un hecho)*
+
+`item_category` (m2m, mig 16) **y** la FK legacy `item.categoryId`. La mig 136
+ya pisó esta trampa y documentó la resolución: hay que mirar los DOS y
+deduplicar, porque hay caminos de alta que escriben solo la FK legacy y mirar
+solo la m2m pierde ítems. El resolvedor de D6 hereda esa regla tal cual.
+
+### D8 — Offline: la lista deja de ser dato bajado y pasa a ser consulta local. *(propuesta)*
+
+El hueco P0 cerrado el 2026-08-16 sacó el fetch al server del modal de add-ons:
+hoy los grupos bajan en el bootstrap. Un grupo por categoría no puede bajar sus
+opciones (son dinámicas por definición), así que el POS las resuelve contra su
+propio catálogo. Es viable —el POS tiene el catálogo entero— pero es código
+nuevo, no configuración: el resolvedor de D6 tiene que existir en el cliente.
+
+### D9 — Qué se muestra: agotados y categorías grandes. *(propuesta, sin resolver)*
+
+Con opciones explícitas el dueño controla qué ve el cajero. Con categoría, no:
+
+- **Sin stock**: un ítem agotado aparecería igual. ¿Se oculta, se muestra
+  deshabilitado, o se muestra y punto? Depende de si el ítem maneja stock.
+- **Categorías grandes**: 200 ítems no entran en un modal usable. Necesita
+  buscador dentro del modal y, probablemente, un tope configurable.
+
+Ninguna de las dos la decidió el owner todavía.
+
+### Arquitecturas RECHAZADAS
+
+- **Revivir `combo_group`/`combo_group_item`.** Deprecadas desde la mig 136; su
+  problema era que la venta no las leía. El origen categoría va sobre
+  `addon_group`, que sí está cableado a la venta, al ticket y a la orden.
+- **Snapshot al guardar** (expandir la categoría a opciones explícitas cuando
+  el dueño la elige). Es lo que hizo la mig 136 y es justo lo que el owner pide
+  deshacer: quiere que la lista se arme AL VENDER.
+- **Delta por opción en un grupo de categoría.** No hay fila donde ponerlo. El
+  precio de un grupo de categoría es el interruptor de D5, nada más.
+- **Confiar en la lista de ítems que manda el POS.** Ver D6.

@@ -4,8 +4,11 @@
 > de su negocio para que el asistente analice los datos CON contexto —
 > rubro, ubicación, modelo de negocio, público, estacionalidad.
 >
-> **Estado: plan sin implementar.** D1 cerrada por el owner; D2-D7 propuestas
-> SIN su OK.
+> **Estado: plan cerrado, en ejecución.** D1 cerrada 2026-09-02; **D2-D7
+> cerradas por el owner 2026-09-09** ("si están bien").
+>
+> Verificado contra el código el 2026-09-09 — dos hallazgos corrigen el plan
+> original, ver §7.
 
 ## 1. El problema real
 
@@ -59,7 +62,7 @@ feature, y un formulario de enums no captura "vendo repuestos de moto y el
 Lo que la decisión **no** habilita: que ese texto pueda anular guardrails.
 Ver D2.
 
-### D2 — Cómo se inyecta: bloque delimitado, después de los guardrails, marcado como DATO. *(propuesta)*
+### D2 — Cómo se inyecta: bloque delimitado, después de los guardrails, marcado como DATO. **Cerrada.**
 
 El texto va al final del system prompt, después de todas las reglas duras
 (anti-invento, alcance, guardrails, personalidad), envuelto así:
@@ -90,7 +93,7 @@ sostiene, sin recortar nada de lo que pidió el owner.
 cierre antes de inyectar. Es la única transformación del texto — nada de
 filtrar palabras ni "detectar" inyecciones por heurística.
 
-### D3 — Límite: 4000 caracteres. *(propuesta)*
+### D3 — Límite: 4000 caracteres. **Cerrada.**
 
 Se paga en CADA request del chat (panel y caja). 4000 chars ≈ 1000 tokens;
 con el modelo de chat actual (`deepseek-v4-flash`) el costo por conversación
@@ -102,7 +105,7 @@ Si más adelante el texto crece, la salida NO es subir el cap: es pasar el
 contexto a tool (`get_business_context`) para que entre solo cuando hace
 falta. Anotado, no ahora.
 
-### D4 — Dónde vive: tab "Asistente" en `/settings`, y el dialog del chat muere. *(propuesta)*
+### D4 — Dónde vive: tab "Asistente" en `/settings`, y el dialog del chat muere. **Cerrada.**
 
 Hoy el nombre y la personalidad se editan en
 `components/agent/agent-settings-dialog.tsx`, un dialog lanzado desde el
@@ -116,7 +119,7 @@ ajustes del chat pasa a deep-linkear `/settings?section=asistente`. El
 dialog se elimina — no se deja "por si acaso": dos formularios sobre el
 mismo campo divergen.
 
-### D5 — Consumidores: builder compartido, no copiar el bloque. *(propuesta)*
+### D5 — Consumidores: builder compartido, no copiar el bloque. **Cerrada.**
 
 El prompt está DUPLICADO en dos routes:
 
@@ -132,7 +135,7 @@ Alcance de la extracción: **solo el bloque de contexto**. Unificar los dos
 system prompts enteros es un refactor aparte — el de la caja tiene reglas
 propias de POS y no comparte el resto.
 
-### D6 — MCP: tool, no prompt. *(propuesta)*
+### D6 — MCP: tool, no prompt. **Cerrada.**
 
 El MCP (context/58) no tiene system prompt: lo pone el cliente (Claude u
 otro). Para que ahí también haya contexto, el texto se expone como tool de
@@ -144,7 +147,7 @@ Efecto colateral bueno: el agente del panel y el de la caja siguen
 recibiéndolo por prompt (siempre presente, sin gastar un turn), y el cliente
 MCP lo pide cuando lo necesita.
 
-### D7 — Redacción asistida: fase posterior, no F1. *(propuesta)*
+### D7 — Redacción asistida: fase posterior, no F1. **Cerrada.**
 
 Un textarea en blanco es la peor UX posible para "cargá todo el contexto
 necesario". La ayuda real es un botón **"Redactar con el asistente"** que
@@ -205,3 +208,45 @@ reporta como bug.
   moneda, país). Segunda fuente de verdad. El agente los lee con tools.
 - **Subir el cap cuando el texto quede corto.** La salida es pasarlo a tool
   (D3), no engordar cada request.
+
+## 7. Hallazgos de la verificación (2026-09-09)
+
+### H1 — En la caja el contexto NO puede salir de `/v1/settings`
+
+El plan original decía "F2: inyección en el agente de la caja (mismo
+builder)", como si solo fuera reusar `business-context.ts`. Es más que eso.
+
+`frontend/app/api/pos/agent/chat/route.ts:139` documenta la razón: el POS
+recibe `companyName`/`currency`/`country`/`timezone` **en el body**, desde
+`PosConfig` (`useCatalogStore`), y explícitamente NO llama a `/v1/settings`
+porque ese endpoint es de realm `['panel','api']` y la caja es token-only por
+mandato. Meter un fetch a `/v1/settings` en el BFF del POS reintroduce
+exactamente el bug de multi-realm que el mandato prohíbe.
+
+Entonces F2 = bajar `agentBusinessContext` por el **bootstrap del POS** hasta
+`PosConfig`, y de ahí al body, igual que `companyName`:
+
+1. `api/v1/bootstrap.php` — sumar el campo a la config que baja.
+2. Reshape/tipo de `PosConfig` en el cliente del POS.
+3. `frontend/lib/pos/use-pos-agent-chat.ts` — sumarlo al body y a las deps.
+4. El BFF lo pasa al builder compartido.
+
+Corolario: es configuración de la caja, así que hereda las reglas de
+`context/51` — viaja en el bootstrap, sobrevive offline, y el panel es el
+único escritor (no hay conflicto caja-vs-panel: la caja solo lee).
+
+### H2 — El dialog solo existe en el panel; matarlo no toca la caja
+
+`components/pos/pos-agent-dialog.tsx` pasa `showSettings={false}` a propósito
+(`AgentSettingsDialog` usa `useSettings()`, hook de credencial de panel).
+O sea que D4 se puede ejecutar sin tocar la caja — pero el reemplazo (el link
+a `/settings?section=asistente`) tiene que quedar **detrás del mismo
+`showSettings`** en `agent-chat-content.tsx:351`, que es markup compartido
+entre panel y POS desde el 2026-08-30. Un link suelto ahí le aparece al
+cajero y lo manda a una ruta de panel que su credencial no abre.
+
+### H3 — El nombre de la clave ya está citado en el código
+
+`api/lib/Auth/SignupService.php:105` ya referencia `agentBusinessContext
+(context/69)` como precedente para escribir datos de cuenta en
+`company.config`. La clave queda con ese nombre exacto.
