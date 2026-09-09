@@ -40,6 +40,24 @@
  * de seguridad que no se cumple y además recorta lo que el owner pidió.
  */
 
+/**
+ * Tope de largo, espejo de `SettingsService::MAX_AGENT_BUSINESS_CONTEXT`.
+ *
+ * El backend ya recorta al guardar (`api/v1/settings.php`) y al bajarlo en el
+ * bootstrap del POS, así que en el camino normal esto nunca corta nada. Está
+ * igual porque el BFF de la caja recibe el texto en el BODY del request
+ * (context/69 F2), y ese body lo arma el cliente: el recorte del bootstrap no
+ * lo alcanza.
+ *
+ * El docblock del BFF del POS justifica aceptar datos del cliente diciendo que
+ * son COSMÉTICOS —deciden cómo se escriben los montos, no qué se puede leer—.
+ * Este campo NO lo es: es contenido del prompt. Un cliente con el Bearer del
+ * device podría inflarlo sin límite y quemarle créditos al tenant en cada
+ * turno. El cap vive acá y no en cada route por la misma razón que el bloque:
+ * un solo lugar, los dos consumidores.
+ */
+const MAX_LENGTH = 4000
+
 /** Marca de apertura del bloque. */
 const OPEN_MARK = "<<<CONTEXTO_DEL_NEGOCIO"
 
@@ -75,7 +93,7 @@ function neutralizeDelimiter(text: string): string {
  * condicionales y un tenant sin contexto no paga ni un token de más.
  */
 export function buildBusinessContextBlock(raw: string | null | undefined): string {
-  const text = (raw ?? "").trim()
+  const text = (raw ?? "").trim().slice(0, MAX_LENGTH)
   if (text === "") return ""
 
   return (
