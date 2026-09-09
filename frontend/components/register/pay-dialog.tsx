@@ -1689,20 +1689,9 @@ function PayPhase({
       <DialogHeader className="pb-3">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
-        {/* El número va en la MISMA línea que el label, no en una fila
-            propia: una fila condicional movería el visor y los métodos de pago
-            según haya o no número, que es exactamente lo que la regla de
-            posiciones estables prohíbe (memoria muscular del cajero). */}
-        <div className="flex items-baseline justify-between gap-3">
-          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-            {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
-          </span>
-          {nextInvoiceLabel && (
-            <span className="text-xs font-medium tabular-nums text-muted-foreground">
-              {nextInvoiceLabel}
-            </span>
-          )}
-        </div>
+        <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+          {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
+        </span>
 
         {/* Los impedimentos de la venta a crédito (sin cliente, cliente sin
             crédito, caja cerrada) NO se pintan acá: viajan al tooltip del CTA
@@ -1758,6 +1747,19 @@ function PayPhase({
           )}
           aria-label="Monto a cobrar"
         />
+        {/* Con qué comprobante va a salir. Debajo del monto y NO en la línea
+            del label: ahí arriba a la derecha vive el botón de cerrar del
+            diálogo y el número quedaba tapado (reporte del owner, 2026-09-09).
+            La fila se renderiza SIEMPRE, con o sin número: reservar el alto
+            evita que el visor y los métodos de pago se muevan según haya
+            serie o no — la regla de posiciones estables del POS. */}
+        <p className="mt-1 h-4 text-center text-xs text-muted-foreground">
+          {nextInvoiceLabel && (
+            <>
+              Factura <span className="font-medium tabular-nums">{nextInvoiceLabel}</span>
+            </>
+          )}
+        </p>
       </div>
 
       {/* Conversión multi-moneda — read-only, debajo del total */}
