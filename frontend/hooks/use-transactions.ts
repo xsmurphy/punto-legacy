@@ -69,6 +69,54 @@ export interface TransactionDetail {
   voidReason?: string | null
   voidedBy?: string | null
   voidedByName?: string | null
+  /**
+   * Documentos fiscales del outbox para esta venta
+   * (`TransactionService::getSingle` → `EInvoiceService::documentsForTransaction`,
+   * la MISMA fuente que sirve el detalle del panel). Ordenados por fecha desc:
+   * `[0]` es el vigente.
+   *
+   * `status` NO habla de validez fiscal: hay un caso registrado de un documento
+   * `issued` con CDC válido que SIFEN rechazó después y cuyo KuDE se descargaba
+   * igual. Para eso están `sifenVerdict` y `deliveryBlocker`, más abajo.
+   *
+   * Lista vacía = nunca se encoló (tenant sin FE, emisión automática apagada,
+   * o cliente sin RUC con el filtro activo). No es un error.
+   */
+  einvoiceDocuments?: Array<{
+    id: string
+    doctype: string
+    status: "pending" | "sending" | "issued" | "error" | "cancelled"
+    cdc: string | null
+    documentNumber: string | null
+    errorMessage: string | null
+    issuedAt: string | null
+    attempts: number
+    /**
+     * Veredicto FISCAL. `status` es el outbox de Punto (¿se mandó?);
+     * ESTO es si SIFEN lo aceptó. Son preguntas distintas: hay un caso
+     * registrado de un documento `issued` con CDC válido que SIFEN rechazó
+     * después. Ninguna pantalla puede decir "emitida" mirando solo `status`.
+     */
+    sifenVerdict: "approved" | "rejected" | "pending"
+    /** No null = hay una reemisión que reemplazó a este documento. */
+    supersededBy: string | null
+    /**
+     * Por qué NO se le puede entregar el KuDE al comprador, o null si sí.
+     * Lo calcula el MISMO predicado del backend que aplican el endpoint de la
+     * caja, el email y el portal (`EInvoiceService::deliveryBlockerForRow`).
+     * La pantalla lo MUESTRA, no lo reimplementa — reimplementarlo es como se
+     * llega a ofrecer una descarga que el endpoint después rechaza con 409.
+     */
+    deliveryBlocker:
+      | "not_found"
+      | "numbering_mismatch"
+      | "superseded"
+      | "cancelled"
+      | "not_issued"
+      | "sifen_rejected"
+      | "sifen_pending"
+      | null
+  }>
 }
 
 export interface TransactionDataItem {
@@ -177,5 +225,25 @@ export function useTransaction(id: string | null) {
     queryFn: () => fetchTransactionDetail(id!),
     enabled: Boolean(id),
     staleTime: 60_000,
+    /**
+     * Refresco mientras la factura electrónica espera el veredicto de SIFEN.
+     *
+     * El KuDE recién se puede entregar cuando `sifen_status` deja de estar en
+     * blanco, y eso lo escribe el cron de reconciliación (cada 10 min). Una
+     * venta recién cobrada nace SIEMPRE en ese estado: sin refresco, el cajero
+     * abría el detalle, veía el botón deshabilitado y no volvía a pasar nada
+     * en pantalla — el cliente se iba del mostrador antes de que el PDF se
+     * habilitara, que es justo el momento para el que existe esta feature.
+     *
+     * Solo mientras hay algo que esperar (`sifen_pending`), y con `staleTime`
+     * intacto para el resto: es una caja, no una pantalla de monitoreo, y un
+     * poll permanente sobre cada detalle abierto es exactamente el auto-DDoS
+     * que el módulo se cuida de no generar.
+     */
+    refetchInterval: (query) => {
+      const docs = query.state.data?.einvoiceDocuments ?? []
+      const vigente = docs.find((d) => d.supersededBy === null) ?? docs[0] ?? null
+      return vigente?.deliveryBlocker === "sifen_pending" ? 30_000 : false
+    },
   })
 }

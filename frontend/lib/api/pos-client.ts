@@ -107,4 +107,36 @@ export const posApi = {
       body: body ? JSON.stringify(body) : undefined,
     }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  /**
+   * Descarga autenticada del device: devuelve el Blob del endpoint (hoy, el
+   * KuDE en PDF). Espejo de `api.getBlob` de `api-client.ts`, con la
+   * credencial del OTRO realm — es el contrato "un cliente HTTP = un realm".
+   *
+   * No pasa por `request()` porque eso asume el envelope JSON. Y no se puede
+   * reemplazar por un `window.open()`/`<a href>` como hace el panel: el Bearer
+   * del device vive en localStorage, no en una cookie, y el browser no adjunta
+   * headers en una navegación — la pestaña nueva saldría 401. Por eso la
+   * descarga tiene que pasar por acá y entregarse con `URL.createObjectURL`.
+   *
+   * En el error SÍ hay envelope (`apiError`), así que se lo lee: el 409 de
+   * "todavía no está listo / no se emitió" trae el motivo que ve el cajero.
+   */
+  getBlob: async (path: string): Promise<Blob> => {
+    const res = await posFetch(`/api${path}`, {
+      method: "GET",
+      cache: "no-store",
+      headers: { Accept: "*/*" },
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => "")
+      const payload = text ? safeJson(text) : null
+      const envelope = payload as { error?: { message?: string } } | null
+      throw new ApiError(
+        res.status,
+        payload,
+        envelope?.error?.message ?? `GET ${path} → ${res.status}`,
+      )
+    }
+    return res.blob()
+  },
 }

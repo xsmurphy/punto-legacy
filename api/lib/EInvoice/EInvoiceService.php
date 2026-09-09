@@ -500,7 +500,8 @@ final class EInvoiceService
     public function documentsForTransaction(string $companyId, string $transactionId): array
     {
         $rs = ncmExecute(
-            "SELECT einvoicedocid, doctype, status, cdc, document_number, error_message, issued_at, attempts
+            "SELECT einvoicedocid, doctype, status, cdc, document_number, error_message, issued_at, attempts,
+                    sifen_status, superseded_by, cancelled_at, numbering_mismatch
                FROM einvoice_document
               WHERE companyid = ? AND transactionid = ?
               ORDER BY created_at DESC",
@@ -526,6 +527,25 @@ final class EInvoiceService
                     'errorMessage'   => $f['error_message'] ?? null,
                     'issuedAt'       => $f['issued_at'] ?? null,
                     'attempts'       => (int) ($f['attempts'] ?? 0),
+                    // Veredicto FISCAL, que es otra pregunta que `status`:
+                    // `status` es el outbox de Punto (¿se mandó?),
+                    // `sifenVerdict` es si SIFEN lo aceptó. Hay un caso
+                    // registrado de un documento `issued` con CDC válido que
+                    // SIFEN rechazó después. Ninguna pantalla puede decir
+                    // "emitida" mirando solo `status`.
+                    'sifenVerdict'   => self::sifenVerdict($f['sifen_status'] ?? null),
+                    'supersededBy'   => $f['superseded_by'] ?? null,
+                    // Por qué NO se le puede entregar el KuDE, o null si sí.
+                    // Lo calcula el MISMO predicado que aplica el endpoint de
+                    // la caja — la pantalla no reimplementa la regla, solo la
+                    // muestra. Sin esto la caja ofrecía descargar lo que el
+                    // endpoint después rechaza con 409.
+                    //
+                    // OJO: esto es la política de la CAJA y del EMAIL
+                    // (`cancelledBlocks` por default), NO la del portal, que
+                    // deja pasar la anulada a propósito. Cablear el portal a
+                    // este campo reintroduce ese bug.
+                    'deliveryBlocker' => self::deliveryBlockerForRow($f),
                 ];
                 $rs->MoveNext();
             }
@@ -1010,45 +1030,165 @@ final class EInvoiceService
      * @return array{queued:bool,recipient:string} `queued:false` = ya había un envío encolado a esa dirección.
      * @throws \RuntimeException con el motivo listo para mostrarle al operador.
      */
-    public function sendKude(string $companyId, string $docId, string $recipient = '', ?string $userId = null): array
+    /**
+     * ¿Este documento se le puede ENTREGAR al comprador? `null` si sí; si no,
+     * el CÓDIGO del motivo.
+     *
+     * ── Por qué es un código y no un mensaje ────────────────────────────────
+     *
+     * El predicado es UNO solo y las AUDIENCIAS son tres. Al comprador no se
+     * le dice el motivo (R1 de `context/28` §F7: la discrepancia de numeración
+     * o el rechazo de SIFEN son compliance ENTRE el comercio y su proveedor, y
+     * el comprador no puede hacer nada con eso); al operador sí, porque está
+     * mirando la pantalla y tiene que poder actuar. Devolver el código deja
+     * que cada canal escriba para SU lector sin duplicar la REGLA.
+     *
+     * ── Por qué existe ──────────────────────────────────────────────────────
+     *
+     * Estas cinco condiciones vivían copiadas en `sendKude()` (email) y
+     * `portalKude()` (portal del cliente) — los dos canales que le entregan el
+     * PDF al comprador. `resource=kude` del endpoint NO las tenía y estaba
+     * bien: era la descarga INTERNA del panel, el comercio mirando su propio
+     * documento.
+     *
+     * Cuando la caja pasó a poder descargar el KuDE (2026-09-09) apareció un
+     * TERCER canal de entrega —el mostrador, donde el PDF se lo lleva el
+     * comprador en la mano— y una tercera copia de la regla habría sido la que
+     * se olvida de actualizar. El caso peor es el que documenta la mig 204:
+     * entregarle al cliente, en mano, el KuDE con el número de OTRA venta.
+     *
+     * ── Por qué la ANULACIÓN es política del canal y no de la regla ─────────
+     *
+     * Un documento anulado NO se entrega como comprobante de una venta viva
+     * (email y caja lo cortan), pero el portal del cliente SÍ lo ofrece a
+     * propósito: ahí el comprador va a buscar el documento de una operación
+     * que ya pasó, y la pantalla le muestra el aviso de anulación AL LADO del
+     * botón (`kudeAvailable` incluye `cancelled` explícitamente y
+     * `factura/[token]/page.tsx` pinta "Este documento fue anulado el …").
+     * Negárselo ahí sería sacarle el registro de lo que se le anuló.
+     *
+     * Va como parámetro y no como "el portal ignora ese código": si el canal
+     * salteara el código DESPUÉS, el corto-circuito de este método ya habría
+     * devuelto 'cancelled' y se habría saltado los chequeos que vienen abajo —
+     * un documento anulado Y rechazado por SIFEN habría pasado al comprador.
+     *
+     * @return string|null 'not_found' | 'numbering_mismatch' | 'superseded' |
+     *                     'cancelled' | 'not_issued' | 'sifen_rejected' |
+     *                     'sifen_pending'
+     */
+    public function kudeDeliveryBlocker(string $companyId, string $docId, bool $cancelledBlocks = true): ?string
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid, status, cdc, sifen_status, superseded_by, cancelled_at, numbering_mismatch
+            'SELECT status, cdc, sifen_status, superseded_by, cancelled_at, numbering_mismatch
                FROM einvoice_document
               WHERE einvoicedocid = ? AND companyid = ?',
             [$docId, $companyId]
         );
         if (!$doc) {
-            throw new \RuntimeException('Documento no encontrado.');
+            return 'not_found';
         }
-        if (trim((string) ($doc['numbering_mismatch'] ?? '')) !== '') {
-            // Guard de numeración (mig 204). El email es el canal MÁS
-            // peligroso para esta falla: no requiere ninguna acción del
-            // comprador, así que un KuDE con el CDC de otra venta le llega
-            // solo. SIFEN puede haber aprobado el documento —valida SU
-            // registro, no nuestro invariante de que el número sea el que
-            // salió impreso— así que el chequeo de `sifenVerdict` de abajo no
-            // cubre este caso.
-            throw new \RuntimeException(
-                'El número del documento electrónico no coincide con el del comprobante que se le entregó al ' .
-                'cliente, así que no se le puede enviar: recibiría la factura de otra operación. ' .
-                'Revisá la numeración de la caja con el proveedor de facturación electrónica antes de enviarlo.'
-            );
+        return self::deliveryBlockerForRow($doc, $cancelledBlocks);
+    }
+
+    /**
+     * La regla, sobre una FILA ya leída. Existe separada de
+     * `kudeDeliveryBlocker()` para que `documentsForTransaction()` —que ya trae
+     * las filas— pueda etiquetar cada documento sin una query por documento, y
+     * sobre todo sin reimplementar el predicado (que es como se llega a que la
+     * pantalla ofrezca descargar lo que el endpoint después rechaza).
+     *
+     * La fila necesita: status, cdc, sifen_status, superseded_by, cancelled_at,
+     * numbering_mismatch.
+     */
+    private static function deliveryBlockerForRow(array|\ArrayAccess $row, bool $cancelledBlocks = true): ?string
+    {
+        // Guard de numeración (mig 204) PRIMERO y por separado del veredicto:
+        // SIFEN valida SU registro, no nuestro invariante de que el número sea
+        // el que salió impreso, así que un documento aprobado puede igual
+        // tener el número de otra operación.
+        if (trim((string) ($row['numbering_mismatch'] ?? '')) !== '') {
+            return 'numbering_mismatch';
         }
-        if (($doc['superseded_by'] ?? null) !== null) {
-            throw new \RuntimeException('Este documento fue reemplazado por una reemisión. Enviá el documento vigente de esa venta.');
+        if (($row['superseded_by'] ?? null) !== null) {
+            return 'superseded';
         }
-        if ((string) ($doc['status'] ?? '') === 'cancelled' || ($doc['cancelled_at'] ?? null) !== null) {
-            throw new \RuntimeException('El documento está anulado: no se le puede enviar al cliente como comprobante válido.');
+        if ($cancelledBlocks
+            && ((string) ($row['status'] ?? '') === 'cancelled' || ($row['cancelled_at'] ?? null) !== null)) {
+            return 'cancelled';
         }
-        if (trim((string) ($doc['cdc'] ?? '')) === '') {
-            throw new \RuntimeException('El documento todavía no se emitió — no hay KuDE que enviar.');
+        if (trim((string) ($row['cdc'] ?? '')) === '') {
+            return 'not_issued';
         }
-        if (self::sifenVerdict($doc['sifen_status'] ?? null) !== 'approved') {
-            // Se corta ACÁ y no en el drainer: mandarle al comprador una
-            // factura que SIFEN todavía no aceptó (o que rechazó) es
-            // exactamente lo que D3 evita. El operador ve el porqué.
-            throw new \RuntimeException('SIFEN todavía no aprobó este documento. Se envía recién cuando figura como aprobado.');
+        $verdict = self::sifenVerdict($row['sifen_status'] ?? null);
+        if ($verdict !== 'approved') {
+            return $verdict === 'rejected' ? 'sifen_rejected' : 'sifen_pending';
+        }
+        return null;
+    }
+
+    /**
+     * KuDE para entregarle al cliente DESDE LA CAJA (realm `pos-app`).
+     *
+     * Hermano de `portalKude()`: mismo gate de entrega, distinto lector. Acá
+     * el motivo SÍ se dice completo — del otro lado hay un cajero, que es
+     * personal del comercio y necesita saber por qué no puede entregar el
+     * documento; el comprador nunca ve estos textos.
+     *
+     * No se llama a `kudePdf()` directo desde el endpoint justamente para que
+     * este gate no sea opcional: la regla vive en el servicio, no en la puerta.
+     *
+     * @throws \RuntimeException con el motivo (el endpoint lo traduce a 409).
+     */
+    public function posKude(string $companyId, string $docId): string
+    {
+        $blocker = $this->kudeDeliveryBlocker($companyId, $docId);
+        if ($blocker !== null) {
+            throw new \RuntimeException(match ($blocker) {
+                'not_found'          => 'Documento no encontrado.',
+                'numbering_mismatch' => 'El número del documento electrónico no coincide con el del comprobante '
+                    . 'que se le entregó al cliente: entregarlo sería darle la factura de otra operación. '
+                    . 'Avisá en el comercio para que revisen la numeración de la caja.',
+                'superseded'         => 'Este documento fue reemplazado por una reemisión. El vigente es el otro.',
+                'cancelled'          => 'El documento está anulado: no se puede entregar como comprobante válido.',
+                'not_issued'         => 'El documento todavía no se emitió — no hay KuDE que entregar.',
+                'sifen_rejected'     => 'SIFEN rechazó este documento, así que no se puede entregar como factura.',
+                default              => 'SIFEN todavía no aprobó este documento. Vas a poder entregarlo cuando figure como aprobado.',
+            });
+        }
+        return $this->kudePdf($companyId, $docId);
+    }
+
+    public function sendKude(string $companyId, string $docId, string $recipient = '', ?string $userId = null): array
+    {
+        // El PREDICADO es compartido con el portal y con la caja
+        // (`kudeDeliveryBlocker()`); acá se traduce a los textos del OPERADOR,
+        // que es quien mira esta pantalla y puede actuar. Los mensajes son los
+        // mismos de siempre, palabra por palabra: lo que se unificó es la
+        // regla, no el copy.
+        //
+        // Sobre el guard de numeración (mig 204): el email es el canal MÁS
+        // peligroso para esa falla porque no requiere ninguna acción del
+        // comprador — un KuDE con el CDC de otra venta le llega solo. Y sobre
+        // el veredicto: se corta ACÁ y no en el drainer, mandarle al comprador
+        // una factura que SIFEN todavía no aceptó es exactamente lo que evita
+        // el D3 de context/57.
+        $blocker = $this->kudeDeliveryBlocker($companyId, $docId);
+        if ($blocker !== null) {
+            throw new \RuntimeException(match ($blocker) {
+                'not_found'          => 'Documento no encontrado.',
+                'numbering_mismatch' =>
+                    'El número del documento electrónico no coincide con el del comprobante que se le entregó al ' .
+                    'cliente, así que no se le puede enviar: recibiría la factura de otra operación. ' .
+                    'Revisá la numeración de la caja con el proveedor de facturación electrónica antes de enviarlo.',
+                'superseded'         => 'Este documento fue reemplazado por una reemisión. Enviá el documento vigente de esa venta.',
+                'cancelled'          => 'El documento está anulado: no se le puede enviar al cliente como comprobante válido.',
+                'not_issued'         => 'El documento todavía no se emitió — no hay KuDE que enviar.',
+                // El rechazo tiene texto propio desde que el predicado lo
+                // distingue: mandarlo al mensaje de "todavía no aprobó" ponía
+                // al operador a esperar un veredicto que ya llegó y fue que no.
+                'sifen_rejected'     => 'SIFEN rechazó este documento: no se le puede enviar al cliente como factura.',
+                default              => 'SIFEN todavía no aprobó este documento. Se envía recién cuando figura como aprobado.',
+            });
         }
 
         $recipient = trim($recipient);
@@ -1096,14 +1236,14 @@ final class EInvoiceService
     /**
      * KuDE de una venta para el portal público — resuelve el documento por
      * `transactionid` (el token del portal no conoce el id del documento) y
-     * delega en `kude()`, que es quien valida que esté emitido.
+     * aplica el gate de entrega compartido antes de generar el PDF.
      *
      * @throws \RuntimeException
      */
     public function portalKude(string $companyId, string $transactionId): string
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid, sifen_status, numbering_mismatch FROM einvoice_document
+            'SELECT einvoicedocid FROM einvoice_document
               WHERE companyid = ? AND transactionid = ? AND superseded_by IS NULL
               ORDER BY created_at DESC LIMIT 1',
             [$companyId, $transactionId]
@@ -1111,23 +1251,7 @@ final class EInvoiceService
         if (!$doc) {
             throw new \RuntimeException('No hay documento electrónico para esta venta.');
         }
-
-        // Guard de numeración (mig 204), MISMO criterio que el veredicto de
-        // SIFEN de abajo y por la misma razón: el flag `kudeAvailable` solo
-        // saca el botón, y la URL del PDF es adivinable para cualquiera que
-        // tenga el token del portal. El documento existe y SIFEN puede
-        // haberlo aprobado, pero su número no es el del comprobante que este
-        // comprador tiene en la mano — entregarle ese PDF es darle la factura
-        // de otra operación.
-        if (trim((string) ($doc['numbering_mismatch'] ?? '')) !== '') {
-            // Al comprador se le dice el estado, nunca el motivo (R1 de
-            // context/28 §F7): la discrepancia de numeración es un problema
-            // de compliance ENTRE el comercio y su proveedor de FE, y el
-            // comprador no puede hacer nada con esa información.
-            throw new \RuntimeException(
-                'El comercio está regularizando esta factura. Vas a poder descargarla cuando esté lista.'
-            );
-        }
+        $docId = (string) $doc['einvoicedocid'];
 
         // El gate REAL de "¿este PDF puede salir?" vive acá, no en el flag
         // `kudeAvailable` de `portalDocument()`: ese flag existe para que la
@@ -1135,22 +1259,34 @@ final class EInvoiceService
         // por cualquiera que tenga el token del portal. Un chequeo que solo
         // vive en la UI no es un chequeo.
         //
-        // Sin esto, sacar el botón para los rechazados era cosmético: el
-        // comprador que hubiera guardado el link seguía bajándose el PDF de
-        // una factura que SIFEN no aceptó.
-        $verdict = self::sifenVerdict($doc['sifen_status'] ?? null);
-        if ($verdict !== 'approved') {
-            // Mismo criterio que la pantalla: se dice el estado, nunca el
-            // motivo (R1 de context/28 §F7 — el motivo es diagnóstico del
-            // comercio). El endpoint responde 409, que el portal ya traduce.
-            throw new \RuntimeException(
-                $verdict === 'rejected'
-                    ? 'El comercio está regularizando esta factura. Vas a poder descargarla cuando esté lista.'
-                    : 'Tu factura todavía se está emitiendo. Volvé a intentar en unos minutos.'
-            );
+        // El PREDICADO es el compartido (`kudeDeliveryBlocker()`), el mismo que
+        // usan el email y la caja. Lo que es propio de este canal es el COPY:
+        // al comprador se le dice el ESTADO, nunca el motivo (R1 de
+        // `context/28` §F7) — la discrepancia de numeración o el rechazo de
+        // SIFEN son un problema de compliance entre el comercio y su proveedor,
+        // y el comprador no puede hacer nada con esa información.
+        //
+        // Al pasar al predicado compartido este canal se volvió MÁS estricto en
+        // dos casos que antes solo cubría de rebote (`kude()` valida emisión):
+        // un documento ANULADO y uno sin CDC ya no bajan. Es la dirección
+        // segura: los dos son "no es un comprobante que este comprador pueda
+        // usar".
+        // `cancelledBlocks: false` — la anulación NO corta en ESTE canal, y es
+        // deliberado: `kudeAvailable` la incluye y la pantalla muestra el aviso
+        // "Este documento fue anulado el …" junto al botón de descarga. El
+        // comprador viene a buscar el registro de una operación pasada.
+        // Bloquearlo acá dejaba el botón visible y el endpoint respondiendo 409:
+        // el comprador abría una pestaña con un JSON crudo.
+        $blocker = $this->kudeDeliveryBlocker($companyId, $docId, cancelledBlocks: false);
+        if ($blocker !== null) {
+            throw new \RuntimeException(match ($blocker) {
+                'not_found'   => 'No hay documento electrónico para esta venta.',
+                'not_issued', 'sifen_pending' => 'Tu factura todavía se está emitiendo. Volvé a intentar en unos minutos.',
+                default       => 'El comercio está regularizando esta factura. Vas a poder descargarla cuando esté lista.',
+            });
         }
 
-        return $this->kudePdf($companyId, (string) $doc['einvoicedocid']);
+        return $this->kudePdf($companyId, $docId);
     }
 
     /**
@@ -1506,7 +1642,11 @@ final class EInvoiceService
      * Factomate, nunca al revés. Mientras dure la paridad (K4) el fallback es
      * lo que hace que esto pueda estar en producción sin apostar nada.
      *
-     * El gate fiscal NO vive acá — sigue en `portalKude()`/`sendKude()`.
+     * El gate fiscal NO vive acá: es de los canales de ENTREGA al comprador
+     * (`portalKude()`, `sendKude()`, `posKude()`), que lo aplican con el
+     * predicado compartido `kudeDeliveryBlocker()`. Este método genera el PDF
+     * y nada más — llamarlo directo desde una superficie nueva de entrega es
+     * saltearse el gate.
      */
     public function kudePdf(string $companyId, string $docId): string
     {
