@@ -690,6 +690,14 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         // día ese endpoint migra a apiAuthTenant(), estos overrides ya están
         // listos y quedan consistentes con esos publishes explícitos.
         '/v1/sales'                 => ['entity' => 'transaction', 'scope' => 'dashboard'],
+        // El flush de la cola offline mete N ventas de una. Sin override el
+        // path derivaría la entity 'offline-sync', que ningún cliente mapea
+        // (se ignora con un console.warn) — o sea que esas ventas entraban a
+        // la base sin avisarle a nadie. Es una venta como cualquier otra: la
+        // entity correcta es `transaction`, y desde 2026-09-08 el POS la
+        // escucha aunque venga con scope `dashboard` (POS_NEEDS_DASHBOARD en
+        // use-realtime-sync.ts), que es lo que hace que la otra caja se entere.
+        '/v1/offline-sync'          => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/transactions'          => ['entity' => 'transaction', 'scope' => 'dashboard'],
         // /v1/orders es distinto de /v1/orders-core (OrderCoreService publica
         // su propia entity 'order' con scope 'all' — ver ese Service). Este

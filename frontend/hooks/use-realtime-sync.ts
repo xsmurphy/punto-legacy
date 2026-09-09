@@ -23,6 +23,27 @@ import { refreshTenancy } from "@/lib/pos/register-tenancy"
  * catálogo entero. Las demás keys de `item`/`contact` (ej. `item-addons`,
  * `customerAddress`) SÍ se siguen invalidando normal, incluso en el POS.
  */
+/**
+ * Entities con scope `dashboard` que el POS SÍ tiene que escuchar.
+ *
+ * El filtro de scope existe para no reinvalidar el catálogo en cada venta
+ * propia, y eso sigue valiendo. Pero se llevaba puestas dos cosas que son
+ * exactamente lo que una caja necesita saber de OTRA caja:
+ *
+ *  - `transaction` (`SaleService.php:388`): una venta cobrada en la caja B no
+ *    aparecía en el listado de la caja A ni en su total de turno.
+ *  - `drawer` (`bootstrap.php:701`): la apertura, el cierre y los movimientos
+ *    de turno no se propagaban. Con dos cajas en el mismo turno, cada una
+ *    cerraba con cifras distintas — el peor de los huecos de la auditoría
+ *    2026-09-08.
+ *
+ * Se agrega una excepción por entity y no se saca el filtro: sacarlo
+ * devolvería el ruido que el filtro vino a cortar. Lo caro de esos dos
+ * eventos es acotado — invalidan listados de transacciones y turno, no el
+ * catálogo de 5000 ítems.
+ */
+const POS_NEEDS_DASHBOARD = new Set(["transaction", "drawer"])
+
 const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   item:              [
     ["items"], ["item"], ["pos-bootstrap"],
@@ -39,6 +60,11 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
     // bajo 'production': una VENTA que consumía los insumos dejaba la ficha
     // mostrando cuántas se podían hacer antes de venderlas.
     ["producible-now"], ["production-capacity"],
+    // Ficha de ítem del POS (use-pos-item-info.ts:193,265): es donde el cajero
+    // mira existencias y producibles antes de vender. Sus keys viven bajo el
+    // prefijo `["pos", …]` y no las cubría ninguna de las de arriba, así que
+    // mostraba stock vendido hacía rato (auditoría 2026-09-08).
+    ["pos", "item-info"], ["pos", "item-producible"],
   ],
   // pos-bootstrap: use-pos-bootstrap.ts embeda los clientes con staleTime 5min
   // (ver route.ts `/api/pos/bootstrap`) — sin esto, editar un cliente en admin
@@ -59,7 +85,9 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // outlet: sin pos-bootstrap hasta el audit 2026-08-16 — el bootstrap trae
   // datos de la sucursal activa (billing/tin/phone/coords) que el ticket
   // impreso usa; editarlos en /outlets no se reflejaba en la caja.
-  outlet:            [["outlets"], ["pos-bootstrap"]],
+  // `["pos","outlets"]` (use-pos-outlets.ts:38) va explícito: TanStack matchea
+  // por prefijo y `["outlets"]` no es prefijo de `["pos","outlets"]`.
+  outlet:            [["outlets"], ["pos", "outlets"], ["pos-bootstrap"]],
   category:          [["categories"], ["taxonomies", "category"], ["pos-bootstrap"]],
   brand:             [["brands"], ["taxonomies", "brand"], ["pos-bootstrap"]],
   // tag: SIN pos-bootstrap a propósito, a diferencia de category/brand. El
@@ -82,7 +110,11 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // prefijo cualquier id abierto, sin depender de que el evento traiga el
   // mismo id (viene el UUID crudo, el detalle cachea con `enc(transactionId)`).
   transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["dashboard"], ["dashboard-widget"]],
-  drawer:            [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
+  // `["drawer"]` es el key del POS (use-drawer.ts:213) y estaba FUERA: el mapa
+  // solo invalidaba el reporte del panel. Con dos cajas en el mismo turno, la
+  // apertura/cierre/movimiento hecho en una no llegaba a la otra y las dos
+  // cerraban con cifras distintas (auditoría 2026-09-08).
+  drawer:            [["drawer"], ["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
   // register-lease: en el POS lo intercepta el handler de tenencia de más
   // abajo y no llega hasta acá; este mapeo es para el PANEL, que muestra la
   // tenencia en dos pantallas —Sucursales → Cajas y Ajustes → Dispositivos—.
@@ -92,7 +124,10 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   "register-lease":  [["register-leases"], ["pos-devices"]],
   expense:           [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
   // setting también invalida pos-bootstrap porque lo usa el POS para leer config del tenant.
-  setting:           [["settings"], ["modules"], ["bootstrap"], ["pos-bootstrap"]],
+  // `["pos-modules"]` (use-pos-modules.ts:27) es el key del POS y faltaba: el
+  // mapa invalidaba `["modules"]`, que es el del panel. Un módulo dado de baja
+  // en el plan seguía habilitado en la caja (auditoría 2026-09-08).
+  setting:           [["settings"], ["modules"], ["pos-modules"], ["bootstrap"], ["pos-bootstrap"]],
   screen:            [["screens"]],
   "price-list":      [["price-lists"], ["price-list-items"]],
   "parked-sale":     [["parked-sales"]],
@@ -116,7 +151,10 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
   // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno
   // (el servidor ya escribió antes del emit, no hay race).
-  register:          [["pos-hotkeys"], ["pos-bootstrap"], ["registers"]],
+  // `["pos","registers"]` (use-pos-outlets.ts:47) NO matchea por prefijo con
+  // `["registers"]` — son arrays distintos desde el primer elemento. Mismo caso
+  // que `outlet` más abajo.
+  register:          [["pos-hotkeys"], ["pos-bootstrap"], ["registers"], ["pos", "registers"]],
   // Módulo de Órdenes (O1, context/24-orders-module-plan.md). Invalidación
   // genérica de queryKeys — NO es el canal KDS ({companyId}:kds:{outletId},
   // scope O2), ese lo consumen pantallas de cocina/mozos dedicadas.
@@ -189,7 +227,7 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
   const qc = useQueryClient()
   React.useEffect(() => {
     const unsubInvalidate = subscribeRealtime((ev: InvalidateEvent) => {
-      if (clientScope === "pos" && ev.scope === "dashboard") return
+      if (clientScope === "pos" && ev.scope === "dashboard" && !POS_NEEDS_DASHBOARD.has(ev.entity)) return
 
       // Sync quirúrgico (POS only, context/15 §Modelo quirúrgico): item y
       // contact con id(s) conocido(s) se resuelven con fetch puntual por id

@@ -107,6 +107,60 @@ function apiAuthPosContext(): array
             // constantes quedaban corridas respecto de la hora del comercio.
             if (!defined('TODAY'))       define('TODAY',       date('Y-m-d H:i:s'));
             if (!defined('TODAY_DATE'))  define('TODAY_DATE',  date('Y-m-d'));
+
+            // ── Realtime: este embudo también publica ────────────────────────
+            //
+            // `apiAuthTenant()` llama a `realtimeAfterMutation()` en cada
+            // mutación (bootstrap.php:595) y por eso casi todo el producto
+            // sincroniza solo. Este OTRO embudo no lo hacía, así que todo lo
+            // que entra por Bearer de device mutaba en silencio: una venta
+            // parkeada no le llegaba a la otra caja —que podía retomar una
+            // venta ya cobrada— y el flush de la cola offline metía N ventas
+            // sin avisarle a nadie (auditoría 2026-09-08).
+            //
+            // Va en el EMBUDO y no en `parked-sales.php`/`offline-sync.php`:
+            // eran los dos que la auditoría encontró, pero el agujero es de
+            // quien autentica, no de ellos — el próximo endpoint POS nacería
+            // mudo igual. Misma razón por la que el default de
+            // `realtimeAfterMutation` es invertido (publica salvo que se lo
+            // excluya).
+            //
+            // SKIP_SELF_PUBLISHED existe porque algunos endpoints de este
+            // embudo ya publican por su cuenta, con más contexto del que el
+            // path puede dar: `SaleService::save()` emite `transaction` con
+            // los ids de los ítems cuyo stock se movió, y cada resource de
+            // `transactions.php` emite lo suyo (void/status/reject/DELETE).
+            // Publicar de nuevo acá no rompería nada —invalidar dos veces es
+            // idempotente— pero duplicaría un broadcast a todo el tenant en
+            // el endpoint más caliente del sistema.
+            //
+            // Y se publica AL FINAL de la request, no acá mismo. Este embudo
+            // corre ANTES que el endpoint, así que emitir en línea avisaría de
+            // un cambio que todavía no está escrito: los otros dispositivos
+            // refrescarían datos viejos y no habría un segundo aviso. Con una
+            // escritura corta casi nunca se nota —por eso `apiAuthTenant()`
+            // convive con eso—, pero el flush de la cola offline inserta N
+            // ventas y puede tardar segundos. `register_shutdown_function()`
+            // corre después del endpoint, incluso si termina con `exit`.
+            $__method = $_SERVER['REQUEST_METHOD'] ?? '';
+            if (in_array($__method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+                $__path = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
+                $__skipSelfPublished = ['/v1/sales', '/v1/transactions', '/v1/register/claim'];
+                if (!in_array($__path, $__skipSelfPublished, true)) {
+                    $__targetId  = isset($_GET['id']) ? (string) $_GET['id'] : null;
+                    $__companyId = (string) $ctx['companyId'];
+                    register_shutdown_function(
+                        static function () use ($__method, $__path, $__targetId, $__companyId): void {
+                            // Best-effort, igual que todo el realtime: si Redis
+                            // no está, `wsPublish()` ya absorbe el error. Un
+                            // fallo de notificación nunca puede afectar a una
+                            // venta que ya se guardó.
+                            realtimeAfterMutation($__method, $__path, $__targetId, $__companyId);
+                        }
+                    );
+                }
+            }
+
             return $ctx;
         }
     }
