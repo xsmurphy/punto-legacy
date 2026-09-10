@@ -184,16 +184,26 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
   } = useReturnOptions(selectedTransactionId)
 
   // Lo que se pinta: las líneas que dio el server, con la edición del cajero
-  // encima. Sin defaults duplicados — qty arranca en 0 y la reposición en el
-  // `defaultRestock` que decidió el backend (tabla D2 de context/40), que es
-  // el único que sabe qué es POSIBLE reponer.
+  // encima.
+  //
+  // La cantidad arranca en el CUPO DISPONIBLE, no en cero (pedido del owner
+  // 2026-09-10). El caso normal en el mostrador es devolver toda la venta:
+  // arrancar en cero obligaba a tipear la misma cantidad que ya estaba escrita
+  // en la factura, línea por línea, y dejaba el botón "Continuar" deshabilitado
+  // hasta hacerlo. Es `availableQty` y no `soldQty` porque ya descuenta
+  // devoluciones previas: en una venta devuelta a medias, el default es lo que
+  // QUEDA por devolver — proponer lo vendido sería proponer un número que el
+  // backend rechaza.
+  //
+  // La reposición sigue viniendo de `defaultRestock`, que decide el backend
+  // (tabla D2 de context/40): es el único que sabe qué es POSIBLE reponer.
   const selectedItems = React.useMemo<SelectedLine[]>(() => {
     if (!optionsData) return []
     return optionsData.map((line) => {
       const edit = edits[line.itemSoldId]
       return {
         ...line,
-        returnQty: edit?.returnQty ?? 0,
+        returnQty: edit?.returnQty ?? line.availableQty,
         restock: edit?.restock ?? line.defaultRestock,
       }
     })
@@ -218,7 +228,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
     setEdits((prev) => ({
       ...prev,
       [itemSoldId]: {
-        returnQty: prev[itemSoldId]?.returnQty ?? 0,
+        returnQty: prev[itemSoldId]?.returnQty ?? line.availableQty,
         restock: value,
       },
     }))
