@@ -1,8 +1,51 @@
 # 73 — KuDE propio: Punto renderiza su PDF de factura electrónica
 
+> ## SUPERSEDED — 2026-09-10, por decisión del owner
+>
+> **El KuDE propio se ELIMINÓ. El PDF vuelve a salir siempre del motor de
+> facturación electrónica.** El renderer (`/api/kude/render`, el template
+> `@react-pdf`, el contrato del payload, el caché S3 por CDC y
+> `INTERNAL_RENDER_KEY`) ya no existe en el repo.
+>
+> **Por qué se deshizo.** El motivo estratégico de todo este plan era el D5:
+> no depender de un TERCERO, ir armando la maquinaria propia "para algún día
+> tener sistema de facturación electrónica propio". Ese tercero era Factomate.
+> El mismo día en que Factomate quedó fuera y FE-PY —motor del mismo dueño—
+> pasó a ser el único, el objetivo ya estaba cumplido: el KuDE lo dibuja
+> software propio, solo que del otro lado de la API. Lo único que quedaba del
+> renderer era un SEGUNDO dibujo del mismo documento fiscal, con su propia
+> forma de divergir del que se firmó.
+>
+> **Y divergió, en producción.** `KudeService::payload()` se escribió contra el
+> payload de Factomate (`electronicDocumentItems`, `client`,
+> `operationCondition`, `DCarQR`) y nunca se adaptó a FE-PY. Al habilitarse el
+> renderer salió un KuDE VACÍO —sin líneas, totales en cero, sin QR, receptor
+> "Sin nombre", "Contado" en una factura a crédito— y le llegó a un cliente
+> real. Se revirtió en `47f975ae`. El mapeo NO se arregló: se borró.
+>
+> **Qué SOBREVIVE de este plan** (y por eso el doc no se borra):
+>
+> - **D4 — el envío lo hace Punto** (Resend, `context/57`). `KudeEmailBuilder`
+>   sigue existiendo; lo único que cambió es que el PDF adjunto sale del motor.
+> - **K3 — el archivo del XML firmado a S3.** Es custodia del documento fiscal
+>   de verdad y no tiene nada que ver con el render. Vive ahora en
+>   `EInvoiceService::archiveSignedXml()`. Se corrigió al pasarlo: leía un
+>   `XmlUrl` que solo devolvía Factomate, así que desde el cambio de motor NO
+>   ESTABA ARCHIVANDO NADA; ahora baja el XML por CDC.
+> - Los predicados de entrega (`kudeDeliveryBlocker`) y todo el flujo de
+>   portal / email / POS, que nunca fueron de este plan.
+>
+> **Lo que reemplaza al D2/D3** (diseño fijo y pie con marca de Punto): el
+> diseño del KuDE lo decide el motor. Lo que Punto sí le manda es el LOGO del
+> comercio (`EInvoiceService::syncEmitterLogo()` → `logoUrl` del tenant, que se
+> sincroniza al subir o borrar el logo y en cada verificación de la cuenta).
+>
+> **Antes de reabrir esto**, leé el párrafo de arriba: un renderer propio del
+> KuDE se justifica el día que el motor deje de ser nuestro, no antes.
+
 Plan 2026-09-07. D1-D5 CERRADAS por el owner (pedido textual de esta fecha);
 K1-K5 propuestas. Relacionados: `context/49` (norma del KuDE y qué devuelve
-Factomate — LEERLO antes de tocar esto), `context/28` (outbox FE),
+el motor — LEERLO antes de tocar esto), `context/28` (outbox FE),
 `context/57` (entrega por email), `context/56` (patrón @react-pdf/renderer).
 
 ## Qué pidió el owner (2026-09-07)
