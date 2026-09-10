@@ -92,7 +92,16 @@ import {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Anulada por `SaleVoidService` (`voidedAt`) o por la anulación legacy
+ * (tipo 7). Para el cajero es lo mismo, así que la fila las pinta igual.
+ */
+function rowIsVoided(item: PosTransactionListItem): boolean {
+  return Boolean(item.voidedAt) || isVoided(item.type)
+}
+
 function chipStyle(item: PosTransactionListItem): string {
+  if (rowIsVoided(item)) return "bg-muted text-muted-foreground line-through"
   if (isQuote(item.type)) return "bg-secondary text-secondary-foreground border"
   if (isReturn(item.type) || isVoided(item.type)) return "bg-muted text-muted-foreground"
   if (isCreditSale(item.type)) {
@@ -470,6 +479,7 @@ function TransactionRow({
   // número que salió impreso.
   const invoicePadWidth = useCatalogStore((s) => s.invoicePadWidth)
   const hasName = Boolean(item.customerName)
+  const voided = rowIsVoided(item)
 
   // Metadata de la fila en UNA línea horizontal: documento · fecha · nro de
   // comprobante (owner 2026-08-24). Los segmentos vacíos se omiten CON su
@@ -498,7 +508,15 @@ function TransactionRow({
         <span className={cn("text-sm font-medium truncate", !hasName && "text-muted-foreground")}>
           {item.customerName || "Consumidor final"}
         </span>
-        <span className="text-sm font-semibold tabular-nums shrink-0">
+        <span
+          className={cn(
+            "text-sm font-semibold tabular-nums shrink-0",
+            // El monto de una venta anulada ya no entra a la caja: se tacha en
+            // vez de esconderse, porque el cajero necesita reconocer la venta
+            // por su importe para saber que es la que anuló.
+            voided && "text-muted-foreground line-through",
+          )}
+        >
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
@@ -518,8 +536,12 @@ function TransactionRow({
             </React.Fragment>
           ))}
         </div>
+        {/* El chip ocupa SIEMPRE el mismo lugar (§10, posiciones estables): en
+            una venta anulada dice "Anulada" EN LUGAR del tipo, no además. El
+            tipo de una venta que ya no existe no es lo que el cajero necesita
+            leer, y agregar un segundo chip correría el resto de la fila. */}
         <Badge variant="secondary" className={cn("shrink-0", chipStyle(item))}>
-          {saleTypeLabel(item.type)}
+          {voided ? "Anulada" : saleTypeLabel(item.type)}
         </Badge>
       </div>
     </button>

@@ -732,8 +732,22 @@ final class TransactionService
         }
 
         if ($typeFilter !== null) {
-            $where[]  = 't.transactionType = ?';
-            $params[] = $typeFilter;
+            if ((int) $typeFilter === 7) {
+                // "Anulado" es UN concepto para el cajero, pero tiene DOS
+                // representaciones en la base: el tipo 7 que escribe la
+                // anulación legacy (`voidTransaction()`) y `voidedat` sobre la
+                // venta original, que es lo que hace `SaleVoidService` sin
+                // tocarle el tipo. Filtrar solo por tipo dejaba fuera todas las
+                // anuladas desde la caja y el panel — es decir, todas las
+                // actuales.
+                $where[] = '(t.transactionType = 7 OR t.voidedAt IS NOT NULL)';
+            } else {
+                // Una venta anulada NO aparece bajo su tipo original: para el
+                // cajero dejó de ser una venta de contado, y verla mezclada con
+                // las vigentes es lo que lleva a intentar operarla.
+                $where[]  = 't.transactionType = ? AND t.voidedAt IS NULL';
+                $params[] = $typeFilter;
+            }
         }
 
         $sql = 'SELECT t.* FROM transaction t LEFT JOIN contact c ON t.customerId = c.contactId WHERE ' . implode(' AND ', $where)
@@ -904,6 +918,13 @@ final class TransactionService
                 'debt'            => ($type === '3') ? max(0.0, $topay) : 0,
                 'label'           => $typeOfSale,
                 'type'            => $f['transactionType'],
+                // Una venta anulada por `SaleVoidService` CONSERVA su tipo (0/3)
+                // y se marca con `voidedat` — no pasa a tipo 7, que es la
+                // anulación legacy de `voidTransaction()`. Sin este campo la
+                // fila del listado no tenía cómo distinguir una venta vigente
+                // de una anulada y las pintaba igual (reporte del owner
+                // 2026-09-09, con la 001-002-616 ya anulada en pantalla).
+                'voidedAt'        => (string) ($f['voidedAt'] ?? ''),
                 'borderColor'     => $stat,
             ];
         }

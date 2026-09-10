@@ -25,6 +25,13 @@ export interface PosTransactionListItem {
   debt: number
   label: string
   type: number
+  /**
+   * ISO de la anulación, "" si la venta está vigente. Una venta anulada por
+   * `SaleVoidService` CONSERVA su `type` (0/3) — no pasa a 7, que es la
+   * anulación legacy —, así que este campo es el único discriminante que
+   * tiene la fila del listado.
+   */
+  voidedAt: string
   borderColor: string
 }
 
