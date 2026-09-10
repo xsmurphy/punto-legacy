@@ -1858,8 +1858,24 @@ final class EInvoiceService
         $params        = $companyId !== null ? [$companyId, $limit] : [$limit];
 
         $rs = ncmExecute(
-            "SELECT einvoicedocid, companyid, provider_number FROM einvoice_document
-              WHERE $companyFilter status = 'issued' AND provider_number IS NOT NULL
+            // ── La llave de reconciliación es COALESCE(provider_number, cdc) ──
+            //
+            // Antes el WHERE exigía `provider_number IS NOT NULL` y ese filtro
+            // fabricaba huérfanos: la factura 001-002-0000615 quedó `issued`
+            // con CDC y sin `provider_number`, y como esta query la salteaba
+            // NUNCA se volvía a mirar — no se podía consultar su estado en
+            // SIFEN, ni bajar su KuDE, ni cancelarla. Y no era un documento sin
+            // llave: `provider_number` es un CACHÉ de la llave con la que el
+            // motor reconcilia, que en FE-PY ES el CDC (mig 214). O sea que la
+            // llave estaba ahí al lado, sin copiar.
+            //
+            // Colgar la reconciliación de la copia y no del original es lo que
+            // convertía una escritura incompleta en un documento perdido para
+            // siempre. Ahora se lee el original cuando falta la copia, y
+            // `reconcileDocument()` completa la copia al pasar.
+            "SELECT einvoicedocid, companyid, COALESCE(provider_number, cdc) AS reconcile_key, provider_number
+               FROM einvoice_document
+              WHERE $companyFilter status = 'issued' AND COALESCE(provider_number, cdc) IS NOT NULL
                 AND (sifen_checked_at IS NULL OR sifen_checked_at < now() - interval '10 minutes')
                 -- Aprobado/Rechazado son ESTADOS FINALES: una vez que SIFEN se
                 -- expidió no cambia, así que re-consultarlos es gasto puro. Se
@@ -1892,7 +1908,9 @@ final class EInvoiceService
                 $cid = (string) $rs->fields['companyid'];
                 $byCompany[$cid][] = [
                     'id'     => (string) $rs->fields['einvoicedocid'],
-                    'bulkId' => (string) $rs->fields['provider_number'],
+                    'bulkId' => (string) $rs->fields['reconcile_key'],
+                    // Para completar el caché cuando esté vacío — ver reconcileDocument().
+                    'cached' => trim((string) ($rs->fields['provider_number'] ?? '')) !== '',
                 ];
                 $checked++;
                 $rs->MoveNext();
@@ -1930,7 +1948,7 @@ final class EInvoiceService
             }
 
             foreach ($docs as $doc) {
-                if ($this->reconcileDocument((string) $cid, $environment, $tenantRef, $bearer, $doc['id'], $doc['bulkId'], $seal)) {
+                if ($this->reconcileDocument((string) $cid, $environment, $tenantRef, $bearer, $doc['id'], $doc['bulkId'], $seal, (bool) $doc['cached'])) {
                     $updated++;
                 }
             }
@@ -1946,11 +1964,23 @@ final class EInvoiceService
      * `DB_THROW_ON_ERROR` una sola fila mal formada abortaba todo lo demás).
      *
      * @param bool $seal marcar `sifen_checked_at` aunque el intento falle — ver reconcilePending().
+     * @param bool $keyCached false cuando la fila llegó acá por su `cdc` porque
+     *        `provider_number` estaba vacío: se completa de paso, así el caché
+     *        deja de faltar en vez de faltar para siempre (caso de la 615).
      * @return bool true si se escribió `sifen_status`.
      */
-    private function reconcileDocument(string $companyId, string $environment, string $tenantRef, string $bearer, string $docId, string $bulkId, bool $seal): bool
+    private function reconcileDocument(string $companyId, string $environment, string $tenantRef, string $bearer, string $docId, string $bulkId, bool $seal, bool $keyCached = true): bool
     {
         try {
+            if (!$keyCached && $bulkId !== '') {
+                // Auto-reparación, antes de salir a la red: si el intento
+                // remoto falla, la copia igual quedó completa.
+                ncmExecute(
+                    'UPDATE einvoice_document SET provider_number = ? WHERE einvoicedocid = ? AND provider_number IS NULL',
+                    [$bulkId, $docId]
+                );
+            }
+
             $bulk = $this->providerFor($companyId)->getBulk($environment, $tenantRef, $bearer, $bulkId);
 
             $sifenStatus = self::sifenStatusFromBulk($bulk);
@@ -2604,7 +2634,7 @@ final class EInvoiceService
     {
         try {
             $doc = ncmExecute(
-                'SELECT transactionid, doctype, attempts, security_code FROM einvoice_document WHERE einvoicedocid = ?',
+                'SELECT transactionid, doctype, attempts, security_code, provider_txn_id FROM einvoice_document WHERE einvoicedocid = ?',
                 [$docId]
             );
             if (!$doc) {
@@ -2613,6 +2643,10 @@ final class EInvoiceService
             $transactionId = (string) $doc['transactionid'];
             $doctype       = (string) $doc['doctype'];
             $attempts      = (int) ($doc['attempts'] ?? 0);
+            // La llave de recuperación (mig 217). Write-once: si está, este
+            // documento YA salió alguna vez hacia el motor, aunque nuestra fila
+            // diga `error` y aunque `retry()` haya reseteado los intentos.
+            $storedTxnId   = trim((string) ($doc['provider_txn_id'] ?? ''));
             // securityCode CONGELADO para este documento: se genera una sola
             // vez y se reusa en todos los reintentos. Ver ensureSecurityCode().
             $securityCode  = $this->ensureSecurityCode($docId, $doc['security_code'] ?? null);
@@ -2701,16 +2735,62 @@ final class EInvoiceService
 
             $bearer = $this->sessionFor($companyId)->getBearer($companyId);
             [$tenantRef, $environment] = $this->emitterIdentity($companyId);
+
+            // ── PASO DE RECUPERACIÓN: ¿este documento ya existe allá? ──────
+            //
+            // Va ANTES de todo reintento y después de armar el payload, que es
+            // de donde salen el número y el tipo con los que se lo busca.
+            // Emitir sin preguntar es como se emite dos veces el mismo
+            // documento fiscal. Si el motor no contesta, la excepción sube y
+            // la fila queda en `error` para la corrida siguiente: un "no sé"
+            // NUNCA se interpreta como "no existe".
+            //
+            // Un fallo de la CONSULTA consume un intento del presupuesto de
+            // ocho, igual que un fallo de emisión. Es deliberado y no es
+            // gratis: si el endpoint de recuperación está caído, el documento
+            // agota sus intentos sin haberse llegado a emitir y necesita un
+            // `retry()` humano (que resetea `attempts` y —al no tocar
+            // `provider_txn_id`— deja la recuperación igual de armada). Se
+            // elige ese fallo y no el otro: no contar estos intentos deja al
+            // drainer girando sobre el mismo documento indefinidamente, que es
+            // exactamente el incidente que el corte de reintentos se agregó a
+            // resolver el 2026-09-09 (el proveedor nos reportó documentos
+            // viejos golpeando su API todo el día). Quedar quieto y visible en
+            // `error` degrada mejor que no parar nunca.
+            if ($attempts > 0 || $storedTxnId !== '') {
+                $vigente = $this->lookupIssuedDocument(
+                    $companyId, $environment, $tenantRef, $bearer, $storedTxnId, $payload, $point
+                );
+                if ($vigente !== null) {
+                    return $this->adoptRecoveredDocument(
+                        $companyId, $account, $point, $sale, $doctype, $config, $vigente, $docId, $attempts
+                    );
+                }
+            }
+
             $result = $this->providerFor($companyId)->issue($environment, $tenantRef, $bearer, $payload);
+            $txnId  = isset($result['txnId']) ? trim((string) $result['txnId']) : '';
 
             if (empty($result['success']) || empty($result['cdc'])) {
                 $reason = (string) ($result['statusMessage'] ?? 'El proveedor rechazó el documento sin motivo reconocible.');
                 ncmExecute(
+                    // `provider_txn_id` se escribe EN EL MISMO UPDATE que marca
+                    // `error`, y con COALESCE: es la única llave con la que
+                    // después se puede averiguar si este documento igual quedó
+                    // emitido del otro lado. Si se pierde acá, se perdió para
+                    // siempre — es lo que pasó con la NC nº 2 (mig 217).
                     "UPDATE einvoice_document
                         SET status = 'error', attempts = attempts + 1, error_message = ?,
-                            provider_response = ?::jsonb, next_retry_at = ?, updated_at = now()
+                            provider_response = ?::jsonb, provider_txn_id = COALESCE(provider_txn_id, ?),
+                            next_retry_at = ?, updated_at = now()
                       WHERE einvoicedocid = ?",
-                    [$reason, json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE), $this->nextRetryAt($attempts + 1), $docId]
+                    [
+                        $reason,
+                        json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE),
+                        $txnId !== '' ? $txnId : null,
+                        $this->nextRetryAt($attempts + 1),
+                        $docId,
+                    ]
                 );
                 return false;
             }
@@ -2722,7 +2802,15 @@ final class EInvoiceService
             error_log('[EInvoiceService] issueClaimedDocument ' . $docId . ': ' . $e->getMessage());
             try {
                 $attempts = (int) (ncmExecute('SELECT attempts FROM einvoice_document WHERE einvoicedocid = ?', [$docId])['attempts'] ?? 0);
-                $this->markError($docId, $attempts, $e->getMessage());
+                // Un error HTTP NO prueba que el documento no se haya creado.
+                // Si su cuerpo trae el identificador de la transacción, se
+                // guarda junto con el error: es el hilo de la recuperación.
+                $failedTxnId = null;
+                if ($e instanceof FePyHttpException) {
+                    $candidate = trim((string) ($e->body['txnId'] ?? ''));
+                    $failedTxnId = $candidate !== '' ? $candidate : null;
+                }
+                $this->markError($docId, $attempts, $e->getMessage(), $failedTxnId);
             } catch (\Throwable $inner) {
                 // Ni siquiera se pudo persistir el error — se loguea y se abandona,
                 // el documento queda 'sending' hasta revisión manual (caso extremo).
@@ -2730,6 +2818,192 @@ final class EInvoiceService
             }
             return false;
         }
+    }
+
+    /**
+     * ¿El documento que estamos por emitir YA existe del lado del motor?
+     *
+     * Este método es la diferencia entre "reintentar" y "emitir dos veces el
+     * mismo documento fiscal". Un documento puede estar emitido allá y `error`
+     * acá — pasó dos veces en producción el 2026-09-10 — y hasta hoy el
+     * drainer lo reintentaba a ciegas confiando en que la `Idempotency-Key` lo
+     * frenara. No lo frena cuando el payload cambió: ante otro body el motor
+     * devuelve 409, no deduplica, y el documento queda irrecuperable.
+     *
+     * ── El orden, y por qué ──────────────────────────────────────────────
+     *
+     *   1. Por `txnId` (mig 217) cuando lo tenemos. Es la llave EXACTA de la
+     *      transacción de emisión, existe aunque no haya CDC, y no depende de
+     *      que el número que mandamos sea el que quedó.
+     *   2. Por número + tipo como fallback, para cuando se perdió la respuesta
+     *      HTTP entera y nunca hubo `txnId`. El tipo va SIEMPRE: sin él la
+     *      búsqueda cruza una factura con una nota de crédito del mismo
+     *      número.
+     *
+     * ── Lo que NO hace ───────────────────────────────────────────────────
+     *
+     * No elige entre `intentos`. Quién es el documento vigente lo decide el
+     * único parcial de la base del motor (`WHERE estado NOT IN
+     * ('rechazado','error')`); reimplementar ese criterio acá sería una
+     * segunda versión, peor, de una garantía que ya existe.
+     *
+     * Y no traga los errores: si el motor no contesta, la excepción SUBE. Un
+     * "no sé" tratado como "no existe" es exactamente cómo se emite dos veces.
+     *
+     * ── El único punto ciego, dicho con todas las letras ──────────────────
+     *
+     * Devolver `null` significa "no hay documento vigente" en TODOS los casos
+     * MENOS uno: cuando el documento no tiene `txnId` guardado NI número
+     * propio (kill-switch `legacyAutoNumbering`), no hay con qué preguntar y
+     * el `null` es "no pude averiguarlo", no "no existe". Ese caso queda
+     * apoyado solamente en la `Idempotency-Key` —mismo body ⇒ replay— que es
+     * la protección que había antes de este método para todos los casos. Se
+     * loguea al pasar para que no se confunda con una consulta que dio
+     * negativo. Hoy es un camino angosto: la numeración propia es la vigente
+     * y el kill-switch quedó inerte (ver sección (D) del arnés).
+     *
+     * @param array<string,mixed> $payload Payload ya armado — de ahí salen número y tipo.
+     * @param array{establecimiento:string,punto:string} $point
+     * @return array<string,mixed>|null El documento vigente, o null si no hay ninguno
+     *         (y sólo entonces es seguro emitir).
+     */
+    private function lookupIssuedDocument(
+        string $companyId,
+        string $environment,
+        string $tenantRef,
+        string $bearer,
+        string $storedTxnId,
+        array $payload,
+        array $point
+    ): ?array {
+        $provider = $this->providerFor($companyId);
+
+        if ($storedTxnId !== '') {
+            $found = $provider->lookupByTxn($environment, $tenantRef, $bearer, $storedTxnId);
+            if (($found['vigente'] ?? null) !== null) {
+                return $found['vigente'];
+            }
+            // `vigente: null` por txnId ya es una respuesta completa: esa
+            // transacción no dejó documento vigente. Se sigue igual al fallback
+            // por número porque un intento ANTERIOR —cuyo txnId nunca llegó a
+            // guardarse— sí pudo haberlo dejado.
+        }
+
+        $numero = trim((string) ($payload['numero'] ?? ''));
+        $tipo   = (int) ($payload['tipoDocumento'] ?? 0);
+        $est    = trim((string) ($point['establecimiento'] ?? ''));
+        $punto  = trim((string) ($point['punto'] ?? ''));
+
+        if ($numero === '' || $tipo <= 0 || $est === '' || $punto === '') {
+            // Sin número propio no hay nada por qué preguntar: es el caso del
+            // kill-switch `legacyAutoNumbering`, donde el correlativo lo pone
+            // el motor y nosotros no sabemos cuál pidió el intento anterior.
+            // Ahí la única protección sigue siendo la Idempotency-Key (mismo
+            // body ⇒ misma key ⇒ replay), y se deja constancia.
+            error_log(
+                '[EInvoiceService] recuperación sin llave: el documento no tiene txnId guardado ni número propio ' .
+                'que consultar — se reintenta apoyado sólo en la clave de idempotencia.'
+            );
+            return null;
+        }
+
+        $found = $provider->lookupByNumber($environment, $tenantRef, $bearer, $tipo, $est, $punto, $numero);
+        return ($found['vigente'] ?? null) !== null ? $found['vigente'] : null;
+    }
+
+    /**
+     * ADOPTA un documento que el motor ya tenía: lo reconcilia con nuestra
+     * fila en vez de emitirlo de nuevo.
+     *
+     * Dos desenlaces, y ninguno de los dos vuelve a emitir:
+     *
+     *   - **Con CDC** — el documento es fiscal, exista el veredicto de SIFEN o
+     *     no. Se persiste `issued` por el camino normal (`persistIssued()`, con
+     *     su guard de CDC y su `numbering_mismatch`), y si el motor ya trajo el
+     *     veredicto se guarda en el mismo UPDATE. Incluye el caso RECHAZADO:
+     *     un rechazado queda `issued` + `sifen_status='Rechazado'`, que es
+     *     exactamente el estado desde el que el comercio puede corregir la
+     *     metadata fiscal y REEMITIR (`reissue()`). Reintentar un rechazo
+     *     idéntico sólo repite el rechazo y crea otra fila del lado de ellos.
+     *   - **Sin CDC** — el motor tiene una transacción para este documento pero
+     *     no llegó a haber documento fiscal. Queda en `error` con el motivo del
+     *     motor, sin reemitir en esta corrida: fail-closed. Si de verdad no
+     *     existe nada vigente, la consulta habría devuelto `vigente: null` y ni
+     *     siquiera estaríamos acá.
+     *
+     * @param array<string,mixed> $vigente Documento vigente tal como lo devolvió el motor.
+     */
+    private function adoptRecoveredDocument(
+        string $companyId,
+        $account,
+        array $point,
+        array $sale,
+        string $doctype,
+        array $config,
+        array $vigente,
+        string $docId,
+        int $attempts
+    ): bool {
+        $cdc    = trim((string) ($vigente['cdc'] ?? ''));
+        $txnId  = trim((string) ($vigente['txnId'] ?? ''));
+        $estado = strtolower(trim((string) ($vigente['estado'] ?? '')));
+
+        if ($cdc === '') {
+            $motivo = trim((string) ($vigente['errorMessage'] ?? ''));
+            $this->markError(
+                $docId,
+                $attempts,
+                'El motor ya tiene una emisión para este documento (estado: ' . ($estado !== '' ? $estado : 'desconocido') . ')' .
+                ' pero sin CDC, así que NO se reemite para no duplicarlo' . ($motivo !== '' ? ': ' . $motivo : '.'),
+                $txnId !== '' ? $txnId : null,
+                // El documento crudo del motor queda archivado: este es
+                // justamente el caso que termina en una inspección manual, y
+                // el mensaje de 500 chars no alcanza para diagnosticarlo.
+                $vigente
+            );
+            return false;
+        }
+
+        error_log(
+            '[EInvoiceService] documento RECUPERADO sin reemitir ' . $docId .
+            ' — el motor ya lo tenía emitido (estado=' . ($estado !== '' ? $estado : '?') . ', cdc=' . $cdc . ').'
+        );
+
+        // El shape de bulk es el MISMO que devuelve la reconsulta, así que el
+        // estado fiscal se deriva con el traductor que ya existe en vez de
+        // inventar una segunda lectura del veredicto de SIFEN.
+        $bulk = FePyProvider::toBulkShape($vigente);
+
+        $adopted = $this->persistIssued(
+            $companyId,
+            $account,
+            $point,
+            $sale,
+            $doctype,
+            $config,
+            [
+                'cdc'            => $cdc,
+                'documentNumber' => isset($vigente['numero']) ? (string) $vigente['numero'] : null,
+                'txnId'          => $txnId !== '' ? $txnId : null,
+                // En FE-PY la llave de reconciliación ES el CDC (mig 214).
+                'bulkId'         => $cdc,
+                'raw'            => $vigente,
+            ],
+            $docId,
+            $bulk
+        );
+
+        // Un documento adoptado que ya viene APROBADO no vuelve a pasar por la
+        // reconciliación (su WHERE excluye los estados finales), así que los
+        // efectos que cuelgan de esa transición tienen que dispararse acá o no
+        // se disparan nunca: el XML firmado no se archiva y el cliente no
+        // recibe su KuDE. Las dos son best-effort y no lanzan.
+        if ($adopted && self::isSifenApproved(self::sifenStatusFromBulk($bulk))) {
+            $this->archiveSignedXml($companyId, $docId);
+            $this->enqueueKudeEmail($companyId, $docId);
+        }
+
+        return $adopted;
     }
 
     /**
@@ -2742,6 +3016,12 @@ final class EInvoiceService
      * @param array<string,mixed> $sale
      * @param array<string,mixed> $stamp Vacío para FE-PY (no tiene catálogo de timbrados).
      * @param array<string,mixed> $result Respuesta normalizada de `issue()`.
+     * @param array<string,mixed>|null $bulk Estado FISCAL ya conocido, en el shape de
+     *        `getBulk()`. Solo lo trae la RECUPERACIÓN (`adoptRecoveredDocument()`),
+     *        que consulta un documento que el motor ya resolvió: si el veredicto de
+     *        SIFEN se sabe, se persiste en el MISMO UPDATE que marca `issued` en vez
+     *        de esperar a que la reconciliación lo descubra dentro de diez minutos.
+     *        En la emisión normal es null — ahí el veredicto todavía no existe.
      */
     private function persistIssued(
         string $companyId,
@@ -2751,7 +3031,8 @@ final class EInvoiceService
         string $doctype,
         array $config,
         array $result,
-        string $docId
+        string $docId,
+        ?array $bulk = null
     ): bool {
             // ── GUARD: ¿el CDC que volvió describe la venta que imprimimos? ──
             //
@@ -2768,10 +3049,29 @@ final class EInvoiceService
             // provider_number cachea la llave con la que el motor reconcilia
             // este documento (ver reconcile() y el COMMENT de la mig 214). En
             // FE-PY es el CDC, porque su reconsulta es por CDC.
+            $txnId = isset($result['txnId']) ? trim((string) $result['txnId']) : '';
+            $sifenStatus = $bulk !== null ? self::sifenStatusFromBulk($bulk) : null;
+            if ($sifenStatus !== null) {
+                // `sifen_status` es VARCHAR(20) (mig 95) — mismo recorte que en
+                // la reconciliación, por la misma razón: el fallback guarda un
+                // string libre del motor.
+                $sifenStatus = mb_substr($sifenStatus, 0, 20);
+            }
+            $sifenResult = $bulk !== null ? json_encode($bulk, JSON_UNESCAPED_UNICODE) : null;
+
             ncmExecute(
+                // Tres cosas que van juntas o no van: el CDC que hace fiscal al
+                // documento, el `txnId` con el que se lo recupera (write-once,
+                // mig 217) y —cuando la recuperación ya lo trajo— el veredicto
+                // de SIFEN. Los parámetros nulos son no-ops por COALESCE, así
+                // que la emisión normal escribe exactamente lo de siempre.
                 "UPDATE einvoice_document
                     SET status = 'issued', cdc = ?, document_number = ?, provider_number = ?, provider_response = ?::jsonb,
-                        numbering_mismatch = ?, issued_at = now(), updated_at = now()
+                        numbering_mismatch = ?, provider_txn_id = COALESCE(provider_txn_id, ?),
+                        sifen_status = COALESCE(?, sifen_status),
+                        sifen_result = COALESCE(?::jsonb, sifen_result),
+                        sifen_checked_at = CASE WHEN ?::text IS NULL THEN sifen_checked_at ELSE now() END,
+                        issued_at = now(), updated_at = now()
                   WHERE einvoicedocid = ?",
                 [
                     (string) $result['cdc'],
@@ -2779,6 +3079,10 @@ final class EInvoiceService
                     $result['bulkId'] !== null ? (string) $result['bulkId'] : null,
                     json_encode($result['raw'] ?? [], JSON_UNESCAPED_UNICODE),
                     $mismatch,
+                    $txnId !== '' ? $txnId : null,
+                    $sifenStatus,
+                    $sifenResult,
+                    $sifenStatus,
                     $docId,
                 ]
             );
@@ -3207,13 +3511,31 @@ final class EInvoiceService
      */
     private const MAX_RETRY_ATTEMPTS = 8;
 
-    private function markError(string $docId, int $attemptsBefore, string $message): void
+    private function markError(string $docId, int $attemptsBefore, string $message, ?string $txnId = null, ?array $providerResponse = null): void
     {
         ncmExecute(
+            // El `txnId` viaja en el MISMO UPDATE que marca el error, y con
+            // COALESCE para que sea write-once (mig 217): es la llave con la
+            // que después se averigua si el documento igual quedó emitido del
+            // otro lado. Escribirlo aparte abriría una ventana en la que la
+            // fila dice `error` y no tiene con qué recuperarse.
+            // `provider_response` sólo se pisa cuando el caller trae algo que
+            // valga la pena guardar (hoy: el documento crudo que devolvió la
+            // recuperación). Con null se conserva lo que ya estaba — un error
+            // de red no puede borrar la respuesta del intento que sí llegó.
             "UPDATE einvoice_document
-                SET status = 'error', attempts = attempts + 1, error_message = ?, next_retry_at = ?, updated_at = now()
+                SET status = 'error', attempts = attempts + 1, error_message = ?,
+                    provider_txn_id = COALESCE(provider_txn_id, ?),
+                    provider_response = COALESCE(?::jsonb, provider_response),
+                    next_retry_at = ?, updated_at = now()
               WHERE einvoicedocid = ?",
-            [mb_substr($message, 0, 500), $this->nextRetryAt($attemptsBefore + 1), $docId]
+            [
+                mb_substr($message, 0, 500),
+                ($txnId !== null && trim($txnId) !== '') ? trim($txnId) : null,
+                $providerResponse !== null ? json_encode($providerResponse, JSON_UNESCAPED_UNICODE) : null,
+                $this->nextRetryAt($attemptsBefore + 1),
+                $docId,
+            ]
         );
     }
 

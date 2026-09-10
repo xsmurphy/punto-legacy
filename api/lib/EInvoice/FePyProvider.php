@@ -49,11 +49,19 @@ namespace Punto\Api\EInvoice;
  *     por eso un 502 se reporta como error reintentable: el reintento con la
  *     misma key es un no-op del lado de ellos.
  *
- *  c) **Idempotencia REAL.** FE-PY cachea la
+ *  c) **Idempotencia REAL, y su filo.** FE-PY cachea la
  *     respuesta por `(company, Idempotency-Key)` durante 24 h y responde 409
- *     si la misma key llega con OTRO body. La key es el `einvoicedocid`
- *     (UUID, 36 chars — su mínimo es 8), que es exactamente "este documento
- *     del outbox", que es la unidad que se reintenta.
+ *     si la misma key llega con OTRO body. La key deriva del `einvoicedocid`
+ *     —la fila del outbox, que es la unidad que se reintenta— MÁS la huella
+ *     del body que se está mandando. Ver `idempotencyKey()`: la key
+ *     puramente estable por documento envenenaba el documento entero ante
+ *     cualquier deploy que cambiara el payload.
+ *
+ *  c2) **`txnId`: el hilo con el que se recupera un huérfano.** La emisión lo
+ *     devuelve SIEMPRE, tenga o no CDC. Se persiste en
+ *     `einvoice_document.provider_txn_id` (mig 217) en el mismo UPDATE que
+ *     fija `issued`/`error`, y con él `lookupByTxn()` pregunta si el
+ *     documento ya existe del otro lado ANTES de reintentar.
  *
  *  d) **El `montoTotal` que devuelven NO es el total fiscal**: lo calculan
  *     como Σ(cantidad × precioUnitario) sin IVA ni descuentos ("Simplificado
@@ -232,26 +240,25 @@ final class FePyProvider implements EInvoiceProvider
      *
      * ── La `Idempotency-Key` ─────────────────────────────────────────────
      *
-     * Viaja como header y sale de una clave reservada del payload
-     * (`__idempotencyKey`), que este método QUITA antes de serializar. Es
-     * feo y es a propósito: `EInvoiceProvider::issue()` no tiene un
-     * parámetro donde meterla, y las dos alternativas eran peores —
-     * cambiarle la firma a la interfaz o derivar la key del contenido (que
-     * la haría cambiar cuando el mapper cambie, o sea justo cuando NO tiene
-     * que cambiar). El valor
-     * es el `einvoicedocid`: la fila del outbox, que es la unidad que se
-     * reintenta. Ver el docblock de la clase, punto (c).
+     * Viaja como header y su semilla sale de una clave reservada del payload
+     * (`__idempotencyKey`, el `einvoicedocid`), que este método QUITA antes
+     * de serializar. Es feo y es a propósito: `EInvoiceProvider::issue()` no
+     * tiene un parámetro donde meterla y cambiarle la firma a la interfaz por
+     * un detalle de transporte de UN motor era peor.
+     *
+     * La key final la arma `idempotencyKey()` con esa semilla MÁS la huella
+     * del body — leer su docblock antes de tocar nada acá.
      *
      * SIN key el reintento de un timeout emite DOS veces. Por eso no hay
      * camino sin ella: si el mapper no la puso, esto lanza.
      *
-     * @return array{cdc:?string,documentNumber:?string,success:bool,statusMessage:?string,bulkId:?string,dCarQR:?string,xmlUrl:?string,raw:array}
+     * @return array{cdc:?string,documentNumber:?string,txnId:?string,success:bool,statusMessage:?string,bulkId:?string,dCarQR:?string,xmlUrl:?string,raw:array}
      */
     public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array
     {
-        $idempotencyKey = trim((string) ($payload[self::IDEMPOTENCY_PAYLOAD_KEY] ?? ''));
+        $documentRef = trim((string) ($payload[self::IDEMPOTENCY_PAYLOAD_KEY] ?? ''));
         unset($payload[self::IDEMPOTENCY_PAYLOAD_KEY]);
-        if (strlen($idempotencyKey) < 8) {
+        if (strlen($documentRef) < 8) {
             throw new \RuntimeException(
                 'El documento no trae clave de idempotencia (einvoicedocid) — no se emite sin ella: ' .
                 'un reintento tras un timeout emitiría el documento fiscal dos veces.'
@@ -263,7 +270,7 @@ final class FePyProvider implements EInvoiceProvider
             '/v1/tenants/' . rawurlencode($tenantRef) . '/de',
             $payload,
             $bearer,
-            ['Idempotency-Key: ' . $idempotencyKey]
+            ['Idempotency-Key: ' . self::idempotencyKey($documentRef, $payload)]
         );
 
         $cdc    = self::stringOrNull($raw['cdc'] ?? null);
@@ -297,6 +304,12 @@ final class FePyProvider implements EInvoiceProvider
             // y en SIFEN, y es contra el que se detecta la divergencia con
             // el correlativo impreso en el ticket.
             'documentNumber' => self::stringOrNull($raw['numero'] ?? null),
+            // El identificador de la TRANSACCIÓN de emisión. Viene con CDC y
+            // viene sin CDC, y es lo único que permite volver a encontrar el
+            // documento cuando la emisión terminó mal (mig 217). Se devuelve
+            // siempre, incluso en el camino de error de abajo: el caller lo
+            // persiste antes de marcar la fila.
+            'txnId'          => self::stringOrNull($raw['txnId'] ?? null),
             'success'        => $success,
             'statusMessage'  => $message,
             // Llave de reconciliación de ESTE proveedor: el CDC. FE-PY no
@@ -536,6 +549,173 @@ final class FePyProvider implements EInvoiceProvider
         ];
     }
 
+    /**
+     * RECUPERACIÓN por el identificador de la transacción de emisión —
+     * `GET /v1/tenants/{ref}/de/txn/{txnId}`.
+     *
+     * Es la lectura que faltaba. La reconsulta (`getBulk`) va por CDC, y
+     * justo el documento que hay que recuperar es el que puede no tenerlo:
+     * el POST de emisión devuelve `txnId` SIEMPRE, con CDC o sin él.
+     */
+    public function lookupByTxn(string $environment, string $tenantRef, string $bearer, string $txnId): array
+    {
+        $txnId = trim($txnId);
+        if ($txnId === '') {
+            throw new \RuntimeException('No se puede recuperar un documento sin el identificador de su transacción de emisión.');
+        }
+
+        return self::toLookupShape($this->lookupRequest(
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/de/txn/' . rawurlencode($txnId),
+            $bearer
+        ));
+    }
+
+    /**
+     * RECUPERACIÓN por número — `GET /v1/tenants/{ref}/de/numero/{est}/{punto}/{numero}?tipoDocumento=N`.
+     *
+     * El fallback para cuando se perdió la respuesta HTTP entera: sin `txnId`
+     * lo único que identifica al documento es la serie con la que se lo iba a
+     * emitir, que es un dato NUESTRO y siempre está.
+     *
+     * `tipoDocumento` va SIEMPRE en la query y no tiene default — el índice de
+     * ellos incluye el tipo, así que omitirlo cruza una factura con una nota
+     * de crédito del mismo número, que pueden coexistir vigentes.
+     */
+    public function lookupByNumber(
+        string $environment,
+        string $tenantRef,
+        string $bearer,
+        int $documentType,
+        string $establishment,
+        string $expeditionPoint,
+        string $number
+    ): array {
+        $establishment   = trim($establishment);
+        $expeditionPoint = trim($expeditionPoint);
+        $number          = trim($number);
+        if ($documentType <= 0 || $establishment === '' || $expeditionPoint === '' || $number === '') {
+            throw new \RuntimeException(
+                'No se puede recuperar un documento por número sin tipo, establecimiento, punto de expedición y número completos — ' .
+                'una búsqueda incompleta devolvería el documento equivocado.'
+            );
+        }
+
+        $path = '/v1/tenants/' . rawurlencode($tenantRef) . '/de/numero/'
+            . rawurlencode($establishment) . '/' . rawurlencode($expeditionPoint) . '/' . rawurlencode($number)
+            . '?tipoDocumento=' . rawurlencode((string) $documentType);
+
+        return self::toLookupShape($this->lookupRequest($path, $bearer));
+    }
+
+    /**
+     * GET de recuperación. El 404 NO es un error: es la respuesta "acá no hay
+     * nada con ese identificador", que es exactamente lo que el caller
+     * necesita saber para poder emitir. Cualquier otro fallo SÍ sube — un 500
+     * o un timeout significan "no sé", y tratar un "no sé" como "no existe"
+     * es el camino directo a emitir el documento dos veces.
+     *
+     * @return array<string,mixed>
+     */
+    private function lookupRequest(string $path, string $bearer): array
+    {
+        try {
+            return $this->exec($path, 'GET', ['Accept: application/json', 'Authorization: Bearer ' . $bearer], null);
+        } catch (FePyHttpException $e) {
+            if ($e->statusCode === 404) {
+                return ['vigente' => null, 'intentos' => []];
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Normaliza la respuesta de recuperación al shape del contrato.
+     *
+     * Lo único que hace es garantizar las dos claves y sus tipos: el
+     * `vigente` se pasa TAL CUAL. Elegir nosotros entre `intentos` cuál es el
+     * documento bueno sería reimplementar —peor— el único parcial que ellos
+     * ya tienen en la base; `intentos` queda disponible para diagnóstico y
+     * nada más.
+     *
+     * @param array<string,mixed> $raw
+     * @return array{vigente:?array<string,mixed>,intentos:list<array<string,mixed>>}
+     */
+    private static function toLookupShape(array $raw): array
+    {
+        $vigente = $raw['vigente'] ?? null;
+        $intentos = $raw['intentos'] ?? [];
+
+        return [
+            'vigente'  => is_array($vigente) && $vigente !== [] ? $vigente : null,
+            'intentos' => is_array($intentos) ? array_values(array_filter($intentos, 'is_array')) : [],
+        ];
+    }
+
+    /**
+     * La `Idempotency-Key` de una emisión: identidad del documento MÁS huella
+     * del body.
+     *
+     * ── Por qué no alcanza con el `einvoicedocid` a secas ─────────────────
+     *
+     * Era eso hasta hoy, y esa estabilidad pura envenenó un documento fiscal
+     * real. La nota de crédito nº 2 (2026-09-10) se emitió con el payload de
+     * ANTES de que existiera la serie propia de NC; en el medio se deployó, el
+     * payload pasó a llevar `numero`, y cada reintento chocó contra el body
+     * cacheado: *"Idempotency-Key was reused with a different request body"*,
+     * 409, ocho veces, hasta agotar los intentos. El documento existía del
+     * otro lado y del nuestro decía `error`. Con una key estable por
+     * documento, CUALQUIER deploy que toque el mapper envenena a todo
+     * documento en vuelo — y el mapper se toca seguido, porque es donde vive
+     * la regla fiscal.
+     *
+     * ── Por qué agregar la huella NO reabre la doble emisión ──────────────
+     *
+     * Porque la key nunca fue lo que evita la doble emisión ante un cambio de
+     * payload: ante otro body el motor RECHAZA (409), no deduplica. Lo que
+     * evita es reintentar el MISMO body cuando se perdió la respuesta —
+     * timeout, 502, proceso muerto— y eso se conserva intacto: mismo body,
+     * misma huella, misma key, replay de la respuesta cacheada.
+     *
+     * El caso "body distinto" lo cubre ahora el paso de RECUPERACIÓN
+     * (`lookupByTxn`/`lookupByNumber`, que `EInvoiceService` corre antes de
+     * todo reintento): si el documento ya existe del otro lado no se emite, y
+     * punto. Con eso "consultar antes de reemitir" deja de depender de la key,
+     * que vuelve a ser lo que siempre debió ser — protección de transporte, no
+     * garantía fiscal.
+     *
+     * ── El largo ──────────────────────────────────────────────────────────
+     *
+     * 36 caracteres, con forma de UUID: los primeros 24 del `einvoicedocid`
+     * (que lo dejan greppable contra nuestra fila en los logs de ellos) más 12
+     * hex de huella en el lugar del nodo. Se respeta ese largo a propósito —
+     * es el único que está PROBADO contra el motor en producción; su Zod
+     * declara mínimo 8 y no tenemos su máximo documentado, así que no se
+     * inventa una key más larga para averiguarlo con documentos fiscales.
+     * Colisionar exige que dos UUID v4 compartan sus primeros 20 dígitos hex.
+     *
+     * Pública y estática por el mismo motivo que `toBulkShape()`: es una
+     * función determinística que el arnés tiene que poder fijar sin levantar
+     * HTTP — y lo que hay que fijar acá es justamente que dos payloads
+     * distintos no comparten key.
+     *
+     * @param array<string,mixed> $payload El body EXACTO que se va a mandar, ya sin la clave reservada.
+     */
+    public static function idempotencyKey(string $documentRef, array $payload): string
+    {
+        $fingerprint = substr(hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE)), 0, 12);
+
+        // Forma canónica `8-4-4-4-12`: los primeros 24 chars terminan en el
+        // guión y el nodo son los 12 últimos, que es donde entra la huella.
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $documentRef) === 1) {
+            return substr($documentRef, 0, 24) . $fingerprint;
+        }
+
+        // El id del documento no tiene forma de UUID (no debería pasar: es una
+        // PK `gen_random_uuid()`). Se concatena y listo — sigue siendo
+        // determinística por (documento, body), que es lo único que importa.
+        return $documentRef . '-' . $fingerprint;
+    }
+
     // ── Provisioning: lo nativo de FE-PY ─────────────────────────────────
 
     /**
@@ -720,7 +900,7 @@ final class FePyProvider implements EInvoiceProvider
         if ($code < 200 || $code >= 300) {
             $safeResp = self::scrub((string) $resp, $secrets);
             error_log("[FePy] $method $path failed HTTP $code: $safeResp");
-            throw new FePyHttpException("El motor de facturación rechazó la operación: " . self::readableError($json, $code, $secrets), $code);
+            throw new FePyHttpException("El motor de facturación rechazó la operación: " . self::readableError($json, $code, $secrets), $code, $json);
         }
 
         return $json;
@@ -867,7 +1047,14 @@ final class FePyProvider implements EInvoiceProvider
  */
 final class FePyHttpException extends \RuntimeException
 {
-    public function __construct(string $message, public readonly int $statusCode)
+    /**
+     * @param array<string,mixed> $body Cuerpo JSON decodificado de la respuesta
+     *        de error, tal cual vino. Se conserva porque un error NO prueba que
+     *        el documento no se haya creado (ver punto (b) del docblock de la
+     *        clase): si la respuesta trae un `txnId`, ése es el hilo con el que
+     *        después se lo recupera. Vacío cuando no había JSON parseable.
+     */
+    public function __construct(string $message, public readonly int $statusCode, public readonly array $body = [])
     {
         parent::__construct($message);
     }
