@@ -70,6 +70,29 @@ sobrevivir) y `context/49` (portal del cliente).
 
 ---
 
+## Lotes y vencimientos (pedido del owner 2026-09-10) — análisis, sin plan
+
+Análisis completo en **`context/75-lotes-y-vencimientos.md`**. Resumen:
+
+- **Se puede, y barato — pero sólo la versión REFERENCIAL**, que es como lo
+  pidió el owner. La valorizada (FEFO real, cada salida consumiendo lotes)
+  toca los 23 call-sites de `manageStock()`, el COGS y la explosión de
+  recetas; la referencial es una tabla paralela más alertas.
+- **La consecuencia que hay que aceptar antes de construir**: si las salidas
+  no eligen lote, el saldo POR LOTE es una estimación. Sirve para "tenés
+  mercadería que vence el martes", no para "quedan exactamente 8 del lote A".
+- **Ya existe casi toda la infraestructura de alertas**: el patrón
+  "próximo a vencer" con ventanas disjuntas está resuelto dos veces
+  (`InvoiceAuthNoticeService`, `PlanLifecycleService`), con `TenantNotice`
+  como pieza reusable y el cron ya montado.
+- **Trampa**: la tabla `inventory` del schema ES una tabla de lotes con
+  `inventoryExpirationDate` y todo — muerta, sin un solo lector, y el propio
+  código dicta que si algún día se hace vencimiento se diseña de cero sobre el
+  ledger. Revivirla contradice la D2 de `context/52`. Y "lote" ya significa
+  lote de PRODUCCIÓN en el dominio (`production_batch`).
+- 5 preguntas abiertas para el owner en §5 del doc; la que decide el diseño es
+  si el saldo por lote puede ser aproximado.
+
 ## Plantillas de impresión preconfiguradas (pedido del owner 2026-09-09) — sin planificar
 
 **El pedido, textual**: *"necesitamos una sección de plantillas que vamos a definir ya
