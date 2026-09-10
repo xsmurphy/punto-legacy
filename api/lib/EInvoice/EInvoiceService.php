@@ -1858,8 +1858,24 @@ final class EInvoiceService
         $params        = $companyId !== null ? [$companyId, $limit] : [$limit];
 
         $rs = ncmExecute(
-            "SELECT einvoicedocid, companyid, provider_number FROM einvoice_document
-              WHERE $companyFilter status = 'issued' AND provider_number IS NOT NULL
+            // ── La llave de reconciliación es COALESCE(provider_number, cdc) ──
+            //
+            // Antes el WHERE exigía `provider_number IS NOT NULL` y ese filtro
+            // fabricaba huérfanos: la factura 001-002-0000615 quedó `issued`
+            // con CDC y sin `provider_number`, y como esta query la salteaba
+            // NUNCA se volvía a mirar — no se podía consultar su estado en
+            // SIFEN, ni bajar su KuDE, ni cancelarla. Y no era un documento sin
+            // llave: `provider_number` es un CACHÉ de la llave con la que el
+            // motor reconcilia, que en FE-PY ES el CDC (mig 214). O sea que la
+            // llave estaba ahí al lado, sin copiar.
+            //
+            // Colgar la reconciliación de la copia y no del original es lo que
+            // convertía una escritura incompleta en un documento perdido para
+            // siempre. Ahora se lee el original cuando falta la copia, y
+            // `reconcileDocument()` completa la copia al pasar.
+            "SELECT einvoicedocid, companyid, COALESCE(provider_number, cdc) AS reconcile_key, provider_number
+               FROM einvoice_document
+              WHERE $companyFilter status = 'issued' AND COALESCE(provider_number, cdc) IS NOT NULL
                 AND (sifen_checked_at IS NULL OR sifen_checked_at < now() - interval '10 minutes')
                 -- Aprobado/Rechazado son ESTADOS FINALES: una vez que SIFEN se
                 -- expidió no cambia, así que re-consultarlos es gasto puro. Se
@@ -1892,7 +1908,9 @@ final class EInvoiceService
                 $cid = (string) $rs->fields['companyid'];
                 $byCompany[$cid][] = [
                     'id'     => (string) $rs->fields['einvoicedocid'],
-                    'bulkId' => (string) $rs->fields['provider_number'],
+                    'bulkId' => (string) $rs->fields['reconcile_key'],
+                    // Para completar el caché cuando esté vacío — ver reconcileDocument().
+                    'cached' => trim((string) ($rs->fields['provider_number'] ?? '')) !== '',
                 ];
                 $checked++;
                 $rs->MoveNext();
@@ -1930,7 +1948,7 @@ final class EInvoiceService
             }
 
             foreach ($docs as $doc) {
-                if ($this->reconcileDocument((string) $cid, $environment, $tenantRef, $bearer, $doc['id'], $doc['bulkId'], $seal)) {
+                if ($this->reconcileDocument((string) $cid, $environment, $tenantRef, $bearer, $doc['id'], $doc['bulkId'], $seal, (bool) $doc['cached'])) {
                     $updated++;
                 }
             }
@@ -1946,11 +1964,23 @@ final class EInvoiceService
      * `DB_THROW_ON_ERROR` una sola fila mal formada abortaba todo lo demás).
      *
      * @param bool $seal marcar `sifen_checked_at` aunque el intento falle — ver reconcilePending().
+     * @param bool $keyCached false cuando la fila llegó acá por su `cdc` porque
+     *        `provider_number` estaba vacío: se completa de paso, así el caché
+     *        deja de faltar en vez de faltar para siempre (caso de la 615).
      * @return bool true si se escribió `sifen_status`.
      */
-    private function reconcileDocument(string $companyId, string $environment, string $tenantRef, string $bearer, string $docId, string $bulkId, bool $seal): bool
+    private function reconcileDocument(string $companyId, string $environment, string $tenantRef, string $bearer, string $docId, string $bulkId, bool $seal, bool $keyCached = true): bool
     {
         try {
+            if (!$keyCached && $bulkId !== '') {
+                // Auto-reparación, antes de salir a la red: si el intento
+                // remoto falla, la copia igual quedó completa.
+                ncmExecute(
+                    'UPDATE einvoice_document SET provider_number = ? WHERE einvoicedocid = ? AND provider_number IS NULL',
+                    [$bulkId, $docId]
+                );
+            }
+
             $bulk = $this->providerFor($companyId)->getBulk($environment, $tenantRef, $bearer, $bulkId);
 
             $sifenStatus = self::sifenStatusFromBulk($bulk);
