@@ -72,6 +72,7 @@ import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 import { RankingBarChart } from "@/components/domain/reports/ranking-bar-chart"
+import { CompositionDonutChart } from "@/components/domain/reports/composition-donut-chart"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Card,
@@ -232,6 +233,13 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
   const { data, isLoading, error } = useReport<ProductsReportResponse>("products", opts)
   const rows = React.useMemo(() => data?.rows ?? [], [data])
 
+  /** Misma fórmula que los totalizadores del Ranking. */
+  const utilityOf = React.useCallback(
+    (r: ProductRow) =>
+      typeof r.utility === "number" ? r.utility : r.total - r.cogs - r.comission,
+    [],
+  )
+
   const money = React.useCallback(
     (v: number) => formatMoney(v, bootstrap),
     [bootstrap],
@@ -260,6 +268,34 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
 
   const porCategoria = React.useMemo(() => groupBy("category"), [groupBy])
   const porMarca = React.useMemo(() => groupBy("brand"), [groupBy])
+
+  /**
+   * Cuántos de los que más facturan no tienen costo cargado.
+   *
+   * Importa decirlo: sin costo, `utility` es igual al total y la barra se
+   * pinta como utilidad pura. El gráfico estaría afirmando un margen del 100%
+   * que en realidad es un costo que nadie registró — y ese es justamente el
+   * artículo sobre el que un dueño tomaría una decisión equivocada.
+   */
+  /**
+   * Artículos vendidos sin marca cargada. El corte por marca los saltea —
+   * agruparlos en un "Sin marca" los pondría a competir como si fueran una
+   * marca más—, así que la card lo declara en vez de que el total del gráfico
+   * no cierre contra el del período sin explicación.
+   */
+  const sinMarca = React.useMemo(
+    () => rows.filter((r) => r.total > 0 && (r.brand ?? "").trim() === "").length,
+    [rows],
+  )
+
+  const sinCosto = React.useMemo(
+    () =>
+      [...rows]
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10)
+        .filter((r) => r.total > 0 && r.cogs === 0).length,
+    [rows],
+  )
 
   if (error) {
     return (
@@ -295,10 +331,21 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
-      <ChartCard title="Más facturado" description="Los artículos que más plata dejaron en el período.">
+      <ChartCard
+        title="Más facturado"
+        description="La barra entera es lo facturado; la parte oscura, lo que quedó de utilidad."
+        footnote={sinCosto > 0
+          ? `${sinCosto} de estos artículos no tienen costo cargado: su barra se ve como utilidad pura, pero es costo sin registrar, no margen.`
+          : undefined}
+      >
         <RankingBarChart
-          data={rows.map((r) => ({ label: r.name, value: r.total }))}
+          data={rows.map((r) => ({
+            label: r.name,
+            value: r.total,
+            overlayValue: utilityOf(r),
+          }))}
           valueLabel="Total facturado"
+          overlay={{ label: "Utilidad", restLabel: "Costo y comisión" }}
           formatValue={money}
         />
       </ChartCard>
@@ -311,19 +358,26 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
         />
       </ChartCard>
 
-      <ChartCard title="Por categoría" description="Dónde se concentra la facturación del período.">
-        <RankingBarChart
+      {/* Dona y no barras: acá la pregunta es qué PORCIÓN se lleva cada uno,
+          no quién es el primero. Los dos de arriba sí son rankings. */}
+      <ChartCard title="Por categoría" description="Qué porción de la facturación se lleva cada categoría.">
+        <CompositionDonutChart
           data={porCategoria.map((c) => ({ label: c.label, value: c.total }))}
-          valueLabel="Total facturado"
           formatValue={money}
         />
       </ChartCard>
 
-      <ChartCard title="Por marca" description="Solo los artículos que tienen marca cargada.">
-        <RankingBarChart
+      <ChartCard
+        title="Por marca"
+        description="Qué porción se lleva cada marca."
+        footnote={sinMarca > 0
+          ? `${sinMarca} artículos vendidos no tienen marca cargada y quedan fuera de este gráfico.`
+          : undefined}
+      >
+        <CompositionDonutChart
           data={porMarca.map((m) => ({ label: m.label, value: m.total }))}
-          valueLabel="Total facturado"
           formatValue={money}
+          restLabel="Otras marcas"
         />
       </ChartCard>
     </div>
@@ -335,10 +389,13 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
 function ChartCard({
   title,
   description,
+  footnote,
   children,
 }: {
   title: string
   description: string
+  /** Advertencia sobre la calidad del dato, al pie del gráfico. */
+  footnote?: string
   children: React.ReactNode
 }) {
   return (
@@ -347,7 +404,10 @@ function ChartCard({
         <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
-      <CardContent>{children}</CardContent>
+      <CardContent className="flex flex-col gap-2">
+        {children}
+        {footnote && <p className="text-xs text-muted-foreground">{footnote}</p>}
+      </CardContent>
     </Card>
   )
 }

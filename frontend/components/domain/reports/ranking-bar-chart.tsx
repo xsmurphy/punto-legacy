@@ -1,19 +1,19 @@
 "use client"
 
 /**
- * Ranking visual — barras horizontales del top N.
+ * Ranking visual — columnas del top N.
  *
  * Existe como componente y no como un `<BarChart>` por página porque el mismo
  * gráfico lo piden todos los informes de ranking: categorías, marcas, medios
  * de pago y productos comparten la forma "un nombre, un número, ordenado
  * desc". Copiarlo en cada uno garantizaba que se fueran separando.
  *
- * ── Por qué horizontal ──────────────────────────────────────────────────────
+ * ── Verticales, con las etiquetas rotadas ───────────────────────────────────
  *
- * Los nombres del catálogo son largos ("Bebidas con Alcohol", "Materia
- * Prima"). En barras verticales esas etiquetas se rotan o se recortan; en
- * horizontales entran completas y el ojo lee la lista de arriba hacia abajo,
- * que es como se lee un ranking.
+ * Decisión del owner (2026-09-10). El costo conocido es que los nombres del
+ * catálogo son largos ("Bebidas con Alcohol"), así que el eje los rota y los
+ * trunca; el nombre completo vive en el tooltip, que es donde se lee sin
+ * pelearse con el espacio.
  *
  * ── Por qué top N y no todo ─────────────────────────────────────────────────
  *
@@ -22,10 +22,22 @@
  * de abajo es para el dato completo. Por eso el pie dice cuántos quedaron
  * afuera en vez de esconderlo.
  *
- * Color: `--chart-1` monocromático. La escala verde de charts es de marca y
- * NO se reparte por serie acá — cada barra es la misma magnitud medida en
- * artículos distintos, así que darles colores distintos sugeriría una
- * categorización que no existe (context/20 §charts).
+ * ── La serie superpuesta ────────────────────────────────────────────────────
+ *
+ * `overlay` apila una porción DENTRO de la barra (ej. la utilidad dentro de la
+ * facturación). Va primera en el stack, o sea que arranca en cero en todas las
+ * barras: así se comparan entre sí de un vistazo. Apilarla al revés —costo
+ * abajo, utilidad arriba— haría que cada segmento de utilidad empezara a una
+ * altura distinta y el ojo no puede comparar eso.
+ *
+ * Solo se superpone algo que COMPARTE unidad y escala con el total. Un
+ * porcentaje (el margen) no: necesitaría un segundo eje, y dos escalas
+ * elegidas a mano hacen que "una supera a la otra" no signifique nada. El
+ * margen va al tooltip.
+ *
+ * Color: escala verde monocromática de charts. Las barras del ranking son la
+ * misma magnitud medida en artículos distintos, así que darles colores
+ * distintos sugeriría una categorización que no existe (context/20 §charts).
  */
 
 import * as React from "react"
@@ -40,21 +52,35 @@ import {
 
 export interface RankingDatum {
   label: string
+  /** Magnitud que ordena el ranking y define el alto de la barra. */
   value: number
+  /** Porción de `value` a resaltar dentro de la barra (ver `overlay`). */
+  overlayValue?: number
+}
+
+/** Corta el nombre para el eje; el completo va en el tooltip. */
+function shortLabel(v: string): string {
+  return v.length > 14 ? `${v.slice(0, 13)}…` : v
 }
 
 export function RankingBarChart({
   data,
   valueLabel,
   formatValue,
+  overlay,
   limit = 10,
   emptyMessage = "Sin datos para graficar en este período.",
   className,
 }: {
   data: RankingDatum[]
-  /** Nombre de la magnitud — sale en el tooltip y en la leyenda del tooltip. */
+  /** Nombre de la magnitud — sale en el tooltip. */
   valueLabel: string
   formatValue: (v: number) => string
+  /**
+   * Resalta una porción de cada barra. `label` nombra la porción; el resto de
+   * la barra se pinta apagado y se nombra con `restLabel`.
+   */
+  overlay?: { label: string; restLabel: string }
   limit?: number
   /** Qué decir cuando ninguna fila tiene un valor mayor a cero. */
   emptyMessage?: string
@@ -65,14 +91,29 @@ export function RankingBarChart({
       [...data]
         .filter((d) => Number.isFinite(d.value) && d.value > 0)
         .sort((a, b) => b.value - a.value)
-        .slice(0, limit),
+        .slice(0, limit)
+        .map((d) => {
+          // El resto se DERIVA del total en vez de pasarse aparte: así la
+          // barra siempre suma exactamente el valor que ordena el ranking,
+          // aunque el desglose de costos no cierre (descuento, comisión).
+          const part = Math.max(0, Math.min(d.overlayValue ?? 0, d.value))
+          return { ...d, part, rest: d.value - part }
+        }),
     [data, limit],
   )
 
-  const config = React.useMemo(
-    () => ({ value: { label: valueLabel, color: "var(--chart-1)" } }) satisfies ChartConfig,
-    [valueLabel],
-  )
+  const config = React.useMemo<ChartConfig>(() => {
+    const c: ChartConfig = {
+      part: {
+        label: overlay ? overlay.label : valueLabel,
+        color: "var(--chart-1)",
+      },
+    }
+    if (overlay) {
+      c.rest = { label: overlay.restLabel, color: "var(--chart-4)" }
+    }
+    return c
+  }, [overlay, valueLabel])
 
   // Sin barras se dice por qué, en vez de pintar un eje solo. Pasa de verdad:
   // un comercio que no carga marcas deja el corte por marca vacío aunque
@@ -85,48 +126,52 @@ export function RankingBarChart({
 
   return (
     <div className={className}>
-      <ChartContainer
-        config={config}
-        // Alto proporcional a la cantidad de barras: con una altura fija, tres
-        // barras quedan gordas y diez apretadas.
-        style={{ height: `${Math.max(160, top.length * 34 + 40)}px` }}
-        className="w-full"
-      >
-        <BarChart
-          data={top}
-          layout="vertical"
-          margin={{ top: 4, right: 16, left: 4, bottom: 4 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+      <ChartContainer config={config} className="h-[280px] w-full">
+        <BarChart data={top} margin={{ top: 8, right: 8, left: -8, bottom: 44 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis
-            type="number"
-            tickFormatter={formatValue}
+            dataKey="label"
+            tickFormatter={shortLabel}
+            angle={-35}
+            textAnchor="end"
+            interval={0}
+            height={56}
             fontSize={10}
             stroke="var(--muted-foreground)"
             tickLine={false}
             axisLine={false}
           />
           <YAxis
-            type="category"
-            dataKey="label"
-            width={140}
-            fontSize={11}
+            tickFormatter={formatValue}
+            fontSize={10}
+            width={72}
             stroke="var(--muted-foreground)"
             tickLine={false}
             axisLine={false}
-            // El nombre completo va en el tooltip; acá se corta para que el
-            // eje no se coma el ancho del gráfico.
-            tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 21)}…` : v)}
           />
           <ChartTooltip
             cursor={{ fill: "var(--accent)", opacity: 0.4 }}
             content={
               <ChartTooltipContent
-                formatter={(value) => formatValue(Number(value))}
+                // El nombre completo, sin el truncado del eje.
+                labelFormatter={(_, payload) =>
+                  String(payload?.[0]?.payload?.label ?? "")
+                }
+                formatter={(value, name) => {
+                  const n = Number(value)
+                  const label = config[String(name)]?.label ?? name
+                  return `${label}: ${formatValue(n)}`
+                }}
               />
             }
           />
-          <Bar dataKey="value" fill="var(--color-value)" radius={[0, 4, 4, 0]} />
+          {/* `part` primero: arranca en cero en todas las barras, así las
+              porciones se comparan entre sí. Sin `overlay` es la barra
+              entera. */}
+          <Bar dataKey="part" stackId="v" fill="var(--color-part)" radius={overlay ? 0 : [4, 4, 0, 0]} />
+          {overlay && (
+            <Bar dataKey="rest" stackId="v" fill="var(--color-rest)" radius={[4, 4, 0, 0]} />
+          )}
         </BarChart>
       </ChartContainer>
       {hidden > 0 && (
