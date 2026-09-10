@@ -9,11 +9,11 @@ namespace Punto\Api\EInvoice;
  *
  * ── Por qué el shape es NEUTRO y no el de un proveedor ───────────────────
  *
- * Hasta la mig 207 esta interfaz devolvía el JSON CRUDO de Factomate —
+ * Hasta la mig 207 esta interfaz devolvía el JSON CRUDO del proveedor —
  * `{Id, Identifier, Name, CountryCode, Deleted}` y el distrito ANIDADO bajo
  * una clave mal escrita (`Disctrict`)—, y el sync existía en buena medida
- * para traducir eso. Punto ya no factura por Factomate: el motor es FE-PY
- * (`einvoice_account.provider = 'fepy'`), y la fuente del catálogo es ahora
+ * para traducir eso. Ese proveedor quedó afuera: el motor es FE-PY, y la
+ * fuente del catálogo es ahora
  * el catálogo de SIFEN que FE-PY usa para VALIDAR los códigos antes de armar
  * el XML. Mantener el shape del intermediario —con su typo incluido— para una
  * fuente que ya no existe sería arrastrar la forma de un proveedor muerto

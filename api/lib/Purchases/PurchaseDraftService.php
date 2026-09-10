@@ -795,8 +795,8 @@ final class PurchaseDraftService
      *      cargado por el comercio: la factura es una fuente secundaria y el
      *      dato del comercio es el que él mismo mantiene.
      *   2. **No existe** → se consulta el padrón (`TaxpayerLookupService`, el
-     *      MISMO que usa el alta de clientes: cascada Factomate → padrón
-     *      público) para tener la razón social real, y se da de alta el
+     *      MISMO que usa el alta de clientes: cascada padrón del emisor →
+     *      padrón público) para tener la razón social real, y se da de alta el
      *      proveedor. Nombre = padrón, con la razón social impresa en la
      *      factura como respaldo.
      *   3. **Sin RUC, o sin nombre por ninguna de las dos vías** → null. Un

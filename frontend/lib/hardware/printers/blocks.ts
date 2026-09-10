@@ -34,7 +34,7 @@ import { amountToWordsEs } from "@/lib/number-to-words-es"
 import { KUDE_CONSULTA_TEXT, KUDE_LEYENDA, kudeDocumentName } from "@/lib/einvoice/kude"
 // Helpers del KuDE PDF que Punto renderiza — compartidos a propósito para que
 // el CDC y la URL de consulta del ticket sean idénticos a los del PDF.
-import { consultationUrl, groupCdc } from "@/lib/kude/types"
+import { consultationUrl, groupCdc } from "@/lib/einvoice/kude"
 import type { TicketData, TicketItem } from "./build-ticket-data"
 
 /**
@@ -500,10 +500,10 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // hasta que el documento se emita — ver TicketData.
   //
   // Agrupado en once grupos de cuatro, con `groupCdc` — el MISMO helper que
-  // usa el KuDE PDF que renderiza Punto (`lib/kude/document.tsx`). Es
-  // requisito de legibilidad de la norma (MT §13.4.4), no una decisión
+  // usan el resto de las superficies que muestran un CDC (`lib/einvoice/kude`).
+  // Es requisito de legibilidad de la norma (MT §13.4.4), no una decisión
   // estética, y compartir la función es lo que garantiza que el CDC del
-  // ticket y el del PDF sean tipográficamente el mismo código.
+  // ticket y el que ve el comprador en el panel sean el mismo código.
   //
   // OJO: el KuDE de referencia del tenant lo imprime CORRIDO. Se sigue la
   // norma y no ese ejemplo — el documento de muestra sale del sistema

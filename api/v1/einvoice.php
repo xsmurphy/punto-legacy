@@ -1,6 +1,6 @@
 <?php
 /**
- * REST — Facturación electrónica (Factomate / SIFEN). F0: cuenta del comercio.
+ * REST — Facturación electrónica (SIFEN). F0: cuenta del comercio.
  * F1: outbox de emisión (context/28-facturacion-electronica-plan.md).
  *
  *   GET  /v1/einvoice?resource=account          → estado del emisor (fiscal, timbrado, certificado, config)
@@ -10,7 +10,7 @@
  *   POST /v1/einvoice?action=deleteCert         → borra de Punto el certificado en custodia (el emisor lo conserva)
  *   POST /v1/einvoice?action=csc                → guarda el CSC de producción (id + secreto) y lo aplica al emisor
  *   POST /v1/einvoice?action=issueForSale&transactionId= → emite a mano la factura de una venta ya hecha
- *   POST /v1/einvoice?action=testSet            → prueba de humo del certificado contra SIFEN (consulta de RUC)
+ *   POST /v1/einvoice?action=testSet            → estado del certificado del emisor (el motor lo valida al subirlo)
  *   POST /v1/einvoice?action=test               → re-verifica la cuenta (auth + timbrado) y refresca el cache
  *   GET  /v1/einvoice?resource=paymentMethods   → proxy de códigos de medio de pago
  *   GET  /v1/einvoice?resource=documents&transactionId=X → estado del documento de una venta (solo lectura)
@@ -37,11 +37,12 @@
  * es SIEMPRE la de COMPANY_ID del contexto — nunca un id del request
  * (aislamiento multi-tenant, ver context/25-sucursales-y-scopes.md).
  *
- * WHITE-LABEL (F7): el comercio nunca ve una credencial de Factomate — el
- * alta del emisor la hace Punto con su credencial admin (env,
- * FACTOMATE_ADMIN_*) vía EInvoiceProvisioningService. Ninguna respuesta de
- * este endpoint incluye usuario/contraseña/identidad de login del proveedor
- * (getAccount ya los excluye del SELECT).
+ * WHITE-LABEL (F7): el comercio nunca ve una credencial del motor de
+ * facturación — el alta del emisor la hace Punto con SU credencial de
+ * plataforma (`integration.fepy` en platform_config, o `FEPY_API_KEY`) vía
+ * EInvoiceProvisioningService. Ninguna respuesta de este endpoint incluye
+ * credenciales ni identidad de login contra el motor (getAccount ya las
+ * excluye del SELECT).
  *
  * CUSTODIA (owner 2026-09-06, context/28 §Custodia): el certificado de firma y
  * el secreto del CSC entran por acá, van al proveedor y quedan GUARDADOS
@@ -98,7 +99,7 @@ if ($method === 'POST' && $action === 'drain') {
 // ── El realm `pos-app` entra SOLO al KuDE, y solo por GET ────────────────────
 //
 // Qué expone: el PDF de UN documento fiscal ya emitido, pedido por su id y
-// resuelto SIEMPRE contra `COMPANY_ID` del token (`kudePdf($companyId, $id)`),
+// resuelto SIEMPRE contra `COMPANY_ID` del token (`kude($companyId, $id)`),
 // así que un device no puede pedir el KuDE de otro comercio. Y es justamente el
 // documento que el comercio le ENTREGA a su propio cliente: negarlo en la caja
 // —el único lugar donde el cliente está parado enfrente— era el agujero
@@ -197,7 +198,7 @@ switch ($method) {
                 // válido que SIFEN rechazó después y cuyo KuDE bajaba igual.
                 $pdf = AUTHED_REALM === 'pos-app'
                     ? $svc->posKude($companyId, $id)
-                    : $svc->kudePdf($companyId, $id);
+                    : $svc->kude($companyId, $id);
             } catch (\RuntimeException $e) {
                 // 409, no 500: "todavía no está listo" / "no se emitió" es un
                 // estado esperado del documento, no una falla del servidor —
@@ -305,8 +306,9 @@ switch ($method) {
             try {
                 apiOk((new \Punto\Api\EInvoice\EInvoiceProvisioningService())->testSet($companyId));
             } catch (\RuntimeException $e) {
-                // 422 con el detalle: "Error de Certificado o CSC" es
-                // información accionable para el operador, no un 500.
+                // 422 con el detalle: lo que falla acá es el certificado o el
+                // CSC del emisor, información accionable para el operador —
+                // no un 500.
                 apiError($e->getMessage(), 422);
             }
             break;

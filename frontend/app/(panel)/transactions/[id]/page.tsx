@@ -47,7 +47,7 @@ import { useVoidCreditPayment } from "@/hooks/use-contacts"
 // Pasarle `posFetch` sería el cruce de realms que el invariante prohíbe.
 import { useVoidOptions } from "@/hooks/use-sale-void"
 import { einvoiceKudeUrl } from "@/hooks/use-einvoice"
-import { groupCdc } from "@/lib/kude/types"
+import { groupCdc } from "@/lib/einvoice/kude"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import {

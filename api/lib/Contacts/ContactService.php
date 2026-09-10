@@ -54,9 +54,8 @@ final class ContactService
      * pierde nada: ve sus dos campos con el nombre correcto de su país, sin
      * selector, porque no hay taxonomía que guardar.
      *
-     * OJO: esto NO es la codificación que usa la API de Factomate para su
-     * propio campo `identityDocumentTypeCode` (catálogo `IdentityDocumentType/
-     * Get`, ej. 1=CÉDULA, 2=PASAPORTE, 5=INNOMINADO). Son dos tablas
+     * OJO: esto NO es la codificación de SIFEN para `documentoTipo`
+     * (ej. 1=CÉDULA, 2=PASAPORTE, 5=INNOMINADO). Son dos tablas
      * distintas — el mapeo explícito entre ambas vive en
      * SaleToInvoiceMapper::mapIdType(), no acá.
      */

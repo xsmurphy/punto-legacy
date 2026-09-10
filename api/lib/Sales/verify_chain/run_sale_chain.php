@@ -21,9 +21,9 @@ declare(strict_types=1);
  *      Σ(byRate.amount) == transactionTax (el pedido central del owner: "que
  *      se sume bien el IVA por cada tipo de IVA").
  *   3. Facturación electrónica (solo tenant PY): el payload que arma
- *      `EInvoiceService::buildSaleArrayForMapper()` + `SaleToInvoiceMapper`
+ *      `EInvoiceService::buildSaleArrayForMapper()` + `SaleToFePyMapper`
  *      usa el IVA CONGELADO de la venta (no el catálogo) y mapea las tasas
- *      correctas para SIFEN — sin llamar a Factomate ni a ninguna red.
+ *      correctas para SIFEN — sin llamar al motor ni a ninguna red.
  *   4. Escribe un dump JSON por caso (shape `TicketableTransaction`) para
  *      que `frontend/lib/hardware/printers/verify-chain.mts` verifique la
  *      impresión sobre la MISMA venta persistida.
@@ -331,8 +331,8 @@ foreach ($cases as $case) {
 
 /**
  * Verifica EInvoiceService::buildSaleArrayForMapper() (privado, se invoca
- * por Reflection — es puro lectura de BD, SIN llamar a Factomate ni red) y,
- * cuando aplica, que SaleToInvoiceMapper::build() arme el payload esperado
+ * por Reflection — es puro lectura de BD, SIN llamar al motor ni red) y,
+ * cuando aplica, que SaleToFePyMapper::build() arme el payload esperado
  * con timbrado/config FALSOS (no se emite nada de verdad).
  */
 function verifyEInvoice(array $case, string $transId, string $companyId, int &$failures): void
@@ -385,13 +385,30 @@ function verifyEInvoice(array $case, string $transId, string $companyId, int &$f
 
     // Payload final con timbrado/config de PRUEBA — no se emite, solo se
     // arma el JSON para confirmar que el mapper cierra sin llamar red.
-    $mapper = new \Punto\Api\EInvoice\SaleToInvoiceMapper();
+    // `legacyAutoNumbering` deja el correlativo FUERA de alcance a propósito:
+    // lo que esta cadena verifica es la ARITMÉTICA fiscal, y exigir un
+    // `fiscalNumber` congelado haría fallar el caso por un motivo que se
+    // prueba en `einvoice_emitter_numbering_test`.
+    $mapper = new \Punto\Api\EInvoice\SaleToFePyMapper();
     try {
-        $doc = $mapper->build($sale, ['Id' => 'test-stamp'], ['series' => 'AA'], date('Y-m-d\TH:i:s'));
-        assertEq('EInvoice payload.total (mapper)', $case['expectedTotals']['gross'], (float) $doc['total'], $failures);
-        echo "  PASS  SaleToInvoiceMapper::build() arma el documento sin llamar red\n";
+        $doc = $mapper->build(
+            $sale,
+            ['establecimiento' => '001', 'punto' => '001'],
+            ['legacyAutoNumbering' => true],
+            date('Y-m-d\TH:i:s'),
+            'verify-chain'
+        );
+        // El payload de xmlgen NO lleva total de documento: SIFEN lo recalcula
+        // multiplicando cantidad x unitario por ítem. Esa suma ES la cuenta que
+        // puede rechazar, así que es la que se verifica acá.
+        $sum = 0.0;
+        foreach ($doc['items'] as $line) {
+            $sum += (float) $line['cantidad'] * (float) $line['precioUnitario'];
+        }
+        assertEq('EInvoice items[] suman el total (mapper)', $case['expectedTotals']['gross'], round($sum, 2), $failures);
+        echo "  PASS  SaleToFePyMapper::build() arma el documento sin llamar red\n";
     } catch (\Throwable $e) {
-        echo "  FAIL  SaleToInvoiceMapper::build() lanzó inesperadamente: {$e->getMessage()}\n";
+        echo "  FAIL  SaleToFePyMapper::build() lanzó inesperadamente: {$e->getMessage()}\n";
         $failures++;
     }
 

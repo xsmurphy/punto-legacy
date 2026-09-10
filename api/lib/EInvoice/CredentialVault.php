@@ -7,7 +7,7 @@ namespace Punto\Api\EInvoice;
  * Cifrado reversible de credenciales (usuario/contraseña/teléfono, token)
  * del proveedor de facturación electrónica.
  *
- * Por qué reversible y no hasheado: la API de Factomate no tiene un
+ * Por qué reversible y no hasheado: la API del motor no tiene un
  * "refresh" silencioso — reautenticar es volver a encadenar `/Token`
  * (usuario+contraseña) → `PhoneLogin` (bearer + teléfono), así que hay
  * que poder recuperar tanto el password como el teléfono en texto plano

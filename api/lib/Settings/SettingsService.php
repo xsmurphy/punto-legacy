@@ -978,10 +978,35 @@ final class SettingsService
             throw new \RuntimeException('No se pudo guardar el logo en la BD');
         }
 
+        $this->pushLogoToEmitter($companyId);
+
         return [
             'logo'    => $publicUrl . '?v=' . $stamp,
             'hasLogo' => true,
         ];
+    }
+
+    /**
+     * Avisa al motor de facturación electrónica que el logo cambió.
+     *
+     * El KuDE lo dibuja el motor, no Punto, así que el logo tiene que estar de
+     * SU lado o el documento que recibe el comprador sale sin marca. Se empuja
+     * ACÁ —y no solo al dar de alta el emisor— para que el cambio se vea en la
+     * próxima factura y no recién cuando alguien entre a verificar la cuenta.
+     *
+     * Best-effort, en los dos sentidos: `syncEmitterLogo()` no lanza, y este
+     * método tampoco puede fallar. Un comercio sin facturación electrónica
+     * configurada sube su logo igual, y uno que la tiene no puede quedarse sin
+     * poder cambiar el logo porque el motor esté caído — la verificación de la
+     * cuenta vuelve a intentarlo.
+     */
+    private function pushLogoToEmitter(string $companyId): void
+    {
+        try {
+            (new \Punto\Api\EInvoice\EInvoiceService())->syncEmitterLogo($companyId);
+        } catch (\Throwable $e) {
+            error_log('[SettingsService] no se pudo avisar del logo al emisor de ' . $companyId . ': ' . $e->getMessage());
+        }
     }
 
     /**
@@ -999,6 +1024,9 @@ final class SettingsService
             // swallow: el flag en BD es la fuente de verdad para el front
         }
         $this->persistLogoFlag($companyId, false, null, null);
+        // Borrar el logo es una acción EXPLÍCITA del comercio: el KuDE tiene
+        // que dejar de mostrarlo, así que el vacío también se propaga.
+        $this->pushLogoToEmitter($companyId);
         return ['hasLogo' => false];
     }
 

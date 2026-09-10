@@ -5,22 +5,20 @@
 #
 # Lo que verifica, en una línea: el documento que sale a SIFEN lleva el
 # correlativo que la CAJA ya congeló en la venta —el mismo que salió impreso
-# en el ticket—, y cuando ese número no se puede garantizar (venta sin número
-# congelado, timbrado incoherente con el provisionado en el emisor, o un
-# talonario que del lado de ellos ya tiene documentos por encima del nuestro)
-# el documento queda en `error` ANTES de mandarse, nunca con un `-1`
-# silencioso. Ver el docblock de einvoice_emitter_numbering_test.php.
+# en el ticket—; una venta sin número congelado queda en `error` ANTES de
+# mandarse, y si el motor numera por su cuenta la divergencia se DETECTA
+# sobre el CDC devuelto y el comprobante deja de imprimir su CDC. Ver el
+# docblock de einvoice_emitter_numbering_test.php.
 #
 # Mismo patrón que run_order_cancel_test.sh (Docker Postgres descartable +
 # schema + migraciones + fixtures del tenant "Verify PY") — reusa ESE seed.sql
 # en vez de reinventar company/outlet/register, así que depende de ese archivo
 # pero no lo modifica.
 #
-# El proveedor (Factomate) va SIMULADO en su interfaz `EInvoiceProvider`: el
-# arnés ejercita el código real de punta a punta salvo el HTTP. No podría ser
-# de otra forma — un arnés que emite documentos fiscales de verdad contra el
-# emisor no es un arnés, es una emisión (y además la API DEV está caída,
-# PhoneLogin 500).
+# El motor (FE-PY) va SIMULADO en su interfaz `EInvoiceProvider`: el arnés
+# ejercita el código real de punta a punta salvo el HTTP. No podría ser de
+# otra forma — un arnés que emite documentos fiscales de verdad contra el
+# emisor no es un arnés, es una emisión.
 #
 # Uso (un comando, desde la raíz del repo):
 #   bash api/tests/run_einvoice_emitter_numbering_test.sh
@@ -48,6 +46,17 @@ VERIFY_CHAIN_DIR="$API_DIR/lib/Sales/verify_chain"
 if [ -z "${APP_ENCRYPTION_KEY:-}" ]; then
   APP_ENCRYPTION_KEY="$(php -r 'echo base64_encode(random_bytes(32));')"
   export APP_ENCRYPTION_KEY
+fi
+
+# FE-PY se autentica con una API key de COMPANY (`FePySession::getBearer()`),
+# que valida el FORMATO —`cmp_` + 32 hex— antes de salir a la red. Sin ella
+# el arnés no emite un solo documento: todos quedarían en `error` con
+# "FEPY_API_KEY sin configurar", que es un verde imposible pero un rojo
+# ilegible. Es de PRUEBA y se genera en el momento, igual que la de cifrado:
+# el motor va simulado, nadie la usa contra un servidor real.
+if [ -z "${FEPY_API_KEY:-}" ]; then
+  FEPY_API_KEY="cmp_$(php -r 'echo bin2hex(random_bytes(16));')"
+  export FEPY_API_KEY
 fi
 
 OWN_DOCKER=0
@@ -126,8 +135,8 @@ fi
 
 # ── 2. Numeración del emisor ───────────────────────────────────────────────
 echo ""
-echo "[run_einvoice_emitter_numbering_test.sh] === numeración del emisor (número congelado, guards, kill-switch) ==="
-export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD APP_ENCRYPTION_KEY
+echo "[run_einvoice_emitter_numbering_test.sh] === numeración del emisor (número congelado, CDC, kill-switch) ==="
+export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD APP_ENCRYPTION_KEY FEPY_API_KEY
 harness_run "$SCRIPT_DIR/einvoice_emitter_numbering_test.php"
 
 echo ""

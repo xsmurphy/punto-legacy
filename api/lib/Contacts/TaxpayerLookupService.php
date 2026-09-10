@@ -16,12 +16,12 @@ namespace Punto\Api\Contacts;
  *
  * Dos fuentes, en orden:
  *
- *   1. **Factomate** (`GET /api/Client/getbyruc/{ruc}`) si el comercio tiene
- *      cuenta de facturación electrónica conectada. Es la autoritativa: es el
- *      padrón que ve el propio emisor, así que si difiere del público, gana
- *      esta — es la que va a validar SIFEN al emitir.
+ *   1. **El padrón del EMISOR**, vía el motor de facturación electrónica, si
+ *      el comercio tiene la cuenta conectada. Es la autoritativa: es el padrón
+ *      que ve el propio emisor, así que si difiere del público, gana esta — es
+ *      la que va a validar SIFEN al emitir.
  *   2. **Padrón público** (`TAXPAYER_LOOKUP_URL`) para todo comercio sin FE
- *      conectada, o cuando Factomate no encuentra el RUC. Solo se consulta si
+ *      conectada, o cuando el emisor no encuentra el RUC. Solo se consulta si
  *      el comercio es del MISMO país que ese padrón — un padrón nacional no
  *      sabe nada de los contribuyentes de otro país.
  *
@@ -82,7 +82,7 @@ final class TaxpayerLookupService
             return null;
         }
 
-        $fromProvider = $this->fromFactomate($companyId, $ruc);
+        $fromProvider = $this->fromEmitter($companyId, $ruc);
         if ($fromProvider !== null) {
             return $fromProvider;
         }
@@ -93,7 +93,7 @@ final class TaxpayerLookupService
     /**
      * @return array{ruc:string,name:string,status:?string,source:string}|null
      */
-    private function fromFactomate(string $companyId, string $ruc): ?array
+    private function fromEmitter(string $companyId, string $ruc): ?array
     {
         $einvoice = new \Punto\Api\EInvoice\EInvoiceService();
 
@@ -112,9 +112,8 @@ final class TaxpayerLookupService
         } catch (\Throwable $e) {
             // Cuenta sin conectar, credencial vencida, endpoint que no existe:
             // todo cae al padrón público. Se loguea porque un 404 sistemático
-            // acá significa que la ruta de la guía está mal (sigue SIN
-            // VERIFICAR contra la API real — ver FactomateProvider::clientByRuc).
-            error_log('[TaxpayerLookup] factomate: ' . $e->getMessage());
+            // acá significa que la consulta al padrón del emisor está rota.
+            error_log('[TaxpayerLookup] padrón del emisor: ' . $e->getMessage());
             return null;
         }
 
@@ -141,7 +140,7 @@ final class TaxpayerLookupService
             'ruc'    => $this->firstString($row, ['Ruc', 'ruc', 'RUC']) ?? $ruc,
             'name'   => $name,
             'status' => $this->firstString($row, ['Status', 'status', 'Estado', 'estado']),
-            'source' => 'factomate',
+            'source' => 'emisor',
         ];
     }
 

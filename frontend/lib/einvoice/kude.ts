@@ -5,16 +5,16 @@
  *
  * ── Qué vive acá y qué NO ───────────────────────────────────────────────
  *
- * NO vive acá nada que ya resuelva `lib/kude/types.ts`, el módulo del KuDE
- * PDF que Punto renderiza para el portal y el email. Las dos superficies
- * imprimen EL MISMO documento fiscal, así que el CDC y la URL de consulta
- * salen de las mismas funciones (`groupCdc`, `consultationUrl`): si el PDF
- * agrupara el CDC y el ticket lo imprimiera corrido, el comprador tendría dos
- * versiones distintas del mismo código y ninguna forma de saber cuál tipear.
+ * Este es el ÚNICO módulo del KuDE en el frontend. El PDF del KuDE no lo
+ * arma Punto: lo devuelve el motor de facturación electrónica ya renderizado,
+ * y lo que queda de este lado es lo que el comercio imprime en SU comprobante
+ * — la leyenda, la frase de consulta, el CDC y la URL de verificación.
  *
- * Lo que sí es propio de este módulo es la LEYENDA y la frase de consulta —
- * texto que el KuDE PDF compone en su layout y que acá tiene que existir como
- * valor de un bloque suelto que el operador ubica donde quiera.
+ * Que el CDC y la URL de consulta salgan de UNA función compartida
+ * (`groupCdc`, `consultationUrl`) es la razón de ser del módulo: todas las
+ * superficies imprimen EL MISMO documento fiscal, y si el rollo agrupara el
+ * CDC y la hoja lo imprimiera corrido, el comprador tendría dos versiones
+ * distintas del mismo código y ninguna forma de saber cuál tipear.
  *
  * ── Por qué son constantes y no texto que el comercio escribe ────────────
  *
@@ -72,4 +72,30 @@ const KUDE_DOC_NAMES: Record<string, string> = {
 
 export function kudeDocumentName(docType: string): string {
   return KUDE_DOC_NAMES[docType] ?? "DOCUMENTO ELECTRÓNICO"
+}
+
+/**
+ * CDC en once grupos de cuatro posiciones — MT §13.4.4. Es un requisito de
+ * legibilidad de la norma, no una decisión estética.
+ */
+export function groupCdc(cdc: string): string {
+  const clean = (cdc || "").replace(/\s+/g, "")
+
+  return (clean.match(/.{1,4}/g) ?? []).join(" ")
+}
+
+/**
+ * URL de consulta pública del DE. Se DERIVA de la cadena del QR que devolvió
+ * la emisión (su origen + path, sin los parámetros): no se escribe a mano un
+ * dominio de la SET en el código, que es un dato fiscal que nadie revisa
+ * cuando cambia.
+ */
+export function consultationUrl(qrData: string | null): string | null {
+  if (!qrData) return null
+  try {
+    const url = new URL(qrData)
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return null
+  }
 }

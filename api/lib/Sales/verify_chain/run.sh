@@ -5,7 +5,7 @@
 #
 # Cadena completa, con datos persistidos, SIN mocks:
 #   venta multi-tasa (SaleService real) → BD (itemSold/transaction/toTaxObj)
-#   → facturación electrónica (EInvoiceService + SaleToInvoiceMapper, SIN
+#   → facturación electrónica (EInvoiceService + SaleToFePyMapper, SIN
 #     red) → impresión (resolvers reales de blocks.ts/build-ticket-data.ts).
 #
 # Uso (un comando, desde la raíz del repo):

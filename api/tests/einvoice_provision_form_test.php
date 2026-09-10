@@ -11,9 +11,9 @@ require_once __DIR__ . '/_harness.php';
  *
  * `einvoice_account.fiscal` es el espejo que hidrata la pantalla de
  * facturación electrónica cuando un alta quedó a medias (`initial=
- * {account.fiscal}`). Los dos caminos de provisioning lo reescriben con lo
- * que devuelve `EInvoiceProvisioningService::validateForm()`, que es una
- * WHITELIST: la clave que no nombra, desaparece.
+ * {account.fiscal}`). El provisioning lo reescribe con lo que devuelve
+ * `EInvoiceProvisioningService::validateForm()`, que es una WHITELIST: la
+ * clave que no nombra, desaparece.
  *
  * Ya pasó (2026-09-08): el formulario empezó a pedir régimen y
  * establecimientos —que el motor propio EXIGE— y `validateForm()` no los
@@ -51,10 +51,8 @@ require_once __DIR__ . '/_harness.php';
 $root = dirname(__DIR__);
 require_once $root . '/lib/EInvoice/EInvoiceProvider.php';
 require_once $root . '/lib/EInvoice/EInvoiceProvisioningService.php';
-require_once $root . '/lib/EInvoice/FePyProvisioningService.php';
 
 use Punto\Api\EInvoice\EInvoiceProvisioningService;
-use Punto\Api\EInvoice\FePyProvisioningService;
 
 $failures = 0;
 $checks   = 0;
@@ -72,11 +70,11 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 }
 
 /** `establecimientos()` es privado a propósito — el arnés lo alcanza por reflexión. */
-function fepyEstablecimientos(array $form, array $fiscal, array $stamps): array
+function motorEstablecimientos(array $form, array $fiscal, array $stamps): array
 {
     // Sin setAccessible(): desde PHP 8.1 la reflexión ya alcanza lo privado y
     // el método quedó deprecado en 8.5 (ruido de deprecación en cada llamada).
-    return (new ReflectionMethod(FePyProvisioningService::class, 'establecimientos'))
+    return (new ReflectionMethod(EInvoiceProvisioningService::class, 'establecimientos'))
         ->invoke(null, $form, $fiscal, $stamps);
 }
 
@@ -199,7 +197,7 @@ $stamps = [
     ['numero' => '18260177', 'establecimiento' => '001', 'puntoExpedicion' => '002', 'fechaInicio' => '2025-08-26'],
 ];
 
-$payload = fepyEstablecimientos([], $espejo, $stamps);
+$payload = motorEstablecimientos([], $espejo, $stamps);
 
 check(
     'una entrada por establecimiento DECLARADO POR LAS CAJAS, no por fila del formulario',
@@ -229,7 +227,7 @@ check(
 
 $sinEmail = $espejo;
 $sinEmail['establecimientos'][0]['email'] = '';
-$payloadSinEmail = fepyEstablecimientos([], $sinEmail, $stamps);
+$payloadSinEmail = motorEstablecimientos([], $sinEmail, $stamps);
 check(
     'sin email la clave NO viaja — un string vacío rebota su validación y tira el alta entera',
     !array_key_exists('email', $payloadSinEmail[0]),
@@ -245,7 +243,7 @@ $stampsOtro = [
 ];
 $corto = '';
 try {
-    fepyEstablecimientos([], $espejo, $stampsOtro);
+    motorEstablecimientos([], $espejo, $stampsOtro);
 } catch (\RuntimeException $e) {
     $corto = $e->getMessage();
 }
@@ -261,7 +259,7 @@ $incompleto = $espejo;
 $incompleto['establecimientos'][0]['ciudad'] = null;
 $faltante = '';
 try {
-    fepyEstablecimientos([], $incompleto, $stamps);
+    motorEstablecimientos([], $incompleto, $stamps);
 } catch (\RuntimeException $e) {
     $faltante = $e->getMessage();
 }

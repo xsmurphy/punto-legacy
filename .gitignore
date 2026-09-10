@@ -39,4 +39,6 @@ postgres_data/
 api/core/error_log
 # El arnés verify_chain corre PHP con el repo como cwd: los warnings del
 # runtime (ej. MailgunClient ausente) caen en un error_log en la raíz.
+# Los arneses de api/tests lo dejan además dentro de api/.
 /error_log
+api/error_log

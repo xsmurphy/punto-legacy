@@ -118,7 +118,7 @@ final class FiscalSecretStore
      * Borrado explícito, a pedido del comercio: es SU certificado. Después de
      * esto, reconfigurar la emisión vuelve a exigir que lo suba.
      *
-     * No toca el certificado del lado del proveedor. Factomate no expone un
+     * No toca el certificado del lado del motor. El motor no expone un
      * borrado y, sobre todo, quitarlo de allá dejaría al comercio sin poder
      * facturar sin haberlo pedido: lo que el comercio pide es que PUNTO deje
      * de custodiarlo.

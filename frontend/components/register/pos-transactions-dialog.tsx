@@ -55,7 +55,7 @@ import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
 // Agrupado del CDC — el MISMO helper que usan el ticket y el KuDE en PDF.
-import { groupCdc } from "@/lib/kude/types"
+import { groupCdc } from "@/lib/einvoice/kude"
 import { triggerDownload } from "@/lib/download-blob"
 // Formateador único del correlativo (mig 158) — el mismo que imprime el ticket.
 import { formatDocumentNumber } from "@/lib/documents/format-document-number"

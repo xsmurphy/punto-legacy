@@ -19,7 +19,7 @@ export interface EInvoiceConfig {
   onlyWithTaxId?: boolean
   /**
    * F3 — `taxonomyId` del medio de pago de Punto → código de medio de pago de
-   * SIFEN (el `Identifier` que expone Factomate). Los métodos sin entrada acá
+   * SIFEN (el `Identifier` del catálogo). Los métodos sin entrada acá
    * se emiten con `defaultPaymentMethodCode`.
    */
   paymentMethodMap?: Record<string, number>
@@ -180,8 +180,8 @@ export interface EInvoiceTestResult {
 
 /**
  * Códigos de medio de pago de SIFEN, normalizados por el backend
- * (EInvoiceService::normalizePaymentMethods) desde el payload crudo de
- * Factomate: `code` es el `Identifier` que espera SIFEN, NO el `Id`.
+ * (EInvoiceService::normalizePaymentMethods) desde el payload crudo del
+ * motor: `code` es el `Identifier` que espera SIFEN, NO el `Id`.
  */
 export interface EInvoicePaymentMethod {
   code: number

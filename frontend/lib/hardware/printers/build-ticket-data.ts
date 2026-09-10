@@ -91,8 +91,8 @@ export interface TicketData {
    * transacción persistida, que todavía no expone el link.
    */
   einvoiceUrl?: string | null
-  /** CDC del documento electrónico emitido (SIFEN). null hasta que Factomate
-   *  emite — el primer ticket puede salir sin él; la reimpresión lo trae. */
+  /** CDC del documento electrónico emitido (SIFEN). null hasta que se emite
+   *  — el primer ticket puede salir sin él; la reimpresión lo trae. */
   einvoiceCdc?: string | null
   /**
    * `DCarQR` — el link del QR de EKUATIA (consulta pública del DE en SIFEN),
@@ -401,7 +401,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     transactionId: result.transactionId,
     einvoiceUrl: result.einvoicePortalUrl ?? null,
     // CDC y QR de ekuatía NO existen todavía en el ticket de la venta: la
-    // emisión es asíncrona (outbox → Factomate) y el QR además lo firma el
+    // emisión es asíncrona (outbox → motor de FE) y el QR además lo firma el
     // emisor con el CSC, así que no hay forma de calcularlo local hoy. Van
     // null explícito —no omitidos— para que se lea que es una ausencia
     // ESPERADA y no un olvido de cableado. Los bloques `fe_cdc`/`fe_qr` salen
@@ -698,7 +698,7 @@ export interface TicketableTxDetail {
     invoicePrefix?: string
     customerName: string | null
     /** FE (bloques `fe_py`/`fe_cdc`/`fe_qr`): el resolver canónico los manda
-     *  desde 2026-08-29; null hasta que Factomate emite el documento. */
+     *  desde 2026-08-29; null hasta que se emite el documento. */
     einvoiceCdc?: string | null
     einvoicePortalUrl?: string | null
     /** `DCarQR` — QR de ekuatía. Ver `TicketData.einvoiceQrUrl`. */

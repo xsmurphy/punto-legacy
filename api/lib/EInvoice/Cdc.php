@@ -7,7 +7,7 @@ namespace Punto\Api\EInvoice;
 /**
  * Cdc — el Código de Control (CDC) de un Documento Electrónico de SIFEN.
  *
- * Clase PURA: no toca BD, no habla con Factomate, no lee config. Todo lo que
+ * Clase PURA: no toca BD, no habla con el motor, no lee config. Todo lo que
  * necesita entra por argumento. Eso la hace testeable contra el CDC real de un
  * KuDE emitido (ver `verify_cdc.php`, caso de oro) sin levantar nada.
  *
@@ -37,8 +37,8 @@ namespace Punto\Api\EInvoice;
  *
  * Desde el merge de la numeración del emisor, la factura electrónica sale con
  * el número congelado de la caja (`transaction.invoiceNo`), el MISMO que salió
- * impreso en el ticket — ver `SaleToInvoiceMapper::resolveDocumentNumber()`.
- * Ese es un invariante fiscal, no una preferencia: si Factomate ignorara
+ * impreso en el ticket — ver `SaleToFePyMapper::resolveDocumentNumber()`.
+ * Ese es un invariante fiscal, no una preferencia: si el motor ignorara
  * nuestro número y numerara por su cuenta, el CDC que vuelve identificaría un
  * documento DISTINTO del que el cliente se llevó impreso, y todo lo que el
  * comercio imprima después (CDC, QR, link de consulta) estaría MINTIENDO.
@@ -51,8 +51,8 @@ namespace Punto\Api\EInvoice;
  *
  * ── Para qué se prepara: CDC del EMISOR (gateado, sin activar) ───────────
  *
- * Si Factomate confirma que su `/Bulk` acepta el CDC y el código de seguridad
- * del emisor (consulta en curso con su soporte), el CDC pasa a calcularse ACÁ
+ * Si el motor acepta el CDC y el código de seguridad calculados por el
+ * emisor, el CDC pasa a calcularse ACÁ
  * antes de emitir: el comprobante sale con CDC y QR IMPRESOS EN EL MOMENTO DE
  * LA VENTA, offline incluido, sin esperar la respuesta asíncrona del
  * proveedor. `build()` y `securityCode()` ya hacen esa parte; lo único que

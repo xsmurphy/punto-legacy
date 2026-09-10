@@ -44,7 +44,7 @@ require_once __DIR__ . '/_harness.php';
 $root = dirname(__DIR__);
 require_once $root . '/lib/EInvoice/EInvoiceProvider.php';
 require_once $root . '/lib/EInvoice/Cdc.php';
-require_once $root . '/lib/EInvoice/SaleToInvoiceMapper.php';
+require_once $root . '/lib/EInvoice/SaleFiscalRules.php';
 require_once $root . '/lib/EInvoice/SaleToFePyMapper.php';
 require_once $root . '/lib/EInvoice/FePyProvider.php';
 
@@ -142,7 +142,7 @@ $extranjera = build(baseSale(['client' => [
     'nature' => 'fisica', 'ci' => '9876543', 'idType' => 14, 'name' => 'Maria Silva',
 ]]))['cliente'];
 check(
-    'cédula extranjera (SET 14) → documentoTipo 3 — con Factomate abortaba la emisión',
+    'cédula extranjera (SET 14) → documentoTipo 3 — se factura sin problema',
     $extranjera['documentoTipo'] === 3,
     json_encode($extranjera, JSON_UNESCAPED_UNICODE),
     $failures,

@@ -1197,9 +1197,8 @@ function ProvisionedView({
  * renderizaban: el alta mandaba los dos vacíos y `IdCSCProduccion` /
  * `CSCProduccion` no se seteaban nunca del lado del emisor.
  *
- * Opcionales para PROVISIONAR, exigibles para emitir en PRODUCCIÓN: el manual
- * de Factomate los marca como no requeridos en `PUT /api/Tenant` ("no
- * requerido en modo desarrollo"), pero sin ellos el QR del KuDE no se puede
+ * Opcionales para PROVISIONAR, exigibles para emitir en PRODUCCIÓN: el alta
+ * del emisor los acepta vacíos, pero sin ellos el QR del KuDE no se puede
  * firmar. La ayuda del campo lo dice con esas palabras, para que nadie
  * descubra el faltante recién cuando la SET rechaza.
  */

@@ -221,13 +221,14 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
   },
 
   // ── 3. Features PY-only, gateadas por país ─────────────────────────────────
-  "api/lib/EInvoice/SaleToInvoiceMapper.php": {
+  "api/lib/EInvoice/SaleFiscalRules.php": {
     reason:
-      "FEATURE PY-ONLY GATEADA — SIFEN es el protocolo de facturación electrónica paraguayo; " +
-      "'PYG' y el umbral de 1.000.000 para exigir identificación del receptor son requisitos " +
-      "del XML y de la ley paraguaya, no defaults del tenant. El guard de moneda aborta " +
-      "explícitamente si la venta no es en guaraníes, en vez de convertirla.",
-    allow: { 'símbolo "Gs"': 1, 'código "PYG"': 2 },
+      "CATÁLOGO DE MONEDAS, que es lo contrario de un default paraguayo: 'PYG' aparece como " +
+      "UNA entrada más de la tabla de monedas SIN parte decimal (junto a CLP, JPY, KRW, VND, " +
+      "ISK, COP, UGX, RWF, XAF, XOF, XPF). La regla es de la MONEDA de la venta, no del país " +
+      "del comercio — sacar el literal implicaría no saber cuántos decimales admite el " +
+      "guaraní, que es justamente el dato.",
+    allow: { 'código "PYG"': 1 },
   },
   "api/lib/EInvoice/SifenGeoSource.php": {
     reason:

@@ -1,5 +1,31 @@
 # 19 — Facturación electrónica
 
+> ## DESACTUALIZADO — leer esto antes que el resto del doc (2026-09-10)
+>
+> El cuerpo de abajo se verificó contra el código el 2026-08-17 y desde
+> entonces cambiaron TRES cosas que lo contradicen de raíz. No se reescribió
+> entero en esta sesión: se marca lo que ya no es cierto para que nadie
+> integre contra una descripción muerta.
+>
+> 1. **El motor NO es Factomate.** Es FE-PY (`https://fepy.punto.la`), el
+>    motor de Punto, y desde el 2026-09-10 es el ÚNICO — no hay plan B. Todo
+>    rastro de Factomate se eliminó del código. Donde el doc dice "Factomate",
+>    leer "el motor".
+> 2. **`SaleToInvoiceMapper` NO existe.** El mapper es `SaleToFePyMapper`
+>    (payload `data` de xmlgen, SIFEN v150) y la aritmética fiscal compartida
+>    vive en `SaleFiscalRules`. Todas las referencias a
+>    `SaleToInvoiceMapper.php:NNN` del doc apuntan a un archivo borrado.
+> 3. **La numeración la maneja PUNTO, no el motor.** El §2 y el §5 dicen que
+>    el número del DE lo asigna el proveedor y que es "paralela" a
+>    `document_sequence`. Es al revés desde la decisión del owner del
+>    2026-09-07: el DE sale con el correlativo que la CAJA congeló en la venta
+>    (`transaction.invoiceNo`, mig 145) — el MISMO que salió impreso en el
+>    ticket. La divergencia, si ocurre, se detecta sobre el CDC devuelto y
+>    queda en `einvoice_document.numbering_mismatch` (mig 204).
+>
+> El KuDE tampoco lo renderiza Punto: ver el bloque SUPERSEDED de
+> `context/73-kude-propio.md`.
+
 > Estado del doc: verificado contra código 2026-08-17
 > Responsable de la última verificación: sesión 2026-08-17 (docs numeración/impresión/facturación electrónica)
 

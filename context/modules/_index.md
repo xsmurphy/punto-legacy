@@ -64,7 +64,7 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 ### Documentos
 - ✅ `17-numeracion.md` — correlativos, arriendo offline, scope por caja/sucursal; venta sin número NO se emite (owner 2026-08-16); exclusividad de caja por dispositivo (owner 2026-08-17, "demasiado importante") garantizada en schema (`main`) con la aplicación (F2/F3) escrita en `api/numeracion-exclusividad` sin mergear
 - ✅ `18-impresion.md` — plantillas, bloques, bindings, transports; native/escpos local, station depende de internet por diseño
-- ✅ `19-facturacion-electronica.md` — SIFEN/Factomate, lee IVA congelado por línea (F3a), no el catálogo
+- ✅ `19-facturacion-electronica.md` — SIFEN/FE-PY, lee IVA congelado por línea (F3a), no el catálogo. **DESACTUALIZADO desde 2026-09-10** en tres puntos de fondo (el motor, el mapper y quién manda la numeración): leer el banner del doc antes que el cuerpo
 - ✅ `20-remision.md` — `document_remision` (motivos sin outlet propio) vs `stock_transfer` (traslado interno); ningún motivo mueve stock
 
 ### Transversales

@@ -254,8 +254,8 @@ export interface TaxpayerLookupResult {
   name: string
   /** Estado en el padrón (ej. "ACTIVO"), si la fuente lo informa. */
   status: string | null
-  /** `factomate` = padrón del emisor (autoritativo); `padron` = padrón público. */
-  source: "factomate" | "padron"
+  /** `emisor` = padrón del emisor (autoritativo); `padron` = padrón público. */
+  source: "emisor" | "padron"
 }
 
 /**
