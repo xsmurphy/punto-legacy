@@ -43,10 +43,19 @@ final class KudeEmailBuilder
     public function build(string $companyId, string $docId): array
     {
         $doc = ncmExecute(
-            'SELECT einvoicedocid, transactionid, status, cdc, document_number,
-                    issued_at, sifen_status, superseded_by, cancelled_at, numbering_mismatch
-               FROM einvoice_document
-              WHERE einvoicedocid = ? AND companyid = ?',
+            'SELECT d.einvoicedocid, d.transactionid, d.status, d.cdc, d.document_number,
+                    d.issued_at, d.sifen_status, d.superseded_by, d.cancelled_at,
+                    d.numbering_mismatch,
+                    -- El punto de expedición vive en la TRANSACCIÓN, no en el
+                    -- outbox: `document_number` guarda el correlativo pelado
+                    -- ("0000620") y el número fiscal completo es
+                    -- (punto, correlativo). Sin esto el email decía "0000620"
+                    -- y el KuDE adjunto "001-002-0000620" — dos números para
+                    -- el mismo documento.
+                    t.invoiceprefix AS invoice_prefix
+               FROM einvoice_document d
+               LEFT JOIN transaction t ON t.transactionid = d.transactionid
+              WHERE d.einvoicedocid = ? AND d.companyid = ?',
             [$docId, $companyId]
         );
         if (!$doc) {
@@ -93,13 +102,22 @@ final class KudeEmailBuilder
 
         $commerce  = $this->commerce($companyId);
         $number    = trim((string) ($doc['document_number'] ?? ''));
+        // Mismo formateador que el ticket, el KuDE y el listado (mig 159/209):
+        // el número que lee el comprador tiene que ser IDÉNTICO en todas las
+        // superficies.
+        $number    = $number !== ''
+            ? \Punto\Api\Documents\DocumentNumber::format(
+                $number,
+                (string) ($doc['invoice_prefix'] ?? '')
+              )
+            : '';
         $label     = $number !== '' ? $number : $cdc;
         $issuedAt  = $this->tenantDate($companyId, (string) ($doc['issued_at'] ?? ''));
         $portalUrl = $svc->portalUrl($companyId, (string) ($doc['transactionid'] ?? ''));
 
         return [
             'subject'     => $this->subject($commerce['name'], $number, $cdc),
-            'html'        => $this->html($commerce['name'], $label, $cdc, $issuedAt, $portalUrl),
+            'html'        => $this->html($commerce, $label, $cdc, $issuedAt, $portalUrl),
             'fromName'    => $commerce['name'],
             'replyTo'     => $commerce['email'],
             'attachments' => [[
@@ -131,13 +149,26 @@ final class KudeEmailBuilder
     }
 
     /**
-     * Cuerpo HTML. Sin CSS externo ni imágenes: los clientes de correo los
-     * bloquean o los reescriben, y este email tiene que leerse igual en un
-     * webmail, en un cliente de escritorio y en un teléfono. Estilos mínimos
-     * inline, todo el contenido en texto.
+     * Cuerpo HTML.
+     *
+     * Estilos inline y layout con tablas: es lo único que renderiza igual en
+     * un webmail, un cliente de escritorio y un teléfono. Nada de CSS externo,
+     * flex ni grid — Outlook no los soporta.
+     *
+     * SÍ lleva imágenes (el logo del comercio arriba y el de Punto al pie),
+     * remotas y con `alt` que dice lo mismo en texto: muchos clientes las
+     * bloquean por defecto, así que el email tiene que leerse completo sin
+     * cargar una sola. Por eso el nombre del comercio también va escrito, no
+     * solo dibujado en su logo.
+     *
+     * La jerarquía es deliberada: arriba manda el COMERCIO, porque el
+     * comprador le compró a ese negocio; Punto va al pie, chico, igual que en
+     * el portal público (`/factura/{token}`).
+     *
+     * @param array{name:string,email:string,logoUrl:string} $commerce
      */
     private function html(
-        string $commerceName,
+        array $commerce,
         string $docLabel,
         string $cdc,
         string $issuedAt,
@@ -145,37 +176,89 @@ final class KudeEmailBuilder
     ): string {
         $e = static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 
-        $emisor = $commerceName !== '' ? $e($commerceName) : 'el comercio';
+        $commerceName = trim($commerce['name']);
+        $emisor       = $commerceName !== '' ? $e($commerceName) : 'el comercio';
 
-        $rows = '<p style="margin:0 0 4px"><strong>Documento:</strong> ' . $e($docLabel) . '</p>';
-        if ($issuedAt !== '') {
-            $rows .= '<p style="margin:0 0 4px"><strong>Fecha de emisión:</strong> ' . $e($issuedAt) . '</p>';
+        // ── Encabezado: la marca del comercio ─────────────────────────────
+        $header = '';
+        if (trim($commerce['logoUrl']) !== '') {
+            $header .= '<img src="' . $e($commerce['logoUrl']) . '" alt="' . $e($commerceName) . '"'
+                     . ' height="48" style="display:block;max-height:48px;border:0;margin:0 0 10px">';
         }
-        $rows .= '<p style="margin:0 0 4px"><strong>CDC:</strong> '
-               . '<span style="font-family:monospace;font-size:13px">' . $e($cdc) . '</span></p>';
+        if ($commerceName !== '') {
+            $header .= '<div style="font-size:16px;font-weight:bold;color:#111">' . $e($commerceName) . '</div>';
+        }
 
+        // ── Datos del documento ───────────────────────────────────────────
+        $row = static function (string $k, string $v, bool $mono = false) use ($e): string {
+            $style = 'font-size:14px;color:#111;padding:3px 0'
+                   . ($mono ? ';font-family:Consolas,Menlo,monospace;font-size:12px;word-break:break-all' : '');
+
+            return '<tr>'
+                 . '<td style="font-size:14px;color:#666;padding:3px 16px 3px 0;white-space:nowrap;vertical-align:top">'
+                 . $e($k) . '</td>'
+                 . '<td style="' . $style . '">' . $e($v) . '</td>'
+                 . '</tr>';
+        };
+
+        $rows = $row('Documento', $docLabel);
+        if ($issuedAt !== '') {
+            $rows .= $row('Fecha de emisión', $issuedAt);
+        }
+        $rows .= $row('CDC', $cdc, true);
+
+        // ── Portal ────────────────────────────────────────────────────────
         // El link va SIEMPRE que exista, y con la explicación de para qué
         // sirve: sin ese párrafo el lector asume que el PDF es la última
         // palabra, que es justo lo que D6 quiere evitar.
         $portal = '';
         if ($portalUrl !== null && $portalUrl !== '') {
-            $portal = '<p style="margin:16px 0 0">'
-                    . '<a href="' . $e($portalUrl) . '">Ver el documento en línea</a>'
-                    . '</p>'
-                    . '<p style="margin:8px 0 0;color:#555;font-size:13px">'
+            $portal = '<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0 0">'
+                    . '<tr><td style="background:#111;border-radius:6px">'
+                    . '<a href="' . $e($portalUrl) . '"'
+                    . ' style="display:inline-block;padding:11px 20px;font-size:14px;font-weight:bold;'
+                    . 'color:#fff;text-decoration:none">Ver el documento en línea</a>'
+                    . '</td></tr></table>'
+                    . '<p style="margin:12px 0 0;color:#666;font-size:13px;line-height:1.5">'
                     . 'El archivo adjunto es una copia del momento del envío. El estado vigente del '
                     . 'documento —incluida una eventual anulación— se consulta siempre en ese enlace.'
                     . '</p>';
         }
 
-        return '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">'
-             . '<p style="margin:0 0 12px">Hola:</p>'
-             . '<p style="margin:0 0 12px">Adjuntamos tu factura electrónica emitida por ' . $emisor . '.</p>'
-             . $rows
-             . $portal
-             . '<p style="margin:16px 0 0;color:#555;font-size:13px">'
-             . 'Si tenés alguna consulta sobre esta factura, respondé a este correo: llega directo a ' . $emisor . '.'
+        // ── Pie de Punto ──────────────────────────────────────────────────
+        // Mismo criterio que el portal: canal de marca legítimo (lo abre gente
+        // que probablemente no nos conoce) pero SIEMPRE debajo del comercio.
+        $appUrl   = defined('APP_URL') ? rtrim((string) APP_URL, '/') : '';
+        $puntoPie = '<a href="https://www.punto.la" style="color:#666;text-decoration:none;font-size:12px">';
+        if ($appUrl !== '') {
+            $puntoPie .= '<img src="' . $e($appUrl . '/logos/logo_bg_light.png') . '" alt="Punto"'
+                       . ' height="16" style="height:16px;border:0;vertical-align:middle;margin-right:6px">';
+        }
+        $puntoPie .= 'Usamos www.punto.la</a>';
+
+        return '<div style="background:#f4f4f5;padding:24px 12px;'
+             . 'font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Arial,Helvetica,sans-serif">'
+             . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"'
+             . ' style="max-width:560px;margin:0 auto">'
+             . '<tr><td style="background:#fff;border-radius:10px;padding:28px 26px">'
+             . $header
+             . '<h1 style="margin:18px 0 0;font-size:19px;line-height:1.3;color:#111">'
+             . 'Factura electrónica ' . $e($docLabel)
+             . '</h1>'
+             . '<p style="margin:10px 0 0;font-size:14px;line-height:1.5;color:#444">'
+             . 'Adjuntamos tu factura electrónica emitida por ' . $emisor . '.'
              . '</p>'
+             . '<table role="presentation" cellpadding="0" cellspacing="0" border="0"'
+             . ' style="margin:18px 0 0;width:100%">' . $rows . '</table>'
+             . $portal
+             . '<p style="margin:22px 0 0;padding:16px 0 0;border-top:1px solid #eee;'
+             . 'color:#666;font-size:13px;line-height:1.5">'
+             . 'Si tenés alguna consulta sobre esta factura, respondé a este correo: llega directo a '
+             . $emisor . '.'
+             . '</p>'
+             . '</td></tr>'
+             . '<tr><td align="center" style="padding:16px 0 0">' . $puntoPie . '</td></tr>'
+             . '</table>'
              . '</div>';
     }
 
@@ -186,13 +269,21 @@ final class KudeEmailBuilder
      * criterio y mismo predicado de rol que `PlanLifecycleService::ownerEmail()`,
      * que es el único lugar del repo que sabe distinguir el rol de dueño.
      *
-     * @return array{name:string,email:string}
+     * El LOGO sale de `settingObj.logoUrl` — la URL de S3 que escribe
+     * `SettingsService::uploadLogo()`, la misma que usan el portal público y
+     * el KuDE propio. No se deriva del companyId a mano: esa ruta legacy de
+     * `data.php` apunta a un archivo que no existe (bug del portal,
+     * 2026-09-09). Se respeta `hasLogo`: sin él la clave puede traer una URL
+     * vieja de un logo ya borrado.
+     *
+     * @return array{name:string,email:string,logoUrl:string}
      */
     private function commerce(string $companyId): array
     {
         $row = ncmExecute(
             "SELECT coalesce(nullif(config->>'settingName', ''), nullif(config->>'companyName', ''), '') AS name,
-                    coalesce(nullif(config->>'settingEmail', ''), '') AS email
+                    coalesce(nullif(config->>'settingEmail', ''), '') AS email,
+                    config->>'settingObj' AS setting_obj
                FROM company WHERE companyId = ?",
             [$companyId]
         );
@@ -204,7 +295,20 @@ final class KudeEmailBuilder
             $email = $this->ownerEmail($companyId);
         }
 
-        return ['name' => $name, 'email' => $email];
+        $obj = json_decode((string) ($row['setting_obj'] ?? ''), true);
+        $obj = is_array($obj) ? $obj : [];
+
+        $logoUrl = (!empty($obj['hasLogo']) && !empty($obj['logoUrl']))
+            ? trim((string) $obj['logoUrl'])
+            : '';
+        // Cache-bust con el mismo sello que usa el portal: sin esto, cambiar
+        // el logo deja a los clientes de correo sirviendo el anterior.
+        $stamp = trim((string) ($obj['logoUploadedAt'] ?? ''));
+        if ($logoUrl !== '' && $stamp !== '') {
+            $logoUrl .= (str_contains($logoUrl, '?') ? '&' : '?') . 'v=' . rawurlencode($stamp);
+        }
+
+        return ['name' => $name, 'email' => $email, 'logoUrl' => $logoUrl];
     }
 
     /** Casilla del dueño registrado, fallback del `reply_to`. '' si no hay. */
