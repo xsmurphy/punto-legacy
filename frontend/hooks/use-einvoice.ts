@@ -130,7 +130,7 @@ export function useTestEinvoiceConnection() {
 }
 
 /**
- * Proxy de los medios de pago de Factomate (F3 los mapea contra los medios
+ * Proxy de los medios de pago de SIFEN (F3 los mapea contra los medios
  * de pago de Punto). 409 si la cuenta no está conectada — `enabled` evita
  * disparar la query hasta que `status === 'ok'`.
  */

@@ -49,9 +49,9 @@ import {
  * significar "el número del documento secundario, sea cual sea el tipo".
  *
  * `noEinvoice` marca los tipos que Punto NO puede mandar a facturación
- * electrónica: el código equivalente de Factomate no está confirmado para
- * ellos, y `SaleToInvoiceMapper::mapIdType()` aborta la emisión antes que
- * declarar mal el documento del receptor ante SIFEN. El aviso va acá, en el
+ * electrónica: su código de SIFEN no está confirmado, y el mapper aborta la
+ * emisión antes que declarar mal el documento del receptor ante SIFEN. El
+ * aviso va acá, en el
  * momento de ELEGIR el tipo — descubrirlo recién al emitir la factura, con
  * el cliente esperando en la caja, es el peor lugar posible.
  *
