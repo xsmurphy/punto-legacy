@@ -1,9 +1,23 @@
 "use client"
 
 /**
- * Reporte de Productos y Servicios.
+ * Reporte de Artículos — el tablero único de qué se vendió.
  *
- * Dos vistas sobre el mismo endpoint (/v1/reports/products):
+ * Consolidado el 2026-09-10 (owner): categorías y marcas tenían página propia
+ * (`/reports/categories`, `/reports/brands`) y se ELIMINARON, sin redirect por
+ * decisión explícita del owner ("nadie los tiene en marcadores"). No eran
+ * entidades del reporte sino ATRIBUTOS del artículo: "ventas por marca" es el
+ * mismo hecho que "ventas por producto" con otro agrupamiento. Tres páginas
+ * separadas obligaban a saber de antemano por cuál corte entrar.
+ *
+ * Productos y Servicios son un FILTRO sobre las mismas filas (`itemType`), no
+ * dos fuentes distintas.
+ *
+ * `payment-methods` NO se consolidó acá aunque use el mismo wrapper de
+ * ranking: un medio de pago no es un atributo del artículo, y agruparlo por
+ * parecido técnico habría sido el error que esta consolidación corrige.
+ *
+ * Vistas sobre el mismo endpoint (/v1/reports/products):
  *  - Ranking (view=general): agregado por producto — unidades, total,
  *    descuento, impuestos, COGS, comisión y utilidad calculada.
  *  - Detallado (view=detail): una fila por línea de venta — comprobante,
@@ -20,8 +34,17 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, ListTree, Package, Trash2 } from "lucide-react"
+import {
+  AlertCircle,
+  ArrowLeft,
+  Building2,
+  ListTree,
+  Package,
+  Tag,
+  Trash2,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -35,8 +58,11 @@ import {
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { RankingReportPage } from "@/components/reports/ranking-report-page"
 import {
   useReport,
+  type BrandRow,
+  type CategoryRow,
   type ProductDetailRow,
   type ProductRow,
   type ProductsDetailReportResponse,
@@ -68,36 +94,106 @@ function ItemLink({ id, children }: { id: string; children: React.ReactNode }) {
   )
 }
 
+const TAB_IDS = [
+  "dashboard",
+  "productos",
+  "servicios",
+  "categorias",
+  "marcas",
+  "detallado",
+] as const
+
 export default function ProductsReportPage() {
   const { range, setRange } = useDateRange()
+  // `?tab=` deep-linkea una pestaña. Lo usan las entradas "Categorías" y
+  // "Marcas" de la paleta, que sobrevivieron a la consolidación: quien busca
+  // "marcas" no tiene por qué saber que ahora vive adentro de Artículos.
+  const searchParams = useSearchParams()
+  const requested = searchParams.get("tab")
+  const initialTab =
+    requested && (TAB_IDS as readonly string[]).includes(requested)
+      ? requested
+      : "dashboard"
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink />
-          <h1 className="text-2xl font-semibold">Productos y servicios</h1>
+          <h1 className="text-2xl font-semibold">Artículos</h1>
           <p className="text-sm text-muted-foreground">
-            Ranking de artículos vendidos en el período, o el detalle línea por
-            línea. Hacé clic en un artículo para ver su historial de movimientos.
+            Qué se vendió en el período: por artículo, por categoría, por marca
+            o línea por línea. Hacé clic en un artículo para ver su historial de
+            movimientos.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      <Tabs defaultValue="ranking" className="flex flex-col gap-4">
+      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
         <TabsList>
-          <TabsTrigger value="ranking">Ranking</TabsTrigger>
-          <TabsTrigger value="graficos">Gráficos</TabsTrigger>
-          <TabsTrigger value="detallado">Reporte detallado</TabsTrigger>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="productos">Productos</TabsTrigger>
+          <TabsTrigger value="servicios">Servicios</TabsTrigger>
+          <TabsTrigger value="categorias">Categorías</TabsTrigger>
+          <TabsTrigger value="marcas">Marcas</TabsTrigger>
+          <TabsTrigger value="detallado">Detallado</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="ranking" className="m-0">
-          <RankingTab range={range} />
+        <TabsContent value="dashboard" className="m-0">
+          <ChartsTab range={range} />
         </TabsContent>
 
-        <TabsContent value="graficos" className="m-0">
-          <ChartsTab range={range} />
+        <TabsContent value="productos" className="m-0">
+          <RankingTab range={range} only="product" />
+        </TabsContent>
+
+        <TabsContent value="servicios" className="m-0">
+          <RankingTab range={range} only="service" />
+        </TabsContent>
+
+        <TabsContent value="categorias" className="m-0">
+          <RankingReportPage<CategoryRow>
+            title="Ventas por categorías"
+            description="Ranking de categorías vendidas en el período."
+            endpoint="categories"
+            embeddedRange={range}
+            selectRows={(data) => (Array.isArray(data) ? (data as CategoryRow[]) : [])}
+            toRanking={(r) => ({
+              id: r.categoryId || r.name,
+              name: r.name,
+              units: r.usold,
+              total: r.total,
+            })}
+            primaryColLabel="Categoría"
+            emptyIcon={Tag}
+            emptyLabel="Sin ventas categorizadas en este período"
+            exportFileName="categorias"
+            searchPlaceholder="Buscar categoría…"
+            tableId="report-categories"
+          />
+        </TabsContent>
+
+        <TabsContent value="marcas" className="m-0">
+          <RankingReportPage<BrandRow>
+            title="Ventas por marcas"
+            description="Ranking de marcas vendidas en el período."
+            endpoint="brands"
+            embeddedRange={range}
+            selectRows={(data) => (Array.isArray(data) ? (data as BrandRow[]) : [])}
+            toRanking={(r) => ({
+              id: r.brandId || r.name,
+              name: r.name,
+              units: r.usold,
+              total: r.total,
+            })}
+            primaryColLabel="Marca"
+            emptyIcon={Building2}
+            emptyLabel="Sin ventas por marca en este período"
+            exportFileName="marcas"
+            searchPlaceholder="Buscar marca…"
+            tableId="report-brands"
+          />
         </TabsContent>
 
         <TabsContent value="detallado" className="m-0">
@@ -274,7 +370,24 @@ function BackLink() {
 
 /* ─────────────────────────── Ranking (view=general) ─────────────────────────── */
 
-function RankingTab({ range }: { range: DateRangeValue }) {
+/**
+ * `only` separa Productos de Servicios. Los dos son `itemType='product'` en
+ * el backend y lo único que los distingue es si llevan stock, así que el
+ * corte se hace sobre `trackInventory` — que este reporte expone desde el
+ * 2026-09-10 justamente para esto.
+ *
+ * Un `/api` anterior no lo manda: en ese caso `trackInventory` es `undefined`
+ * y el filtro deja pasar todo, o sea la pestaña Productos se comporta como el
+ * ranking completo de antes. Es la degradación correcta — esconder filas
+ * porque falta un campo sería peor que mostrar de más.
+ */
+function RankingTab({
+  range,
+  only,
+}: {
+  range: DateRangeValue
+  only?: "product" | "service"
+}) {
   const { data: bootstrap } = useBootstrap()
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: { view: "general" } }),
@@ -286,7 +399,14 @@ function RankingTab({ range }: { range: DateRangeValue }) {
     opts,
   )
 
-  const rows = data?.rows ?? []
+  const rows = React.useMemo(() => {
+    const all = data?.rows ?? []
+    if (!only) return all
+    return all.filter((r) => {
+      if (r.trackInventory === undefined) return true
+      return only === "product" ? r.trackInventory : !r.trackInventory
+    })
+  }, [data, only])
 
   const columns = React.useMemo<ColumnDef<ProductRow>[]>(
     () => [

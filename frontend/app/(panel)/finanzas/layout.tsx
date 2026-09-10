@@ -19,11 +19,17 @@ const TABS = [
   { href: "/finanzas/creditos", label: "Créditos" },
   { href: "/finanzas/prevision", label: "Previsión" },
   { href: "/finanzas/conciliacion", label: "Conciliación" },
-  { href: "/finanzas/reportes", label: "Reportes" },
   { href: "/finanzas/configuracion", label: "Configuración" },
 ] as const
 
-// Índice donde empieza el segundo grupo (Reportes) — divide Operación del resto.
+// Índice donde empieza el segundo grupo (Configuración) — divide operar la
+// plata del setup del módulo.
+//
+// El tab "Reportes" (ingresos/egresos por categoría) se fue a /reports el
+// 2026-09-10: es LECTURA agregada y su lugar está junto a Balance y Flujo de
+// efectivo, no suelto acá. Finanzas quedó con una sola naturaleza — operar la
+// plata — y /reports con toda la lectura financiera junta, en vez de repartida
+// entre los dos módulos según dónde se hubiera construido cada una.
 const GROUP_BREAK_INDEX = 7
 
 export default function FinanzasLayout({ children }: { children: React.ReactNode }) {

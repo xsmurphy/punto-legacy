@@ -37,10 +37,11 @@ const GROUPS: ReportGroup[] = [
     description: "El rendimiento comercial de tu negocio y quiénes te compran.",
     items: [
       { title: "Resumen",                  to: "/reports/summary",         implemented: true  },
-      { title: "Productos y servicios",    to: "/reports/products",        implemented: true  },
-      { title: "Categorías",               to: "/reports/categories",      implemented: true  },
-      { title: "Marcas",                   to: "/reports/brands",          implemented: true  },
-      { title: "Medios de pago",           to: "/reports/payment-methods", implemented: true  },
+      // Artículos absorbió Categorías y Marcas el 2026-09-10: son atributos
+      // DEL artículo, no reportes distintos. Aquellas dos páginas se
+      // eliminaron sin redirect (decisión del owner: nadie las tenía en
+      // marcadores).
+      { title: "Artículos",                to: "/reports/products",        implemented: true  },
       { title: "Órdenes",                  to: "/reports/orders",          implemented: true  },
       { title: "Análisis de clientes",     to: "/reports/customers",       implemented: true  },
     ],
@@ -52,8 +53,13 @@ const GROUPS: ReportGroup[] = [
       { title: "Finanzas",      to: "/finanzas",             implemented: true  },
       // El corte por categoría / centro de costo / cuenta vivía SOLO dentro
       // del módulo, así que desde acá —que es donde se lo busca— parecía no
-      // existir. Es el reporte de gastos que pide el contador.
-      { title: "Gastos por categoría", to: "/finanzas/reportes", implemented: true  },
+      // existir. Es el reporte de gastos que pide el contador. Desde el
+      // 2026-09-10 tiene página propia acá: Finanzas quedó para OPERAR la
+      // plata y /reports para leer cómo fue.
+      { title: "Ingresos y egresos por categoría", to: "/reports/finance-breakdown", implemented: true  },
+      // Medios de pago estaba catalogado en "Ventas y clientes", pero la
+      // pregunta que responde —cuánto entró por cada medio— es de caja.
+      { title: "Medios de pago",       to: "/reports/payment-methods", implemented: true  },
       { title: "Balance",       to: "/reports/balance",       implemented: true  },
       { title: "Flujo de efectivo", to: "/reports/cashflow",  implemented: true  },
       { title: "Control de cajas", to: "/reports/drawers",    implemented: true  },

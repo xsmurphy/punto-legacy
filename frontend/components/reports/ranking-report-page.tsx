@@ -22,6 +22,7 @@ import { EmptyState } from "@/components/empty-state"
 import {
   DateRangePicker,
   rangeToBackend,
+  type DateRangeValue,
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -67,6 +68,16 @@ interface Props<TRawRow> {
   searchPlaceholder?: string
   /** tableId para persistencia del column-toggle */
   tableId: string
+  /**
+   * Embebido dentro de otra página (un tab), no como página propia.
+   *
+   * Suprime el header —título, volver y selector de fechas— porque esos tres
+   * ya los pone quien lo contiene, y el rango viene de afuera para que
+   * cambiar de tab no obligue a re-elegir el período. Sin esto, dos
+   * `useDateRange()` en la misma pantalla pelearían por el mismo estado
+   * compartido.
+   */
+  embeddedRange?: DateRangeValue
 }
 
 export function RankingReportPage<TRawRow>({
@@ -84,9 +95,13 @@ export function RankingReportPage<TRawRow>({
   exportFileName,
   searchPlaceholder = "Buscar…",
   tableId,
+  embeddedRange,
 }: Props<TRawRow>) {
   const { data: bootstrap } = useBootstrap()
-  const { range, setRange } = useDateRange()
+  const own = useDateRange()
+  const embedded = embeddedRange !== undefined
+  const range = embeddedRange ?? own.range
+  const setRange = own.setRange
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: endpointParams }),
     [range, endpointParams],
@@ -158,6 +173,7 @@ export function RankingReportPage<TRawRow>({
 
   return (
     <div className="flex flex-col gap-6">
+      {!embedded && (
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink href={backHref} />
@@ -166,6 +182,7 @@ export function RankingReportPage<TRawRow>({
         </div>
         <DateRangePicker value={range} onChange={setRange} />
       </header>
+      )}
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">

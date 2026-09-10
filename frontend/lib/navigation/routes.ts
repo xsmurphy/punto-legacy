@@ -468,8 +468,12 @@ export const PANEL_ROUTES: RouteEntry[] = [
     requires: "reports.sales.view",
     keywords: ["products", "ranking", "items", "vendidos", "top items"],
   },
+  // Categorías y Marcas ya no tienen página propia (2026-09-10): son pestañas
+  // del reporte de Artículos. Siguen en la paleta como entradas separadas
+  // —quien busca "marcas" no sabe que vive adentro de Artículos— pero
+  // apuntando al tab correspondiente.
   {
-    to: "/reports/categories",
+    to: "/reports/products?tab=categorias",
     title: "Categorías",
     paletteTitle: "Reportes · Categorías",
     icon: Tag,
@@ -479,7 +483,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["categorias", "categories", "ranking", "ventas por categoria"],
   },
   {
-    to: "/reports/brands",
+    to: "/reports/products?tab=marcas",
     title: "Marcas",
     paletteTitle: "Reportes · Marcas",
     icon: Building2,
@@ -690,9 +694,12 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["conciliacion", "bancaria", "reconcile", "cruzar extracto"],
   },
   {
-    to: "/finanzas/reportes",
-    title: "Reportes de finanzas",
-    paletteTitle: "Finanzas · Reportes",
+    // Se mudó a /reports el 2026-09-10 (Finanzas quedó para operar la plata,
+    // /reports para leerla). Sigue en el grupo Finanzas de la paleta porque
+    // es donde se lo busca.
+    to: "/reports/finance-breakdown",
+    title: "Ingresos y egresos por categoría",
+    paletteTitle: "Finanzas · Ingresos y egresos por categoría",
     icon: BarChart3,
     surface: "palette",
     paletteGroup: "Finanzas",
