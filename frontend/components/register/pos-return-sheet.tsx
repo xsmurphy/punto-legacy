@@ -97,7 +97,19 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
   const [step, setStep] = React.useState<Step>(parentTransactionId ? "items" : "search")
   const [search, setSearch] = React.useState("")
   const [selectedTransactionId, setSelectedTransactionId] = React.useState<string | null>(parentTransactionId ?? null)
-  const [selectedItems, setSelectedItems] = React.useState<SelectedLine[]>([])
+  // Solo las EDICIONES del cajero, por `itemSoldId`. La lista que se pinta
+  // se DERIVA de `optionsData` + esto (ver `selectedItems` más abajo).
+  //
+  // Antes era una copia en estado de lo que devolvía el server, y esa copia
+  // se quedaba vacía: la query arranca con el sheet CERRADO (el
+  // `selectedTransactionId` inicial ya viene del prop), así que el efecto
+  // que copiaba corría primero; al abrir, el efecto de sincronización
+  // limpiaba la copia y el de copiado no volvía a correr nunca, porque
+  // `optionsData` seguía siendo la MISMA referencia cacheada de
+  // react-query. Resultado: drawer con la lista vacía y ninguna request
+  // nueva que lo delatara (reporte del owner, 2026-09-09). Derivar en vez
+  // de copiar hace que ese desajuste no pueda existir.
+  const [edits, setEdits] = React.useState<Record<string, { returnQty: number; restock: boolean }>>({})
   const [refundMode, setRefundMode] = React.useState<"cash" | "credit">("cash")
   const [note, setNote] = React.useState("")
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -110,7 +122,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
     if (open) {
       setStep(parentTransactionId ? "items" : "search")
       setSelectedTransactionId(parentTransactionId ?? null)
-      setSelectedItems([])
+      setEdits({})
       setSearch("")
       setRefundMode("cash")
       setNote("")
@@ -129,7 +141,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
     setStep(parentTransactionId ? "items" : "search")
     setSearch("")
     setSelectedTransactionId(parentTransactionId ?? null)
-    setSelectedItems([])
+    setEdits({})
     setRefundMode("cash")
     setNote("")
     setConfirmOpen(false)
@@ -171,32 +183,45 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
     isError: optionsError,
   } = useReturnOptions(selectedTransactionId)
 
-  // Al cargar las opciones, inicializar selección con qty=0 y el default de reposición.
-  React.useEffect(() => {
-    if (!optionsData) return
-    setSelectedItems(
-      optionsData.map((line) => ({
+  // Lo que se pinta: las líneas que dio el server, con la edición del cajero
+  // encima. Sin defaults duplicados — qty arranca en 0 y la reposición en el
+  // `defaultRestock` que decidió el backend (tabla D2 de context/40), que es
+  // el único que sabe qué es POSIBLE reponer.
+  const selectedItems = React.useMemo<SelectedLine[]>(() => {
+    if (!optionsData) return []
+    return optionsData.map((line) => {
+      const edit = edits[line.itemSoldId]
+      return {
         ...line,
-        returnQty: 0,
-        restock: line.defaultRestock,
-      })),
-    )
-  }, [optionsData])
+        returnQty: edit?.returnQty ?? 0,
+        restock: edit?.restock ?? line.defaultRestock,
+      }
+    })
+  }, [optionsData, edits])
 
   function updateQty(itemSoldId: string, qty: number) {
-    setSelectedItems((prev) =>
-      prev.map((it) =>
-        it.itemSoldId === itemSoldId
-          ? { ...it, returnQty: Math.min(Math.max(0, qty), it.availableQty) }
-          : it,
-      ),
-    )
+    const line = optionsData?.find((l) => l.itemSoldId === itemSoldId)
+    if (!line) return
+    const clamped = Math.min(Math.max(0, qty), line.availableQty)
+    setEdits((prev) => ({
+      ...prev,
+      [itemSoldId]: {
+        returnQty: clamped,
+        restock: prev[itemSoldId]?.restock ?? line.defaultRestock,
+      },
+    }))
   }
 
   function updateRestock(itemSoldId: string, value: boolean) {
-    setSelectedItems((prev) =>
-      prev.map((it) => (it.itemSoldId === itemSoldId ? { ...it, restock: value } : it)),
-    )
+    const line = optionsData?.find((l) => l.itemSoldId === itemSoldId)
+    if (!line) return
+    setEdits((prev) => ({
+      ...prev,
+      [itemSoldId]: {
+        returnQty: prev[itemSoldId]?.returnQty ?? 0,
+        restock: value,
+      },
+    }))
   }
 
   const itemsToReturn = selectedItems.filter((it) => it.returnQty > 0)
@@ -398,7 +423,17 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
                 </p>
               )}
 
-              {!optionsLoading && !optionsError && (
+              {/* Sin líneas devolvibles: se DICE, no se deja el panel en blanco.
+                  Pasa cuando la venta no tiene nada que devolver (todo ya
+                  devuelto) y pasaba también ante cualquier bug de datos: el
+                  drawer se veía vacío sin explicar nada. */}
+              {!optionsLoading && !optionsError && selectedItems.length === 0 && (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  Esta venta no tiene ítems para devolver.
+                </p>
+              )}
+
+              {!optionsLoading && !optionsError && selectedItems.length > 0 && (
                 <>
                   <div className="flex-1 overflow-y-auto">
                     <div className="divide-y">
