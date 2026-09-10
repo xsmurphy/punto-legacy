@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Services;
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Documents\DocumentSeries;
 
 /**
  * Servicio de devoluciones (transactionType = 6).
@@ -14,17 +15,21 @@ use Punto\Api\Documents\DocumentNumber;
  * en la fila padre para evitar race conditions entre requests concurrentes.
  * Maneja stock (reposición) y crédito al cliente según refundMode.
  *
- * Correlativo (context/37, context/40): la devolución de venta es,
- * conceptualmente, la nota de crédito de venta (F3/F4 de context/40, sin
- * implementar como documento propio — acá solo se le da numeración a la
- * transacción type=6 que YA se emite). docType 'nota_credito', scope OUTLET
- * y NO register: a diferencia de la venta, este endpoint acepta llamadas
- * desde 'panel' sin caja abierta (`returns.php`: "`$registerId` null cuando
- * se llama desde panel sin caja abierta"), así que `registerId` no es
- * confiable — mismo motivo por el que `remision` (context/42-remision.md)
- * terminó en scope outlet en vez del `register` que D2 de context/37
- * proponía por default. `outletId` sí es obligatorio en el endpoint (403 si
- * falta), por eso es scope seguro acá.
+ * Correlativo (context/37, context/40 F3): la devolución de venta ES la nota
+ * de crédito, y desde 2026-09-09 lleva numeración fiscal PROPIA de Punto —
+ * docType 'nota_credito', scope REGISTER, con su `DocumentSeries`
+ * (timbrado + punto de expedición) igual que la factura. La numeraba el
+ * proveedor, y eso contradecía la regla del owner de que Punto es dueño de la
+ * numeración fiscal.
+ *
+ * La caja NO sale de `$registerId` —este endpoint acepta llamadas desde el
+ * panel sin caja abierta (`returns.php`)— sino de la FACTURA QUE CORRIGE:
+ * la NC hereda la caja de la venta original, y de ahí su punto de expedición
+ * y su serie (decisión del owner 2026-09-09). Eso es lo que reemplaza al
+ * scope OUTLET anterior, y de paso elimina el fallback de
+ * `EInvoiceService::fePyPointForDocument()` que adivinaba el punto con la
+ * "primera caja activa por nombre" cuando la devolución venía del panel.
+ * Ver el bloque de numeración en `create()`.
  *
  * D2 (reposición de stock, 2026-08-21) — antes esta clase reponía SIEMPRE
  * que el ítem tuviera `itemTrackInventory`, sin preguntar y sin registrar
@@ -342,8 +347,12 @@ final class ReturnService
         try {
             // Lock de la fila padre — evita que dos requests concurrentes lean
             // `alreadyReturned` antes de que el primero escriba.
+            // `registerid` entra al SELECT porque la nota de crédito HEREDA LA
+            // CAJA de la factura que corrige (decisión del owner 2026-09-09,
+            // context/40 F3) — de ahí sale su punto de expedición y su serie.
+            // Ver el bloque de numeración más abajo.
             $parent = $db->GetRow(
-                'SELECT transactionid, transactiontype, customerid
+                'SELECT transactionid, transactiontype, customerid, registerid
                  FROM transaction
                  WHERE transactionid = ? AND companyid = ? AND transactiontype IN (0, 3)
                  FOR UPDATE',
@@ -485,17 +494,69 @@ final class ReturnService
 
             $newTransactionId = $db->GetOne('SELECT gen_random_uuid()');
 
+            // ── NUMERACIÓN FISCAL DE LA NOTA DE CRÉDITO ──────────────────
+            //
+            // Punto es dueño de la numeración fiscal (regla del owner): la NC
+            // lleva su propia serie `(timbrado, punto de expedición, número)`,
+            // igual que la factura, y NO la numera el proveedor.
+            //
+            // **La NC hereda la CAJA de la factura que corrige** (decisión del
+            // owner 2026-09-09). El scope pasa de OUTLET a REGISTER: antes se
+            // numeraba por sucursal porque este endpoint acepta llamadas desde
+            // el panel sin caja abierta y `$registerId` no era confiable. Pero
+            // la caja no hace falta pedirla — está en la venta original, que ya
+            // tenemos lockeada acá arriba. El fundamento normativo: `C005 dEst`
+            // y `C006 dPunExp` son obligatorios 1-1 para TODO documento
+            // electrónico (Manual Técnico DNIT v150, grupo C) y entran al CDC
+            // de la NC igual que al de la factura. SIFEN vincula la NC a su
+            // factura por el CDC del documento asociado, no exigiendo que el
+            // punto coincida — heredar la caja es una decisión NUESTRA de
+            // coherencia, y encima elimina el fallback que adivinaba el punto
+            // ("primera caja activa por nombre") cuando la devolución salía del
+            // panel.
+            //
+            // ── Serie VIGENTE de la caja heredada, no la congelada en la
+            // factura ──
+            // La NC es un documento fiscal que se emite HOY: tiene que salir
+            // bajo un timbrado y un punto que la caja tenga vigentes. Si la
+            // caja renovó timbrado (o cambió de punto) desde la venta, usar el
+            // par congelado en la factura declararía ante SIFEN un talonario
+            // retirado — o un punto que ya pertenece a otra caja, porque
+            // `assertExpeditionPointFree()` lo libera al desasignarlo. En el
+            // caso normal —el punto no cambió— la serie ES la misma de la
+            // factura, que es la coherencia que el owner buscaba.
+            //
+            // Serie vacía (`DocumentSeries::none()`) es legítima: es un tenant
+            // sin facturación electrónica, cuya caja no tiene timbrado ni punto
+            // cargados. La devolución se numera igual (una secuencia por caja,
+            // como cualquier documento no fiscal) y NO se adivina nada; quien
+            // corta es la EMISIÓN, con su mensaje propio, si alguien intenta
+            // mandar esa NC a SIFEN.
+            $ncRegisterId = trim((string) ($parent['registerid'] ?? ''));
+            if ($ncRegisterId === '') {
+                // Fail-CLOSED. Sin caja de origen no hay punto de expedición
+                // que heredar, y el único camino alternativo sería inventarlo
+                // — que es exactamente lo que este cambio viene a eliminar.
+                // No debería ocurrir: toda venta se emite con caja
+                // (companyId+outletId+registerId son las dimensiones
+                // obligatorias de una transacción).
+                throw new \InvalidArgumentException(
+                    'La venta original no tiene caja registrada, así que la nota de crédito no tiene de dónde '
+                    . 'heredar su punto de expedición. No se emite una devolución numerada contra un punto '
+                    . 'de expedición adivinado.'
+                );
+            }
+            $ncSeries = DocumentSeries::forRegister($ncRegisterId, $companyId);
+
             // Correlativo real (context/37 D1: SIEMPRE dentro de la TX del
             // documento — si algo de abajo falla, el rollback devuelve el
-            // número y no queda hueco). Antes esta transacción se emitía sin
-            // invoiceno: la devolución de venta es un documento propio hacia
-            // el cliente y le corresponde numeración, igual que la factura
-            // que corrige.
+            // número y no queda hueco).
             $invoiceNo = DocumentNumber::allocate(
                 'nota_credito',
-                DocumentNumber::SCOPE_OUTLET,
-                $outletId,
+                DocumentNumber::SCOPE_REGISTER,
+                $ncRegisterId,
                 $companyId,
+                $ncSeries,
             );
 
             // Lo que efectivamente sale de la caja (o se acredita) es el NETO:
@@ -521,13 +582,28 @@ final class ReturnService
             // la de la sesión de PG, o la request cruzando la medianoche) y
             // recomputaría el día equivocado.
             $txRow = $db->Execute(
+                // `invoiceauth`/`invoiceprefix`: la SERIE con la que se emitió
+                // esta NC, CONGELADA en su propia fila — mismo invariante que
+                // la factura (migs 145 y 209). Es lo que hace que reimprimir o
+                // reconciliar una NC vieja no la reetiquete cuando la caja
+                // heredada cambie de timbrado o de punto de expedición.
+                //
+                // `registerid` sigue siendo la caja donde se OPERÓ la
+                // devolución (null desde el panel), NO la caja heredada. Son
+                // dos cosas distintas y mezclarlas tiene consecuencia
+                // financiera: el arqueo cuenta las devoluciones por
+                // `t.registerId` (`DrawerService`), así que escribir ahí la
+                // caja de la factura original metería en su cierre una
+                // devolución cuya plata nunca salió de ese cajón. La caja
+                // heredada solo define la SERIE, y la serie ya viaja
+                // congelada en las dos columnas de al lado.
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactionunitssold,
-                    transactionpaymenttype, invoiceno,
+                    transactionpaymenttype, invoiceno, invoiceauth, invoiceprefix,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')
+                ) VALUES (?, 6, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')
                 RETURNING transactiondate',
                 [
                     $newTransactionId,
@@ -536,6 +612,8 @@ final class ReturnService
                     $totalUnits,
                     $paymentsJson,
                     $invoiceNo,
+                    $ncSeries->auth,
+                    $ncSeries->prefix,
                     $note,
                     $parent['customerid'] ?? null,
                     $registerId ?: null,

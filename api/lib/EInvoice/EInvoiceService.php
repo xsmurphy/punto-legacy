@@ -2806,9 +2806,20 @@ final class EInvoiceService
      * mismo punto de expedición es el escenario de facturas duplicadas que el
      * modelo por-caja existe para impedir.
      *
-     * Una NC emitida desde el PANEL no tiene caja. Ahí sí se acepta el
-     * fallback al prefijo de la primera caja activa con timbrado: sin caja no
-     * hay a quién robarle el punto.
+     * ── El punto CONGELADO es la fuente, tenga caja o no (2026-09-09) ──
+     * Hasta hoy, el congelado solo se miraba cuando `transaction.registerId`
+     * estaba cargado, y una NOTA DE CRÉDITO emitida desde el PANEL —que no
+     * tiene caja— caía a "el prefijo de la primera caja activa por nombre".
+     * Eso es adivinar un punto de expedición: la NC salía a SIFEN declarando
+     * el punto de una caja elegida por orden alfabético, sin relación con el
+     * documento que corregía.
+     *
+     * Ese fallback se ELIMINA. La NC hereda la caja de la factura que corrige
+     * y congela su serie en su propia fila (`ReturnService::create()`), así que
+     * `invoicePrefix` está poblado exactamente igual que en una venta y este
+     * método lo lee sin preguntar por la caja. La lectura de la caja queda solo
+     * como fallback para las filas ANTERIORES a la mig 209, que no tienen el
+     * dato congelado.
      *
      * @return array{establecimiento:string,punto:string}
      * @throws \RuntimeException si no se puede determinar sin adivinar.
@@ -2823,62 +2834,39 @@ final class EInvoiceService
             [$transactionId, $companyId]
         );
         $tx = $tx ?: [];
-        $registerId = trim((string) ($tx['registerId'] ?? ''));
 
-        if ($registerId !== '') {
-            // ── El punto CONGELADO manda sobre el vigente (mig 209) ──
-            // Este es el lector más consecuente de todos: es el punto de
-            // expedición con el que el documento sale a SIFEN. Leer el vivo
-            // significaba que, si el admin cambiaba el punto entre la venta y
-            // la emisión —o mientras el documento esperaba en el outbox—, el
-            // documento se declaraba contra un punto distinto del que el
-            // comprobante ya llevaba impreso, con el correlativo de la serie
-            // vieja. Fallback al vivo SOLO para ventas anteriores a la mig 209,
-            // que no tienen el dato congelado.
-            //
-            // `data` viene aplanado por Query::flattenJsonb, así que
-            // `registerInvoicePrefix` llega como clave de la fila. Mismo
-            // patrón —y mismo bug evitado— que `registerStamps()`.
-            $prefix = trim((string) ($tx['invoicePrefix'] ?? ''));
-            if ($prefix === '') {
-                $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
-            }
-            if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
-                return ['establecimiento' => $m[1], 'punto' => $m[2]];
-            }
-            $registerName = trim((string) ($tx['registerName'] ?? ''));
-            throw new \RuntimeException(sprintf(
-                'La caja %s no tiene el punto de expedición cargado (formato EEE-PPP) — cargalo en Sucursales → Cajas. ' .
-                'El documento no se emite con el punto de expedición de otra caja.',
-                $registerName !== '' ? '"' . $registerName . '"' : 'de esta venta'
-            ));
+        // El punto CONGELADO manda sobre el vigente (mig 209). Este es el
+        // lector más consecuente de todos: es el punto de expedición con el
+        // que el documento sale a SIFEN. Leer el vivo significaba que, si el
+        // admin cambiaba el punto entre la operación y la emisión —o mientras
+        // el documento esperaba en el outbox—, el documento se declaraba
+        // contra un punto distinto del que el comprobante ya llevaba impreso,
+        // con el correlativo de la serie vieja.
+        //
+        // `data` viene aplanado por Query::flattenJsonb, así que
+        // `registerInvoicePrefix` llega como clave de la fila. Mismo patrón
+        // —y mismo bug evitado— que `registerStamps()`.
+        $prefix = trim((string) ($tx['invoicePrefix'] ?? ''));
+        if ($prefix === '') {
+            $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
+        }
+        if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
+            return ['establecimiento' => $m[1], 'punto' => $m[2]];
         }
 
-        $rs = ncmExecute(
-            'SELECT data FROM register WHERE companyId = ? AND registerStatus = TRUE ORDER BY registerName ASC',
-            [$companyId],
-            false,
-            true
-        );
-        // ncmExecute con forceObj devuelve un RECORDSET, no un array: se
-        // itera con while(!$rs->EOF) o queda vacío siempre (footgun de
-        // CLAUDE.md, bug shipped 2026-06-18).
-        if ($rs && is_object($rs)) {
-            while (!$rs->EOF) {
-                $prefix = trim((string) ($rs->fields['registerInvoicePrefix'] ?? ''));
-                if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
-                    $rs->Close();
-                    return ['establecimiento' => $m[1], 'punto' => $m[2]];
-                }
-                $rs->MoveNext();
-            }
-            $rs->Close();
-        }
-
-        throw new \RuntimeException(
-            'Ninguna caja tiene el punto de expedición cargado (formato EEE-PPP) — no se puede emitir el documento. ' .
-            'Cargalo en Sucursales → Cajas.'
-        );
+        // Fail-CLOSED. Sin punto congelado ni caja de la que leerlo no hay
+        // forma de saber contra qué punto de expedición se declara este
+        // documento, y ninguna de las respuestas posibles es adivinable: un
+        // punto equivocado es una declaración falsa ante la SET, y encima
+        // pisaría la numeración de la caja que sí lo tiene asignado.
+        $registerName = trim((string) ($tx['registerName'] ?? ''));
+        throw new \RuntimeException(sprintf(
+            'El documento no tiene punto de expedición (formato EEE-PPP): %s. Cargalo en Sucursales → Cajas y '
+            . 'volvé a emitir. No se emite con el punto de expedición de otra caja.',
+            $registerName !== ''
+                ? 'la caja "' . $registerName . '" no lo tiene cargado'
+                : 'ni el documento lo tiene congelado ni tiene caja de la que heredarlo'
+        ));
     }
 
     /**
@@ -2990,15 +2978,23 @@ final class EInvoiceService
         try {
             $expected = [];
 
-            // El número propio solo existe cuando NOSOTROS numeramos. Con el
-            // kill-switch `legacyAutoNumbering`, o en una NC (que hoy numera
-            // el motor, F3 de context/40), no hay correlativo nuestro que
-            // defender — los otros componentes se siguen comprobando.
-            if (empty($config['legacyAutoNumbering']) && $doctype !== 'NC') {
-                $number = is_numeric($sale['fiscalNumber'] ?? null) ? (int) $sale['fiscalNumber'] : 0;
-                if ($number > 0) {
-                    $expected['number'] = $number;
-                }
+            // TODO documento que emitimos lleva número PROPIO, así que el
+            // guard exige siempre los cuatro componentes del CDC.
+            //
+            // La NOTA DE CRÉDITO ya NO está exceptuada (context/40 F3).
+            // Mientras la numeraba el motor, exigirle el número al CDC habría
+            // marcado discrepancia en todas. Ahora la numeramos nosotros, así
+            // que la NC entra al guard más importante del pipeline: si vuelve
+            // un CDC con OTRO número, queda `issued` con `numbering_mismatch`
+            // y su CDC/QR no se imprimen ni se publican en el portal — antes
+            // ese cambio de número pasaba sin que nadie se enterara.
+            //
+            // Tampoco queda el kill-switch `legacyAutoNumbering`, que
+            // desactivaba esta comprobación entera: era de cuando el proveedor
+            // numeraba, y hoy Punto es dueño de la numeración fiscal.
+            $number = is_numeric($sale['fiscalNumber'] ?? null) ? (int) $sale['fiscalNumber'] : 0;
+            if ($number > 0) {
+                $expected['number'] = $number;
             }
 
             // RUC del emisor, sin DV (el CDC lo lleva en un componente aparte).
@@ -3821,9 +3817,13 @@ final class EInvoiceService
      */
     private function buildCreditNoteArrayForMapper(string $companyId, string $transactionId): ?array
     {
+        // invoiceNo + invoiceAuth: la serie y el correlativo PROPIOS de la
+        // nota de crédito, congelados por `ReturnService::create()` en la fila
+        // de la devolución (context/40 F3, 2026-09-09). Antes no se leían
+        // porque la NC la numeraba el proveedor.
         $tx = ncmExecute(
             'SELECT transactionTotal, transactionDiscount, transactionCurrency,
-                    customerId, transactionDate
+                    customerId, transactionDate, invoiceNo, invoiceAuth
                FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
@@ -3976,6 +3976,13 @@ final class EInvoiceService
             'items'              => $items,
             'client'             => $this->resolveClient($companyId, $tx['customerId'] ?? null),
             'payments'           => [],
+            // Mismas claves y misma semántica que en la venta: el correlativo
+            // y el timbrado del EMISOR (nosotros). La regla de qué se manda
+            // como `numero` vive en un solo lugar (los `resolveDocumentNumber`
+            // de los mappers) y la coherencia del timbrado la valida
+            // `assertNumberingCoherence()`, que ya no exceptúa a la NC.
+            'fiscalNumber'       => isset($tx['invoiceNo']) && is_numeric($tx['invoiceNo']) ? (int) $tx['invoiceNo'] : null,
+            'fiscalAuth'         => trim((string) ($tx['invoiceAuth'] ?? '')),
         ];
     }
 }

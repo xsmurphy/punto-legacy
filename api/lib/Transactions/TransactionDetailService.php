@@ -76,9 +76,9 @@ final class TransactionDetailService
 
         // ── Caja / timbrado ──────────────────────────────────────────────
         // Mismo criterio que Reports\TransactionsService::registerInfo()
-        // (invoiceAuth/invoicePrefix/docsLeadingZeros/returnPrefix viven en
-        // register.data JSONB, expuestos por el flatten) — se reusa esa
-        // resolución en vez de duplicarla (visibility bump: private→public).
+        // (invoiceAuth/invoicePrefix/docsLeadingZeros viven en register.data
+        // JSONB, expuestos por el flatten) — se reusa esa resolución en vez de
+        // duplicarla (visibility bump: private→public).
         $registerId = $tx['registerId'] !== null ? (string) $tx['registerId'] : null;
         $reg        = [];
         if ($registerId !== null) {
@@ -89,9 +89,11 @@ final class TransactionDetailService
         if ($invoicePrefix === '') {
             $invoicePrefix = (string) ($reg['invoicePrefix'] ?? '');
         }
-        if ($type === 6 && ($reg['returnPrefix'] ?? null) !== null) {
-            $invoicePrefix = (string) $reg['returnPrefix'];
-        }
+        // El override por `registerReturnPrefix` se ELIMINÓ el 2026-09-09 (ver
+        // `registerInfo()`): era código muerto —nadie escribía esa clave— y
+        // desde que la nota de crédito congela su propio punto de expedición
+        // habría podido pisar el dato que el documento declaró ante SIFEN. El
+        // type 6 usa el mismo camino congelado-con-fallback que el resto.
         // Ancho del talonario (mig 159) — antes salía de
         // `register.data.registerDocsLeadingZeros` y se padeaba acá a mano.
         $padWidth     = (new \Punto\Api\Reports\TransactionsService())->padWidthFor($reg, $type);

@@ -25,11 +25,15 @@ final class RegisterAdminService
      * Lista todas las cajas del tenant con JOIN a outlet para outletName.
      */
     /**
-     * Documentos con numeración propia por caja. Hoy solo se emite 'factura';
-     * en PY la NC, la ND y la remisión llevan timbrado y rango propios y se
-     * suman acá cuando se implementen (ver update()).
+     * Documentos con numeración propia por caja.
+     *
+     * `nota_credito` entró el 2026-09-09 (context/40 F3): la NC dejó de ser
+     * numerada por el proveedor y pasó a tener SERIE PROPIA de Punto, la de la
+     * caja de la que hereda (ver `ReturnService::create()`). En PY la ND y la
+     * remisión también llevan timbrado y rango propios y se suman acá cuando se
+     * implementen (ver update()).
      */
-    private const DOC_TYPES = ['factura', 'cotizacion'];
+    private const DOC_TYPES = ['factura', 'cotizacion', 'nota_credito'];
 
     /**
      * Próximos números de la caja, leídos de `document_sequence` (context/37).
@@ -52,17 +56,21 @@ final class RegisterAdminService
         // quedaba con la última fila que devolviera Postgres —o sea, con una
         // serie retirada, elegida por el orden físico de la tabla—.
         //
-        // La cotización no tiene serie fiscal: su fila siempre es ('', '').
+        // La factura y la nota de crédito comparten el par vigente de la caja
+        // (timbrado y punto de expedición son de la CAJA, no del documento: el
+        // provisioning da de alta los dos tipos en un solo timbrado). Lo que no
+        // comparten es el contador: son dos talonarios. La cotización no tiene
+        // serie fiscal: su fila siempre es ('', '').
         $rs = ncmExecute(
             "SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto, s.padwidth
                FROM document_sequence s
                JOIN register r
                  ON r.registerId = s.scopeid AND r.companyId = s.companyid
               WHERE s.companyid = ? AND s.scopetype = ?
-                AND s.invoiceauth = CASE WHEN s.doctype = 'factura'
+                AND s.invoiceauth = CASE WHEN s.doctype IN ('factura', 'nota_credito')
                       THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
                       ELSE '' END
-                AND s.prefix = CASE WHEN s.doctype = 'factura'
+                AND s.prefix = CASE WHEN s.doctype IN ('factura', 'nota_credito')
                       THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
                       ELSE '' END",
             [$this->companyId, DocumentNumber::SCOPE_REGISTER],
@@ -549,9 +557,10 @@ final class RegisterAdminService
                 // Un [0, 3] hardcodeado acá sería una segunda copia del mapeo
                 // que se desincroniza en silencio.
                 $txTypes = match ($docType) {
-                    'factura'    => [SaleType::Cashsale->value, SaleType::Creditsale->value],
-                    'cotizacion' => [SaleType::Quote->value],
-                    default      => [],
+                    'factura'      => [SaleType::Cashsale->value, SaleType::Creditsale->value],
+                    'cotizacion'   => [SaleType::Quote->value],
+                    'nota_credito' => [SaleType::Return->value],
+                    default        => [],
                 };
                 if ($txTypes !== []) {
                     // Acotado a la SERIE que va a quedar vigente (mig 209).
@@ -565,8 +574,9 @@ final class RegisterAdminService
                     //
                     // La cotización no tiene serie fiscal, así que se compara
                     // contra la serie vacía y su comportamiento no cambia.
-                    $serieAuth   = $docType === 'factura' ? $effectiveAuth   : '';
-                    $seriePrefix = $docType === 'factura' ? $effectivePrefix : '';
+                    $isFiscalDoc = $docType === 'factura' || $docType === 'nota_credito';
+                    $serieAuth   = $isFiscalDoc ? $effectiveAuth   : '';
+                    $seriePrefix = $isFiscalDoc ? $effectivePrefix : '';
                     $ph   = implode(',', array_fill(0, count($txTypes), '?'));
                     $used = ncmExecute(
                         "SELECT 1 FROM transaction
@@ -721,6 +731,24 @@ final class RegisterAdminService
                 $rangeToTouched,
                 $series,
                 $padWidths['factura'] ?? null,
+            );
+        }
+        // La NOTA DE CRÉDITO comparte la serie de la caja con la factura —el
+        // timbrado y el punto de expedición son de la CAJA— pero es OTRO
+        // talonario, con su propio contador. Se siembra en los mismos casos que
+        // la factura salvo el rango: `range.facturaTo` es el techo del
+        // talonario de FACTURAS y aplicarlo acá le pondría a la NC un límite
+        // que nadie declaró.
+        if (isset($numbering['nota_credito']) || $prefixChanged
+            || $authChanged || isset($padWidths['nota_credito'])) {
+            $this->seedSequence(
+                $id,
+                'nota_credito',
+                $numbering['nota_credito'] ?? null,
+                null,
+                false,
+                $series,
+                $padWidths['nota_credito'] ?? null,
             );
         }
         // La cotización no lleva timbrado propio: serie vacía, una sola

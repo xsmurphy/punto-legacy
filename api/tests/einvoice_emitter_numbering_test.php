@@ -470,21 +470,35 @@ check('(C4) el CDC NO se imprime ni se publica: describe otro documento',
     'printableDocumentFor devolvió el CDC de un documento marcado', $failures, $checks);
 
 // ═══════════════════════════════════════════════════════════════════════════
-// (D) Kill-switch de emergencia
+// (D) El kill-switch YA NO EXISTE
 // ═══════════════════════════════════════════════════════════════════════════
-echo "\n=== (D) legacyAutoNumbering devuelve la numeración al motor ===\n";
+//
+// `legacyAutoNumbering` devolvía la numeración al motor: omitía nuestro
+// correlativo del payload y apagaba el guard del CDC. Era de cuando numeraba
+// el proveedor. Se eliminó, porque Punto es dueño de la numeración fiscal y
+// una palanca que lo desactiva en silencio es un agujero esperando a que
+// alguien la encienda "por un rato".
+//
+// Este caso es el guard de REGRESIÓN: aunque la clave siga apareciendo en la
+// config de una cuenta vieja, tiene que ser inerte.
+echo "\n=== (D) el kill-switch legacyAutoNumbering quedó inerte ===\n";
 seedAccount($companyId, ['legacyAutoNumbering' => true]);
 
 $providerD = new FakeFePyProvider();
-$providerD->engineNumber = 9111; // el motor numera como quiere
+$providerD->engineNumber = 9111; // el motor intenta numerar como quiere
 $resD = emitir($providerD, $companyId, $txD);
 
 check('(D1) el documento se emite igual', $resD['status'] === 'issued',
     "status={$resD['status']} error={$resD['error']}", $failures, $checks);
-check('(D2) y el payload OMITE `numero` — nunca un centinela que declare un número inexistente',
-    is_array($resD['payload']) && !array_key_exists('numero', $resD['payload']),
+check('(D2) y el payload SÍ manda nuestro correlativo — la clave vieja no lo apaga',
+    is_array($resD['payload']) && array_key_exists('numero', $resD['payload']),
     'numero=' . json_encode($resD['payload']['numero'] ?? null), $failures, $checks);
-check('(D3) sin correlativo propio, el guard de CDC no exige un número que ya no defendemos',
+// El CDC vuelve con NUESTRO número (el fake solo inventa uno cuando el payload
+// no lo trae), así que coinciden y no hay nada que marcar. Que el guard SÍ
+// marque cuando el motor cambia el número lo prueba el caso (C), con
+// `numberOverride`: acá lo que importa es que el guard quedó ACTIVO, y no
+// apagado por una clave de config vieja.
+check('(D3) el guard de CDC corre y no marca: el número del CDC es el nuestro',
     $resD['mismatch'] === '',
     "numbering_mismatch={$resD['mismatch']}", $failures, $checks);
 
