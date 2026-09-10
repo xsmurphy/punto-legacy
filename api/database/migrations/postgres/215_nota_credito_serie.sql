@@ -98,7 +98,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_transaction_creditnote_invoiceno
     AND COALESCE(invoiceprefix, '') <> '';
 
 COMMENT ON INDEX uq_transaction_creditnote_invoiceno IS
-  'Unicidad fiscal del numero de NOTA DE CREDITO, POR SERIE (mig 213). '
+  'Unicidad fiscal del numero de NOTA DE CREDITO, POR SERIE (mig 215). '
   'Gemelo disjunto de uq_transaction_expedition_invoiceno: aquel cubre la '
   'FACTURA (transactiontype 0/3), este la NC (6). Separados porque factura y '
   'NC son dos talonarios bajo el MISMO timbrado y punto, asi que comparten '
