@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Documents\DocumentNumber;
+
 /**
  * Dominio de Reportes — Ventas por Medios de Pago (API compartida, motor ERP).
  *
@@ -26,8 +28,14 @@ final class PaymentMethodsService
      */
     public function report($from, $to, $roc, $companyId, bool $forceRollup = false): array
     {
+        // `invoicePrefix` y `transactionType` viajan en el SELECT: el prefijo
+        // está CONGELADO en la transacción desde la mig 209 y es el que hay
+        // que mostrar — resolverlo contra la caja daría el punto de expedición
+        // ACTUAL, así que al cambiarlo todo el historial cambiaría de número
+        // ante el cliente y ante la SET.
         $sql = "SELECT transactionId, transactionPaymentType, transactionTotal,
-                       invoiceNo, outletId, customerId, registerId
+                       invoiceNo, invoicePrefix, transactionType,
+                       outletId, customerId, registerId
                 FROM transaction
                 WHERE transactionType IN (0, 5)
                 AND " . SaleFilters::notVoidedSql() . "
@@ -37,7 +45,9 @@ final class PaymentMethodsService
 
         $detail      = [];
         $group       = [];
-        $prefixCache = [];
+        // Se recolectan primero y las cajas se resuelven en UNA query después
+        // del bucle (ver más abajo), en vez de una por fila.
+        $pending     = [];
 
         if ($res && is_object($res)) {
             while (!$res->EOF) {
@@ -53,14 +63,6 @@ final class PaymentMethodsService
                 $customerTin  = $customer['ruc']  ?? '-';
                 $customerName = $customer['name'] ?? '';
 
-                $regId = $f['registerId'] ?? '';
-                if (!array_key_exists($regId, $prefixCache)) {
-                    $reg = $regId
-                        ? ncmExecute('SELECT registerInvoicePrefix FROM register WHERE registerId = ? AND companyId = ?', [$regId, $companyId], true)
-                        : null;
-                    $prefixCache[$regId] = $reg['registerInvoicePrefix'] ?? '';
-                }
-                $invoicePrefix = $prefixCache[$regId];
 
                 foreach ($methods as $meth) {
                     $extra = ($meth['type'] ?? '') === 'check'
@@ -69,7 +71,13 @@ final class PaymentMethodsService
 
                     $detail[] = [
                         'transactionId' => (string) $f['transactionId'],
-                        'invoiceNo'     => $invoicePrefix . ($f['invoiceNo'] ?? ''),
+                        // Se completa después del bucle, con el prefijo y el
+                        // ancho de talonario ya resueltos en batch.
+                        'invoiceNo'     => '',
+                        '_registerId'   => (string) ($f['registerId'] ?? ''),
+                        '_invoiceNo'    => (string) ($f['invoiceNo'] ?? ''),
+                        '_prefix'       => (string) ($f['invoicePrefix'] ?? ''),
+                        '_txType'       => $f['transactionType'] ?? null,
                         'customerName'  => $customerName,
                         'customerTin'   => $customerTin,
                         'methodType'    => $meth['type'] ?? ($meth['name'] ?? ''),
@@ -86,6 +94,38 @@ final class PaymentMethodsService
                 $res->MoveNext();
             }
             $res->Close();
+        }
+
+        // ── Número de comprobante, resuelto en batch ────────────────────────
+        //
+        // Antes esto era un `SELECT registerInvoicePrefix FROM register` por
+        // caja dentro del bucle. Dos problemas: la columna NO EXISTE —el
+        // prefijo vive en `register.data->>'registerInvoicePrefix'`, así que
+        // el reporte tiraba 500 en producción— y además resolverlo contra la
+        // caja daba el punto de expedición ACTUAL en vez del que tenía la
+        // venta.
+        //
+        // Mismo criterio que `FiscalService` y `TransactionsService::detail()`:
+        // se usa el prefijo CONGELADO de la transacción y solo se cae al de la
+        // caja cuando está vacío (ventas anteriores a la mig 209). El número
+        // sale de `DocumentNumber::format()`, el mismo formateador del ticket
+        // y del detalle, para que el comprobante se vea igual en todos lados.
+        $txnSvc    = new TransactionsService();
+        $registers = $txnSvc->registerInfo(array_column($detail, '_registerId'), $companyId);
+        foreach ($detail as $i => $row) {
+            $reg    = $registers[$row['_registerId']] ?? [];
+            $prefix = $row['_prefix'] !== '' ? $row['_prefix'] : (string) ($reg['invoicePrefix'] ?? '');
+            $detail[$i]['invoiceNo'] = DocumentNumber::format(
+                $row['_invoiceNo'],
+                $prefix,
+                $txnSvc->padWidthFor($reg, $row['_txType'])
+            );
+            unset(
+                $detail[$i]['_registerId'],
+                $detail[$i]['_invoiceNo'],
+                $detail[$i]['_prefix'],
+                $detail[$i]['_txType']
+            );
         }
 
         usort($group, fn($a, $b) => ($b['price'] ?? 0) <=> ($a['price'] ?? 0));
