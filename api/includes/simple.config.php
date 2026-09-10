@@ -154,9 +154,11 @@ define('FEPY_BASE_URL', $_ENV['FEPY_BASE_URL'] ?? '');
 // documentos de cualquiera de ellos): SIEMPRE en env, NUNCA en BD ni
 // alcanzable desde un endpoint con auth de tenant.
 define('FEPY_API_KEY', $_ENV['FEPY_API_KEY'] ?? '');
-// Entorno donde se provisionan los emisores NUEVOS (F7). Global, no elección
-// del tenant. 'test' hasta que el white-label esté validado contra prod.
-define('EINVOICE_DEFAULT_ENVIRONMENT', $_ENV['EINVOICE_DEFAULT_ENVIRONMENT'] ?? 'test');
+// El ENTORNO donde se dan de alta los emisores nuevos NO está acá: sale de
+// `platform_config` (`integration.fepy.env`), que es editable desde /admin.
+// Estuvo como env var y el default global creó un tenant 'test' que hubo que
+// purgar (2026-09-08) — la constante se eliminó para que no queden dos
+// fuentes de verdad para el mismo dato. Ver EInvoiceProvisioningService::environment().
 // EINVOICE_DRAIN_SECRET: secreto compartido de jobs internos del sistema —
 // gatea POST /v1/einvoice?action=drain (F1, drainer del outbox de FE) y
 // POST /v1/maintenance?job=... (rollup-reconcile / purge-tenant-audit /
