@@ -271,6 +271,28 @@ final class ReturnService
             throw new \InvalidArgumentException('No hay items para devolver.');
         }
 
+        // Una venta ANULADA no se devuelve: la anulación ya repuso el stock y
+        // ya revirtió la caja (`SaleVoidService::void()`), así que devolver
+        // encima repone las mismas unidades por segunda vez y le reintegra al
+        // cliente una plata que ya se le reintegró. La protección inversa
+        // existe desde siempre —`canVoid()` rechaza con HAS_RETURNS una venta
+        // con devoluciones vigentes—, faltaba este lado del par.
+        //
+        // Va ANTES que cualquier otra validación y fuera de la transacción:
+        // es un lookup de solo lectura y el caso no depende de qué ítems ni
+        // de qué modo de reintegro pidió el cajero.
+        $voidedCheck = ncmExecute(
+            'SELECT voidedat FROM transaction
+              WHERE transactionid = ? AND companyid = ? AND voidedat IS NOT NULL',
+            [$parentTransactionId, $companyId]
+        );
+        if ($voidedCheck) {
+            throw new \InvalidArgumentException(
+                'Esta venta está anulada: la anulación ya devolvió el dinero y repuso el stock, '
+                . 'así que no se le puede hacer una devolución encima.'
+            );
+        }
+
         // D3: política de reintegro del tenant. Con 'cash'/'credit' fijado,
         // un request con el otro modo se rechaza de entrada — antes de tocar
         // la BD. Con 'ask' (default) ambos son válidos.
