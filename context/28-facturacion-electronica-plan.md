@@ -1,4 +1,37 @@
-# Facturación Electrónica (Factomate / SIFEN) — plan del módulo
+# Facturación Electrónica (FE-PY / SIFEN) — plan del módulo
+
+> ## CORRECCIÓN DE FONDO — 2026-09-10: el motor es FE-PY, y es el ÚNICO
+>
+> Este doc se escribió contra Factomate y lo nombra ~90 veces más abajo. **Ese
+> proveedor quedó FUERA por decisión del owner y se eliminó del código entero**
+> (provider, sesión, mapper, provisioning, columnas de BD). FE-PY
+> (`https://fepy.punto.la`) —el `facturacionelectronicapy-xmlgen` envuelto en
+> una API multi-tenant, de Punto— es el único motor. No hay plan B, no hay
+> cutover por tenant, no hay fallback.
+>
+> Al leer el cuerpo, traducir "Factomate" por "el motor" y desconfiar de todo
+> lo que describa SU API en particular. Lo que YA NO aplica:
+>
+> - `POST /Bulk`, `getkude`, `getBulk/{id}`, `BranchDocumentType`, la cadena de
+>   auth `/Token` → `PhoneLogin`, el header `phonenumber` y `CreateExternal`.
+>   FE-PY tiene una API key de company que no expira y el emisor va por UUID en
+>   el path.
+> - **`number => -1` y "la numeración la pone la SET"**. Es al revés desde el
+>   2026-09-07: el DE sale con el correlativo que la CAJA congeló en la venta
+>   (`transaction.invoiceNo`, mig 145), el mismo que salió impreso en el
+>   ticket. La divergencia se DETECTA sobre el CDC devuelto y queda en
+>   `einvoice_document.numbering_mismatch` (mig 204); ya no se previene con un
+>   pre-flight contra el talonario del proveedor.
+> - El pre-flight de numeración y la coherencia de timbrado PRE-emisión:
+>   consultaban el catálogo de timbrados del proveedor viejo y se borraron.
+>
+> Lo que SÍ sigue vigente: el outbox `einvoice_document` y su máquina de
+> estados, la separación `status` (¿se mandó?) vs `sifen_status` (¿SIFEN lo
+> aceptó?), la custodia cifrada del certificado y del CSC (mig 195), el
+> white-label, y §F7 (qué pasa cuando SIFEN rechaza).
+>
+> Ver también el bloque SUPERSEDED de `context/73-kude-propio.md`: el KuDE lo
+> renderiza el motor, no Punto.
 
 > Estado: **F0–F4, F6 y F7 implementadas** (F0 2026-07-28, el resto 2026-07-30/31 — ver tabla de fases).
 > F1–F3 verificadas contra la API real solo en el camino de factura al contado con un único medio de pago.
