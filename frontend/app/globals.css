@@ -247,12 +247,19 @@
 
     --foreground: oklch(0.262 0.010 245.3);
 
-    /* Banda gris de la tabla: encabezado y pie de totales. Mismo tono que
-       el hover de una fila (`bg-muted/50`) pero resuelto a un color OPACO,
-       porque la primera columna puede ser sticky y con un fondo
-       semitransparente se le ve el contenido pasando por debajo al
-       scrollear en horizontal. */
-    --table-band: color-mix(in oklch, var(--muted) 50%, var(--background));
+    /* Banda gris de la tabla: encabezado y pie de totales. Es el tono del
+       hover de una fila (`bg-muted/50`) resuelto a un color OPACO, porque la
+       primera columna puede ser sticky y con un fondo semitransparente se le
+       ve el contenido pasando por debajo al scrollear en horizontal.
+
+       Valor LITERAL y no un `color-mix()` de --muted con --background: la
+       mezcla daba el número correcto pero nadie puede predecir el color
+       leyendo el CSS, y en dark —donde los dos extremos son casi negros— un
+       tono que se corre unos puntos ya se lee como un tinte cálido sobre el
+       canvas. Un gris declarado se revisa a ojo. Si cambian --muted o
+       --background, este valor se recalcula a mano (mezcla al 50% en sRGB,
+       que es como compone el hover). */
+    --table-band: #FAFAFA;
 }
 
 /* DARK — canvas casi negro (#010102 vibe). Primary = verde Punto sobre
@@ -282,7 +289,11 @@
     --secondary-foreground: oklch(0.967 0.003 264.54);
     --muted: #1A1D1F;
     --muted-foreground: oklch(0.708 0 0);
-    --table-band: color-mix(in oklch, var(--muted) 50%, var(--background));
+    /* Mitad de --muted (#1A1D1F) sobre --background (#060A0E). Frío a
+       propósito: mantiene el mismo tinte azulado del resto del tema oscuro,
+       y cualquier corrimiento hacia el cálido acá se nota como marrón sobre
+       un canvas casi negro. */
+    --table-band: #101316;
     --accent: #1A1D1F;
     --accent-foreground: oklch(0.967 0.003 264.54);
 

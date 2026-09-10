@@ -28,6 +28,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/stat-tile"
+import { RankingBarChart } from "@/components/domain/reports/ranking-bar-chart"
 
 interface RankingRow {
   name: string
@@ -186,6 +187,23 @@ export function RankingReportPage<TRawRow>({
             emphasis
           />
         </StatsRow>
+      )}
+
+      {/* El ranking visual va ARRIBA de la tabla y no adentro de un tab: el
+          chart se lee de un vistazo —quién domina, dónde cae la curva— y la
+          tabla que sigue es el dato completo. Esconderlo detrás de un tab
+          obliga a pedir lo que debería estar a la vista.
+
+          Ordena por FACTURACIÓN, no por unidades: en un ranking de negocio la
+          pregunta es de dónde viene la plata, y las dos métricas rara vez
+          coinciden (lo más vendido suele ser lo más barato). Las unidades
+          siguen en la tabla, que es donde se comparan columna contra columna. */}
+      {!isLoading && rows.length > 0 && (
+        <RankingBarChart
+          data={rows.map((r) => ({ label: r.name, value: r.total }))}
+          valueLabel="Total facturado"
+          formatValue={(v) => formatMoney(v, bootstrap)}
+        />
       )}
 
       <DataTable

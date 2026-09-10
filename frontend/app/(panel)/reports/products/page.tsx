@@ -45,6 +45,15 @@ import {
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/stat-tile"
+import { RankingBarChart } from "@/components/domain/reports/ranking-bar-chart"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 
 /** Link al artículo — mismo destino desde Ranking y Detallado (ver punto 2/3
  *  del pedido: un solo historial, enlazado desde ambos lugares en vez de
@@ -79,6 +88,7 @@ export default function ProductsReportPage() {
       <Tabs defaultValue="ranking" className="flex flex-col gap-4">
         <TabsList>
           <TabsTrigger value="ranking">Ranking</TabsTrigger>
+          <TabsTrigger value="graficos">Gráficos</TabsTrigger>
           <TabsTrigger value="detallado">Reporte detallado</TabsTrigger>
         </TabsList>
 
@@ -86,11 +96,163 @@ export default function ProductsReportPage() {
           <RankingTab range={range} />
         </TabsContent>
 
+        <TabsContent value="graficos" className="m-0">
+          <ChartsTab range={range} />
+        </TabsContent>
+
         <TabsContent value="detallado" className="m-0">
           <DetailTab range={range} />
         </TabsContent>
       </Tabs>
     </div>
+  )
+}
+
+/**
+ * Gráficos del reporte de productos.
+ *
+ * Sale del MISMO `view=general` que el Ranking, sin pedir nada nuevo al
+ * backend: `ProductRow` ya trae `category` y `brand`, así que los cortes por
+ * categoría y por marca son una agregación de lo que la pantalla ya tiene.
+ * Pedirlos a `/reports/categories` y `/reports/brands` traería los mismos
+ * números por otro camino y abriría la puerta a que difieran.
+ *
+ * Esos dos informes siguen existiendo con página propia —el chart también
+ * está allá, en `RankingReportPage`—; acá se incorporan porque categoría y
+ * marca son atributos DEL producto y este es el tablero del producto (pedido
+ * del owner 2026-09-10).
+ *
+ * Facturación y unidades van SEPARADOS y no en un gráfico de dos series: no
+ * comparten unidad (plata vs. cantidad), así que una escala común aplasta una
+ * de las dos. Y son la pregunta interesante justamente cuando NO coinciden:
+ * lo más vendido suele ser lo más barato.
+ */
+function ChartsTab({ range }: { range: DateRangeValue }) {
+  const { data: bootstrap } = useBootstrap()
+  const opts = React.useMemo(
+    () => ({ ...rangeToBackend(range), params: { view: "general" } }),
+    [range],
+  )
+  const { data, isLoading, error } = useReport<ProductsReportResponse>("products", opts)
+  const rows = React.useMemo(() => data?.rows ?? [], [data])
+
+  const money = React.useCallback(
+    (v: number) => formatMoney(v, bootstrap),
+    [bootstrap],
+  )
+  const units = React.useCallback(
+    (v: number) => formatInt(v, bootstrap),
+    [bootstrap],
+  )
+
+  /** Suma `total` y `usold` por un atributo del artículo (categoría o marca). */
+  const groupBy = React.useCallback(
+    (key: "category" | "brand") => {
+      const acc = new Map<string, { total: number; usold: number }>()
+      for (const r of rows) {
+        // Sin valor cargado no se inventa un "Otros" que mezcle cosas
+        // distintas: se saltea, y el chart dice cuántos quedaron afuera.
+        const label = (r[key] ?? "").trim()
+        if (label === "") continue
+        const prev = acc.get(label) ?? { total: 0, usold: 0 }
+        acc.set(label, { total: prev.total + r.total, usold: prev.usold + r.usold })
+      }
+      return [...acc.entries()].map(([label, v]) => ({ label, ...v }))
+    },
+    [rows],
+  )
+
+  const porCategoria = React.useMemo(() => groupBy("category"), [groupBy])
+  const porMarca = React.useMemo(() => groupBy("brand"), [groupBy])
+
+  if (error) {
+    return (
+      <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+        <AlertCircle className="mt-0.5 size-4 text-destructive" />
+        <div>
+          <p className="font-medium">No se pudo cargar el reporte</p>
+          <p className="text-xs text-muted-foreground">{error.message}</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[320px] w-full" />
+        ))}
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={Package}
+        title="No hay ventas en el período"
+        description="Elegí otro rango de fechas para ver los gráficos."
+      />
+    )
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <ChartCard title="Más facturado" description="Los artículos que más plata dejaron en el período.">
+        <RankingBarChart
+          data={rows.map((r) => ({ label: r.name, value: r.total }))}
+          valueLabel="Total facturado"
+          formatValue={money}
+        />
+      </ChartCard>
+
+      <ChartCard title="Más vendido" description="Por unidades, que rara vez es el mismo orden que por facturación.">
+        <RankingBarChart
+          data={rows.map((r) => ({ label: r.name, value: r.usold }))}
+          valueLabel="Unidades"
+          formatValue={units}
+        />
+      </ChartCard>
+
+      <ChartCard title="Por categoría" description="Dónde se concentra la facturación del período.">
+        <RankingBarChart
+          data={porCategoria.map((c) => ({ label: c.label, value: c.total }))}
+          valueLabel="Total facturado"
+          formatValue={money}
+        />
+      </ChartCard>
+
+      <ChartCard title="Por marca" description="Solo los artículos que tienen marca cargada.">
+        <RankingBarChart
+          data={porMarca.map((m) => ({ label: m.label, value: m.total }))}
+          valueLabel="Total facturado"
+          formatValue={money}
+        />
+      </ChartCard>
+    </div>
+  )
+}
+
+/** Card de un gráfico. El caso "sin datos" lo resuelve `RankingBarChart`, que
+ *  es quien sabe si alguna fila tiene valor. */
+function ChartCard({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
+        <CardDescription className="text-xs">{description}</CardDescription>
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
   )
 }
 
