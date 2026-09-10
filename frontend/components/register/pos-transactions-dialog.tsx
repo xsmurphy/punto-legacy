@@ -1130,6 +1130,47 @@ export function TransactionDetail({
             )
           )}
 
+          {/* ── Notas de crédito ─────────────────────────────────────────────
+              Las devoluciones de esta venta, que es lo que el cajero necesita
+              ver parado en la factura: si ya se devolvió algo y por cuánto.
+              El backend ya las mandaba (`creditNotes`, derivadas por
+              `transaction_link` kind 'return') — el POS no las pintaba.
+
+              Bloque condicional y al final del contenido, igual que el de
+              factura electrónica: aparece solo cuando hay algo que mostrar y
+              no empuja ningún control que ya estuviera en pantalla (§10,
+              posiciones estables). */}
+          {detail.creditNotes && detail.creditNotes.length > 0 && (
+            <div className="mt-4 rounded-lg bg-muted/40 p-4">
+              <h3 className="mb-2 text-sm font-medium text-muted-foreground">
+                Notas de crédito ({detail.creditNotes.length})
+              </h3>
+              <div className="divide-y divide-border/60">
+                {detail.creditNotes.map((cn) => {
+                  const cnDate = cn.transactionDate ? parseNaive(cn.transactionDate) : null
+                  return (
+                    <div key={cn.transactionId} className="flex items-center justify-between gap-3 py-2 text-sm">
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate">
+                          {cn.invoiceNo ? `Nota de crédito #${cn.invoiceNo}` : "Nota de crédito"}
+                        </span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {cnDate ? format(cnDate, "d MMM, HH:mm", { locale: es }) : "—"}
+                        </span>
+                      </div>
+                      {/* El total de una devolución se guarda NEGATIVO
+                          (`transactionTotal` = -500). Se muestra en positivo
+                          con el signo adelante: "-Gs 500" y no "Gs -500". */}
+                      <span className="shrink-0 tabular-nums text-destructive">
+                        -{formatMoney(Math.abs(cn.transactionTotal), config)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* ── Factura electrónica ───────────────────────────────────────────
               Va ÚLTIMO, después de Pagos: es el bloque condicional del detalle
               y desde acá no puede empujar ningún control que ya estuviera en
