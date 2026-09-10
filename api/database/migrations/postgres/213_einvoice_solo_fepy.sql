@@ -43,6 +43,13 @@
 --
 -- Todo lowercase sin comillas (convención del repo). IF EXISTS en todo: la
 -- migración tiene que poder correr dos veces sin romper.
+--
+-- BEGIN/COMMIT explícito (convención de `migrate.php`): el UPDATE de datos y
+-- los DROP van juntos o no van. Una corrida a medias dejaría cuentas ya
+-- normalizadas con las columnas viejas todavía puestas — recuperable, pero es
+-- estado fiscal y no hay razón para tolerarlo.
+
+BEGIN;
 
 UPDATE einvoice_account SET provider = 'fepy' WHERE provider IS DISTINCT FROM 'fepy';
 
@@ -63,3 +70,5 @@ COMMENT ON COLUMN einvoice_account.provider_tenant_ref IS
 
 COMMENT ON COLUMN einvoice_document.provider_number IS
   'Llave con la que el MOTOR reconcilia este documento. En FE-PY es el CDC, porque su reconsulta es por CDC (POST /v1/tenants/{ref}/de/{cdc}/consulta) y no existe lectura por su txnId interno.';
+
+COMMIT;
