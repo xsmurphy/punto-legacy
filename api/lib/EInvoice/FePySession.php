@@ -6,17 +6,15 @@ namespace Punto\Api\EInvoice;
 /**
  * Credenciales del emisor contra FE-PY (el motor propio).
  *
- * Es la contracara de `FactomateSession` y es deliberadamente aburrida: FE-PY
- * no tiene login, ni tokens, ni expiración, ni cadena admin. Una API key de
- * COMPANY —global de Punto, en env— y el emisor identificado por su UUID en
- * el path. No hay nada que cachear ni que renovar, y por eso este archivo no
- * escribe una sola fila.
+ * Deliberadamente aburrida: no hay login, ni tokens, ni expiración, ni cadena
+ * admin. Una API key de COMPANY —global de Punto— y el emisor identificado por
+ * su UUID en el path. No hay nada que cachear ni que renovar, y por eso este
+ * archivo no escribe una sola fila.
  *
- * Consecuencia que conviene tener presente: para un tenant de FE-PY,
- * `einvoice_account.token_enc` / `token_expires_at` / `password_enc` /
- * `phone_enc` / `login_enc` quedan SIN USO. No se limpian —son de Factomate y
- * el cutover es reversible por tenant, borrarlas convertiría el plan B en un
- * re-provisioning— pero nada de este camino las lee ni las escribe.
+ * Consecuencia que conviene tener presente: `einvoice_account.token_enc` /
+ * `token_expires_at` / `password_enc` / `phone_enc` / `login_enc` quedan SIN
+ * USO. Son de la cadena de auth del motor anterior; nada de este camino las lee
+ * ni las escribe.
  */
 final class FePySession implements EInvoiceSession
 {
@@ -50,8 +48,7 @@ final class FePySession implements EInvoiceSession
         }
         if ($key === '') {
             // Mensaje para el OPERADOR DE PUNTO: es un problema de infra
-            // nuestro, no del comercio. Mismo criterio que el guard de
-            // credencial admin en el provisioning de Factomate.
+            // nuestro, no del comercio.
             throw new \RuntimeException(
                 'El servicio de facturación electrónica no está disponible en este momento. ' .
                 'Contactá a soporte de Punto (FEPY_API_KEY sin configurar).'

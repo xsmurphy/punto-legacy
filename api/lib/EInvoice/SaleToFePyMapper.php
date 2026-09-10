@@ -4,30 +4,93 @@ declare(strict_types=1);
 namespace Punto\Api\EInvoice;
 
 /**
- * Venta de Punto → documento electrónico de FE-PY (el motor PROPIO).
+ * Venta de Punto → documento electrónico de FE-PY (el motor de facturación
+ * electrónica de Punto).
  *
- * Toma EXACTAMENTE el mismo `$sale` que `SaleToInvoiceMapper` —lo arma
- * `EInvoiceService::buildSaleArrayForMapper()`, uno solo, sin ramificar por
- * proveedor— y lo traduce al otro idioma.
+ * FE-PY habla el JSON del motor `xmlgen` —el bloque `data` de SIFEN v150—,
+ * que es la estructura del documento fiscal en sí: `items[].ivaTipo/
+ * ivaProporcion/iva`, `condicion.entregas[]`, `cliente.contribuyente`.
  *
- * ── Por qué es un mapper aparte y no una rama del de Factomate ───────────
- *
- * Porque no es el mismo payload con otros nombres: es otro modelo. Factomate
- * expone una API propia (`electronicDocumentItems`, `unitPriceWithTax`,
- * `paymentMethodCode`, y hasta sus typos `ammount`/`aditionalInformation`,
- * que se respetan porque son su contrato). FE-PY habla el JSON del motor
- * `xmlgen` —el bloque `data` de SIFEN v150— que es la estructura del
- * documento fiscal en sí: `items[].ivaTipo/ivaProporcion/iva`,
- * `condicion.entregas[]`, `cliente.contribuyente`. Los campos no se
- * corresponden uno a uno y las reglas de validación tampoco.
- *
- * Lo que SÍ se comparte es la aritmética fiscal, y se comparte de verdad
- * (llamadas a `SaleToInvoiceMapper::…`, no copiada): `fiscalLines()`,
+ * La aritmética fiscal NO vive acá: vive en `SaleFiscalRules` (`fiscalLines()`,
  * `lineTax()`, `assertTaxRate()`, `currencyDecimals()`,
- * `resolveTransactionType()` y `resolveSecurityCode()`. Ver el comentario en
- * ese archivo para el porqué.
+ * `resolveTransactionType()`, `resolveSecurityCode()`), porque la manda SIFEN
+ * y no el motor. Lo que sí es de este archivo es cómo se nombran y se anidan
+ * los campos.
  *
- * ── Diferencias estructurales con Factomate que hay que conocer ──────────
+ * ── Shape esperado de `$sale` ────────────────────────────────────────────
+ *
+ * Array asociativo armado por el caller a partir de la venta ya persistida
+ * (`EInvoiceService::buildSaleArrayForMapper()`). Este mapper NO lee de la
+ * base: solo transforma.
+ *
+ * [
+ *   'documentType' => ?int,             // 1 factura (default), 5 nota de crédito
+ *   'associatedCdc' => ?string,         // CDC de la factura corregida — OBLIGATORIO si documentType=5
+ *   'fiscalNumber' => ?int,             // correlativo CONGELADO en la venta (transaction.invoiceNo,
+ *                                       // mig 145). OBLIGATORIO para factura.
+ *   'fiscalAuth'   => ?string,          // timbrado congelado de la venta (transaction.invoiceAuth).
+ *                                       // El mapper NO lo manda en el payload: el timbrado es del
+ *                                       // tenant y lo pone el motor. Viaja acá solo para mensajes
+ *                                       // de error.
+ *   'total'      => float,              // total del documento, CON IVA incluido
+ *   'currency'   => string,             // 'PYG'; cualquier otra aborta la emisión
+ *   'operationCondition' => 0|1,        // 0 contado, 1 crédito
+ *   'securityCode' => ?string,          // 9 dígitos CONGELADOS para este documento
+ *                                       // (einvoice_document.security_code, mig 205). Si falta,
+ *                                       // se genera uno — pero entonces cambia en cada reintento
+ *                                       // y con él el CDC. Ver SaleFiscalRules::resolveSecurityCode().
+ *   'issuedDate' => ?string,            // fecha de la OPERACIÓN (no la de emisión). La resuelve el
+ *                                       // caller; llega como argumento aparte.
+ *   'items' => [
+ *     [
+ *       'description' => string,
+ *       'quantity'    => float,
+ *       'unitPrice'   => float,         // precio unitario CON IVA incluido
+ *       'total'       => float,         // quantity * unitPrice (con IVA), redondeado.
+ *                                       // MANDA sobre unitPrice: el unitario del payload se
+ *                                       // deriva de acá (ver SaleFiscalRules::fiscalLines()),
+ *                                       // porque SIFEN recalcula el total multiplicando.
+ *       'taxRate'     => 10|5|0,        // 0 = exenta
+ *       'isService'   => ?bool,         // true si el ítem es un servicio. Alimenta el tipo de
+ *                                       // transacción (mercadería/servicios/mixto).
+ *                                       // Ausente = mercadería.
+ *     ],
+ *     ...
+ *   ],
+ *   'client' => [
+ *     'nature'   => 'contribuyente'|'fisica'|'innominado',
+ *     'name'     => string,
+ *     'ruc'      => ?string,            // sin DV separado; el mapper no calcula DV
+ *     'ci'       => ?string,            // número de documento (CI paraguaya O el número del
+ *                                       // documento extranjero — mismo campo, ver idType)
+ *     'idType'   => ?int,               // Tabla 3 SET (11-17, ContactService::ID_TYPE_*).
+ *                                       // Solo relevante en nature='fisica'.
+ *     'address'  => ?string,            // Los tres viajan al receptor del documento. El caller
+ *     'email'    => ?string,            // los saca del contacto; si no los manda, el campo sale
+ *     'phone'    => ?string,            // vacío (va igual, no se omite).
+ *   ],
+ *   'credit' => [                       // solo si operationCondition === 1
+ *     'deadline'    => ?string,         // ej. "30 dias" — requerido si cuotas no aplica
+ *     'feeNumbers'  => ?int,
+ *     'fees'        => ?array,
+ *   ],
+ *   'payments' => [                     // una línea por pago real de la venta
+ *     [
+ *       'methodId'  => ?string,         // taxonomyId del medio de pago de Punto (null = desconocido)
+ *       'methodKey' => string,          // clave cruda del pago, solo para mensajes de error
+ *       'amount'    => float,           // monto COBRADO con ese medio (sin vuelto)
+ *     ],
+ *     ...
+ *   ],
+ * ]
+ *
+ * Es este shape y no el array crudo de `sale`/SaleInput porque el mapper no
+ * debe conocer el formato interno de persistencia de Punto ni recorrer joins
+ * de cliente/impuestos — esa traducción vive en el caller (EInvoiceService),
+ * que sí tiene acceso a la venta completa y a Contact. Mantiene este archivo
+ * testeable sin base de datos.
+ *
+ * ── Particularidades del motor que hay que conocer ───────────────────────
  *
  *  1. **El bloque del EMISOR no viaja.** FE-PY arma `params` (RUC, razón
  *     social, timbrado, establecimientos, actividades) leyéndolo de su fila
@@ -81,13 +144,13 @@ final class SaleToFePyMapper
 
     /**
      * Tabla 3 SET de Punto (`ContactService::ID_TYPE_*`, 11-17) →
-     * `documentoTipo` de SIFEN. Se usan literales por el mismo motivo que en
-     * `SaleToInvoiceMapper::SET_TO_FACTOMATE_ID_TYPE`: es una tabla de
-     * traducción, no un uso de la constante.
+     * `documentoTipo` de SIFEN. Se usan literales y no las constantes de
+     * `ContactService` porque esto es una tabla de TRADUCCIÓN entre dos
+     * catálogos: el número de la izquierda es el de Punto y el de la derecha
+     * el de SIFEN, y atarlos por constante escondería que son cosas distintas.
      *
-     * Diferencia con Factomate que vale la pena: **el 14 (cédula extranjera)
-     * SÍ tiene destino acá** (código 3). Con Factomate ese contacto abortaba
-     * la emisión porque su catálogo propio no tenía un equivalente verificado.
+     * El 14 (cédula extranjera) tiene destino (código 3): se factura sin
+     * problema a un contacto identificado con ella.
      *
      * 11 (RUC) no aparece porque ese contacto va por el camino
      * `contribuyente`, que no pasa por acá. 17 (identificación tributaria)
@@ -108,11 +171,9 @@ final class SaleToFePyMapper
 
     /**
      * `items[].unidadMedida` — 77 = "UNI (unidad)" en la tabla de unidades de
-     * medida de SIFEN, y es lo que usa el propio playground de FE-PY. No es
-     * el 0 que manda el mapper de Factomate: ese 0 es un valor de SU API
-     * (verificado allá porque otros valores rompían su serialización XML), no
-     * un código SIFEN. Punto no modela unidad de medida por ítem todavía; el
-     * día que lo haga, este es el campo.
+     * medida de SIFEN, y es lo que usa el propio playground de FE-PY. Punto no
+     * modela unidad de medida por ítem todavía; el día que lo haga, este es
+     * el campo.
      */
     private const UNIDAD_MEDIDA_UNIDAD = 77;
 
@@ -130,7 +191,7 @@ final class SaleToFePyMapper
     private const PAGO_OTRO = 99;
 
     /**
-     * @param array<string,mixed> $sale   Mismo shape que SaleToInvoiceMapper (ver su docblock).
+     * @param array<string,mixed> $sale   Shape documentado en el docblock de la clase.
      * @param array{establecimiento:string,punto:string} $point Caja de la venta = punto de expedición.
      * @param array<string,mixed> $config `einvoice_account.config` (mapa de medios de pago, kill-switches).
      * @param string $issuedDate Fecha de la OPERACIÓN, naive `Y-m-d\TH:i:s` en el reloj del tenant.
@@ -150,13 +211,10 @@ final class SaleToFePyMapper
             throw new \RuntimeException('La venta no tiene items — no se puede armar la factura electrónica.');
         }
 
-        // Moneda: mismo guard, mismo motivo y mismos mensajes que el mapper de
-        // Factomate. No se relaja por ser otro proveedor — declarar en
-        // guaraníes un monto que se cobró en otra moneda está mal
-        // independientemente de quién firme el XML. (FE-PY sí soporta moneda
-        // extranjera vía `condicionTipoCambio`/`cambio`; habilitarlo es una
-        // feature con su propia verificación, no un efecto colateral de este
-        // slice.)
+        // Moneda: declarar en guaraníes un monto que se cobró en otra moneda
+        // está mal, y el documento lo firma el emisor. (FE-PY sí soporta
+        // moneda extranjera vía `condicionTipoCambio`/`cambio`; habilitarlo es
+        // una feature con su propia verificación, no un efecto colateral.)
         $currency = strtoupper(trim((string) ($sale['currency'] ?? '')));
         if ($currency === '') {
             throw new \RuntimeException(
@@ -174,7 +232,7 @@ final class SaleToFePyMapper
         $establecimiento = self::padCode($point['establecimiento'] ?? '', 'establecimiento');
         $punto           = self::padCode($point['punto'] ?? '', 'punto de expedición');
 
-        $moneyDecimals = SaleToInvoiceMapper::currencyDecimals($currency);
+        $moneyDecimals = SaleFiscalRules::currencyDecimals($currency);
 
         $itemsPayload = [];
         $declaredSum  = 0.0;
@@ -184,16 +242,15 @@ final class SaleToFePyMapper
             // igual que en el otro mapper. Acá el IVA no viaja como total del
             // documento (SIFEN lo deriva por ítem), pero la llamada valida la
             // tasa y mantiene una sola definición de "qué tasas se admiten".
-            SaleToInvoiceMapper::lineTax($item, (int) $i);
+            SaleFiscalRules::lineTax($item, (int) $i);
 
-            foreach (SaleToInvoiceMapper::fiscalLines($item, $moneyDecimals) as $line) {
+            foreach (SaleFiscalRules::fiscalLines($item, $moneyDecimals) as $line) {
                 $itemsPayload[] = $this->buildItem($line, (int) $i);
                 $declaredSum += round((float) $line['quantity'] * (float) $line['unitPrice'], $moneyDecimals);
             }
         }
 
-        // Mismo invariante que en Factomate, y por la misma razón física:
-        // el payload no lleva total por ítem, SIFEN lo recalcula
+        // El payload no lleva total por ítem: SIFEN lo recalcula
         // multiplicando, y esa es la cuenta que puede rechazar.
         if (abs($declaredSum - $total) > 1.0) {
             throw new \RuntimeException(
@@ -214,7 +271,7 @@ final class SaleToFePyMapper
             // "un reintento no cambia el CDC" se conserva con este proveedor
             // igual que con el otro. Su regex es `^\d{1,9}$`, que admite los
             // ceros a la izquierda que el generador puede producir.
-            'codigoSeguridadAleatorio' => SaleToInvoiceMapper::resolveSecurityCode($sale),
+            'codigoSeguridadAleatorio' => SaleFiscalRules::resolveSecurityCode($sale),
             // Naive `YYYY-MM-DDTHH:MM:SS` en hora local del tenant. NUNCA UTC
             // con sufijo `Z`: el propio código de FE-PY documenta un rechazo
             // real de SIFEN (código 1004, "fecha y hora de la firma digital es
@@ -223,7 +280,7 @@ final class SaleToFePyMapper
             // el cliente ya tiene en la mano dice esa fecha.
             'fecha'           => $issuedDate,
             'tipoEmision'     => 1, // 1 = normal (2 = contingencia, no implementado).
-            'tipoTransaccion' => SaleToInvoiceMapper::resolveTransactionType($items),
+            'tipoTransaccion' => SaleFiscalRules::resolveTransactionType($items),
             'tipoImpuesto'    => 1, // 1 = IVA.
             'moneda'          => $currency,
             'cliente'         => $this->buildClient((array) ($sale['client'] ?? []), $total, $operationCondition),
@@ -274,11 +331,10 @@ final class SaleToFePyMapper
     }
 
     /**
-     * Correlativo propio. MISMA regla que `SaleToInvoiceMapper` —el número
-     * del documento electrónico es el que la caja ya congeló en la venta
-     * (`transaction.invoiceNo`, mig 145) y salió impreso en el ticket— con la
-     * salvedad, documentada en el punto 3 del docblock de la clase, de que
-     * FE-PY lo pisa.
+     * Correlativo propio: el número del documento electrónico es el que la
+     * caja ya congeló en la venta (`transaction.invoiceNo`, mig 145) y salió
+     * impreso en el ticket. Ver el punto 3 del docblock de la clase para cómo
+     * lo trata el motor.
      *
      * Se manda igual y el guard de "sin número congelado no se emite" se
      * conserva: relajarlo acá porque "total lo ignoran" convertiría este
@@ -291,9 +347,9 @@ final class SaleToFePyMapper
     private function resolveDocumentNumber(array $sale, array $config, int $documentType): string
     {
         if (!empty($config['legacyAutoNumbering']) || $documentType === self::DOC_NOTA_CREDITO) {
-            // Sin correlativo propio que defender: se omite el campo y queda
-            // explícito que numera el proveedor. (No existe el `-1` de
-            // Factomate: acá el campo simplemente no va.)
+            // Sin correlativo propio que defender: se OMITE el campo y queda
+            // explícito que numera el motor. Nunca un centinela tipo `-1` —
+            // eso sería declarar un número que no existe.
             return '';
         }
 
@@ -333,7 +389,7 @@ final class SaleToFePyMapper
      * `taxRate = 0` se declara **exento (3)**, no exonerado (2): son cosas
      * distintas ante la SET —la exoneración es del artículo 100 de la ley
      * 6380— y "exenta" es lo que significa la tasa 0 en el catálogo de Punto
-     * (ver `SaleToInvoiceMapper::lineTax`). SIN VERIFICAR contra un documento
+     * (ver `SaleFiscalRules::lineTax`). SIN VERIFICAR contra un documento
      * real: si SIFEN rechaza una línea exenta, este es el primer sospechoso.
      *
      * `precioUnitario` va CON IVA incluido, que es como Punto guarda los
@@ -345,14 +401,13 @@ final class SaleToFePyMapper
      */
     private function buildItem(array $item, int $index): array
     {
-        $taxRate = SaleToInvoiceMapper::assertTaxRate($item, $index);
+        $taxRate = SaleFiscalRules::assertTaxRate($item, $index);
         $gravado = $taxRate > 0;
 
         return [
             // `codigo` es obligatorio para xmlgen. Punto no manda su itemId:
             // es un uuid interno que no le dice nada a nadie en el KuDE, y el
-            // campo tiene tope de largo. Se declara un guion, igual criterio
-            // que el `internalCode: '-'` del mapper de Factomate.
+            // campo tiene tope de largo. Se declara un guion.
             'codigo'        => '-',
             'descripcion'   => (string) ($item['description'] ?? ''),
             'unidadMedida'  => self::UNIDAD_MEDIDA_UNIDAD,
@@ -375,9 +430,9 @@ final class SaleToFePyMapper
      * Receptor. Los tres casos fiscales de Punto (`nature`) contra los tres
      * caminos de xmlgen, que se distinguen por el booleano `contribuyente`.
      *
-     * Los dos guards de negocio son los MISMOS que en el mapper de Factomate
-     * y valen igual acá: no se factura a innominado por encima del millón de
-     * guaraníes, y no se factura a crédito a un cliente sin identificar.
+     * Dos guards de negocio, los dos legales: no se factura a innominado por
+     * encima del millón de guaraníes, y no se factura a crédito a un cliente
+     * sin identificar.
      *
      * @param array<string,mixed> $rawClient
      * @return array<string,mixed>
@@ -452,7 +507,7 @@ final class SaleToFePyMapper
                 );
             }
             // Default 12 (cédula) para contactos anteriores al campo
-            // `contactIdType`, igual que el mapper de Factomate.
+            // `contactIdType`.
             $idType = (int) ($rawClient['idType'] ?? 12);
             return $common + [
                 'contribuyente'   => false,
@@ -591,12 +646,11 @@ final class SaleToFePyMapper
     /**
      * `condicion.entregas[]` — una entrada por medio de pago usado.
      *
-     * Reusa el MISMO mapa de configuración que el mapper de Factomate
+     * Lee el mapa de configuración del emisor
      * (`config.paymentMethodMap[taxonomyId] → código`, con
-     * `defaultPaymentMethodCode` como fallback) y no uno paralelo: los
-     * códigos son la Tabla 22 de SIFEN en los dos casos, así que lo que el
-     * comercio ya configuró sigue valiendo si migra de proveedor. Ese es
-     * justamente el sentido de que el cutover sea por tenant.
+     * `defaultPaymentMethodCode` como fallback). Los códigos son la Tabla 22
+     * de SIFEN, o sea que lo que el comercio configuró describe al FISCO y no
+     * a un proveedor: sobrevive a cualquier cambio de motor.
      *
      * ── Los sub-bloques que Punto no puede llenar (SIN VERIFICAR) ────────
      *

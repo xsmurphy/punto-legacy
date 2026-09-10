@@ -127,42 +127,22 @@ define('DLOCAL_GO_SUCCESS_URL',      $_ENV['DLOCAL_GO_SUCCESS_URL']      ?? '');
 define('DLOCAL_GO_BACK_URL',         $_ENV['DLOCAL_GO_BACK_URL']         ?? '');
 define('DLOCAL_GO_NOTIFICATION_URL', $_ENV['DLOCAL_GO_NOTIFICATION_URL'] ?? '');
 
-// Facturación electrónica — Factomate/SIFEN (PY), context/28-facturacion-electronica-plan.md.
-// Pivot 2026-07-28: Automate NO era el proveedor, era otro cliente de
-// Factomate — se corrigió antes de implementar emisión real.
-// APP_ENCRYPTION_KEY: base64 de 32 bytes, usada por CredentialVault (AES-256-GCM)
-// para cifrar usuario/contraseña/teléfono/token del proveedor de FE. Sin ella
-// el vault no arranca (RuntimeException explícito) — nunca hay fallback
-// silencioso a texto plano ni a una clave derivada débil.
-define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
-// FACTOMATE_BASE_URL_TEST / FACTOMATE_BASE_URL_PROD: prod y test son HOSTS
-// DISTINTOS en Factomate (a diferencia de Automate). El host efectivo sale
-// de einvoice_account.environment por company — nunca de una sola constante
-// global. Si environment='prod' y la constante de prod está vacía,
-// FactomateProvider tira error explícito en vez de caer a test (o viceversa):
-// mandar facturas de prueba a producción, o al revés, es el tipo de bug que
-// no se detecta hasta que ya es tarde.
-define('FACTOMATE_BASE_URL_TEST', $_ENV['FACTOMATE_BASE_URL_TEST'] ?? 'https://facturadordev.automate.com.py');
-define('FACTOMATE_BASE_URL_PROD', $_ENV['FACTOMATE_BASE_URL_PROD'] ?? '');
-// FACTOMATE_ADMIN_* — credencial ADMIN de Punto en Factomate (F7 white-label):
-// usuario global SIN tenant, el secreto más poderoso del módulo (crea
-// emisores y emite bearers de cualquier tenant vía PhoneLogin). SIEMPRE en
-// env, NUNCA en BD ni alcanzable desde un endpoint con auth de tenant. Una
-// por entorno — test y prod son hosts distintos con cuentas distintas.
-define('FACTOMATE_ADMIN_USERNAME_TEST', $_ENV['FACTOMATE_ADMIN_USERNAME_TEST'] ?? '');
-define('FACTOMATE_ADMIN_PASSWORD_TEST', $_ENV['FACTOMATE_ADMIN_PASSWORD_TEST'] ?? '');
-define('FACTOMATE_ADMIN_USERNAME_PROD', $_ENV['FACTOMATE_ADMIN_USERNAME_PROD'] ?? '');
-define('FACTOMATE_ADMIN_PASSWORD_PROD', $_ENV['FACTOMATE_ADMIN_PASSWORD_PROD'] ?? '');
-// Facturación electrónica — FE-PY, el motor PROPIO (segundo proveedor,
-// `einvoice_account.provider = 'fepy'`). Factomate queda intacto como plan B
-// y el cutover es por tenant, no global — ver mig 206.
+// Facturación electrónica — FE-PY/SIFEN (PY), context/28-facturacion-electronica-plan.md.
+// FE-PY (`https://fepy.punto.la`) es el ÚNICO motor: el mismo
+// `facturacionelectronicapy-xmlgen` envuelto en una API multi-tenant, y es de
+// Punto. No hay proveedor externo ni plan B — decisión cerrada 2026-09-09.
 //
+// APP_ENCRYPTION_KEY: base64 de 32 bytes, usada por CredentialVault (AES-256-GCM)
+// para cifrar los secretos del emisor. Sin ella el vault no arranca
+// (RuntimeException explícito) — nunca hay fallback silencioso a texto plano
+// ni a una clave derivada débil.
+define('APP_ENCRYPTION_KEY', $_ENV['APP_ENCRYPTION_KEY'] ?? '');
 // FEPY_BASE_URL: origen de la API, SIN el prefijo `/v1` (lo pone el cliente).
-// UNA sola constante, a diferencia de FACTOMATE_BASE_URL_TEST/PROD: en FE-PY
-// test y prod NO son hosts distintos — son el campo `env` del tenant, que se
-// fija al darlo de alta (`POST /v1/tenants`, `env: 'test'|'prod'`) y decide
-// contra qué SIFEN firma. O sea que el aislamiento entre entornos vive del
-// lado de ellos, por emisor, y acá no hay par de hosts que confundir.
+// UNA sola constante y no un par test/prod: en FE-PY los dos entornos NO son
+// hosts distintos — son el campo `env` del tenant, que se fija al darlo de
+// alta (`POST /v1/tenants`, `env: 'test'|'prod'`) y decide contra qué SIFEN
+// firma. O sea que el aislamiento entre entornos vive del lado del motor, por
+// emisor, y acá no hay par de hosts que confundir.
 // Sin valor → FePyProvider tira un error explícito; nunca un default a
 // localhost, que en producción sería un fallo silencioso.
 define('FEPY_BASE_URL', $_ENV['FEPY_BASE_URL'] ?? '');
@@ -170,20 +150,13 @@ define('FEPY_BASE_URL', $_ENV['FEPY_BASE_URL'] ?? '');
 // verificado contra su `lib/api-keys.ts`. Es GLOBAL de Punto, no por tenant:
 // FE-PY scopea por el tenant del path y verifica que pertenezca a esta
 // company (`middleware/tenant-scope.ts` — un tenant ajeno responde 404, no
-// 403). Es el secreto más poderoso del proveedor (crea emisores, emite y
-// cancela documentos de cualquiera de ellos): SIEMPRE en env, NUNCA en BD ni
-// alcanzable desde un endpoint con auth de tenant, mismo criterio que
-// FACTOMATE_ADMIN_*.
+// 403). Es el secreto más poderoso del módulo (crea emisores, emite y cancela
+// documentos de cualquiera de ellos): SIEMPRE en env, NUNCA en BD ni
+// alcanzable desde un endpoint con auth de tenant.
 define('FEPY_API_KEY', $_ENV['FEPY_API_KEY'] ?? '');
 // Entorno donde se provisionan los emisores NUEVOS (F7). Global, no elección
 // del tenant. 'test' hasta que el white-label esté validado contra prod.
 define('EINVOICE_DEFAULT_ENVIRONMENT', $_ENV['EINVOICE_DEFAULT_ENVIRONMENT'] ?? 'test');
-// Proveedor con el que se dan de alta los emisores NUEVOS: 'factomate' | 'fepy'.
-// NO cambia a nadie ya provisionado — el proveedor de un emisor existente es
-// su `einvoice_account.provider` y solo se mueve a mano, por tenant (mig 206).
-// Default 'factomate' a propósito: estrenar motor por omisión es exactamente
-// el fallback silencioso que este módulo evita en todos lados.
-define('EINVOICE_DEFAULT_PROVIDER', $_ENV['EINVOICE_DEFAULT_PROVIDER'] ?? 'factomate');
 // EINVOICE_DRAIN_SECRET: secreto compartido de jobs internos del sistema —
 // gatea POST /v1/einvoice?action=drain (F1, drainer del outbox de FE) y
 // POST /v1/maintenance?job=... (rollup-reconcile / purge-tenant-audit /

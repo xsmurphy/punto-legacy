@@ -337,13 +337,13 @@ final class SaleVoidService
             // SIFEN rechaza, todo lo de arriba también revierte.
             // Gap conocido, NO resuelto acá (bajísima probabilidad, sin
             // reconciliación hoy — code review de esta misma tarea): si
-            // Factomate confirma la cancelación pero el UPDATE local que
+            // el motor confirma la cancelación pero el UPDATE local que
             // marca `einvoice_document.status='cancelled'` falla DESPUÉS
             // (conexión cortada, etc.), esta transacción hace rollback
             // completo (voidedAt/stock/waste/caja) mientras SIFEN queda
             // cancelado igual — quedaría desincronizado hasta una
-            // reconciliación manual. `FactomateProvider` ya acota la espera
-            // con `CURLOPT_TIMEOUT` (self::TOTAL_TIMEOUT), así que el lock
+            // reconciliación manual. El cliente HTTP del motor ya acota la
+            // espera con `CURLOPT_TIMEOUT`, así que el lock
             // `FOR UPDATE` de esta transacción no queda colgado indefinido.
             $doctype = ((int) $tx['transactiontype']) === 0 ? 'FC' : 'FCR';
             $doc = ncmExecute(

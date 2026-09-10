@@ -14,10 +14,10 @@ namespace Punto\Api\EInvoice;
  * de armar el XML. La fuente de verdad de un código fiscal es quien lo
  * valida: un código que viene de otro catálogo y que el validador no
  * reconoce es un documento RECHAZADO. Los números no coinciden — el catálogo
- * de Factomate traía 6.419 ciudades, el de SIFEN tiene 6.766 — así que no es
- * una diferencia teórica.
+ * del proveedor anterior traía 6.419 ciudades, el de SIFEN tiene 6.766 — así
+ * que no es una diferencia teórica.
  *
- * Corolario, y es la razón por la que `FactomateGeoSource` se BORRÓ en vez de
+ * Corolario, y es la razón por la que la fuente anterior se BORRÓ en vez de
  * quedar como alternativa: dos fuentes para un mismo código fiscal que pueden
  * discrepar son exactamente el bug que este cambio viene a cerrar.
  *

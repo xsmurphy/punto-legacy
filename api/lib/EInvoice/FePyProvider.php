@@ -4,70 +4,43 @@ declare(strict_types=1);
 namespace Punto\Api\EInvoice;
 
 /**
- * Cliente HTTP de FE-PY — el motor de facturación electrónica PROPIO
+ * Cliente HTTP de FE-PY — el motor de facturación electrónica de Punto
  * (`facturacionelectronicapy-xmlgen` envuelto en una API multi-tenant,
- * Fastify + Zod + Postgres). Segundo proveedor detrás de `EInvoiceProvider`;
- * Factomate queda intacto como plan B y el cutover es POR TENANT
- * (`einvoice_account.provider`, ver mig 206 y EInvoiceProviderFactory).
+ * Fastify + Zod + Postgres). Única implementación de `EInvoiceProvider`.
  *
- * Mismo estilo que FactomateProvider/DlocalGoProvider: cURL directo, sin
- * librería HTTP externa, timeouts explícitos, parseo defensivo, y el payload
- * saliente a `error_log` salvo cuando lleva secretos.
+ * Mismo estilo que el resto de los clientes del repo (DlocalGoProvider):
+ * cURL directo, sin librería HTTP externa, timeouts explícitos, parseo
+ * defensivo, y el payload saliente a `error_log` salvo cuando lleva secretos.
  *
- * ── Cómo se reinterpretan los parámetros de la interfaz ──────────────────
+ * ── Los tres parámetros que lleva toda la interfaz ───────────────────────
  *
- * `EInvoiceProvider` se escribió contra Factomate, que autentica en dos
- * pasos y exige un header `phonenumber` en cada llamada. FE-PY no tiene nada
- * de eso: una sola API key de COMPANY y el emisor en el PATH. Los tres
- * parámetros que toda la interfaz arrastra se leen así, y esta equivalencia
- * es lo único que hace que el resto del módulo no cambie:
- *
- *   $environment  → NO elige host. En FE-PY test/prod es el campo `env` del
- *                   TENANT (se fija al darlo de alta y decide contra qué
- *                   SIFEN se firma), no un par de hosts distintos. Acá solo
- *                   sirve para el mensaje de error. Por eso FEPY_BASE_URL es
- *                   una sola constante y no un par TEST/PROD.
- *   $phone        → el **tenant ref**: el UUID v7 del emisor en FE-PY
- *                   (`einvoice_account.provider_tenant_ref`). Va en el path
- *                   de todas sus rutas.
+ *   $environment  → NO elige host. Test/prod es el campo `env` del TENANT
+ *                   (se fija al darlo de alta y decide contra qué SIFEN se
+ *                   firma), no un par de hosts distintos. Acá solo sirve
+ *                   para el mensaje de error. Por eso FEPY_BASE_URL es una
+ *                   sola constante.
+ *   $tenantRef    → el UUID v7 del emisor
+ *                   (`einvoice_account.provider_tenant_ref`, mig 206). Va en
+ *                   el path de todas las rutas.
  *   $bearer       → la **API key de company** (`cmp_` + 32 hex). NO es un
- *                   token de sesión: no expira, no se renueva, no se cachea
- *                   en `token_enc`. La resuelve `FePySession` desde env.
+ *                   token de sesión: no expira, no se renueva, no se cachea.
+ *                   La resuelve `FePySession` desde la configuración.
  *
- * No se renombraron los parámetros de la interfaz a propósito: cambiarle la
- * firma a `EInvoiceProvider` obliga a tocar FactomateProvider y los ~20
- * call-sites de EInvoiceService, que es exactamente el refactor que este
- * slice no puede hacer sin poner en riesgo al proveedor que hoy factura. La
- * equivalencia queda documentada acá y en FePySession, y el día que
- * Factomate se retire la interfaz se angosta de una sola vez.
+ * ── Métodos nativos, fuera de la interfaz ────────────────────────────────
  *
- * ── Lo que FE-PY NO tiene, y qué pasa con esos métodos ───────────────────
- *
- * `token`, `phoneLogin`, `sincroConfig`, `createExternal`, `updateTenant`,
- * `createActivity`, `createStamp`, `uploadCert`, `testSet` son CEREMONIA DE
- * FACTOMATE, no capacidades del dominio: describen su alta compuesta y su
- * cadena de auth. Tiran `LogicException` con el nombre del método nativo que
- * hay que usar en su lugar — nunca devuelven un valor inventado, porque un
- * "éxito" falso en el provisioning deja al emisor a medio crear sin que nada
- * lo delate. Los caminos nativos viven en métodos propios de esta clase
- * (`createTenant`, `uploadCertificate`, `setCsc`, `getTenant`, `xml`) y los
- * consume `FePyProvisioningService`.
- *
- * `userInfo`, `stamps`, `paymentMethods` y `clientByRuc` SÍ se responden: no
- * son ceremonia, son datos que el panel usa, y se traducen al shape que
- * EInvoiceService ya parsea.
+ * `createTenant`, `uploadCertificate`, `setCsc`, `patchTenant` y `readiness`
+ * son el ALTA y el mantenimiento del emisor, que no están en
+ * `EInvoiceProvider` porque tienen la forma de ESTE motor (ver el docblock de
+ * la interfaz). Los consume `EInvoiceProvisioningService`.
  *
  * ── Diferencias de comportamiento que hay que tener presentes ────────────
  *
- *  a) **La numeración la asigna FE-PY, no nosotros.** Su Zod acepta un
- *     `numero` opcional y su servicio lo PISA con un contador propio
- *     `SELECT ... FOR UPDATE` por (tenant, tipo, establecimiento, punto).
- *     Punto manda igual el correlativo congelado de la venta —es gratis y
- *     documenta la intención— pero el que vale es el de ellos. La
- *     divergencia NO se tapa: el CDC que vuelve la delata y
- *     `EInvoiceService::cdcMismatchFor()` la anota en `numbering_mismatch`
- *     (mig 204). Ver el reporte del slice: es una decisión abierta del
- *     owner, no un detalle de implementación.
+ *  a) **La numeración.** Punto manda el correlativo congelado de la venta y
+ *     FE-PY lo respeta, sincronizando su secuencia hacia arriba (contrato
+ *     actualizado 2026-09-07); omitirlo activa su contador propio. La
+ *     divergencia, si igual ocurriera, NO se tapa: el CDC que vuelve la
+ *     delata y `EInvoiceService::cdcMismatchFor()` la anota en
+ *     `numbering_mismatch` (mig 204).
  *
  *  b) **Un 502 NO significa "no se emitió".** Cuando el envío a SIFEN falla,
  *     FE-PY ya persistió el documento (con CDC) y encoló un reintento
@@ -76,8 +49,7 @@ namespace Punto\Api\EInvoice;
  *     por eso un 502 se reporta como error reintentable: el reintento con la
  *     misma key es un no-op del lado de ellos.
  *
- *  c) **Idempotencia REAL**, y es mejor que el securityCode congelado que
- *     tuvimos que inventar para Factomate (mig 205). FE-PY cachea la
+ *  c) **Idempotencia REAL.** FE-PY cachea la
  *     respuesta por `(company, Idempotency-Key)` durante 24 h y responde 409
  *     si la misma key llega con OTRO body. La key es el `einvoicedocid`
  *     (UUID, 36 chars — su mínimo es 8), que es exactamente "este documento
@@ -91,8 +63,8 @@ final class FePyProvider implements EInvoiceProvider
 {
     private const CONNECT_TIMEOUT = 5;
     /**
-     * 45 s y no los 20 de Factomate: la emisión de FE-PY es SÍNCRONA hasta el
-     * veredicto de SIFEN — manda el lote y hace polling con backoff
+     * 45 s y no los 20 de un cliente HTTP cualquiera: la emisión es SÍNCRONA
+     * hasta el veredicto de SIFEN — manda el lote y hace polling con backoff
      * [2,3,5,8,12] s (~30 s) antes de contestar `pendiente`. Con 20 s el
      * timeout nuestro cortaría la conexión JUSTO en la ventana en la que el
      * documento ya está emitido, que es el peor momento posible para cortar.
@@ -152,29 +124,12 @@ final class FePyProvider implements EInvoiceProvider
             // Nunca un fallback a localhost ni a un host adivinado: en
             // producción sería mandar documentos fiscales a la nada (o, peor,
             // a otro sitio) y enterarse tarde. Mismo criterio que el guard de
-            // FACTOMATE_BASE_URL_PROD.
+            // por entorno.
             throw new \RuntimeException(
                 'FEPY_BASE_URL no está configurada — no se puede operar contra el motor propio de facturación electrónica.'
             );
         }
         return rtrim($url, '/');
-    }
-
-    // ── F0 — ceremonia de Factomate que FE-PY no tiene ───────────────────
-
-    public function token(string $environment, string $phone, string $username, string $password): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene login: autentica con una API key de company (FEPY_API_KEY) que no expira. ' .
-            'La resuelve FePySession::getBearer(); no hay paso /Token que replicar.'
-        );
-    }
-
-    public function phoneLogin(string $environment, string $phone, string $tokenStep1): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene PhoneLogin: la cadena de dos pasos es de Factomate. Ver FePySession.'
-        );
     }
 
     /**
@@ -190,9 +145,9 @@ final class FePyProvider implements EInvoiceProvider
      * OJO: el `ruc` de FE-PY viene CON dígito verificador (`80069563-1`); el
      * guard del CDC ya hace `explode('-')`.
      */
-    public function userInfo(string $environment, string $phone, string $bearer): array
+    public function userInfo(string $environment, string $tenantRef, string $bearer): array
     {
-        return $this->request('GET', '/v1/tenants/' . rawurlencode($phone), null, $bearer);
+        return $this->request('GET', '/v1/tenants/' . rawurlencode($tenantRef), null, $bearer);
     }
 
     /**
@@ -215,39 +170,28 @@ final class FePyProvider implements EInvoiceProvider
         ];
     }
 
-    public function sincroConfig(string $environment, string $phone, string $bearer): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene /sincro/config (es de Factomate). El timbrado se lee con stamps(), que sale del tenant.'
-        );
-    }
-
     /**
-     * Timbrado del emisor, traducido al shape de Factomate
-     * (`Items[]` con `StampNumber`) para que `EInvoiceService::extractStamp()`
-     * y `testConnection()` funcionen sin ramificar por proveedor.
+     * Timbrado del emisor, en el shape `Items[]` con `StampNumber` que
+     * `EInvoiceService::extractStamp()` ya parsea.
      *
-     * En FE-PY el timbrado es **del TENANT**, no una fila por punto de
-     * expedición: vive en `tenants.timbradoNumero/timbradoFecha/
-     * timbradoVencimiento` y su servicio de emisión lo inyecta en el bloque
-     * `params` de cada documento leyéndolo de ahí — el caller no puede
-     * mandarlo ni pisarlo. Consecuencias:
+     * El timbrado es **del TENANT**, no una fila por punto de expedición:
+     * vive en `tenants.timbradoNumero/timbradoFecha/timbradoVencimiento` y el
+     * servicio de emisión lo inyecta en el bloque `params` de cada documento
+     * leyéndolo de ahí — el caller no puede mandarlo ni pisarlo.
+     * Consecuencias:
      *
-     *   - No existe un `Id` de timbrado. Se devuelve `Id => ''` a propósito:
-     *     es la señal que hace que `stampForDocument()` no arme un
-     *     `branchDocumentTypes` y que `cdcMismatchFor()` se saltee la
-     *     consulta remota del establecimiento/punto (y conserve, eso sí, la
-     *     comprobación del NÚMERO y del RUC, que no dependen de la red).
-     *   - `Stablishment`/`ExpeditionPoint` van vacíos: el emisor de FE-PY
-     *     tiene N establecimientos y el punto se elige POR DOCUMENTO, así
-     *     que no hay un par único que declarar acá.
-     *   - `CurrentNumber` va null: su contador es por (tipo, est, punto) y no
-     *     lo expone. El pre-flight de rango de `assertNumberingCoherence()`
-     *     no aplica a este proveedor (ver EInvoiceService).
+     *   - No existe un `Id` de timbrado; se devuelve vacío.
+     *   - `Stablishment`/`ExpeditionPoint` van vacíos: el emisor tiene N
+     *     establecimientos y el punto se elige POR DOCUMENTO, así que no hay
+     *     un par único que declarar acá. El del documento sale de la CAJA que
+     *     vendió (`context/29`).
+     *   - `CurrentNumber` va null: el contador es por (tipo, est, punto) y no
+     *     se expone. Por eso la divergencia de numeración se DETECTA sobre el
+     *     CDC devuelto en vez de prevenirse con un pre-flight.
      */
-    public function stamps(string $environment, string $phone, string $bearer): array
+    public function stamps(string $environment, string $tenantRef, string $bearer): array
     {
-        $tenant = $this->userInfo($environment, $phone, $bearer);
+        $tenant = $this->userInfo($environment, $tenantRef, $bearer);
 
         $stampNumber = trim((string) ($tenant['timbradoNumero'] ?? ''));
         if ($stampNumber === '') {
@@ -268,7 +212,7 @@ final class FePyProvider implements EInvoiceProvider
     }
 
     /** Catálogo fijo de la Tabla 22 de SIFEN — ver SIFEN_PAYMENT_METHODS. */
-    public function paymentMethods(string $environment, string $phone, string $bearer): array
+    public function paymentMethods(string $environment, string $tenantRef, string $bearer): array
     {
         $items = [];
         foreach (self::SIFEN_PAYMENT_METHODS as $code => $name) {
@@ -284,7 +228,7 @@ final class FePyProvider implements EInvoiceProvider
      *
      * El payload lo arma `SaleToFePyMapper` y ya viene en el JSON del motor
      * xmlgen (`data`, SIFEN v150). Acá NO se envuelve en nada: a diferencia
-     * de Factomate (`{"ElectronicDocuments":[…]}`), el body ES el documento.
+     * El body ES el documento, sin envoltorio.
      *
      * ── La `Idempotency-Key` ─────────────────────────────────────────────
      *
@@ -292,9 +236,9 @@ final class FePyProvider implements EInvoiceProvider
      * (`__idempotencyKey`), que este método QUITA antes de serializar. Es
      * feo y es a propósito: `EInvoiceProvider::issue()` no tiene un
      * parámetro donde meterla, y las dos alternativas eran peores —
-     * cambiarle la firma a la interfaz (toca Factomate, que hoy es el que
-     * factura) o derivar la key del contenido (que la haría cambiar cuando
-     * el mapper cambie, o sea justo cuando NO tiene que cambiar). El valor
+     * cambiarle la firma a la interfaz o derivar la key del contenido (que
+     * la haría cambiar cuando el mapper cambie, o sea justo cuando NO tiene
+     * que cambiar). El valor
      * es el `einvoicedocid`: la fila del outbox, que es la unidad que se
      * reintenta. Ver el docblock de la clase, punto (c).
      *
@@ -303,7 +247,7 @@ final class FePyProvider implements EInvoiceProvider
      *
      * @return array{cdc:?string,documentNumber:?string,success:bool,statusMessage:?string,bulkId:?string,dCarQR:?string,xmlUrl:?string,raw:array}
      */
-    public function issue(string $environment, string $phone, string $bearer, array $payload): array
+    public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array
     {
         $idempotencyKey = trim((string) ($payload[self::IDEMPOTENCY_PAYLOAD_KEY] ?? ''));
         unset($payload[self::IDEMPOTENCY_PAYLOAD_KEY]);
@@ -316,7 +260,7 @@ final class FePyProvider implements EInvoiceProvider
 
         $raw = $this->request(
             'POST',
-            '/v1/tenants/' . rawurlencode($phone) . '/de',
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/de',
             $payload,
             $bearer,
             ['Idempotency-Key: ' . $idempotencyKey]
@@ -326,8 +270,8 @@ final class FePyProvider implements EInvoiceProvider
         $estado = strtolower(trim((string) ($raw['estado'] ?? '')));
 
         // `success` = "el proveedor aceptó el documento y lo mandó a SIFEN",
-        // NO "SIFEN lo aprobó" — misma semántica exacta que en Factomate, y
-        // el motivo por el que existe `sifen_status` aparte. Un `pendiente`
+        // NO "SIFEN lo aprobó" — ese es el motivo por el que existe
+        // `sifen_status` como columna aparte. Un `pendiente`
         // con CDC es un éxito de emisión: el documento ya existe, tiene
         // número fiscal y SIFEN todavía está procesando el lote. Tratarlo
         // como error lo dejaría elegible para retry() y lo duplicaría.
@@ -382,7 +326,7 @@ final class FePyProvider implements EInvoiceProvider
      * documentos en estado `aprobado` (409 si no), y una segunda cancelación
      * del mismo CDC también es 409.
      */
-    public function cancel(string $environment, string $phone, string $bearer, string $cdc, string $reason): array
+    public function cancel(string $environment, string $tenantRef, string $bearer, string $cdc, string $reason): array
     {
         $reason = trim($reason);
         if (mb_strlen($reason) < 10) {
@@ -393,7 +337,7 @@ final class FePyProvider implements EInvoiceProvider
 
         $raw = $this->request(
             'POST',
-            '/v1/tenants/' . rawurlencode($phone) . '/eventos/cancelacion',
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/eventos/cancelacion',
             ['cdc' => $cdc, 'motivo' => mb_substr($reason, 0, 500)],
             $bearer,
             // Misma idempotencia que la emisión: cancelar dos veces por un
@@ -420,8 +364,8 @@ final class FePyProvider implements EInvoiceProvider
     /**
      * `GET /v1/tenants/{ref}/de/{cdc}/kude` — bytes del PDF.
      *
-     * Mismo backoff que Factomate y por la misma razón física: entre que el
-     * documento se acepta y el PDF termina de generarse pasan segundos.
+     * Con backoff por una razón física: entre que el documento se acepta y
+     * el PDF termina de generarse pasan segundos.
      * Se reintenta SOLO ante 5xx; un 4xx no se reintenta.
      *
      * El 404 de este endpoint es AMBIGUO y por eso se traduce: FE-PY
@@ -432,10 +376,10 @@ final class FePyProvider implements EInvoiceProvider
      * distinguirlo. Nota: hoy el PDF que se ENTREGA es el propio
      * (`EInvoiceService::kudePdf`, context/73 K2); esto es el fallback.
      */
-    public function kude(string $environment, string $phone, string $bearer, string $cdc): string
+    public function kude(string $environment, string $tenantRef, string $bearer, string $cdc): string
     {
         return $this->getBinaryWithRetry(
-            '/v1/tenants/' . rawurlencode($phone) . '/de/' . rawurlencode($cdc) . '/kude',
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/de/' . rawurlencode($cdc) . '/kude',
             $bearer,
             'KuDE'
         );
@@ -444,16 +388,14 @@ final class FePyProvider implements EInvoiceProvider
     /**
      * `GET /v1/tenants/{ref}/de/{cdc}/xml` — el XML FIRMADO, en bytes.
      *
-     * No está en `EInvoiceProvider` (Factomate no tiene un endpoint
-     * equivalente: expone un `XmlUrl` en la respuesta de emisión). Es el
-     * insumo directo de la K3 de `context/73` —archivar el XML firmado, que
-     * es el documento fiscal de verdad— y con FE-PY sale de un GET propio,
-     * sin URLs prefirmadas que expiran.
+     * Es el insumo de `EInvoiceService::archiveSignedXml()`: el XML firmado
+     * es el documento fiscal de verdad y conservarlo es obligación del
+     * EMISOR. Sale de un GET por CDC, sin URLs prefirmadas que expiran.
      */
-    public function xml(string $environment, string $phone, string $bearer, string $cdc): string
+    public function xml(string $environment, string $tenantRef, string $bearer, string $cdc): string
     {
         return $this->getBinaryWithRetry(
-            '/v1/tenants/' . rawurlencode($phone) . '/de/' . rawurlencode($cdc) . '/xml',
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/de/' . rawurlencode($cdc) . '/xml',
             $bearer,
             'XML firmado'
         );
@@ -464,17 +406,17 @@ final class FePyProvider implements EInvoiceProvider
      *
      * FE-PY devuelve `{ruc, response}` donde `response` es el payload CRUDO
      * de SIFEN (con prefijos `ns2:` sin normalizar). El consumidor
-     * (`Contacts\TaxpayerLookupService::fromFactomate()`) parsea a la
+     * (`Contacts\TaxpayerLookupService::fromEmitter()`) parsea a la
      * defensiva y trata un shape inesperado como "no encontrado", cayendo al
      * padrón público — así que un shape distinto degrada, no rompe el alta
      * del cliente. Se devuelve crudo en vez de adivinar una normalización.
      */
-    public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array
+    public function clientByRuc(string $environment, string $tenantRef, string $bearer, string $ruc): array
     {
         $doc = explode('-', trim($ruc))[0];
         return $this->request(
             'GET',
-            '/v1/tenants/' . rawurlencode($phone) . '/consulta/ruc/' . rawurlencode($doc),
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/consulta/ruc/' . rawurlencode($doc),
             null,
             $bearer
         );
@@ -499,20 +441,19 @@ final class FePyProvider implements EInvoiceProvider
      *
      * ── La traducción ────────────────────────────────────────────────────
      *
-     * Devuelve el shape de BULK DE FACTOMATE, no el de FE-PY. Es deliberado:
-     * `EInvoiceService::sifenStatusFromBulk()` y `sifenReason()` son
-     * estáticas, las consume también `TransactionsService` para pintar el
-     * motivo del rechazo en el listado de ventas, y —lo que decide— el jsonb
-     * `sifen_result` que se persiste ya tiene ese shape en las filas
-     * existentes. Traducir en el adapter deja UNA sola forma de leer el
-     * estado fiscal en toda la aplicación; ramificar por proveedor en el
-     * parseo la duplicaría para siempre, incluso para las filas ya
-     * guardadas. El payload nativo se conserva íntegro bajo la clave `FePy`
-     * para no perder trazabilidad.
+     * La respuesta nativa se traduce al shape que el resto de la aplicación
+     * ya lee. Es deliberado: `EInvoiceService::sifenStatusFromBulk()` y
+     * `sifenReason()` son estáticas, las consume también `TransactionsService`
+     * para pintar el motivo del rechazo en el listado de ventas, y —lo que
+     * decide— el jsonb `sifen_result` ya persistido tiene ese shape en las
+     * filas existentes. Traducir en el adapter deja UNA sola forma de leer el
+     * estado fiscal en toda la aplicación; hacerlo en el parseo la duplicaría
+     * para siempre, incluso para las filas ya guardadas. El payload nativo se
+     * conserva íntegro bajo la clave `FePy` para no perder trazabilidad.
      */
-    public function getBulk(string $environment, string $phone, string $bearer, string $bulkId): array
+    public function getBulk(string $environment, string $tenantRef, string $bearer, string $bulkId): array
     {
-        $base = '/v1/tenants/' . rawurlencode($phone) . '/de/' . rawurlencode($bulkId);
+        $base = '/v1/tenants/' . rawurlencode($tenantRef) . '/de/' . rawurlencode($bulkId);
 
         try {
             $raw = $this->request('POST', $base . '/consulta', [], $bearer);
@@ -601,11 +542,9 @@ final class FePyProvider implements EInvoiceProvider
      * `POST /v1/tenants` — alta del emisor. Devuelve el UUID del tenant, que
      * es lo único que hay que persistir (`provider_tenant_ref`, mig 206).
      *
-     * A diferencia de Factomate, el alta es UNA sola llamada que ya lleva
-     * timbrado, establecimientos y actividades económicas: no hay
-     * `updateTenant` + `createActivity` + `createStamp` encadenados. Y no
-     * devuelve credenciales de usuario — no hay usuario, la auth es la API
-     * key de company.
+     * El alta es UNA sola llamada que ya lleva timbrado, establecimientos y
+     * actividades económicas. Y no devuelve credenciales de usuario — no hay
+     * usuario, la auth es la API key de company.
      *
      * NO es idempotente por header (su `Idempotency-Key` solo está cableada
      * en emisión y eventos), pero SÍ lo es por regla de negocio: un segundo
@@ -613,7 +552,7 @@ final class FePyProvider implements EInvoiceProvider
      * checkpointea (`fepyTenantCreated`) para no depender de interpretar un
      * 409 ajeno.
      *
-     * @param array<string,mixed> $tenant Body ya armado por FePyProvisioningService.
+     * @param array<string,mixed> $tenant Body ya armado por EInvoiceProvisioningService.
      * @return array{tenantRef:string,raw:array}
      */
     public function createTenant(string $environment, string $bearer, array $tenant): array
@@ -632,11 +571,23 @@ final class FePyProvider implements EInvoiceProvider
     }
 
     /**
+     * `PATCH /v1/tenants/{ref}` — actualización PARCIAL del emisor.
+     *
+     * PATCH y no PUT: los datos que definen fiscalmente al emisor (RUC,
+     * razón social, timbrado) se fijan en el alta y no se tocan desde acá.
+     * Esto sirve para lo accesorio que SÍ cambia con el tiempo y que el motor
+     * necesita para dibujar el KuDE — hoy, el logo del comercio.
+     *
+     * @param array<string,mixed> $fields Solo las claves que se quieren pisar.
+     */
+    public function patchTenant(string $environment, string $tenantRef, string $bearer, array $fields): array
+    {
+        return $this->request('PATCH', '/v1/tenants/' . rawurlencode($tenantRef), $fields, $bearer);
+    }
+
+    /**
      * `POST /v1/tenants/{ref}/cert` — certificado de firma, **multipart**
-     * (partes literales `file` y `password`), no JSON en base64 como
-     * Factomate. Por eso `uploadCert()` de la interfaz no puede servir a este
-     * proveedor y lanza: su firma recibe `int $tenantId` (acá es un uuid) y
-     * un `certBase64`.
+     * (partes literales `file` y `password`), no JSON en base64.
      *
      * El `.p12` y su contraseña PASAN y no se persisten ni se loguean acá —
      * la custodia cifrada es de `FiscalSecretStore`, que es de donde el
@@ -645,8 +596,7 @@ final class FePyProvider implements EInvoiceProvider
      *
      * FE-PY valida antes de aceptar: parsea el PKCS#12, rechaza vencidos y
      * —esto es lo importante— exige que el RUC DENTRO del certificado sea el
-     * del tenant. Un cert de otra empresa no entra, que es la comprobación
-     * que Factomate no hacía.
+     * del tenant. Un cert de otra empresa no entra.
      *
      * @param string $certBinary Bytes del `.p12` (NO base64).
      */
@@ -679,8 +629,8 @@ final class FePyProvider implements EInvoiceProvider
      *
      * El CSC es un SECRETO de SIFEN (firma el QR del KuDE), así que esta
      * request NO pasa por el log de body — mismo criterio que
-     * `FactomateProvider::updateTenant()`, donde el leak estuvo latente hasta
-     * que alguien cargó un CSC de verdad. También se declara secreto para la
+     * el resto de los cuerpos con secretos, donde un leak así queda latente
+     * hasta que alguien carga un valor de verdad. También se declara para la
      * RESPUESTA: si el motor lo eco-ea al rechazarlo, se tacha antes de que
      * toque un log o `last_error` (que es visible en el panel).
      */
@@ -694,61 +644,6 @@ final class FePyProvider implements EInvoiceProvider
             'Authorization: Bearer ' . $bearer,
             'Content-Type: application/json',
         ], json_encode(['cscId' => $cscId, 'csc' => $cscSecret], JSON_UNESCAPED_UNICODE), [$cscSecret]);
-    }
-
-    /** `GET /v1/tenants/{ref}/cert` — metadata del certificado cargado (huella, vencimiento). */
-    public function certInfo(string $environment, string $tenantRef, string $bearer): array
-    {
-        return $this->request('GET', '/v1/tenants/' . rawurlencode($tenantRef) . '/cert', null, $bearer);
-    }
-
-    // ── F7 — provisioning de Factomate, sin equivalente 1:1 ──────────────
-
-    public function createExternal(string $environment, string $adminLogin, string $adminBearer, array $data): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene CreateExternal (alta compuesta usuario+tenant de Factomate): el alta es POST /v1/tenants ' .
-            'en una sola llamada y sin usuario. Usar FePyProvider::createTenant() vía FePyProvisioningService.'
-        );
-    }
-
-    public function updateTenant(string $environment, string $phone, string $bearer, array $tenant): array
-    {
-        throw new \LogicException(
-            'En FE-PY los datos fiscales van en el alta (POST /v1/tenants); el CSC tiene endpoint propio. ' .
-            'Usar FePyProvider::createTenant() / setCsc().'
-        );
-    }
-
-    public function createActivity(string $environment, string $phone, string $bearer, int $tenantId, int $identifier, string $name): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene ABM de actividades económicas: viajan en `actividadesEconomicas[]` dentro del alta del tenant.'
-        );
-    }
-
-    public function createStamp(string $environment, string $phone, string $bearer, array $stamp): array
-    {
-        throw new \LogicException(
-            'FE-PY no tiene ABM de timbrados: el timbrado es del TENANT y viaja en el alta ' .
-            '(timbradoNumero/timbradoFecha). El punto de expedición se elige por documento.'
-        );
-    }
-
-    public function uploadCert(string $environment, string $phone, string $bearer, int $tenantId, string $certBase64, string $certPassword): array
-    {
-        throw new \LogicException(
-            'La carga del certificado en FE-PY es multipart y su tenant es un uuid, no un int — esta firma no le sirve. ' .
-            'Usar FePyProvider::uploadCertificate($environment, $tenantRef, $bearer, $certBinary, $certPassword).'
-        );
-    }
-
-    public function testSet(string $environment, string $phone, string $bearer, int $tenantId, string $ruc): array
-    {
-        throw new \LogicException(
-            'La prueba de humo del certificado en FE-PY es la consulta de RUC — usar clientByRuc(), que sí usa el ' .
-            'certificado del emisor como cert cliente TLS contra SIFEN.'
-        );
     }
 
     // ── Internals ────────────────────────────────────────────────────────
@@ -777,7 +672,7 @@ final class FePyProvider implements EInvoiceProvider
             // `{}` a mano y NO JSON_FORCE_OBJECT: ese flag convierte TODA
             // lista en objeto con claves numéricas y destruiría `items[]` /
             // `condicion.entregas[]`, con un rechazo del motor que no
-            // menciona la causa real. Misma trampa que en FactomateProvider.
+            // menciona la causa real.
             $body = $jsonBody === [] ? '{}' : json_encode($jsonBody, JSON_UNESCAPED_UNICODE);
             error_log("[FePy] $method $path body=$body");
         }

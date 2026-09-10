@@ -191,7 +191,7 @@ function maintenanceRunJob(string $job): array
             // email cuando SIFEN aprueba; mañana, cualquier otro consumidor
             // del mismo outbox (la cotización en PDF de context/56).
             //
-            // Default 25 y no más: cada ítem baja el KuDE de Factomate y hace
+            // Default 25 y no más: cada ítem baja el KuDE del motor y hace
             // un POST a Resend, o sea dos llamadas externas por envío. Con
             // cadencia de 5 minutos, 25 alcanza de sobra para el volumen real
             // y deja margen para no encadenar corridas (el advisory lock las

@@ -682,9 +682,10 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             return [
                 'ruc'         => $rucCanonico,
                 'billingName' => $razonSocial,
-                // De dónde salió el dato: 'factomate' (el padrón del propio
-                // emisor, autoritativo) o 'padron' (el público). El bot lo
-                // dice cuando el usuario duda del nombre que quedó cargado.
+                // De dónde salió el dato: el padrón del propio emisor (lo
+                // responde el motor de facturación electrónica, autoritativo)
+                // o el padrón público. El bot lo dice cuando el usuario duda
+                // del nombre que quedó cargado.
                 'source'      => (string) ($padron['source'] ?? ''),
                 'taxpayerStatus' => $padron['status'] ?? null,
             ];

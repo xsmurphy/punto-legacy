@@ -1478,8 +1478,9 @@ function ncmRows($sql, $params = []): array
  * `catch (DbQueryException)` cuando su mensaje lleva información de
  * RECUPERACIÓN que se perdería con el 500 genérico — típicamente porque ya
  * ocurrió un side-effect EXTERNO irreversible antes del UPDATE. Hoy el único
- * caso así es `EInvoiceProvisioningService::createTenant()` (el emisor ya
- * existe en Factomate y la contraseña no se puede volver a pedir): ver ahí.
+ * caso así es el alta del emisor en el motor de facturación electrónica (el
+ * emisor ya existe del otro lado y el alta no es repetible): ver
+ * `EInvoiceProvisioningService`.
  */
 function ncmUpdate($options)
 {

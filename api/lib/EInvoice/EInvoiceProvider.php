@@ -4,176 +4,143 @@ declare(strict_types=1);
 namespace Punto\Api\EInvoice;
 
 /**
- * Contrato de un proveedor de facturación electrónica.
+ * Contrato de un motor de facturación electrónica.
  *
- * Reescrita en el pivot Automate → Factomate (2026-07-28, ver
- * context/28-facturacion-electronica-plan.md): Automate no era el motor
- * real, era otro cliente de Factomate igual que Punto va a serlo. El login
- * de una sola llamada que tenía esta interfaz no aplica — Factomate
- * autentica en DOS pasos encadenados (Token → PhoneLogin, ver
- * FactomateProvider/FactomateSession) y exige el header `phonenumber` en
- * TODAS las llamadas autenticadas, por eso cada método lo recibe explícito
- * en vez de asumirlo cacheado dentro del cliente.
+ * Hoy lo implementa uno solo —`FePyProvider`, el motor de Punto— y sigue
+ * siendo una interfaz por el mismo criterio que los proveedores de pago en
+ * `api/lib/Billing/Payments/`: `EInvoiceService` habla contra el contrato y no
+ * contra una clase concreta, así que sumar o cambiar de motor no obliga a
+ * tocar el camino de emisión, que es el que factura.
  *
- * `$environment` ('test'|'prod') también va explícito en cada llamada, no
- * es estado del provider: EInvoiceService construye una sola instancia de
- * FactomateProvider reusada entre companies dentro del mismo
- * request/worker — si el environment viviera como propiedad del objeto,
- * una company en 'prod' podría terminar heredando el environment que dejó
- * seteado la company anterior en el mismo request. Sin estado, no hay
- * fuga posible.
+ * ── Qué está acá y qué NO ────────────────────────────────────────────────
  *
- * Sigue detrás de una interfaz (mismo criterio que los proveedores de pago
- * en api/lib/Billing/Payments/) para no casar el módulo a Factomate y
- * poder cambiar de proveedor sin tocar EInvoiceService. El camino legacy
- * (sendFE/consultFE, ElectronicInvoiceService, /v1/electronic_invoice.php)
- * se retiró entero en F4 — esta interfaz es el único acceso a un proveedor
- * de facturación electrónica.
+ * Solo la superficie de OPERACIÓN sobre documentos: emitir, cancelar, traer
+ * los artefactos (KuDE y XML firmado), reconciliar el estado fiscal y leer los
+ * catálogos del emisor. El ALTA del emisor (crear el tenant, subir el
+ * certificado, cargar el CSC) NO está acá a propósito: es un flujo con la
+ * forma de cada motor —qué recursos crea, en qué orden, con qué credencial— y
+ * declararlo en la interfaz obligaba a que el próximo motor calzara en los
+ * pasos del anterior. Vive en `EInvoiceProvisioningService`.
  *
- * F0 sólo implementa token/phoneLogin/userInfo/sincroConfig/paymentMethods
- * (conexión de cuenta + lectura del timbrado). Las firmas de F1/F2/F3
- * (issue/cancel/kude/clientByRuc) quedan declaradas acá para que el
- * contrato quede cerrado de una — evita que F1 tenga que romper la interfaz
- * ya usada por EInvoiceService.
+ * ── Por qué cada método recibe identidad y entorno ───────────────────────
+ *
+ * `$tenantRef` y `$environment` van EXPLÍCITOS en cada llamada, no como estado
+ * del objeto: `EInvoiceService` construye una sola instancia del motor y la
+ * reusa entre companies dentro del mismo request/worker (el drainer del outbox
+ * y la reconciliación iteran sobre todos los tenants). Si el entorno viviera
+ * como propiedad, una company en 'prod' podría heredar el que dejó seteado la
+ * anterior. Sin estado, no hay fuga posible.
  */
 interface EInvoiceProvider
 {
     /**
-     * POST /Token — usuario+contraseña → bearer de 15 min de UN SOLO USO.
-     * Nunca se cachea (ver guía §2): solo sirve para probar que se conoce
-     * la contraseña y obtener el bearer que consume phoneLogin().
-     * Devuelve ['token' => string, 'expiresAt' => ?string, 'raw' => array].
-     * @throws \RuntimeException en credenciales inválidas o error de red.
-     */
-    public function token(string $environment, string $phone, string $username, string $password): array;
-
-    /**
-     * POST /api/account/PhoneLogin — bearer de token() + header phonenumber
-     * → bearer de 24 h, que sí se cachea (FactomateSession::getBearer).
-     * Devuelve ['token' => string, 'expiresAt' => ?string, 'raw' => array].
-     * @throws \RuntimeException
-     */
-    public function phoneLogin(string $environment, string $phone, string $tokenStep1): array;
-
-    /**
-     * GET /api/account/GetUserInfo — datos del emisor autenticado (razón
-     * social, RUC, etc.) — payload crudo, sin tipar (el spec no documenta
-     * el shape).
-     * @throws \RuntimeException
-     */
-    public function userInfo(string $environment, string $phone, string $bearer): array;
-
-    /**
-     * POST /api/sincro/config — trae el timbrado vigente en `stamps[0]`.
-     * El timbrado NO se crea por API, solo se lee (se provisiona del lado
-     * de Factomate antes de conectar la cuenta).
-     * @throws \RuntimeException
-     */
-    public function sincroConfig(string $environment, string $phone, string $bearer): array;
-
-    /**
-     * GET /api/PaymentMethod/get — códigos de medios de pago soportados,
-     * para mapear contra los medios de pago de Punto (F3).
-     * @throws \RuntimeException
-     */
-    /**
-     * Timbrados del emisor (`GET /api/BranchDocumentType/Get`). Fuente REAL del
-     * timbrado: `sincroConfig()` devuelve `stamps: []` aun con timbrado vigente.
-     */
-    public function stamps(string $environment, string $phone, string $bearer): array;
-
-    public function paymentMethods(string $environment, string $phone, string $bearer): array;
-
-    // ── F1/F2/F3 ─────────────────────────────────────────────────────────
-    // Firmas cerradas ahora para que el contrato no cambie después; la
-    // implementación en FactomateProvider tira LogicException hasta la fase
-    // correspondiente.
-
-    /** @throws \RuntimeException|\LogicException POST /api/electronicDocument/Bulk (F1). */
-    public function issue(string $environment, string $phone, string $bearer, array $payload): array;
-
-    /** @throws \RuntimeException|\LogicException POST /api/electronicDocument/event (F1/F2). */
-    public function cancel(string $environment, string $phone, string $bearer, string $cdc, string $reason): array;
-
-    /** @throws \RuntimeException|\LogicException GET /api/electronicDocument/getkude/{cdc} (F1/F2). */
-    public function kude(string $environment, string $phone, string $bearer, string $cdc): string;
-
-    /** @throws \RuntimeException|\LogicException GET /api/Client/getbyruc/{ruc} (F3). */
-    public function clientByRuc(string $environment, string $phone, string $bearer, string $ruc): array;
-
-    /**
-     * GET /api/electronicDocument/getBulk/{id} (F2) — ÚNICA fuente real de
-     * reconciliación del estado FISCAL. Verificado contra la API real
-     * (2026-07-30): `GET /api/ElectronicDocument/GetAll` devuelve
-     * `Items: []` incluso después de emitir — es un no-op silencioso, no
-     * sirve para esto. `$bulkId` es el `Id` raíz que devolvió
-     * `POST /Bulk` al emitir (persistido en `einvoice_document.provider_number`).
+     * Datos del emisor tal como los tiene el motor (RUC, razón social,
+     * timbrado, entorno). Shape CRUDO: los consumidores lo leen con casing
+     * flexible.
      *
-     * CRÍTICO: un CDC con `Success: true` en la respuesta de `/Bulk` NO
-     * significa que SIFEN aceptó el documento — se comprobó hoy con un CDC
-     * válido que terminó `Rechazado` (código 1002, duplicado). El KuDE se
-     * descarga igual para un documento rechazado. El único campo que dice
-     * si la factura vale es `sifen_status`, derivado de esta respuesta
-     * (ver EInvoiceService::reconcile()).
      * @throws \RuntimeException
      */
-    public function getBulk(string $environment, string $phone, string $bearer, string $bulkId): array;
-
-    // ── F7 — provisioning white-label ────────────────────────────────────
-    // El comercio nunca ve Factomate: Punto crea el emisor con su credencial
-    // ADMIN (env, ver FactomateSession::getAdminBearer) y de ahí en adelante
-    // opera con el usuario del tenant que devolvió el alta. Manual de
-    // referencia: ~/Downloads/manual-tenant-abm (§2 CreateExternal, §3 PUT
-    // Tenant, §4 Activity, §5 BranchDocumentType, §7 UploadCert).
+    public function userInfo(string $environment, string $tenantRef, string $bearer): array;
 
     /**
-     * POST /api/Tenant/CreateExternal — alta compuesta (usuario + tenant +
-     * rol + vínculo). Requiere un bearer de usuario SIN tenant (el admin
-     * global de Punto). Devuelve
-     * ['tenantId','userId','email','password','raw'] — la contraseña viaja
-     * UNA sola vez y no es recuperable después (manual §2.4): el caller la
-     * persiste en el vault como paso inmediato siguiente.
-     * @param array{razonSocial:string,nombreFantasia:?string,email:string,ruc:string} $data
+     * ¿El emisor está en condiciones de emitir? Certificado vigente, CSC
+     * cargado, RUC habilitado, numeración disponible.
+     *
+     * Está en el contrato porque la pregunta es del DOMINIO, no de un motor:
+     * el panel tiene que poder decirle al comercio qué le falta ANTES de que
+     * SIFEN le rechace una factura. `unverifiable` es lo que ningún motor
+     * puede afirmar sin emitir, y se muestra como advertencia.
+     *
+     * @return array{ready:bool,checks:array<int,array{check:string,ok:bool,detail:string}>,unverifiable:array<int,string>}
      * @throws \RuntimeException
      */
-    public function createExternal(string $environment, string $adminLogin, string $adminBearer, array $data): array;
+    public function readiness(string $tenantRef, string $bearer): array;
 
     /**
-     * PUT /api/Tenant — datos fiscales del emisor (manual §3). Con el bearer
-     * del USUARIO del tenant (su rol Administrador alcanza).
+     * Actualiza los datos ACCESORIOS del emisor — los que cambian con el
+     * tiempo y el motor necesita para componer el KuDE (hoy: el logo del
+     * comercio).
+     *
+     * No es el alta ni toca lo que define fiscalmente al emisor (RUC, razón
+     * social, timbrado): eso se fija al darlo de alta.
+     *
+     * @param array<string,mixed> $fields Solo las claves que se quieren pisar.
      * @throws \RuntimeException
      */
-    public function updateTenant(string $environment, string $phone, string $bearer, array $tenant): array;
+    public function patchTenant(string $environment, string $tenantRef, string $bearer, array $fields): array;
 
     /**
-     * POST /api/Activity — actividad económica SIFEN del emisor (manual §4).
+     * Timbrados del emisor.
+     *
      * @throws \RuntimeException
      */
-    public function createActivity(string $environment, string $phone, string $bearer, int $tenantId, int $identifier, string $name): array;
+    public function stamps(string $environment, string $tenantRef, string $bearer): array;
 
     /**
-     * POST /api/BranchDocumentType — alta del timbrado (manual §5).
-     * `TenantId` NO viaja: Factomate lo fuerza server-side al del usuario
-     * autenticado, por eso este método exige el bearer del tenant.
+     * Códigos de medios de pago que acepta el motor, para mapear contra los
+     * medios de pago de Punto.
+     *
      * @throws \RuntimeException
      */
-    public function createStamp(string $environment, string $phone, string $bearer, array $stamp): array;
+    public function paymentMethods(string $environment, string $tenantRef, string $bearer): array;
 
     /**
-     * POST /api/Tenant/{id}/UploadCert — certificado de firma (manual §7).
-     * SOLO el usuario propio del tenant puede subirlo (§7.2 — el admin
-     * global recibe 403), por eso va con el bearer del tenant. El caller
-     * NUNCA persiste ni loguea `certBase64`/`certPassword` (regla del plan).
-     * @throws \RuntimeException
+     * Emite el documento. El payload ya viene armado por el mapper.
+     *
+     * @throws \RuntimeException|\LogicException
      */
-    public function uploadCert(string $environment, string $phone, string $bearer, int $tenantId, string $certBase64, string $certPassword): array;
+    public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array;
 
     /**
-     * GET /api/Consulta/Get?tenantId=&description= — prueba de humo REAL del
-     * certificado: consulta de RUC contra SIFEN usando el certificado del
-     * emisor como cert cliente TLS (manual §7.5). 200 = certificado y CSC
-     * operativos; error = "Error de Certificado o CSC".
+     * Evento de cancelación del documento identificado por su CDC.
+     *
+     * @throws \RuntimeException|\LogicException
+     */
+    public function cancel(string $environment, string $tenantRef, string $bearer, string $cdc, string $reason): array;
+
+    /**
+     * Bytes del KuDE (PDF) del documento, tal como lo renderiza el motor.
+     *
+     * Punto NO dibuja el KuDE. Se intentó (renderer propio, `context/73`) y se
+     * revirtió: un segundo renderer del mismo documento fiscal solo agrega una
+     * versión que puede divergir de la que se firmó.
+     *
+     * @throws \RuntimeException|\LogicException
+     */
+    public function kude(string $environment, string $tenantRef, string $bearer, string $cdc): string;
+
+    /**
+     * Bytes del XML FIRMADO del documento — el documento fiscal de verdad.
+     *
+     * Está en la interfaz porque su conservación es obligación del EMISOR, o
+     * sea de Punto y no del motor: cualquier motor que se sume tiene que poder
+     * entregarlo. Se pide POR CDC y no por una URL que venga en la respuesta
+     * de emisión, que expira.
+     *
+     * @throws \RuntimeException|\LogicException
+     */
+    public function xml(string $environment, string $tenantRef, string $bearer, string $cdc): string;
+
+    /**
+     * Consulta del padrón por RUC, para el alta de clientes.
+     *
+     * @throws \RuntimeException|\LogicException
+     */
+    public function clientByRuc(string $environment, string $tenantRef, string $bearer, string $ruc): array;
+
+    /**
+     * Reconsulta del documento — ÚNICA fuente real del estado FISCAL.
+     *
+     * CRÍTICO: que la emisión haya devuelto un CDC y `success` NO significa
+     * que SIFEN aceptó el documento. Se comprobó con un CDC válido que terminó
+     * `Rechazado` (código 1002, duplicado), y el KuDE se descargaba igual. El
+     * único campo que dice si la factura vale es `sifen_status`, derivado de
+     * esta respuesta (ver `EInvoiceService::reconcile()`).
+     *
+     * `$documentRef` es la llave con la que ESTE motor reconcilia el documento,
+     * persistida en `einvoice_document.provider_number` al emitir.
+     *
      * @throws \RuntimeException
      */
-    public function testSet(string $environment, string $phone, string $bearer, int $tenantId, string $ruc): array;
+    public function getBulk(string $environment, string $tenantRef, string $bearer, string $documentRef): array;
 }

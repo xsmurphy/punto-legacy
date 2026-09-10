@@ -457,7 +457,7 @@ final class TransactionDetailService
             'netTotal'      => $netTotal,
 
             // ── Facturación electrónica (bloques `fe_py`/`fe_cdc` del ticket) ──
-            // El CDC nace ASÍNCRONO (outbox → Factomate): en el primer ticket de
+            // El CDC nace ASÍNCRONO (outbox → motor de FE): en el primer ticket de
             // la venta todavía no existe y estos campos van null — el bloque de
             // la plantilla sale en blanco, como cualquier otro sin dato. En la
             // REIMPRESIÓN desde el panel ya está, que es donde el comprador lo

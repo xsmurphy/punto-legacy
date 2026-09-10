@@ -21,9 +21,9 @@ declare(strict_types=1);
  *      Σ(byRate.amount) == transactionTax (el pedido central del owner: "que
  *      se sume bien el IVA por cada tipo de IVA").
  *   3. Facturación electrónica (solo tenant PY): el payload que arma
- *      `EInvoiceService::buildSaleArrayForMapper()` + `SaleToInvoiceMapper`
+ *      `EInvoiceService::buildSaleArrayForMapper()` + `SaleToFePyMapper`
  *      usa el IVA CONGELADO de la venta (no el catálogo) y mapea las tasas
- *      correctas para SIFEN — sin llamar a Factomate ni a ninguna red.
+ *      correctas para SIFEN — sin llamar al motor ni a ninguna red.
  *   4. Escribe un dump JSON por caso (shape `TicketableTransaction`) para
  *      que `frontend/lib/hardware/printers/verify-chain.mts` verifique la
  *      impresión sobre la MISMA venta persistida.
@@ -331,8 +331,8 @@ foreach ($cases as $case) {
 
 /**
  * Verifica EInvoiceService::buildSaleArrayForMapper() (privado, se invoca
- * por Reflection — es puro lectura de BD, SIN llamar a Factomate ni red) y,
- * cuando aplica, que SaleToInvoiceMapper::build() arme el payload esperado
+ * por Reflection — es puro lectura de BD, SIN llamar al motor ni red) y,
+ * cuando aplica, que SaleToFePyMapper::build() arme el payload esperado
  * con timbrado/config FALSOS (no se emite nada de verdad).
  */
 function verifyEInvoice(array $case, string $transId, string $companyId, int &$failures): void
