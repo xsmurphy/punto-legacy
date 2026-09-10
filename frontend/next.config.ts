@@ -127,6 +127,23 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // El KuDE propio (context/73) se arma con `@react-pdf/renderer`, que por
+  // debajo usa pdfkit. pdfkit carga sus fuentes estándar con un `require`
+  // construido en runtime a partir del nombre de la fuente, y el file tracing
+  // de Next —que sigue imports estáticos— no tiene cómo verlo: el build
+  // standalone salía sin `node_modules/pdfkit/js/standard-fonts/`.
+  //
+  // El síntoma no era un build roto sino un 500 en producción, con el KuDE
+  // propio cayendo SIEMPRE al PDF del proveedor:
+  //
+  //     Cannot find module '/app/node_modules/pdfkit/js/standard-fonts/Helvetica.cjs'
+  //
+  // Se declaran las fuentes como dependencia del route handler que las usa.
+  // El glob incluye las `.cjs` y las `.mjs` porque cuál se carga depende de
+  // cómo resuelva el runtime, y traerlas todas cuesta unos pocos KB.
+  outputFileTracingIncludes: {
+    "/api/kude/render": ["./node_modules/pdfkit/js/standard-fonts/**"],
+  },
   // Whitelist de hosts para next/image. DO Spaces (S3-compatible) + AWS S3 genéricos.
   // En las imágenes de items usamos `unoptimized` igual — el backend ya las redimensiona —
   // pero el remotePatterns es requerido por Next aunque se opte por unoptimized.
