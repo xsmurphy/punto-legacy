@@ -380,7 +380,7 @@ function ContactFormBody({
             )}
 
             {/* Solo para PERSONA: una empresa es contribuyente por definición y
-                se identifica con su RUC. `SaleToInvoiceMapper::buildClient()`
+                se identifica con su RUC. `SaleToFePyMapper::buildClient()`
                 ignora el idType en la rama 'contribuyente', así que mostrar el
                 selector ahí haría creer que se configuró un pasaporte o un
                 carnet diplomático en una empresa cuando la emisión no lo mira. */}

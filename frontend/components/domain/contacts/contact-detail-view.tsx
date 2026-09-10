@@ -720,7 +720,7 @@ function ContactFormBody({
             Tabla 3 de la SET). Gatea también el label/placeholder del campo
             de abajo (personalCopy). Ver lib/contact-id-types.ts */}
         {/* Solo para PERSONA: una empresa es contribuyente por definición y se
-            identifica con su RUC. `SaleToInvoiceMapper::buildClient()` ignora
+            identifica con su RUC. `SaleToFePyMapper::buildClient()` ignora
             el idType en la rama 'contribuyente'. */}
         {idTypes.length > 0 && kind === "persona" && (
           <FormField

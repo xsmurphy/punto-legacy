@@ -60,7 +60,7 @@ namespace Punto\Api\Support;
  * errores de SQL y los re-etiquetarían como fallos de negocio — exactamente
  * lo que este cambio vino a eliminar. El caso peor documentado:
  * `EInvoiceService::issue()` atrapa el `\RuntimeException` de
- * `SaleToInvoiceMapper::build()` y marca el documento fiscal como error
+ * `SaleToFePyMapper::build()` y marca el documento fiscal como error
  * PERMANENTE con el texto crudo de PG (`markError`), sin reintento posible.
  *
  * Consecuencia buscada: un error de SQL sin `catch (DbQueryException)`

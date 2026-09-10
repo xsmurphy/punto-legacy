@@ -8,7 +8,7 @@
  *
  *   1. FISCAL-PY (`CONTACT_ID_TYPES`) — la Tabla 3 de la SET. Códigos
  *      NUMÉRICOS que se PERSISTEN en `contact.contactIdType` y que leen la
- *      facturación electrónica (`SaleToInvoiceMapper::mapIdType()`) y los
+ *      facturación electrónica (`SaleToFePyMapper::mapIdType()`) y los
  *      reportes fiscales (`FiscalService`). Son códigos de un fisco concreto:
  *      solo significan algo en Paraguay y no se tocan.
  *   2. PRESENTACIÓN (el resto del archivo) — cómo se ROTULAN los dos campos de

@@ -45,7 +45,7 @@ final class ContactService
      *
      * Por qué esta columna es de Paraguay y no de "el país del tenant": lo que
      * se guarda son CÓDIGOS DE UN FISCO CONCRETO, y los dos consumidores que
-     * los leen (SaleToInvoiceMapper::mapIdType y FiscalService) los
+     * los leen (SaleToFePyMapper::mapIdType y FiscalService) los
      * interpretan como Tabla 3 sin preguntar de qué país es el comercio.
      * Meterle una segunda codificación por país la volvería ambigua para
      * ambos. Cómo se LLAMAN los documentos en cada país es otra dimensión, de
@@ -57,7 +57,7 @@ final class ContactService
      * OJO: esto NO es la codificación de SIFEN para `documentoTipo`
      * (ej. 1=CÉDULA, 2=PASAPORTE, 5=INNOMINADO). Son dos tablas
      * distintas — el mapeo explícito entre ambas vive en
-     * SaleToInvoiceMapper::mapIdType(), no acá.
+     * SaleToFePyMapper::mapIdType(), no acá.
      */
     const ID_TYPE_RUC                        = 11;
     const ID_TYPE_CEDULA                     = 12;

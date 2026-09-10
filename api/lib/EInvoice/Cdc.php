@@ -58,7 +58,7 @@ namespace Punto\Api\EInvoice;
  * proveedor. `build()` y `securityCode()` ya hacen esa parte; lo único que
  * falta es el campo del payload, y el interruptor es
  * `einvoice_account.config->>'emitterCdc'` (default false, sin UI) — ver
- * `SaleToInvoiceMapper::build()`.
+ * `SaleToFePyMapper::build()`.
  *
  * ── El código de seguridad es ALEATORIO CRIPTOGRÁFICO, nunca secuencial ──
  *

@@ -406,7 +406,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     // null explícito —no omitidos— para que se lea que es una ausencia
     // ESPERADA y no un olvido de cableado. Los bloques `fe_cdc`/`fe_qr` salen
     // en blanco acá y completos en la reimpresión desde el detalle.
-    // Ver el bloque "CDC DEL EMISOR" de SaleToInvoiceMapper para qué haría
+    // Ver el bloque "CDC DEL EMISOR" de SaleToFePyMapper para qué haría
     // falta para imprimirlos en el momento.
     einvoiceCdc: null,
     einvoiceQrUrl: null,
