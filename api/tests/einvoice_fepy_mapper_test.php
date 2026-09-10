@@ -360,9 +360,9 @@ check(
     $checks
 );
 check(
-    'con legacyAutoNumbering la clave `numero` NO viaja (vacía sería un 422, no "numerá vos")',
-    !array_key_exists('numero', build(baseSale(), ['legacyAutoNumbering' => true])),
-    'la clave viajó igual',
+    'el kill-switch `legacyAutoNumbering` ya NO existe: el número viaja igual aunque venga en la config',
+    (build(baseSale(), ['legacyAutoNumbering' => true])['numero'] ?? null) === '0000042',
+    'numero=' . json_encode(build(baseSale(), ['legacyAutoNumbering' => true])['numero'] ?? null),
     $failures,
     $checks
 );

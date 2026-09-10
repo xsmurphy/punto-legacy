@@ -385,16 +385,18 @@ function verifyEInvoice(array $case, string $transId, string $companyId, int &$f
 
     // Payload final con timbrado/config de PRUEBA — no se emite, solo se
     // arma el JSON para confirmar que el mapper cierra sin llamar red.
-    // `legacyAutoNumbering` deja el correlativo FUERA de alcance a propósito:
-    // lo que esta cadena verifica es la ARITMÉTICA fiscal, y exigir un
-    // `fiscalNumber` congelado haría fallar el caso por un motivo que se
-    // prueba en `einvoice_emitter_numbering_test`.
+    // El correlativo se inyecta a mano porque lo que esta cadena verifica es
+    // la ARITMÉTICA fiscal: sin un `fiscalNumber` congelado el mapper aborta
+    // —y con razón— por un motivo que ya cubre
+    // `einvoice_emitter_numbering_test`. Antes esto se lograba con el
+    // kill-switch `legacyAutoNumbering`, que se eliminó: devolvía la
+    // numeración al motor, y Punto es dueño de la numeración fiscal.
     $mapper = new \Punto\Api\EInvoice\SaleToFePyMapper();
     try {
         $doc = $mapper->build(
-            $sale,
+            $sale + ['fiscalNumber' => 1],
             ['establecimiento' => '001', 'punto' => '001'],
-            ['legacyAutoNumbering' => true],
+            [],
             date('Y-m-d\TH:i:s'),
             'verify-chain'
         );

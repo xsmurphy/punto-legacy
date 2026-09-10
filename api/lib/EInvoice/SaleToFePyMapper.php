@@ -346,13 +346,18 @@ final class SaleToFePyMapper
      */
     private function resolveDocumentNumber(array $sale, array $config, int $documentType): string
     {
-        if (!empty($config['legacyAutoNumbering']) || $documentType === self::DOC_NOTA_CREDITO) {
-            // Sin correlativo propio que defender: se OMITE el campo y queda
-            // explícito que numera el motor. Nunca un centinela tipo `-1` —
-            // eso sería declarar un número que no existe.
-            return '';
-        }
-
+        // La NOTA DE CRÉDITO ya NO se excluye (context/40 F3): tiene serie y
+        // correlativo PROPIOS, que `ReturnService::create()` asigna con
+        // `DocumentNumber::allocate('nota_credito', SCOPE_REGISTER, <la caja
+        // heredada de la factura>, …)` y quedan congelados en la fila de la
+        // devolución. Se mandan igual que los de la factura: dejarla afuera
+        // era dejar que el motor numerara un documento fiscal nuestro.
+        //
+        // Tampoco queda el kill-switch `legacyAutoNumbering`, que permitía
+        // justamente eso. Era de la época en que el proveedor numeraba; hoy la
+        // regla es que Punto es dueño de la numeración fiscal, y una palanca
+        // que la desactiva en silencio es un agujero esperando a que alguien
+        // la encienda "por un rato".
         $raw = $sale['fiscalNumber'] ?? null;
         $number = is_numeric($raw) ? (int) $raw : 0;
         if ($number <= 0) {

@@ -143,13 +143,19 @@ final class TransactionsService
             if ($invoicePrefix === '') {
                 $invoicePrefix = (string) ($reg['invoicePrefix'] ?? '');
             }
-            if ($type === '6' && ($reg['returnPrefix'] ?? null) !== null) {
-                $invoicePrefix = (string) $reg['returnPrefix'];
-            }
+            // `registerReturnPrefix` ELIMINADO (2026-09-09). Nunca fue una
+            // columna ni una clave del JSONB que alguien escribiera: era un
+            // campo virtual que ningún código poblaba, así que este override
+            // jamás se ejecutó. Desde que la nota de crédito congela su propio
+            // punto de expedición en `invoicePrefix` (context/40 F3), dejarlo
+            // habría pasado de muerto a peligroso: un prefijo suelto de la caja
+            // pisando el que el documento declaró ante SIFEN. El type 6 usa el
+            // mismo camino congelado-con-fallback que el resto.
             // Ancho del TALONARIO de este documento (mig 159). La devolución
-            // (type 6) no tiene talonario propio todavía, así que hereda el de
-            // la factura — que es el ancho con el que esa caja viene
-            // imprimiendo. `null` → el default legal de `DocumentNumber`.
+            // (type 6) tiene el suyo desde que `docTypeForSaleType()` la mapea
+            // a `nota_credito`; sin fila propia cae al de la factura, que es el
+            // ancho con el que esa caja viene imprimiendo. `null` → el default
+            // legal de `DocumentNumber`.
             $padWidth  = $this->padWidthFor($reg, $type);
             $invoiceNo = (string) ($f['invoiceNo'] ?? '');
 
@@ -757,7 +763,7 @@ final class TransactionsService
     }
 
     /**
-     * registers → {name, invoiceAuth, invoicePrefix, padWidth, returnPrefix}
+     * registers → {name, invoiceAuth, invoicePrefix, padWidth}
      *
      * Público (F1, context/39-detalle-transaccion.md): `Transactions\TransactionDetailService::find()`
      * lo reusa para resolver timbrado/prefix del detalle — mismo criterio que
@@ -795,6 +801,11 @@ final class TransactionsService
         // que Postgres devolviera última — o sea, con el ancho de una serie
         // retirada, elegido por el orden físico de la tabla. Mismo filtro que
         // `RegisterAdminService::numberingByRegister()`.
+        //
+        // `nota_credito` entra al mismo CASE desde 2026-09-09 (context/40 F3):
+        // la NC tiene serie fiscal propia —el par vigente de la caja de la que
+        // hereda— así que su fila NO es la de serie vacía. Sin sumarla acá, su
+        // ancho de impresión nunca se encontraba y caía al de la factura.
         $padByRegister = [];
         $seqRes = ncmRows(
             "SELECT s.scopeid, s.doctype, s.padwidth
@@ -802,10 +813,10 @@ final class TransactionsService
                JOIN register r
                  ON r.registerId = s.scopeid AND r.companyId = s.companyid
               WHERE s.companyid = ? AND s.scopetype = 'register' AND s.scopeid IN ($ph)
-                AND s.invoiceauth = CASE WHEN s.doctype = 'factura'
+                AND s.invoiceauth = CASE WHEN s.doctype IN ('factura', 'nota_credito')
                       THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
                       ELSE '' END
-                AND s.prefix = CASE WHEN s.doctype = 'factura'
+                AND s.prefix = CASE WHEN s.doctype IN ('factura', 'nota_credito')
                       THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
                       ELSE '' END",
             array_merge([$companyId], $ids)
@@ -829,12 +840,15 @@ final class TransactionsService
         foreach ($res as $r) {
             // Post-Migración 26 + flatten: registerInvoiceAuth/Prefix/DocsLeadingZeros
             // viven en el JSONB pero _flattenJsonb los re-expone como columnas
-            // virtuales en `$r`. registerReturnPrefix nunca fue columna —
-            // siempre vivió en `data`, accedido ahora también vía flatten.
-            // ncmExecute(getAssoc=true) devuelve CaseInsensitiveArray por fila
-            // → array_key_exists() rompe (espera array puro). Usamos ?? null
-            // que funciona con ArrayAccess y mantiene la semántica original
-            // (returnPrefix=null cuando la key no existe en el JSONB).
+            // virtuales en `$r`.
+            //
+            // `returnPrefix` (de `registerReturnPrefix`) se SACÓ del mapa el
+            // 2026-09-09: nunca fue columna y tampoco una clave que alguien
+            // escribiera en el JSONB, así que siempre valía null y sus dos
+            // lectores (este listado y `TransactionDetailService`) nunca
+            // entraban al override. Ahora que la nota de crédito congela su
+            // propio punto de expedición, mantenerlo era dejar armado un
+            // override capaz de pisar un dato fiscal ya declarado.
             $map[(string) $r['registerId']] = [
                 'name'             => (string) ($r['registerName'] ?? ''),
                 'invoiceAuth'      => (string) ($r['registerInvoiceAuth'] ?? ''),
@@ -845,8 +859,6 @@ final class TransactionsService
                 // única lectura viva. Vacío = el default legal de 7 lo pone
                 // `DocumentNumber::format()`.
                 'padWidth'         => $padByRegister[(string) $r['registerId']] ?? [],
-                'returnPrefix'     => isset($r['registerReturnPrefix'])
-                    ? (string) $r['registerReturnPrefix'] : null,
             ];
         }
         return $map;

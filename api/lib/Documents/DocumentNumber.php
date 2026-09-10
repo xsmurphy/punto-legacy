@@ -373,10 +373,14 @@ final class DocumentNumber
     /**
      * Documento al que pertenece la numeración de una transacción.
      *
-     * `factura` y `cotizacion` comparten la columna `invoiceNo` pero son
-     * talonarios distintos, con su propio contador y su propio ancho — el
-     * mapeo sale del enum, no de literales sueltos (misma razón que el
-     * `match` de `RegisterAdminService::update`).
+     * `factura`, `cotizacion` y `nota_credito` comparten la columna
+     * `invoiceNo` pero son talonarios distintos, con su propio contador y su
+     * propio ancho — el mapeo sale del enum, no de literales sueltos (misma
+     * razón que el `match` de `RegisterAdminService::update`).
+     *
+     * La devolución (`Return`, tipo 6) entró acá el 2026-09-09 junto con la
+     * serie propia de la nota de crédito: hasta entonces devolvía `null` y sus
+     * consumidores caían al talonario de la FACTURA, que es otro documento.
      *
      * Devuelve `null` cuando el tipo no tiene talonario propio hoy: el caller
      * cae al default y no inventa una secuencia inexistente.
@@ -386,6 +390,7 @@ final class DocumentNumber
         return match ((int) $saleType) {
             SaleType::Cashsale->value, SaleType::Creditsale->value => 'factura',
             SaleType::Quote->value                                => 'cotizacion',
+            SaleType::Return->value                               => 'nota_credito',
             default                                               => null,
         };
     }
