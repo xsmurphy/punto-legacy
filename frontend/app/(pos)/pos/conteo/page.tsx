@@ -3,9 +3,16 @@
 /**
  * Conteo de stock en la caja (context/63 F1).
  *
- * El cajero elige una de las listas que armó el dueño y la completa. No busca
- * productos sueltos: el alcance es la lista (D3), y eso es lo que hace que el
- * conteo sea repetible turno a turno y comparable entre turnos.
+ * El cajero arma el alcance acá mismo —busca los artículos del sector que va
+ * a contar y carga las cantidades— porque el conteo lo hace él (D10, owner
+ * 2026-09-10; reemplaza a las listas fijas que armaba el dueño en Ajustes).
+ *
+ * Requiere el switch `stockCountFromRegister` del comercio ADEMÁS del permiso
+ * `pos.stock.count` del operador: uno dice si acá se puede contar, el otro si
+ * esta persona puede. El servidor exige los dos.
+ *
+ * La búsqueda va contra el catálogo LOCAL: el conteo es offline-nativo, así
+ * que elegir qué contar tampoco puede depender de la red.
  *
  * ── Dos modos, y el que manda lo decide el SERVIDOR ────────────────────────
  *
@@ -51,18 +58,20 @@
  */
 
 import * as React from "react"
-import { ClipboardCheck, Check } from "lucide-react"
+import { ClipboardCheck, Check, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import {
   Tooltip,
   TooltipContent,
@@ -94,7 +103,7 @@ export default function ConteoPage() {
   const operatorPermissions = useLockStore((s) => s.operatorPermissions)
   const submit = useSubmitStockCount()
 
-  const lists = React.useMemo(() => config?.stockCountLists ?? [], [config])
+  const canGenerate = config?.stockCountFromRegister === true
   const recordOnly = config?.stockCountRecordOnly === true
   const canCount = operatorPermissions.includes("pos.stock.count")
   /**
@@ -111,53 +120,66 @@ export default function ConteoPage() {
   /**
    * El borrador del conteo en curso, atado a la lista para la que se cargó.
    *
-   * Todo junto y con el `listId` adentro por una razón: cambiar de lista tiene
-   * que descartar lo cargado (son conteos distintos, arrastrar cantidades de
-   * una lista a otra mezclaría dos hechos), y eso se DERIVA comparando ids en
-   * el render en vez de sincronizarse con un efecto. Un efecto que llama
-   * `setState` para limpiar deja un frame pintado con los datos viejos ya bajo
-   * la lista nueva.
+   * `itemIds` es la selección que armó el cajero: qué se cuenta lo decide él
+   * (owner 2026-09-10). Sacar un artículo de la selección se lleva su cantidad
+   * — contar algo y después decidir que no formaba parte del conteo no puede
+   * dejar el número colgado.
    *
    * Vive en la pantalla y no en la cola: un conteo a medias no es una
    * operación, es un borrador. Recién al confirmar se convierte en el hecho
    * que se encola.
    */
   const [draft, setDraft] = React.useState<{
-    listId: string
+    itemIds: string[]
     values: Record<string, number>
     selectedId: string
     padValue: string
-  }>({ listId: "", values: {}, selectedId: "", padValue: "0" })
+  }>({ itemIds: [], values: {}, selectedId: "", padValue: "0" })
 
-  // Primera lista por default: con una sola, el selector no debería obligar a
-  // un toque que no decide nada. Derivado, no un efecto de arranque.
-  const listId = draft.listId !== "" ? draft.listId : (lists[0]?.id ?? "")
-  const activeList = lists.find((l) => l.id === listId) ?? null
+  const counted = draft.values
+  const selectedId = draft.selectedId
+  const padValue = draft.padValue
 
-  // El borrador solo vale para SU lista. Con cualquier otra, la pantalla
-  // arranca limpia sin haber tenido que borrar nada.
-  const forThisList = draft.listId === listId
-  const counted = forThisList ? draft.values : {}
-  const selectedId = forThisList ? draft.selectedId : ""
-  const padValue = forThisList ? draft.padValue : "0"
-
-  const setListId = (next: string) =>
-    setDraft({ listId: next, values: {}, selectedId: "", padValue: "0" })
   const setPadValue = (next: string) =>
-    setDraft((d) => ({ ...d, listId, padValue: next }))
+    setDraft((d) => ({ ...d, padValue: next }))
 
-  // Los ítems de la lista, resueltos contra el catálogo local. Un id que ya no
-  // está en el catálogo (artículo dado de baja después de que el dueño armó la
-  // lista) se descarta acá: el cajero no puede contar algo que no existe, y el
-  // backend lo descartaría igual al aplicar.
+  /** Agrega artículos a la selección, sin duplicar ni perder lo ya cargado. */
+  const addItems = React.useCallback((ids: string[]) => {
+    setDraft((d) => {
+      const seen = new Set(d.itemIds)
+      const added = ids.filter((id) => id !== "" && !seen.has(id))
+      if (added.length === 0) return d
+      return { ...d, itemIds: [...d.itemIds, ...added] }
+    })
+  }, [])
+
+  /** Saca un artículo de la selección y su cantidad con él. */
+  const removeItem = React.useCallback((id: string) => {
+    setDraft((d) => {
+      const { [id]: _dropped, ...rest } = d.values
+      return {
+        ...d,
+        itemIds: d.itemIds.filter((x) => x !== id),
+        values: rest,
+        selectedId: d.selectedId === id ? "" : d.selectedId,
+        padValue: d.selectedId === id ? "0" : d.padValue,
+      }
+    })
+  }, [])
+
+  // La selección resuelta contra el catálogo local, en el orden en que el
+  // cajero la armó — reordenarla movería las filas bajo su dedo mientras
+  // carga. Un id que ya no está en el catálogo se descarta: no se puede contar
+  // algo que no existe, y el backend lo descartaría igual al aplicar.
   const rows: CountRow[] = React.useMemo(() => {
-    if (!activeList) return []
     const byId = new Map(items.map((i) => [i.id, i]))
-    return activeList.itemIds
+    return draft.itemIds
       .map((id) => byId.get(id))
       .filter((i): i is NonNullable<typeof i> => i !== undefined)
       .map((i) => ({ itemId: i.id, name: i.name, sku: i.sku, uom: i.uom }))
-  }, [activeList, items])
+  }, [draft.itemIds, items])
+
+  const rowIds = React.useMemo(() => rows.map((r) => r.itemId), [rows])
 
   // ── Modo de conteo, resuelto contra el servidor (F2) ──────────────────────
   //
@@ -165,8 +187,8 @@ export default function ConteoPage() {
   // Mientras no haya respuesta la pantalla se comporta como ciega: mostrar
   // números a medio resolver sería peor que no mostrarlos.
   const expectedQuery = useStockCountExpected(
-    listId,
-    canCount && Boolean(activeList) && Boolean(outlet),
+    rowIds,
+    canCount && canGenerate && rowIds.length > 0 && Boolean(outlet),
   )
   const mode = expectedQuery.data
   const isOpen = mode?.mode === "open"
@@ -236,12 +258,11 @@ export default function ConteoPage() {
 
   function selectRow(row: CountRow) {
     const current = counted[row.itemId]
-    setDraft({
-      listId,
-      values: counted,
+    setDraft((d) => ({
+      ...d,
       selectedId: row.itemId,
       padValue: current !== undefined ? String(current) : "0",
-    })
+    }))
   }
 
   /** Guarda la cantidad del artículo activo y salta al siguiente sin cargar. */
@@ -261,24 +282,28 @@ export default function ConteoPage() {
     const ordered = [...rows.slice(startAt), ...rows.slice(0, startAt)]
     const pending = ordered.find((r) => !(r.itemId in next))
 
-    setDraft({
-      listId,
+    setDraft((d) => ({
+      ...d,
       values: next,
       selectedId: pending?.itemId ?? "",
       padValue: "0",
-    })
+    }))
   }
 
   async function handleFinish() {
-    if (!activeList || countedCount === 0 || !outlet) return
+    if (rows.length === 0 || countedCount === 0 || !outlet) return
     try {
       const result = await submit.mutateAsync({
         // Sin `outletId`: la sucursal la resuelve el servidor del contexto del
         // dispositivo. Acá `outlet` solo sirve para NO dejar contar cuando el
         // device no tiene sucursal (fail-closed), no para nombrarla.
-        listId: activeList.id,
-        listName: activeList.name,
-        itemIds: rows.map((r) => r.itemId),
+        // Sin lista fija detrás: el alcance lo armó el cajero, así que el
+        // conteo se identifica por los artículos que mandó y no por el id de
+        // una lista de la config. El nombre es lo que va a leer el dueño en el
+        // historial del panel.
+        listId: "",
+        listName: "Conteo de la caja",
+        itemIds: rowIds,
         rows: Object.entries(counted).map(([itemId, qty]) => ({ itemId, qty })),
         registerId: activeRegisterId || null,
         countedAt: new Date().toISOString(),
@@ -304,7 +329,9 @@ export default function ConteoPage() {
 
       // Conteo cerrado: el borrador se descarta entero. La lista elegida se
       // conserva — lo más probable es que el próximo conteo sea de la misma.
-      setDraft({ listId, values: {}, selectedId: "", padValue: "0" })
+      // La selección se conserva: lo más probable es que el próximo conteo
+      // sea del mismo sector del mostrador.
+      setDraft((d) => ({ ...d, values: {}, selectedId: "", padValue: "0" }))
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo registrar el conteo")
     }
@@ -328,13 +355,13 @@ export default function ConteoPage() {
     )
   }
 
-  if (lists.length === 0) {
+  if (!canGenerate) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           icon={ClipboardCheck}
-          title="Todavía no hay listas de conteo"
-          description="El dueño arma en Ajustes qué artículos se cuentan en el mostrador. Sin una lista, no hay nada que contar acá."
+          title="Los conteos desde la caja están apagados"
+          description="El dueño los habilita en Ajustes → Punto de venta. Mientras tanto, el inventario se cuenta desde el panel."
         />
       </div>
     )
@@ -382,20 +409,10 @@ export default function ConteoPage() {
           <TooltipContent>{modeBadge.reason}</TooltipContent>
         </Tooltip>
 
-        {lists.length > 1 && (
-          <Select value={listId} onValueChange={setListId}>
-            <SelectTrigger className="w-[220px]">
-              <SelectValue placeholder="Elegí una lista" />
-            </SelectTrigger>
-            <SelectContent>
-              {lists.map((l) => (
-                <SelectItem key={l.id} value={l.id}>
-                  {l.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        {/* El cajero arma el alcance acá mismo. El buscador va contra el
+            catálogo que el device ya tiene, así que funciona sin red — que es
+            la condición de todo el conteo en la caja. */}
+        <ItemPicker items={items} selected={draft.itemIds} onAdd={addItems} />
 
         <FullscreenToggle />
       </header>
@@ -406,8 +423,8 @@ export default function ConteoPage() {
             <div className="flex h-full items-center justify-center p-6">
               <EmptyState
                 icon={ClipboardCheck}
-                title="La lista quedó sin artículos"
-                description="Los artículos de esta lista ya no están activos o no tienen control de stock. Revisala en Ajustes."
+                title="Elegí qué contar"
+                description="Agregá los artículos del sector que vas a contar. Podés buscarlos por nombre o por SKU."
               />
             </div>
           ) : (
@@ -435,7 +452,7 @@ export default function ConteoPage() {
                 const diff = isOpen && exp !== undefined && qty !== undefined ? qty - exp : null
 
                 return (
-                  <li key={row.itemId}>
+                  <li key={row.itemId} className="relative">
                     {/* `h-16` y no el alto default: la fila se toca con el dedo
                         en una tablet apoyada en el mostrador (§2 habilita el
                         override con razón documentada). */}
@@ -490,6 +507,19 @@ export default function ConteoPage() {
                         </span>
                       </div>
                     </button>
+                    {/* Fuera del <button> de la fila y no adentro: un botón
+                        dentro de otro no es HTML válido y los dos clicks se
+                        pelean. Absoluto sobre la fila, que es `relative`. */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Sacar ${row.name} del conteo`}
+                      className="absolute right-1 top-1 size-7 text-muted-foreground"
+                      onClick={() => removeItem(row.itemId)}
+                    >
+                      <X className="size-4" />
+                    </Button>
                   </li>
                 )
               })}
@@ -503,7 +533,7 @@ export default function ConteoPage() {
         <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[320px]">
           <div className="rounded-md border p-3">
             <p className="truncate text-sm font-medium">
-              {selected ? selected.name : "Elegí un artículo de la lista"}
+              {selected ? selected.name : "Elegí un artículo para cargar"}
             </p>
           </div>
 
@@ -516,7 +546,7 @@ export default function ConteoPage() {
               // ESC suelta el artículo sin tocar lo ya cargado: cancelar la
               // captura de una cantidad no puede borrar el conteo.
               onCancel={() =>
-                setDraft({ listId, values: counted, selectedId: "", padValue: "0" })
+                setDraft((d) => ({ ...d, selectedId: "", padValue: "0" }))
               }
             />
           </div>
@@ -545,5 +575,76 @@ export default function ConteoPage() {
         </Tooltip>
       </footer>
     </div>
+  )
+}
+
+/**
+ * Buscador para armar el alcance del conteo (owner 2026-09-10).
+ *
+ * Va contra `items` del catálogo LOCAL y no contra la API: el conteo en la
+ * caja es offline-nativo, así que elegir qué contar tampoco puede depender de
+ * la red. El catálogo del device ya tiene nombre y SKU de todo lo que se
+ * vende, que es exactamente lo que hace falta para buscar.
+ *
+ * Multi-selección sin cerrar: agregar veinte artículos de un sector no puede
+ * costar veinte aperturas del popover. Un artículo ya elegido se muestra
+ * tildado y su fila lo saca — así el mismo control agrega y quita.
+ */
+function ItemPicker({
+  items,
+  selected,
+  onAdd,
+}: {
+  items: Array<{ id: string; name: string; sku?: string | null }>
+  selected: string[]
+  onAdd: (ids: string[]) => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const chosen = React.useMemo(() => new Set(selected), [selected])
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" className="shrink-0">
+          <Plus className="mr-2 size-4" />
+          Agregar artículos
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[min(28rem,90vw)] p-0" align="end">
+        <Command>
+          <CommandInput placeholder="Buscar por nombre o SKU…" />
+          <CommandList>
+            <CommandEmpty>No se encontró ningún artículo.</CommandEmpty>
+            <CommandGroup>
+              {items.map((item) => {
+                const isChosen = chosen.has(item.id)
+                return (
+                  <CommandItem
+                    key={item.id}
+                    // `value` alimenta el filtro del Command: sin el SKU acá,
+                    // buscar por código no encuentra nada.
+                    value={`${item.name} ${item.sku ?? ""}`}
+                    onSelect={() => onAdd([item.id])}
+                  >
+                    <Check
+                      className={cn(
+                        "mr-2 size-4",
+                        isChosen ? "opacity-100" : "opacity-0",
+                      )}
+                    />
+                    <span className="truncate">{item.name}</span>
+                    {item.sku ? (
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                        {item.sku}
+                      </span>
+                    ) : null}
+                  </CommandItem>
+                )
+              })}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }

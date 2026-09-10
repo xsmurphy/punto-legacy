@@ -122,18 +122,21 @@ export interface PosConfig {
    */
   settingReturnAllowIngredientReversal?: boolean
   /**
-   * Listas fijas de conteo de stock (D3, context/63): qué se cuenta en el
-   * mostrador, decidido de antemano por el dueño. El cajero elige una y la
-   * completa — en la caja no se buscan productos sueltos.
+   * El cajero puede GENERAR un conteo desde la caja, eligiendo qué contar
+   * (owner 2026-09-10). Reemplaza a las listas fijas que armaba el dueño en
+   * Ajustes: el conteo lo hace el cajero, así que el alcance lo decide él.
    *
-   * Viajan en el bootstrap y no en un endpoint propio porque el conteo ciego
-   * es offline-nativo: sin red el cajero tiene que poder contar igual, y un
-   * dato que se pide por HTTP en ese momento no está.
+   * Viaja en el bootstrap y no en un endpoint propio porque el conteo es
+   * offline-nativo: sin red el cajero tiene que poder contar igual, y un dato
+   * que se pide por HTTP en ese momento no está. Por lo mismo la SELECCIÓN se
+   * arma contra el catálogo que el device ya tiene — la caja no crea una
+   * sesión en el servidor como hace el panel.
    *
-   * Vacío o ausente = el comercio no configuró ninguna lista. La pantalla lo
-   * dice; NO cae a "contá todo el catálogo".
+   * Ausente = `/api` anterior a este cambio: se trata como APAGADO. El
+   * bootstrap viejo no manda el flag pero sí mandaba listas, y esa caja está
+   * corriendo la pantalla vieja igual.
    */
-  stockCountLists?: StockCountList[]
+  stockCountFromRegister?: boolean
   /**
    * D9 (context/63): al finalizar, el conteo NO ajusta el stock — queda como
    * registro. Sirve solo para que la caja anticipe qué va a pasar al
@@ -155,17 +158,6 @@ export interface PosConfig {
    * default recomendado y el comportamiento que ese `/api` ya tenía.
    */
   stockCountBlind?: boolean
-}
-
-/**
- * Una lista fija de conteo. `id` y `name` los define el dueño en Ajustes;
- * `itemIds` son ítems del catálogo que la caja ya tiene en su snapshot, así
- * que la pantalla resuelve nombre y SKU sin pedir nada.
- */
-export interface StockCountList {
-  id: string
-  name: string
-  itemIds: string[]
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────

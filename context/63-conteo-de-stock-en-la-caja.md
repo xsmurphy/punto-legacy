@@ -69,6 +69,35 @@ depende de otro conteo ni lo condiciona.
   una vez qué se cuenta en cada turno (lo del mostrador) y el cajero solo la
   completa. Repetible, rápido, comparable entre turnos. Puede haber más de
   una lista si el mostrador cambia por horario.
+  **REVERTIDA por el owner el 2026-09-10** — ver D10.
+- **D10 — El conteo lo genera el CAJERO, desde la caja** (owner 2026-09-10,
+  reemplaza a D3). Textual: *"el conteo se tiene que generar en el POS no en
+  esa sección, porque el cajero hace el conteo; en todo caso en Ajustes tiene
+  que haber un switch que habilite la generación de conteos desde POS"*. El
+  editor de listas fijas se ELIMINÓ de Ajustes y en su lugar quedó el flag
+  `stockCountFromRegister`. En `/pos/conteo` el cajero arma el alcance
+  buscando artículos por nombre o SKU.
+  - La búsqueda va contra el catálogo LOCAL del device, no contra la API: el
+    conteo es offline-nativo, así que elegir qué contar tampoco puede
+    depender de la red. Por lo mismo la caja NO crea una sesión en el
+    servidor como hace el panel — arma la selección local y encola el conteo
+    entero, que sigue siendo la unidad de la operación.
+  - El esperado pasó a pedirse por POST (`action=expectedForItems`). El
+    `action=expected` con `listId` en la query documentaba por qué NO
+    aceptaba `itemIds`: una selección grande serializada a query string pasa
+    los 8 KB del buffer de headers de nginx y devuelve 414. Con el alcance
+    en manos del cajero la lista puede tener cualquier tamaño, así que viaja
+    en el body.
+  - El flag es POSITIVO y por eso la **mig 213 lo backfillea** en los
+    comercios que ya tenían listas cargadas: un flag ausente vale falso, y
+    sin el backfill todo comercio que hoy cuenta en el mostrador se quedaba
+    sin poder contar (el editor de listas ya no existe para prenderlo). El
+    criterio es el comportamiento OBSERVADO, no una preferencia declarada.
+  - `stockCountLists` NO se borra de la config. Ya no tiene editor ni baja al
+    bootstrap, pero es trabajo que el dueño cargó y los conteos viejos
+    referencian esas listas por id en `inventory_count.scope` — borrarlas
+    dejaría su historial sin nombre. Se apaga como entrada, no se destruye
+    como dato.
 - **D4 — Es opcional por comercio.** Módulo activable, como Órdenes y
   Espacios. Un comercio que no lo necesita no lo ve.
 - **D9 — Configurable si el conteo aplica el ajuste o queda solo como

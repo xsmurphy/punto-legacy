@@ -57,7 +57,6 @@ import { SUPPORTED_COUNTRIES } from "@/lib/countries"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
-import { StockCountListsField } from "@/components/settings/stock-count-lists-field"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
@@ -182,16 +181,9 @@ const settingsSchema = z.object({
   // cuenta; esto es qué PASA al terminar). En negativo a propósito: el default
   // del comercio es que el conteo sí ajuste.
   stockCountRecordOnly: z.boolean(),
-  // D3 — listas fijas de conteo. Se validan también server-side con el mismo
-  // criterio (`StockCountSettings::decodeLists`): sin nombre o sin artículos,
-  // la lista no se guarda.
-  stockCountLists: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      itemIds: z.array(z.string()),
-    }),
-  ),
+  // Reemplaza al editor de listas fijas de la D3: el conteo lo hace el
+  // cajero, así que el cajero elige qué contar (owner 2026-09-10).
+  stockCountFromRegister: z.boolean(),
   blockUsedDocNo: z.boolean(),
   autoSendDocs: z.boolean(),
   weightBarcodes: z.boolean(),
@@ -259,7 +251,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "paymentOrderRequireSecondApprover",
     "settingOrderItemCancelWindowMinutes",
     "blockUsedDocNo", "autoSendDocs",
-    "stockCountBlind", "stockCountRecordOnly", "stockCountLists",
+    "stockCountBlind", "stockCountRecordOnly", "stockCountFromRegister",
     "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
   ],
@@ -444,7 +436,7 @@ function SettingsPageInner() {
       ignoreInternal: !!data.ignoreInternal,
       stockCountBlind: !!data.stockCountBlind,
       stockCountRecordOnly: !!data.stockCountRecordOnly,
-      stockCountLists: data.stockCountLists ?? [],
+      stockCountFromRegister: !!data.stockCountFromRegister,
       blockUsedDocNo: !!data.blockUsedDocNo,
       autoSendDocs: !!data.autoSendDocs,
       weightBarcodes: !!data.weightBarcodes,
@@ -1138,7 +1130,16 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           label="El conteo no modifica el stock"
           desc="Las diferencias quedan registradas para consultarlas, pero el inventario no se ajusta al finalizar."
         />
-        <StockCountListsField form={form} />
+        {/* Owner 2026-09-10: el conteo lo hace el CAJERO, así que es el cajero
+            quien elige qué contar. Acá quedó solo el permiso del comercio para
+            que pueda hacerlo — el editor de listas fijas que vivía en este
+            lugar se eliminó (matiza la D3 de context/63). */}
+        <ToggleField
+          form={form}
+          name="stockCountFromRegister"
+          label="Permitir generar conteos desde la caja"
+          desc="El cajero arma el conteo eligiendo qué artículos contar. Apagado, la caja no puede iniciar conteos y el inventario se cuenta solo desde el panel."
+        />
 
         <ToggleField
           form={form}
@@ -1676,7 +1677,7 @@ function emptyValues(): SettingsFormValues {
     ignoreInternal: false,
     stockCountBlind: false,
     stockCountRecordOnly: false,
-    stockCountLists: [],
+    stockCountFromRegister: false,
     blockUsedDocNo: false,
     autoSendDocs: false,
     weightBarcodes: false,

@@ -472,6 +472,11 @@ if ($isRegisterDevice) {
     // pregunta y el servidor contesta, que es el orden correcto cuando el
     // filtrado del dato es del servidor.
     $countSettings = \Punto\Api\Settings\StockCountSettings::forCompany(COMPANY_ID);
+    // DEPRECADO — se sigue mandando a propósito. El editor salió de Ajustes y
+    // la pantalla nueva no lo lee, pero un device con el JS viejo en caché sí:
+    // dejar de mandarlo el día del deploy del backend le mostraría "no hay
+    // listas de conteo" a todo comercio que estaba contando, hasta que esa
+    // tablet baje el build nuevo. Se saca cuando no queden clientes viejos.
     $payload['stockCountLists']      = $countSettings->lists();
     $payload['stockCountBlind']      = $countSettings->blind();
     // Para que la caja pueda decir la verdad al confirmar: "se va a ajustar el
@@ -479,6 +484,11 @@ if ($isRegisterDevice) {
     // `finish()` server-side — pero sin bajarlo la pantalla no puede anticipar
     // cuál de las dos cosas va a pasar.
     $payload['stockCountRecordOnly'] = $countSettings->recordOnly();
+    // Si el cajero puede GENERAR el conteo eligiendo qué contar (owner
+    // 2026-09-10). Reemplaza a `stockCountLists`, que ya no baja: el alcance
+    // lo arma el operador contra el catálogo que el device ya tiene, así que
+    // la caja no necesita que nadie le mande una lista.
+    $payload['stockCountFromRegister'] = $countSettings->fromRegister();
 }
 
 apiOk($payload);

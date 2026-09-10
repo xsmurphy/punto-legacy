@@ -60,6 +60,7 @@ final class StockCountSettings
     private function __construct(
         private readonly bool $blind,
         private readonly bool $recordOnly,
+        private readonly bool $fromRegister,
         /** @var list<array{id: string, name: string, itemIds: list<string>}> */
         private readonly array $lists,
     ) {
@@ -99,6 +100,7 @@ final class StockCountSettings
         return self::$cache[$companyId] = new self(
             self::truthy($obj['stockCountBlind'] ?? null),
             self::truthy($obj['stockCountRecordOnly'] ?? null),
+            self::truthy($obj['stockCountFromRegister'] ?? null),
             self::decodeLists($lists),
         );
     }
@@ -121,7 +123,31 @@ final class StockCountSettings
         return $this->recordOnly;
     }
 
-    /** @return list<array{id: string, name: string, itemIds: list<string>}> */
+    /**
+     * El cajero puede GENERAR un conteo desde la caja, eligiendo qué contar
+     * (owner 2026-09-10, matiza la D3 de context/63).
+     *
+     * En positivo, y por eso la mig 213 lo backfillea: un flag ausente vale
+     * falso, y los comercios que ya contaban en el mostrador con listas fijas
+     * se habrían quedado sin poder contar. La regla del docblock de arriba
+     * —nombrar de modo que "ausente" sea el default correcto— acá no se podía
+     * cumplir con el nombre, así que se cumple con el backfill.
+     */
+    public function fromRegister(): bool
+    {
+        return $this->fromRegister;
+    }
+
+    /**
+     * @deprecated Las listas fijas salieron de Ajustes el 2026-09-10 — ahora
+     * el cajero elige qué contar. La clave `stockCountLists` NO se borra de la
+     * config (es trabajo que el dueño cargó y destruirlo no aporta nada), pero
+     * ya no tiene editor ni la lee el bootstrap. Sigue acá porque
+     * `inventory_count.scope` de conteos VIEJOS referencia listas por id y
+     * `findList()` es lo que les resuelve el nombre.
+     *
+     * @return list<array{id: string, name: string, itemIds: list<string>}>
+     */
     public function lists(): array
     {
         return $this->lists;

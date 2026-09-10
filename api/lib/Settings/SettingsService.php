@@ -193,6 +193,7 @@ final class SettingsService
             // del owner es que el conteo SÍ ajuste, y un flag ausente en el
             // JSONB vale falso. Ver StockCountSettings.
             'stockCountRecordOnly' => $this->truthy($obj['stockCountRecordOnly'] ?? null),
+            'stockCountFromRegister' => $this->truthy($obj['stockCountFromRegister'] ?? null),
             'blockUsedDocNo'      => $this->truthy($obj['blockUsedDocNo'] ?? null),
             'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
@@ -437,6 +438,7 @@ final class SettingsService
             'ignoreInternal'      => 'ignoreInternal',
             'stockCountBlind'     => 'stockCountBlind',
             'stockCountRecordOnly' => 'stockCountRecordOnly',
+            'stockCountFromRegister' => 'stockCountFromRegister',
             'blockUsedDocNo'      => 'blockUsedDocNo',
             'autoSendDocs'        => 'autoSendDocs',
             'weightBarcodes'      => 'weightBarcodes',

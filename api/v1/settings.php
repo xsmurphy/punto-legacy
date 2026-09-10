@@ -191,7 +191,7 @@ if ($method === 'POST') {
         // nada: este allowlist es el que decide qué llega a updateGeneral().
         'paymentOrderRequireSecondApprover',
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
-        'ignoreInternal', 'stockCountBlind', 'stockCountRecordOnly',
+        'ignoreInternal', 'stockCountBlind', 'stockCountRecordOnly', 'stockCountFromRegister',
         'blockUsedDocNo', 'autoSendDocs',
         'weightBarcodes', 'deletedItemsHistory',
         // D2 de context/40-anulacion-y-nota-credito.md — devoluciones.

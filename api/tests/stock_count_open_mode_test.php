@@ -161,6 +161,23 @@ function setLista(string $companyId, array $itemIds): void
         "UPDATE company SET config = config || jsonb_build_object('stockCountLists', ?::text) WHERE companyid = ?",
         [json_encode($lists), $companyId]
     );
+    // El conteo desde la caja pasó a estar detrás de `stockCountFromRegister`
+    // (owner 2026-09-10): sin el flag, `registerCount` y `expectedForItems`
+    // devuelven 403 y todo el arnés falla por la razón equivocada.
+    $db->Execute(
+        "UPDATE company
+            SET config = jsonb_set(
+                  config,
+                  '{settingObj}',
+                  to_jsonb((
+                    COALESCE(NULLIF(config->>'settingObj', ''), '{}')::jsonb
+                    || jsonb_build_object('stockCountFromRegister', true)
+                  )::text),
+                  true
+                )
+          WHERE companyid = ?",
+        [$companyId]
+    );
     StockCountSettings::forget($companyId);
 }
 

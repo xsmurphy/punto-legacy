@@ -50,6 +50,7 @@ require_once __DIR__ . '/../lib/Settings/StockCountMode.php';
 use Punto\Api\Auth\OperatorContext;
 use Punto\Api\Services\InventoryCountService;
 use Punto\Api\Settings\StockCountMode;
+use Punto\Api\Settings\StockCountSettings;
 
 $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
@@ -199,8 +200,58 @@ if ($method === 'POST') {
     // `requirePermission()` es fail-closed sin operador: una tablet sin nadie
     // desbloqueado recibe 403, no cae al rol del device. Es lo que hace que el
     // conteo —y el ajuste de stock que genera— quede atribuido a una PERSONA.
+    // El esperado de una selección que armó el cajero (owner 2026-09-10). Va
+    // por POST y no por GET —al revés que `action=expected`— por la misma
+    // razón que aquel documenta al NO aceptar `itemIds`: una selección grande
+    // serializada a query string pasa los 8 KB del buffer de headers de nginx
+    // y devuelve un 414. Ahora que el alcance lo arma el cajero, la lista
+    // puede ser de cualquier tamaño, así que viaja en el body.
+    if ($action === 'expectedForItems') {
+        if ($realm !== 'pos-app') {
+            apiError('Esta acción es del conteo de la caja', 403);
+        }
+
+        OperatorContext::requirePermission($ctx, 'pos.stock.count');
+
+        if (!StockCountSettings::forCompany($companyId)->fromRegister()) {
+            apiError('Este comercio no habilitó generar conteos desde la caja', 403);
+        }
+
+        $outletId = (string) ($ctx['outletId'] ?? '');
+        if (!isValidUuid($outletId)) {
+            apiError('Este dispositivo no tiene una sucursal asignada', 409);
+        }
+
+        // Fail-CLOSED igual que `expected`: si el modo no se resuelve, se
+        // cuenta a ciegas. Esconder el teórico de más solo obliga a contar sin
+        // ayuda; revelarlo de más es una fuga.
+        if (StockCountMode::isBlind($ctx)) {
+            apiOk(['blind' => true, 'items' => []]);
+        }
+
+        $itemIds = $body['itemIds'] ?? null;
+        if (!is_array($itemIds) || $itemIds === []) {
+            apiError('itemIds inválido', 400);
+        }
+        if (count($itemIds) > 2000) {
+            apiError('Demasiados artículos en un solo conteo', 422);
+        }
+
+        try {
+            $items = $svc->expectedForItems($companyId, $outletId, $itemIds);
+        } catch (\InvalidArgumentException $e) {
+            apiError($e->getMessage(), 422);
+        }
+
+        apiOk(['blind' => false, 'items' => $items]);
+    }
+
     if ($action === 'registerCount') {
         OperatorContext::requirePermission($ctx, 'pos.stock.count');
+
+        if (!StockCountSettings::forCompany($companyId)->fromRegister()) {
+            apiError('Este comercio no habilitó generar conteos desde la caja', 403);
+        }
 
         $operator   = OperatorContext::resolve($ctx);
         $operatorId = (string) ($operator['userId'] ?? '');
@@ -249,6 +300,16 @@ if ($method === 'POST') {
         $rows = $body['rows'] ?? [];
         if (!is_array($rows) || count($rows) === 0) {
             apiError('rows debe ser un array no vacío', 400);
+        }
+        // Mismo tope que `expectedForItems`. Antes de que el cajero armara el
+        // alcance (owner 2026-09-10) el tamaño lo acotaba la lista fija que
+        // había cargado el dueño; ahora lo elige quien manda el request, así
+        // que el límite tiene que estar acá.
+        if (count($rows) > 2000) {
+            apiError('Demasiados artículos en un solo conteo', 422);
+        }
+        if (isset($body['itemIds']) && is_array($body['itemIds']) && count($body['itemIds']) > 2000) {
+            apiError('Demasiados artículos en un solo conteo', 422);
         }
 
         $counted = [];

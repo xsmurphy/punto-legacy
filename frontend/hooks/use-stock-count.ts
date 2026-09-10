@@ -32,6 +32,8 @@
  * aparte a propósito.
  */
 
+import * as React from "react"
+
 import { useMutation, useQuery } from "@tanstack/react-query"
 
 import { posFetch } from "@/lib/api/pos-fetch"
@@ -92,17 +94,17 @@ function isUnreachable(err: unknown): boolean {
  * `staleTime: Infinity` + sin reintentos ni refetch por foco o reconexión. Que
  * a mitad de un conteo aparezcan de golpe los teóricos —o desaparezcan— es
  * peor que cualquiera de los dos modos estables: lo ya contado se cargó bajo
- * otras reglas. La clave incluye el `listId`, así que cambiar de lista (que ya
+ * otras reglas. La clave incluye la SELECCIÓN, así que cambiarla (que ya
  * descarta el borrador) vuelve a resolver.
  *
  * ── …pero la clave lleva TAMBIÉN al operador, y eso no es opcional ─────────
  *
  * El `QueryClient` vive lo que vive la app, y `lock()` limpia el token y los
  * permisos del operador pero NO el cache (`lib/pos/lock-store.ts`). Con una
- * clave de solo `listId` + `gcTime: Infinity`, la secuencia es directa: el
- * encargado con `inventory.count.open` abre la lista X y ve los teóricos → la
- * tablet se bloquea → el cajero SIN la clave entra con su PIN a la misma
- * lista → react-query le sirve el `{ mode: "open", expected }` cacheado y la
+ * clave sin el operador + `gcTime: Infinity`, la secuencia es directa: el
+ * encargado con `inventory.count.open` arma una selección y ve los teóricos →
+ * la tablet se bloquea → el cajero SIN la clave entra con su PIN y arma la
+ * misma → react-query le sirve el `{ mode: "open", expected }` cacheado y la
  * pantalla le pinta los teóricos del otro. El servidor nunca se los mandó —el
  * contrato de la API sigue intacto— pero la granularidad POR PERSONA, que es
  * todo el punto de la F2, se pierde en el cliente.
@@ -120,12 +122,20 @@ export type StockCountExpected =
   /** No se pudo preguntar. Arranca ciego y hay que decirlo. */
   | { mode: "blind"; reason: "offline" }
 
-export function useStockCountExpected(listId: string, enabled: boolean) {
+/**
+ * El esperado para la selección que armó el cajero (owner 2026-09-10).
+ *
+ * `itemIds` entra ORDENADO en la clave: la selección es un conjunto, así que
+ * agregar A y después B tiene que dar el mismo cache que agregar B y después
+ * A. Sin ordenar, cada permutación pediría el esperado de nuevo.
+ */
+export function useStockCountExpected(itemIds: string[], enabled: boolean) {
   const operatorId = useLockStore((s) => s.activeUser?.id ?? "")
+  const key = React.useMemo(() => [...itemIds].sort().join(","), [itemIds])
 
   return useQuery<StockCountExpected>({
-    queryKey: ["pos", "stock-count-expected", operatorId, listId],
-    enabled: enabled && listId !== "" && operatorId !== "",
+    queryKey: ["pos", "stock-count-expected", operatorId, key],
+    enabled: enabled && itemIds.length > 0 && operatorId !== "",
     staleTime: Infinity,
     gcTime: Infinity,
     retry: false,
@@ -141,13 +151,15 @@ export function useStockCountExpected(listId: string, enabled: boolean) {
       }
 
       try {
-        // Solo el `listId`: la lista la resuelve el servidor contra la config
-        // del comercio. Mandarle los `itemIds` del snapshot como respaldo —lo
-        // que sí hace la MUTACIÓN, para no tirar un recuento ya hecho— acá no
-        // compra nada y haría crecer la URL con el tamaño de la lista.
-        const params = new URLSearchParams({ action: "expected", listId })
-
-        const res = await posFetch(`/api/v1/inventory_count?${params.toString()}`)
+        // POST y no GET: ahora el alcance lo arma el cajero, así que la
+        // selección puede tener cualquier tamaño y una lista larga en query
+        // string pasa los 8 KB del buffer de headers de nginx (414). El
+        // endpoint documenta la misma razón del lado del servidor.
+        const res = await posFetch("/api/v1/inventory_count", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "expectedForItems", itemIds }),
+        })
         const json = (await res.json().catch(() => null)) as {
           ok?: boolean
           data?: { blind?: boolean; items?: Array<{ itemId?: string; expectedQty?: number }> }

@@ -188,7 +188,7 @@ interface UpstreamBootstrap {
    * `/api` anterior a esta feature, o el device no es una caja: el POS lo trata
    * como "sin listas configuradas", nunca como "contá todo".
    */
-  stockCountLists?: Array<{ id: string; name: string; itemIds: string[] }>
+  stockCountFromRegister?: boolean
   stockCountRecordOnly?: boolean
   stockCountBlind?: boolean
   /**
@@ -427,19 +427,9 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
         ? bs.settingReturnRefund
         : "ask",
     settingReturnAllowIngredientReversal: bs.settingReturnAllowIngredientReversal === true,
-    // Se normaliza acá, no en la pantalla: una lista sin nombre o sin ítems no
-    // es una lista que el cajero pueda completar, y dejarla pasar la convierte
-    // en una opción del selector que no hace nada. El backend ya aplica el
-    // mismo criterio (`StockCountSettings::decodeLists`) — esto es la red por
-    // si el `/api` desplegado es anterior.
-    stockCountLists: (bs.stockCountLists ?? [])
-      .filter((l) => l && typeof l.id === "string" && l.id !== "" && Array.isArray(l.itemIds))
-      .map((l) => ({
-        id: l.id,
-        name: typeof l.name === "string" ? l.name : "",
-        itemIds: l.itemIds.filter((i): i is string => typeof i === "string" && i !== ""),
-      }))
-      .filter((l) => l.name !== "" && l.itemIds.length > 0),
+    // Ausente = `/api` anterior a este cambio: apagado. No se infiere de que
+    // el bootstrap viejo mandara listas — esa caja corre la pantalla vieja.
+    stockCountFromRegister: bs.stockCountFromRegister === true,
     stockCountRecordOnly: bs.stockCountRecordOnly === true,
     // Ausente = `/api` anterior a la F2 → se asume el piso PRENDIDO. Es el
     // default recomendado (D2) y el comportamiento que ese `/api` ya tenía, así

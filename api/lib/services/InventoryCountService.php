@@ -470,12 +470,34 @@ final class InventoryCountService
             throw new \InvalidArgumentException('La lista de conteo ya no existe');
         }
 
+        return [
+            'listId'   => $listId,
+            'listName' => $list['name'],
+            'items'    => $this->expectedForItems($companyId, $outletId, $list['itemIds']),
+        ];
+    }
+
+    /**
+     * El esperado de una selección que armó el CAJERO en la caja (owner
+     * 2026-09-10), en vez de una lista fija de la config.
+     *
+     * Mismo filtro de modo que `expectedForList` —lo aplica el endpoint antes
+     * de llamar acá— y mismo recorte: el costo unitario no viaja.
+     *
+     * @param list<string> $itemIds
+     * @return list<array{itemId: string, expectedQty: float}>
+     */
+    public function expectedForItems(
+        string $companyId,
+        string $outletId,
+        array $itemIds,
+    ): array {
         $scope = InventoryCountScope::forFixedList(
             $companyId,
             $outletId,
-            $listId,
-            $list['name'],
-            $list['itemIds'],
+            '',
+            'Conteo de la caja',
+            $itemIds,
         );
 
         [$sql, $params] = $scope->itemsQuery();
@@ -496,7 +518,7 @@ final class InventoryCountService
         // El costo unitario NO viaja: la caja no valoriza la diferencia (eso es
         // el detalle del panel) y mandarlo sería exponer el costo del artículo
         // en una tablet del mostrador sin que ninguna pantalla lo use.
-        return ['listId' => $listId, 'listName' => $list['name'], 'items' => $items];
+        return $items;
     }
 
     /**

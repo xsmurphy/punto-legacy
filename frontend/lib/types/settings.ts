@@ -91,12 +91,13 @@ export interface SettingsGeneral {
    * diferencias quedan registradas y nada más. Ortogonal al anterior.
    */
   stockCountRecordOnly: boolean
+  /** El cajero puede generar un conteo desde la caja, eligiendo qué contar. */
+  stockCountFromRegister: boolean
   /**
    * D3 (context/63): listas fijas de conteo. Qué se cuenta en el mostrador, lo
    * decide el dueño de antemano. Guardan solo ids — el nombre del artículo se
    * resuelve contra el catálogo, nunca se copia adentro.
    */
-  stockCountLists: Array<{ id: string; name: string; itemIds: string[] }>
   blockUsedDocNo: boolean
   autoSendDocs: boolean
   weightBarcodes: boolean
