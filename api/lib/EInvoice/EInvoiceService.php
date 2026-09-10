@@ -2766,7 +2766,7 @@ final class EInvoiceService
             );
 
             // provider_number cachea la llave con la que el motor reconcilia
-            // este documento (ver reconcile() y el COMMENT de la mig 213). En
+            // este documento (ver reconcile() y el COMMENT de la mig 214). En
             // FE-PY es el CDC, porque su reconsulta es por CDC.
             ncmExecute(
                 "UPDATE einvoice_document

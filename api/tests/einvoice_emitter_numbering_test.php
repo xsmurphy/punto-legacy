@@ -16,7 +16,7 @@ require_once __DIR__ . '/_harness.php';
  *
  * ── QUÉ SE FUE DE ESTE ARNÉS Y POR QUÉ (reescritura 2026-09-10) ───────────
  *
- * El módulo quedó con UN solo motor (FE-PY, mig 213) y con eso desaparecieron
+ * El módulo quedó con UN solo motor (FE-PY, mig 214) y con eso desaparecieron
  * los dos guards PRE-emisión que este arnés ejercitaba, porque los dos
  * consultaban el catálogo de timbrados del motor anterior:
  *
@@ -164,7 +164,7 @@ final class FakeFePyProvider implements EInvoiceProvider
             'documentNumber' => null,
             'success'        => true,
             'statusMessage'  => null,
-            // En FE-PY la llave de reconciliación ES el CDC (COMMENT de la mig 213).
+            // En FE-PY la llave de reconciliación ES el CDC (COMMENT de la mig 214).
             'bulkId'         => $cdc,
             'dCarQR'         => null,
             'xmlUrl'         => null,
