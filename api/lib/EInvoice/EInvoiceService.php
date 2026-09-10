@@ -1429,8 +1429,8 @@ final class EInvoiceService
      * de la caja— y se corrige EN SU PANTALLA (ficha del cliente, Sucursales →
      * Cajas, Ajustes → Facturación electrónica) ANTES de llamar acá. La
      * reemisión no toca un payload: encola un documento nuevo que el drainer
-     * reconstruye por el camino normal (`buildSaleArrayForMapper` +
-     * `stampForDocument`) leyendo los datos YA corregidos. Editar montos o
+     * reconstruye por el camino normal (`buildSaleArrayForMapper`, con el
+     * timbrado que inyecta el motor) leyendo los datos YA corregidos. Editar montos o
      * ítems de una venta ya cobrada para que SIFEN acepte es falsear un
      * comprobante.
      *
@@ -2357,8 +2357,9 @@ final class EInvoiceService
      * NO saltea nada fiscal. La cuenta tiene que estar conectada (`status =
      * 'ok'`), el tipo de venta tiene que ser facturable, y el documento sale
      * por el MISMO camino de emisión que el automático — así que la
-     * verificación de numeración (`assertNumberingCoherence`) y el timbrado
-     * congelado se comprueban igual. El número que viaja es el que la venta
+     * divergencia de numeración se detecta igual (queda en
+     * `numbering_mismatch` y bloquea la entrega) y el timbrado lo inyecta el
+     * motor igual. El número que viaja es el que la venta
      * ya tiene congelado: por eso esto cierra el hueco en vez de abrir otro.
      *
      * @return array{status:string,docId:string,message:string}
@@ -2800,7 +2801,7 @@ final class EInvoiceService
      * — que es exactamente el modelo de `context/29`: cada caja es un punto de
      * expedición.
      *
-     * FAIL-CLOSED, igual que el caso 3 de `stampForDocument()`: una caja sin
+     * FAIL-CLOSED: una caja sin
      * prefijo cargado NO cae al de otra caja. Dos cajas emitiendo contra el
      * mismo punto de expedición es el escenario de facturas duplicadas que el
      * modelo por-caja existe para impedir.
@@ -2899,7 +2900,7 @@ final class EInvoiceService
      *      2026-09-06). El error es legible y cae en `markError`, así el
      *      comercio ve QUÉ caja le falta timbrar en vez de emitir mal.
      *
-     * Devuelve el shape que espera SaleToInvoiceMapper ('Id').
+     * Devuelve el shape que espera SaleToFePyMapper ('Id').
      *
      * @param array|\ArrayAccess $account Fila de einvoice_account (con provisioning y stamp).
      * @return array<string,mixed>
@@ -3397,7 +3398,7 @@ final class EInvoiceService
     }
 
     /**
-     * Reconstruye el shape `$sale` que espera `SaleToInvoiceMapper::build()`
+     * Reconstruye el shape `$sale` que espera `SaleToFePyMapper::build()`
      * a partir de la venta persistida. Devuelve null si la transacción no
      * existe (no debería pasar — el outbox se encola desde una venta recién
      * insertada — pero es defensivo ante una fila borrada/corrupta).
@@ -3564,7 +3565,7 @@ final class EInvoiceService
                 // que 10.000 en 3 unidades declaraba 9.999,99999999. El
                 // unitario definitivo lo deriva el mapper de total/quantity en
                 // los decimales de la moneda, partiendo la línea si hace falta
-                // (SaleToInvoiceMapper::fiscalLines). Acá va como referencia;
+                // (SaleFiscalRules::fiscalLines). Acá va como referencia;
                 // el dato que manda es `total`.
                 'unitPrice'   => round($lineNet / $count, 8),
                 'total'       => $lineNet,
@@ -3679,7 +3680,7 @@ final class EInvoiceService
 
     /**
      * Receptor del documento a partir del contacto de la transacción. Tres
-     * casos fiscales (ver SaleToInvoiceMapper::buildClient): contribuyente con
+     * casos fiscales (ver SaleToFePyMapper::buildClient): contribuyente con
      * RUC, persona física con documento (CI paraguaya o extranjero), o
      * innominado (consumidor final).
      *
@@ -3702,7 +3703,7 @@ final class EInvoiceService
      *
      * Orden correcto: lo que la venta declaró; si no declaró nada, la moneda
      * que corresponde al PAÍS del comercio; y si eso tampoco se puede resolver,
-     * cadena vacía para que SaleToInvoiceMapper aborte con un mensaje claro.
+     * cadena vacía para que SaleToFePyMapper aborte con un mensaje claro.
      * Nunca un código de moneda cableado.
      *
      * (Que SIFEN sea paraguayo no justifica el default: el resto del pipeline
@@ -3944,7 +3945,8 @@ final class EInvoiceService
                 'description' => $line['name'],
                 'quantity'    => $line['quantity'],
                 // El unitario definitivo lo deriva el mapper de total/quantity
-                // en los decimales de la moneda (ver fiscalLines()): acá se
+                // en los decimales de la moneda (ver SaleFiscalRules::fiscalLines()):
+                // acá se
                 // manda como referencia, el que manda es `total`.
                 'unitPrice'   => round($line['net'] / $line['quantity'], 8),
                 'total'       => $line['net'],

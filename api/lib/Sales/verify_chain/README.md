@@ -5,7 +5,7 @@ Verifica la cadena completa, con datos persistidos y sin mocks:
 ```
 venta multi-tasa (SaleService real)
   → BD (itemSold / transaction / toTaxObj)
-  → facturación electrónica (EInvoiceService + SaleToInvoiceMapper, sin red)
+  → facturación electrónica (EInvoiceService + SaleToFePyMapper, sin red)
   → impresión (resolvers reales de frontend/lib/hardware/printers/blocks.ts)
 ```
 
