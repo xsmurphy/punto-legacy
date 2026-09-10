@@ -143,4 +143,54 @@ interface EInvoiceProvider
      * @throws \RuntimeException
      */
     public function getBulk(string $environment, string $tenantRef, string $bearer, string $documentRef): array;
+
+    /**
+     * ¿Este documento YA existe del lado del motor? — RECUPERACIÓN, por el
+     * identificador de la transacción de emisión.
+     *
+     * Es lo que separa "reintentar" de "emitir dos veces". Un documento puede
+     * estar emitido de verdad del otro lado y `error` del nuestro: pasa cuando
+     * se pierde la respuesta HTTP (timeout, 502, red) y pasa cuando la
+     * respuesta llega pero el proceso muere antes de persistirla. Sin esta
+     * pregunta, el reintento es a ciegas.
+     *
+     * `$txnId` es `einvoice_document.provider_txn_id` (mig 217): el motor lo
+     * devuelve SIEMPRE en la emisión, incluso cuando el documento termina en
+     * error y no llegó a generarse un CDC — por eso la recuperación va por acá
+     * y no por el CDC, que justo en el caso que importa no existe.
+     *
+     * @return array{vigente:?array<string,mixed>,intentos:list<array<string,mixed>>}
+     *         `vigente === null` significa NO HAY DOCUMENTO VIGENTE, y sólo
+     *         entonces es seguro emitir. Quién es el vigente lo decide el
+     *         motor (tiene un único parcial que excluye a los rechazados y a
+     *         los que fallaron); elegirlo nosotros entre `intentos` sería
+     *         reimplementar peor una garantía que ya da su base.
+     * @throws \RuntimeException
+     */
+    public function lookupByTxn(string $environment, string $tenantRef, string $bearer, string $txnId): array;
+
+    /**
+     * Misma recuperación, por NÚMERO de documento — el fallback para cuando se
+     * perdió la respuesta HTTP entera y no hay ni `txnId` que consultar.
+     *
+     * `$documentType` NO es opcional y no puede tener default: el índice del
+     * motor incluye el tipo, así que sin él la consulta cruza tipos y una
+     * factura 001-002-0000615 y una nota de crédito 001-002-0000615 —que
+     * pueden estar las dos vigentes, legítimamente— devolverían como
+     * `vigente` a la más reciente de las dos, no a la que se está buscando.
+     * Confundirlas acá significa dar por emitido un documento que no lo está,
+     * o al revés.
+     *
+     * @return array{vigente:?array<string,mixed>,intentos:list<array<string,mixed>>}
+     * @throws \RuntimeException
+     */
+    public function lookupByNumber(
+        string $environment,
+        string $tenantRef,
+        string $bearer,
+        int $documentType,
+        string $establishment,
+        string $expeditionPoint,
+        string $number
+    ): array;
 }

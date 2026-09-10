@@ -63,6 +63,11 @@ require_once __DIR__ . '/_harness.php';
  *   (D) El kill-switch `config.legacyAutoNumbering` omite el correlativo
  *       propio — el rollback de emergencia funciona, y con él el guard de CDC
  *       deja de exigir un número que ya no defendemos.
+ *   (G) RECUPERACIÓN (2026-09-10): un documento que quedó `error` de nuestro
+ *       lado pero EXISTE del lado del motor no se vuelve a emitir — se adopta.
+ *       Se consulta por `txnId` (persistido en el mismo UPDATE que marcó el
+ *       error) y por número+tipo como fallback, y un `vigente` rechazado se
+ *       refleja en vez de reintentarse.
  *   (F) El CONTENIDO del documento (auditoría 2026-09-07): cantidad ×
  *       unitario cierra exacto contra el total, `fecha` es la de la
  *       operación, `codigoSeguridadAleatorio` estable entre reintentos,
@@ -154,14 +159,52 @@ final class FakeFePyProvider implements EInvoiceProvider
     /** Número que asigna el motor cuando el payload no lleva `numero` (kill-switch, NC). */
     public int $engineNumber = 4242;
 
+    /**
+     * La emisión FALLA sin CDC. Es el caso que destapó todo: el motor recibió
+     * el documento y devolvió `txnId`, pero el resultado no trae número fiscal
+     * — o la respuesta se perdió después. La fila queda en `error` y el `txnId`
+     * es lo único con lo que se puede volver a encontrar el documento.
+     */
+    public bool $failWithoutCdc = false;
+
+    /** `txnId` que devuelve la emisión. Viene con éxito y viene con fallo. */
+    public ?string $txnId = null;
+
+    /**
+     * Documento VIGENTE que devuelven las consultas de recuperación, o null
+     * para "no hay nada, es seguro emitir".
+     *
+     * @var array<string,mixed>|null
+     */
+    public ?array $vigente = null;
+
+    /** @var array<int,array<string,mixed>> consultas de recuperación recibidas */
+    public array $lookups = [];
+
     public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array
     {
         $this->issued[] = $payload;
+
+        if ($this->failWithoutCdc) {
+            return [
+                'cdc'            => null,
+                'documentNumber' => null,
+                'txnId'          => $this->txnId,
+                'success'        => false,
+                'statusMessage'  => 'El motor no devolvió CDC (simulado por el arnés).',
+                'bulkId'         => null,
+                'dCarQR'         => null,
+                'xmlUrl'         => null,
+                'raw'            => ['txnId' => $this->txnId, 'estado' => 'error'],
+            ];
+        }
+
         $cdc = $this->cdcFor($payload);
 
         return [
             'cdc'            => $cdc,
             'documentNumber' => null,
+            'txnId'          => $this->txnId,
             'success'        => true,
             'statusMessage'  => null,
             // En FE-PY la llave de reconciliación ES el CDC (COMMENT de la mig 214).
@@ -172,8 +215,29 @@ final class FakeFePyProvider implements EInvoiceProvider
         ];
     }
 
-    /** CDC coherente con el documento que se mandó. */
-    private function cdcFor(array $payload): string
+    public function lookupByTxn(string $e, string $t, string $b, string $txnId): array
+    {
+        $this->lookups[] = ['by' => 'txn', 'txnId' => $txnId];
+        return ['vigente' => $this->vigente, 'intentos' => []];
+    }
+
+    public function lookupByNumber(string $e, string $t, string $b, int $tipo, string $est, string $punto, string $numero): array
+    {
+        $this->lookups[] = [
+            'by' => 'numero', 'tipoDocumento' => $tipo,
+            'establecimiento' => $est, 'punto' => $punto, 'numero' => $numero,
+        ];
+        return ['vigente' => $this->vigente, 'intentos' => []];
+    }
+
+    /**
+     * CDC coherente con el documento que se mandó. Pública porque la sección
+     * (G) necesita fabricar el CDC del documento RECUPERADO con la misma
+     * cuenta que haría el motor: si fuera otro, el guard de `cdcMismatchFor()`
+     * marcaría una divergencia que no existe y la recuperación probaría lo
+     * contrario de lo que se quiere probar.
+     */
+    public function cdcFor(array $payload): string
     {
         $numero = $this->numberOverride
             ?? (isset($payload['numero']) ? (int) $payload['numero'] : $this->engineNumber);
@@ -307,6 +371,10 @@ $db->Execute(
 ]);
 // (F6/F7) venta a un contribuyente con datos de contacto completos.
 [$txF6, $noF6] = crearVenta($service, $itemId, $nextNo++, $companyId, ['customer' => $contactoId]);
+// (G) recuperación de documentos huérfanos: una venta por desenlace.
+[$txG1, $noG1] = crearVenta($service, $itemId, $nextNo++, $companyId);
+[$txG2, $noG2] = crearVenta($service, $itemId, $nextNo++, $companyId);
+[$txG3, $noG3] = crearVenta($service, $itemId, $nextNo++, $companyId);
 
 /**
  * Guarda una venta contado real y devuelve [transactionId, invoiceNo].
@@ -647,6 +715,186 @@ check('(F7b) el receptor declara el email del contacto',
 check('(F7c) el receptor declara el telefono, sin el +',
     ($cli['telefono'] ?? '') === '595981222333',
     'telefono=' . json_encode($cli['telefono'] ?? null), $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (G) RECUPERACIÓN: un documento emitido del otro lado no se emite dos veces
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Los dos casos que llegaron a producción el 2026-09-10 sin que ningún arnés
+// los mirara. Los dos empiezan igual: la emisión falla SIN CDC pero el motor
+// devuelve `txnId`, o sea que del otro lado puede haber quedado un documento
+// fiscal y del nuestro dice `error`.
+//
+// Lo que se verifica no es que la recuperación "funcione": es que NO SE VUELVE
+// A EMITIR. Un documento fiscal emitido dos veces es un rechazo por duplicado
+// en el mejor caso y dos comprobantes válidos por la misma venta en el peor.
+
+echo "\n=== (G) recuperación de un documento huérfano ===\n";
+
+/** Reabre la ventana de reintento y vuelve a drenar con el motor dado. */
+function redrenar(FakeFePyProvider $provider, string $companyId, string $transactionId): void
+{
+    global $db;
+    $db->Execute(
+        "UPDATE einvoice_document SET next_retry_at = now() WHERE companyid = ? AND transactionid = ?",
+        [$companyId, $transactionId]
+    );
+    (new EInvoiceService($provider))->drain(50);
+}
+
+/** Fila cruda del documento, para mirar las columnas que la recuperación toca. */
+function filaDoc(string $companyId, string $transactionId): array
+{
+    $row = ncmExecute(
+        'SELECT status, cdc, provider_txn_id, provider_number, sifen_status, error_message, attempts
+           FROM einvoice_document WHERE companyid = ? AND transactionid = ?',
+        [$companyId, $transactionId]
+    );
+    return [
+        'status'   => (string) ($row['status'] ?? ''),
+        'cdc'      => (string) ($row['cdc'] ?? ''),
+        'txnId'    => (string) ($row['provider_txn_id'] ?? ''),
+        'number'   => (string) ($row['provider_number'] ?? ''),
+        'sifen'    => (string) ($row['sifen_status'] ?? ''),
+        'error'    => (string) ($row['error_message'] ?? ''),
+        'attempts' => (int) ($row['attempts'] ?? 0),
+    ];
+}
+
+// ── (G1) emitido de verdad allá, `error` acá: se ADOPTA, no se reemite ────
+// Es el caso de la nota de crédito nº 2: existía con CDC del lado del motor y
+// nuestro outbox agotó los ocho intentos marcándola `error`.
+
+const TXN_G1 = '01a08b38-aa32-70dd-b061-eba07a390500';
+
+$provG1 = new FakeFePyProvider();
+$provG1->failWithoutCdc = true;
+$provG1->txnId = TXN_G1;
+$resG1 = emitir($provG1, $companyId, $txG1);
+$filaG1 = filaDoc($companyId, $txG1);
+
+check('(G1a) la emisión fallida deja el documento en error',
+    $filaG1['status'] === 'error', "status={$filaG1['status']}", $failures, $checks);
+check('(G1b) el txnId se persiste EN el mismo UPDATE que marcó el error',
+    $filaG1['txnId'] === TXN_G1,
+    "provider_txn_id=" . json_encode($filaG1['txnId']), $failures, $checks);
+
+// Segundo intento: el motor SÍ tenía el documento, aprobado por SIFEN.
+$cdcG1 = $provG1->cdcFor((array) $resG1['payload']);
+$provG1b = new FakeFePyProvider();
+$provG1b->vigente = [
+    'txnId'  => TXN_G1,
+    'cdc'    => $cdcG1,
+    'estado' => 'aprobado',
+    'numero' => (string) ($resG1['payload']['numero'] ?? ''),
+    'sifen'  => ['codigoRespuesta' => '0260', 'mensaje' => 'Autorizado el DE', 'protocoloAutorizacion' => '99887766'],
+];
+redrenar($provG1b, $companyId, $txG1);
+$filaG1b = filaDoc($companyId, $txG1);
+
+check('(G1c) NO se reemitió: el motor no recibió ningún documento nuevo',
+    $provG1b->issued === [],
+    'emisiones=' . count($provG1b->issued), $failures, $checks);
+check('(G1d) se preguntó primero por txnId, que es la llave exacta',
+    ($provG1b->lookups[0]['by'] ?? '') === 'txn' && ($provG1b->lookups[0]['txnId'] ?? '') === TXN_G1,
+    'lookups=' . json_encode($provG1b->lookups), $failures, $checks);
+check('(G1e) el documento queda issued con el CDC que ya existía',
+    $filaG1b['status'] === 'issued' && $filaG1b['cdc'] === $cdcG1,
+    "status={$filaG1b['status']} cdc={$filaG1b['cdc']} esperado=$cdcG1 error={$filaG1b['error']}", $failures, $checks);
+check('(G1f) queda con llave de reconciliación (provider_number = CDC)',
+    $filaG1b['number'] === $cdcG1,
+    "provider_number={$filaG1b['number']}", $failures, $checks);
+check('(G1g) el veredicto de SIFEN que trajo la consulta se persiste ya mismo',
+    $filaG1b['sifen'] === 'Aprobado',
+    "sifen_status=" . json_encode($filaG1b['sifen']), $failures, $checks);
+
+// ── (G2) el vigente vino RECHAZADO: se refleja y NO se reintenta ──────────
+// Reintentar un rechazo idéntico repite el rechazo y crea otra fila del lado
+// del motor. El estado correcto es `issued` + `sifen_status='Rechazado'`, que
+// es desde donde el comercio corrige la metadata fiscal y REEMITE (reissue()).
+
+const TXN_G2 = '01a08b38-aa32-70dd-b061-eba07a390501';
+
+$provG2 = new FakeFePyProvider();
+$provG2->failWithoutCdc = true;
+$provG2->txnId = TXN_G2;
+$resG2 = emitir($provG2, $companyId, $txG2);
+$cdcG2 = $provG2->cdcFor((array) $resG2['payload']);
+
+$provG2b = new FakeFePyProvider();
+$provG2b->vigente = [
+    'txnId'  => TXN_G2,
+    'cdc'    => $cdcG2,
+    'estado' => 'rechazado',
+    'numero' => (string) ($resG2['payload']['numero'] ?? ''),
+    'sifen'  => ['codigoRespuesta' => '1002', 'mensaje' => 'Documento electrónico duplicado'],
+];
+redrenar($provG2b, $companyId, $txG2);
+$filaG2 = filaDoc($companyId, $txG2);
+
+check('(G2a) un rechazo conocido NO se reintenta',
+    $provG2b->issued === [],
+    'emisiones=' . count($provG2b->issued), $failures, $checks);
+check('(G2b) el rechazo se refleja: issued + sifen_status Rechazado',
+    $filaG2['status'] === 'issued' && $filaG2['sifen'] === 'Rechazado',
+    "status={$filaG2['status']} sifen={$filaG2['sifen']} error={$filaG2['error']}", $failures, $checks);
+// HALLAZGO abierto, encontrado al escribir esta sección y NO resuelto acá:
+// `printableDocumentFor()` decide qué se imprime mirando
+// `status`/`superseded_by`/`numbering_mismatch`/`cdc`, pero NO `sifen_status`
+// — así que un documento RECHAZADO por SIFEN sigue imprimiendo su CDC y su QR.
+// Es exactamente el mismo hueco que `context/28` §F7 ya anota para
+// `kudeAvailable` en el portal del cliente, o sea que no es un descuido
+// aislado sino el predicado "documento válido" al que le falta el veredicto
+// fiscal en los dos lados.
+//
+// No se corrige en este slice a propósito: qué ve el cliente final cuando
+// SIFEN rechaza es una decisión de producto ya tomada por el owner en §F7
+// (R1: al cliente NO se le avisa del rechazo), y cambiar de callado lo que
+// sale impreso tocaría comprobantes de ventas YA cobradas. El check fija el
+// comportamiento de HOY para que, el día que se decida cambiarlo, el arnés
+// avise en vez de quedarse mudo.
+check('(G2c) [hallazgo abierto] hoy un rechazado SIGUE siendo imprimible — ver context/28 §F7',
+    (new EInvoiceService($provG2b))->printableDocumentFor($companyId, $txG2) !== null,
+    'cambió el comportamiento: printableDocumentFor ya filtra por sifen_status — actualizar este check y el hallazgo de context/28',
+    $failures, $checks);
+
+// ── (G3) sin txnId: el fallback por número lleva SIEMPRE el tipo ──────────
+// Cuando se pierde la respuesta HTTP entera no hay txnId que consultar y lo
+// único que identifica al documento es su serie. El `tipoDocumento` no es
+// opcional: sin él la búsqueda cruza una factura con una nota de crédito del
+// mismo número, que pueden coexistir vigentes.
+
+$provG3 = new FakeFePyProvider();
+$provG3->failWithoutCdc = true;
+$provG3->txnId = null; // la respuesta se perdió: nunca hubo txnId
+$resG3 = emitir($provG3, $companyId, $txG3);
+$cdcG3 = $provG3->cdcFor((array) $resG3['payload']);
+$filaG3a = filaDoc($companyId, $txG3);
+
+$provG3b = new FakeFePyProvider();
+$provG3b->vigente = [
+    'txnId'  => '01a08b38-aa32-70dd-b061-eba07a390502',
+    'cdc'    => $cdcG3,
+    'estado' => 'aprobado',
+    'numero' => (string) ($resG3['payload']['numero'] ?? ''),
+];
+redrenar($provG3b, $companyId, $txG3);
+$filaG3 = filaDoc($companyId, $txG3);
+
+[$establecimientoG3, $puntoG3] = explode('-', PREFIJO_CAJA);
+
+check('(G3a) sin txnId la fila no inventa ninguno',
+    $filaG3a['txnId'] === '', "provider_txn_id=" . json_encode($filaG3a['txnId']), $failures, $checks);
+check('(G3b) se consulta por número, con tipo/establecimiento/punto completos',
+    ($provG3b->lookups[0]['by'] ?? '') === 'numero'
+        && ($provG3b->lookups[0]['tipoDocumento'] ?? 0) === 1
+        && ($provG3b->lookups[0]['establecimiento'] ?? '') === $establecimientoG3
+        && ($provG3b->lookups[0]['punto'] ?? '') === $puntoG3
+        && ($provG3b->lookups[0]['numero'] ?? '') === (string) ($resG3['payload']['numero'] ?? ''),
+    'lookups=' . json_encode($provG3b->lookups), $failures, $checks);
+check('(G3c) tampoco acá se reemite, y el documento se adopta',
+    $provG3b->issued === [] && $filaG3['status'] === 'issued' && $filaG3['cdc'] === $cdcG3,
+    "emisiones=" . count($provG3b->issued) . " status={$filaG3['status']} cdc={$filaG3['cdc']}", $failures, $checks);
 
 // ── Limpieza: la cuenta de FE es del arnés, no del fixture ─────────────────
 $db->Execute('DELETE FROM einvoice_account WHERE companyid = ? AND username = ?', [$companyId, MARCA_DEL_ARNES]);

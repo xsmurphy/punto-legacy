@@ -55,6 +55,12 @@ namespace Punto\Api\EInvoice;
  *     (UUID, 36 chars — su mínimo es 8), que es exactamente "este documento
  *     del outbox", que es la unidad que se reintenta.
  *
+ *  c2) **`txnId`: el hilo con el que se recupera un huérfano.** La emisión lo
+ *     devuelve SIEMPRE, tenga o no CDC. Se persiste en
+ *     `einvoice_document.provider_txn_id` (mig 217) en el mismo UPDATE que
+ *     fija `issued`/`error`, y con él `lookupByTxn()` pregunta si el
+ *     documento ya existe del otro lado ANTES de reintentar.
+ *
  *  d) **El `montoTotal` que devuelven NO es el total fiscal**: lo calculan
  *     como Σ(cantidad × precioUnitario) sin IVA ni descuentos ("Simplificado
  *     para el MVP", su `de.service.ts`). No se usa para nada acá.
@@ -245,7 +251,7 @@ final class FePyProvider implements EInvoiceProvider
      * SIN key el reintento de un timeout emite DOS veces. Por eso no hay
      * camino sin ella: si el mapper no la puso, esto lanza.
      *
-     * @return array{cdc:?string,documentNumber:?string,success:bool,statusMessage:?string,bulkId:?string,dCarQR:?string,xmlUrl:?string,raw:array}
+     * @return array{cdc:?string,documentNumber:?string,txnId:?string,success:bool,statusMessage:?string,bulkId:?string,dCarQR:?string,xmlUrl:?string,raw:array}
      */
     public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array
     {
@@ -297,6 +303,12 @@ final class FePyProvider implements EInvoiceProvider
             // y en SIFEN, y es contra el que se detecta la divergencia con
             // el correlativo impreso en el ticket.
             'documentNumber' => self::stringOrNull($raw['numero'] ?? null),
+            // El identificador de la TRANSACCIÓN de emisión. Viene con CDC y
+            // viene sin CDC, y es lo único que permite volver a encontrar el
+            // documento cuando la emisión terminó mal (mig 217). Se devuelve
+            // siempre, incluso en el camino de error de abajo: el caller lo
+            // persiste antes de marcar la fila.
+            'txnId'          => self::stringOrNull($raw['txnId'] ?? null),
             'success'        => $success,
             'statusMessage'  => $message,
             // Llave de reconciliación de ESTE proveedor: el CDC. FE-PY no
@@ -536,6 +548,108 @@ final class FePyProvider implements EInvoiceProvider
         ];
     }
 
+    /**
+     * RECUPERACIÓN por el identificador de la transacción de emisión —
+     * `GET /v1/tenants/{ref}/de/txn/{txnId}`.
+     *
+     * Es la lectura que faltaba. La reconsulta (`getBulk`) va por CDC, y
+     * justo el documento que hay que recuperar es el que puede no tenerlo:
+     * el POST de emisión devuelve `txnId` SIEMPRE, con CDC o sin él.
+     */
+    public function lookupByTxn(string $environment, string $tenantRef, string $bearer, string $txnId): array
+    {
+        $txnId = trim($txnId);
+        if ($txnId === '') {
+            throw new \RuntimeException('No se puede recuperar un documento sin el identificador de su transacción de emisión.');
+        }
+
+        return self::toLookupShape($this->lookupRequest(
+            '/v1/tenants/' . rawurlencode($tenantRef) . '/de/txn/' . rawurlencode($txnId),
+            $bearer
+        ));
+    }
+
+    /**
+     * RECUPERACIÓN por número — `GET /v1/tenants/{ref}/de/numero/{est}/{punto}/{numero}?tipoDocumento=N`.
+     *
+     * El fallback para cuando se perdió la respuesta HTTP entera: sin `txnId`
+     * lo único que identifica al documento es la serie con la que se lo iba a
+     * emitir, que es un dato NUESTRO y siempre está.
+     *
+     * `tipoDocumento` va SIEMPRE en la query y no tiene default — el índice de
+     * ellos incluye el tipo, así que omitirlo cruza una factura con una nota
+     * de crédito del mismo número, que pueden coexistir vigentes.
+     */
+    public function lookupByNumber(
+        string $environment,
+        string $tenantRef,
+        string $bearer,
+        int $documentType,
+        string $establishment,
+        string $expeditionPoint,
+        string $number
+    ): array {
+        $establishment   = trim($establishment);
+        $expeditionPoint = trim($expeditionPoint);
+        $number          = trim($number);
+        if ($documentType <= 0 || $establishment === '' || $expeditionPoint === '' || $number === '') {
+            throw new \RuntimeException(
+                'No se puede recuperar un documento por número sin tipo, establecimiento, punto de expedición y número completos — ' .
+                'una búsqueda incompleta devolvería el documento equivocado.'
+            );
+        }
+
+        $path = '/v1/tenants/' . rawurlencode($tenantRef) . '/de/numero/'
+            . rawurlencode($establishment) . '/' . rawurlencode($expeditionPoint) . '/' . rawurlencode($number)
+            . '?tipoDocumento=' . rawurlencode((string) $documentType);
+
+        return self::toLookupShape($this->lookupRequest($path, $bearer));
+    }
+
+    /**
+     * GET de recuperación. El 404 NO es un error: es la respuesta "acá no hay
+     * nada con ese identificador", que es exactamente lo que el caller
+     * necesita saber para poder emitir. Cualquier otro fallo SÍ sube — un 500
+     * o un timeout significan "no sé", y tratar un "no sé" como "no existe"
+     * es el camino directo a emitir el documento dos veces.
+     *
+     * @return array<string,mixed>
+     */
+    private function lookupRequest(string $path, string $bearer): array
+    {
+        try {
+            return $this->exec($path, 'GET', ['Accept: application/json', 'Authorization: Bearer ' . $bearer], null);
+        } catch (FePyHttpException $e) {
+            if ($e->statusCode === 404) {
+                return ['vigente' => null, 'intentos' => []];
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Normaliza la respuesta de recuperación al shape del contrato.
+     *
+     * Lo único que hace es garantizar las dos claves y sus tipos: el
+     * `vigente` se pasa TAL CUAL. Elegir nosotros entre `intentos` cuál es el
+     * documento bueno sería reimplementar —peor— el único parcial que ellos
+     * ya tienen en la base; `intentos` queda disponible para diagnóstico y
+     * nada más.
+     *
+     * @param array<string,mixed> $raw
+     * @return array{vigente:?array<string,mixed>,intentos:list<array<string,mixed>>}
+     */
+    private static function toLookupShape(array $raw): array
+    {
+        $vigente = $raw['vigente'] ?? null;
+        $intentos = $raw['intentos'] ?? [];
+
+        return [
+            'vigente'  => is_array($vigente) && $vigente !== [] ? $vigente : null,
+            'intentos' => is_array($intentos) ? array_values(array_filter($intentos, 'is_array')) : [],
+        ];
+    }
+
     // ── Provisioning: lo nativo de FE-PY ─────────────────────────────────
 
     /**
@@ -720,7 +834,7 @@ final class FePyProvider implements EInvoiceProvider
         if ($code < 200 || $code >= 300) {
             $safeResp = self::scrub((string) $resp, $secrets);
             error_log("[FePy] $method $path failed HTTP $code: $safeResp");
-            throw new FePyHttpException("El motor de facturación rechazó la operación: " . self::readableError($json, $code, $secrets), $code);
+            throw new FePyHttpException("El motor de facturación rechazó la operación: " . self::readableError($json, $code, $secrets), $code, $json);
         }
 
         return $json;
@@ -867,7 +981,14 @@ final class FePyProvider implements EInvoiceProvider
  */
 final class FePyHttpException extends \RuntimeException
 {
-    public function __construct(string $message, public readonly int $statusCode)
+    /**
+     * @param array<string,mixed> $body Cuerpo JSON decodificado de la respuesta
+     *        de error, tal cual vino. Se conserva porque un error NO prueba que
+     *        el documento no se haya creado (ver punto (b) del docblock de la
+     *        clase): si la respuesta trae un `txnId`, ése es el hilo con el que
+     *        después se lo recupera. Vacío cuando no había JSON parseable.
+     */
+    public function __construct(string $message, public readonly int $statusCode, public readonly array $body = [])
     {
         parent::__construct($message);
     }
