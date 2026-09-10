@@ -367,6 +367,68 @@ check(
     $checks
 );
 
+// ── La Idempotency-Key: identidad del documento + huella del body ─────────
+//
+// La regresión que cierra es un documento fiscal REAL. La nota de crédito nº 2
+// (2026-09-10) se emitió con el payload de antes de que existiera la serie
+// propia de NC; en el medio se deployó, el payload pasó a llevar `numero`, y
+// cada reintento chocó contra el body cacheado del motor —"Idempotency-Key was
+// reused with a different request body", 409— hasta agotar los ocho intentos.
+// El documento existía del otro lado y del nuestro decía `error`.
+//
+// Lo que hay que fijar son las dos mitades a la vez: MISMO body ⇒ MISMA key
+// (que es la protección que de verdad importa, la del reintento tras un
+// timeout), y OTRO body ⇒ OTRA key (que es lo que impide envenenar el
+// documento). Que el documento no se emita dos veces cuando el body cambió ya
+// no depende de la key: lo garantiza el paso de recuperación (sección (G) de
+// einvoice_emitter_numbering_test.php).
+
+$payloadK = build(baseSale());
+unset($payloadK[FePyProvider::IDEMPOTENCY_PAYLOAD_KEY]);
+$keyK = FePyProvider::idempotencyKey(DOC_ID, $payloadK);
+
+check(
+    'MISMO body ⇒ MISMA key: el reintento de un timeout sigue siendo un replay, no una segunda emisión',
+    FePyProvider::idempotencyKey(DOC_ID, $payloadK) === $keyK,
+    $keyK,
+    $failures,
+    $checks
+);
+
+$payloadK2 = $payloadK;
+$payloadK2['numero'] = '0000043'; // exactamente lo que cambió el deploy de la NC
+check(
+    'OTRO body ⇒ OTRA key: un cambio de payload ya no envenena al documento con 409 para siempre',
+    FePyProvider::idempotencyKey(DOC_ID, $payloadK2) !== $keyK,
+    'las dos dieron ' . $keyK,
+    $failures,
+    $checks
+);
+
+check(
+    'documentos distintos con el mismo body no comparten key',
+    FePyProvider::idempotencyKey('99999999-2222-3333-4444-555555555555', $payloadK) !== $keyK,
+    'colisión entre documentos: ' . $keyK,
+    $failures,
+    $checks
+);
+
+check(
+    'la key mide 36 caracteres — el único largo probado contra el motor, y su máximo no está documentado',
+    strlen($keyK) === 36,
+    'largo=' . strlen($keyK) . ' key=' . $keyK,
+    $failures,
+    $checks
+);
+
+check(
+    'la key conserva el prefijo del einvoicedocid: la fila nuestra sigue siendo greppable en los logs de ellos',
+    str_starts_with($keyK, substr(DOC_ID, 0, 24)),
+    $keyK,
+    $failures,
+    $checks
+);
+
 echo "\n=== (G) guards que tienen que CORTAR ===\n";
 
 check(

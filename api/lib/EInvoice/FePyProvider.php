@@ -49,11 +49,13 @@ namespace Punto\Api\EInvoice;
  *     por eso un 502 se reporta como error reintentable: el reintento con la
  *     misma key es un no-op del lado de ellos.
  *
- *  c) **Idempotencia REAL.** FE-PY cachea la
+ *  c) **Idempotencia REAL, y su filo.** FE-PY cachea la
  *     respuesta por `(company, Idempotency-Key)` durante 24 h y responde 409
- *     si la misma key llega con OTRO body. La key es el `einvoicedocid`
- *     (UUID, 36 chars — su mínimo es 8), que es exactamente "este documento
- *     del outbox", que es la unidad que se reintenta.
+ *     si la misma key llega con OTRO body. La key deriva del `einvoicedocid`
+ *     —la fila del outbox, que es la unidad que se reintenta— MÁS la huella
+ *     del body que se está mandando. Ver `idempotencyKey()`: la key
+ *     puramente estable por documento envenenaba el documento entero ante
+ *     cualquier deploy que cambiara el payload.
  *
  *  c2) **`txnId`: el hilo con el que se recupera un huérfano.** La emisión lo
  *     devuelve SIEMPRE, tenga o no CDC. Se persiste en
@@ -238,15 +240,14 @@ final class FePyProvider implements EInvoiceProvider
      *
      * ── La `Idempotency-Key` ─────────────────────────────────────────────
      *
-     * Viaja como header y sale de una clave reservada del payload
-     * (`__idempotencyKey`), que este método QUITA antes de serializar. Es
-     * feo y es a propósito: `EInvoiceProvider::issue()` no tiene un
-     * parámetro donde meterla, y las dos alternativas eran peores —
-     * cambiarle la firma a la interfaz o derivar la key del contenido (que
-     * la haría cambiar cuando el mapper cambie, o sea justo cuando NO tiene
-     * que cambiar). El valor
-     * es el `einvoicedocid`: la fila del outbox, que es la unidad que se
-     * reintenta. Ver el docblock de la clase, punto (c).
+     * Viaja como header y su semilla sale de una clave reservada del payload
+     * (`__idempotencyKey`, el `einvoicedocid`), que este método QUITA antes
+     * de serializar. Es feo y es a propósito: `EInvoiceProvider::issue()` no
+     * tiene un parámetro donde meterla y cambiarle la firma a la interfaz por
+     * un detalle de transporte de UN motor era peor.
+     *
+     * La key final la arma `idempotencyKey()` con esa semilla MÁS la huella
+     * del body — leer su docblock antes de tocar nada acá.
      *
      * SIN key el reintento de un timeout emite DOS veces. Por eso no hay
      * camino sin ella: si el mapper no la puso, esto lanza.
@@ -255,9 +256,9 @@ final class FePyProvider implements EInvoiceProvider
      */
     public function issue(string $environment, string $tenantRef, string $bearer, array $payload): array
     {
-        $idempotencyKey = trim((string) ($payload[self::IDEMPOTENCY_PAYLOAD_KEY] ?? ''));
+        $documentRef = trim((string) ($payload[self::IDEMPOTENCY_PAYLOAD_KEY] ?? ''));
         unset($payload[self::IDEMPOTENCY_PAYLOAD_KEY]);
-        if (strlen($idempotencyKey) < 8) {
+        if (strlen($documentRef) < 8) {
             throw new \RuntimeException(
                 'El documento no trae clave de idempotencia (einvoicedocid) — no se emite sin ella: ' .
                 'un reintento tras un timeout emitiría el documento fiscal dos veces.'
@@ -269,7 +270,7 @@ final class FePyProvider implements EInvoiceProvider
             '/v1/tenants/' . rawurlencode($tenantRef) . '/de',
             $payload,
             $bearer,
-            ['Idempotency-Key: ' . $idempotencyKey]
+            ['Idempotency-Key: ' . self::idempotencyKey($documentRef, $payload)]
         );
 
         $cdc    = self::stringOrNull($raw['cdc'] ?? null);
@@ -648,6 +649,71 @@ final class FePyProvider implements EInvoiceProvider
             'vigente'  => is_array($vigente) && $vigente !== [] ? $vigente : null,
             'intentos' => is_array($intentos) ? array_values(array_filter($intentos, 'is_array')) : [],
         ];
+    }
+
+    /**
+     * La `Idempotency-Key` de una emisión: identidad del documento MÁS huella
+     * del body.
+     *
+     * ── Por qué no alcanza con el `einvoicedocid` a secas ─────────────────
+     *
+     * Era eso hasta hoy, y esa estabilidad pura envenenó un documento fiscal
+     * real. La nota de crédito nº 2 (2026-09-10) se emitió con el payload de
+     * ANTES de que existiera la serie propia de NC; en el medio se deployó, el
+     * payload pasó a llevar `numero`, y cada reintento chocó contra el body
+     * cacheado: *"Idempotency-Key was reused with a different request body"*,
+     * 409, ocho veces, hasta agotar los intentos. El documento existía del
+     * otro lado y del nuestro decía `error`. Con una key estable por
+     * documento, CUALQUIER deploy que toque el mapper envenena a todo
+     * documento en vuelo — y el mapper se toca seguido, porque es donde vive
+     * la regla fiscal.
+     *
+     * ── Por qué agregar la huella NO reabre la doble emisión ──────────────
+     *
+     * Porque la key nunca fue lo que evita la doble emisión ante un cambio de
+     * payload: ante otro body el motor RECHAZA (409), no deduplica. Lo que
+     * evita es reintentar el MISMO body cuando se perdió la respuesta —
+     * timeout, 502, proceso muerto— y eso se conserva intacto: mismo body,
+     * misma huella, misma key, replay de la respuesta cacheada.
+     *
+     * El caso "body distinto" lo cubre ahora el paso de RECUPERACIÓN
+     * (`lookupByTxn`/`lookupByNumber`, que `EInvoiceService` corre antes de
+     * todo reintento): si el documento ya existe del otro lado no se emite, y
+     * punto. Con eso "consultar antes de reemitir" deja de depender de la key,
+     * que vuelve a ser lo que siempre debió ser — protección de transporte, no
+     * garantía fiscal.
+     *
+     * ── El largo ──────────────────────────────────────────────────────────
+     *
+     * 36 caracteres, con forma de UUID: los primeros 24 del `einvoicedocid`
+     * (que lo dejan greppable contra nuestra fila en los logs de ellos) más 12
+     * hex de huella en el lugar del nodo. Se respeta ese largo a propósito —
+     * es el único que está PROBADO contra el motor en producción; su Zod
+     * declara mínimo 8 y no tenemos su máximo documentado, así que no se
+     * inventa una key más larga para averiguarlo con documentos fiscales.
+     * Colisionar exige que dos UUID v4 compartan sus primeros 20 dígitos hex.
+     *
+     * Pública y estática por el mismo motivo que `toBulkShape()`: es una
+     * función determinística que el arnés tiene que poder fijar sin levantar
+     * HTTP — y lo que hay que fijar acá es justamente que dos payloads
+     * distintos no comparten key.
+     *
+     * @param array<string,mixed> $payload El body EXACTO que se va a mandar, ya sin la clave reservada.
+     */
+    public static function idempotencyKey(string $documentRef, array $payload): string
+    {
+        $fingerprint = substr(hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE)), 0, 12);
+
+        // Forma canónica `8-4-4-4-12`: los primeros 24 chars terminan en el
+        // guión y el nodo son los 12 últimos, que es donde entra la huella.
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $documentRef) === 1) {
+            return substr($documentRef, 0, 24) . $fingerprint;
+        }
+
+        // El id del documento no tiene forma de UUID (no debería pasar: es una
+        // PK `gen_random_uuid()`). Se concatena y listo — sigue siendo
+        // determinística por (documento, body), que es lo único que importa.
+        return $documentRef . '-' . $fingerprint;
     }
 
     // ── Provisioning: lo nativo de FE-PY ─────────────────────────────────
