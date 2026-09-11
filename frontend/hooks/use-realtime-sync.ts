@@ -118,7 +118,14 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // encId]` (hooks/use-pos-transactions.ts). El key parcial matchea por
   // prefijo cualquier id abierto, sin depender de que el evento traiga el
   // mismo id (viene el UUID crudo, el detalle cachea con `enc(transactionId)`).
-  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["dashboard"], ["dashboard-widget"]],
+  // `["transaction-detail"]` — el detalle del PANEL (`useTransactionDetail`,
+  // hooks/use-reports.ts) estaba fuera del mapa: una venta anulada desde la
+  // caja dejaba la página `/transactions/{id}` abierta en otra pantalla
+  // mostrando la venta como vigente, con su menú de acciones intacto.
+  // `["sale-void-options"]` — el `canVoid` cacheado (motivo y ventana de 48h)
+  // también envejece: sin invalidarlo, un segundo operador ve "se puede
+  // anular" sobre una venta que ya no lo permite.
+  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"]],
   // `["drawer"]` es el key del POS (use-drawer.ts:213) y estaba FUERA: el mapa
   // solo invalidaba el reporte del panel. Con dos cajas en el mismo turno, la
   // apertura/cierre/movimiento hecho en una no llegaba a la otra y las dos
@@ -211,7 +218,21 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   remision:          [["remisiones"]],
   // Endpoints que antes quedaban mudos por el default viejo del mapa
   // (context/15, hallazgo C) — ahora publican solo, sumados sus queryKeys.
-  return:            [["returns-for-parent"], ["transactions"], ["pos-transactions"], ["reports"]],
+  // Una devolución CAMBIA lo que el menú de la venta original puede ofrecer
+  // (`returns.count`/`fullyReturned` del detalle, y el HAS_RETURNS que el
+  // backend va a aplicar). El mapa invalidaba los LISTADOS pero no el
+  // DETALLE, así que el detalle abierto en otra caja seguía ofreciendo
+  // "Anular" sobre una venta que ya tenía devolución — la mitad
+  // "con devolución" del bug reportado cuando la operación viene por sync.
+  // `["return-options"]`/`["returns-for-parent"]` son el cupo por ítem; sin
+  // ellas el formulario ofrece unidades ya devueltas por otro operador.
+  return:            [["returns-for-parent"], ["return-options"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["reports"], ["stock"], ["dashboard"]],
+  // `sales-void` — entity derivada del path `/v1/sales-void` por el publisher
+  // automático (api/bootstrap.php). Estaba SIN mapear: el evento llegaba, no
+  // matcheaba ninguna key y moría en un console.warn, así que una anulación
+  // hecha desde otra caja no refrescaba nada. Mismas keys que `transaction`:
+  // es el mismo hecho, publicado por el otro camino.
+  "sales-void":      [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"]],
   production:        [["production-orders"], ["production-capacity"], ["producible-now"], ["waste-events"]],
   waste:             [["waste-events"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
