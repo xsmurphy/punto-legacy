@@ -107,6 +107,328 @@ final class OpenInvoicesService
     }
 
     /**
+     * VISTA AGREGADA de las dos puntas del crédito — lo que alimenta el
+     * dashboard de `/reports/open-invoices` (`?view=summary`).
+     *
+     * No es un reporte nuevo: es el MISMO universo que `general()` (las dos
+     * llamadas pasan por `openCreditInvoices()` + `payedByParent()` +
+     * `contactBalance()`), agregado por antigüedad, por contacto y por
+     * vencimiento. Si el listado y el dashboard divergieran alguna vez, sería
+     * por otra razón que no es "cada uno calcula la deuda a su manera": la
+     * resta `total - payed` sigue viviendo en un solo lugar.
+     *
+     * ── Qué cuenta como plata abierta ────────────────────────────────────────
+     * El saldo es `topay` (total de la factura menos lo aplicado por
+     * `transaction_link`: recibos, notas de crédito, devoluciones), o sea el
+     * PENDIENTE, nunca el emitido. Y entran solo las facturas con `topay > 0`:
+     * las que quedaron en cero siguen con `transactionComplete = false` porque
+     * el self-heal del legacy se eliminó (ver el docblock de la clase), así que
+     * son ruido — y una sobrepagada (topay < 0) restaría de su bucket de
+     * antigüedad, que es peor que ruido. Por eso `count` acá es "comprobantes
+     * con saldo" y no coincide con el `kpi.accounts` del listado, que cuenta
+     * TODAS las facturas de los contactos deudores (réplica del legacy).
+     *
+     * ── "Hoy" ────────────────────────────────────────────────────────────────
+     * Sale de `TenantClock::now()`, no de `date()`: el corte del día tiene que
+     * ser el del comercio. `general()` usa `date()` y hoy funciona porque el
+     * embudo de auth ya aplicó la TZ del tenant, pero eso es cierto del
+     * REQUEST, no del método — un cron o el realm /admin lo llamarían corrido.
+     *
+     * @param list<string> $outletIds Mismo alcance que `general()`: `[]` = todas.
+     * @return array{
+     *   today:string,
+     *   totals:array{receivable:float,payable:float,net:float,receivableCount:int,payableCount:int},
+     *   receivable:array, payable:array, projection:array
+     * }
+     */
+    public function summary(string $companyId, array $outletIds = []): array
+    {
+        $today = new \DateTimeImmutable(
+            substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10),
+            new \DateTimeZone('UTC')
+        );
+
+        $receivable = $this->openBalances($companyId, true, $outletIds, $today);
+        $payable    = $this->openBalances($companyId, false, $outletIds, $today);
+
+        $sideIn  = $this->sideSummary($receivable, true);
+        $sideOut = $this->sideSummary($payable, false);
+
+        return [
+            'today'  => $today->format('Y-m-d'),
+            'totals' => [
+                'receivable'      => $sideIn['open'],
+                'payable'         => $sideOut['open'],
+                'net'             => $sideIn['open'] - $sideOut['open'],
+                'receivableCount' => $sideIn['count'],
+                'payableCount'    => $sideOut['count'],
+            ],
+            'receivable' => $sideIn,
+            'payable'    => $sideOut,
+            'projection' => $this->dueSchedule($receivable, $payable, $today),
+        ];
+    }
+
+    /**
+     * Las facturas ABIERTAS de una punta, ya con su saldo y su fecha de corte
+     * resuelta. Es el insumo único de los tres bloques del dashboard
+     * (antigüedad, ranking por contacto y proyección) — que los tres lean la
+     * misma lista es lo que garantiza que los totales cierren entre sí.
+     *
+     * `effectiveDue` es la fecha contra la que se mide: el VENCIMIENTO, y si el
+     * comprobante no lo tiene, la fecha de EMISIÓN con `missingDue = true`. La
+     * alternativa (dejarlas afuera) esconde plata real; la otra (meterlas en
+     * "por vencer") es peor todavía, porque una factura sin vencimiento suele
+     * ser vieja. Se cuentan aparte y el reporte las declara en pantalla.
+     *
+     * @return list<array{cid:string,saleId:string,invoiceNo:string,date:string,dueDate:string,
+     *                    open:float,effectiveDue:\DateTimeImmutable,missingDue:bool,daysOverdue:int}>
+     */
+    private function openBalances(
+        string $companyId,
+        bool $isCustomer,
+        array $outletIds,
+        \DateTimeImmutable $today
+    ): array {
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, null, $outletIds);
+        if ($invoices === []) {
+            return [];
+        }
+
+        $payedMap = $this->payedByParent(array_column($invoices, 'saleId'), $companyId, $isCustomer);
+
+        $out = [];
+        foreach ($invoices as $inv) {
+            $open = $inv['total'] - ($payedMap[$inv['saleId']] ?? 0);
+            if ($open <= 0) {
+                continue;
+            }
+
+            $due        = $this->asDate($inv['dueDate']);
+            $missingDue = $due === null;
+            if ($missingDue) {
+                $due = $this->asDate($inv['date']) ?? $today;
+            }
+
+            $out[] = [
+                'cid'          => $inv['cid'],
+                'saleId'       => $inv['saleId'],
+                'invoiceNo'    => $inv['invoiceNo'],
+                'date'         => $inv['date'],
+                'dueDate'      => $inv['dueDate'],
+                'open'         => $open,
+                'effectiveDue' => $due,
+                'missingDue'   => $missingDue,
+                // Positivo = vencida hace N días. Vencer HOY ya cuenta como
+                // vencida, igual que en `general()` (dueDate <= hoy).
+                'daysOverdue'  => -$this->dayDelta($today, $due),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Los agregados de UNA punta: total abierto, vencido vs. por vencer,
+     * antigüedad y el top 10 de contactos.
+     *
+     * La antigüedad se cuenta DESDE EL VENCIMIENTO, no desde la emisión: un
+     * plazo de 90 días recién otorgado no es una deuda vieja, y medirla desde
+     * la emisión pintaría de rojo a todo comercio que venda a plazo largo.
+     * `overdue` es exactamente la suma de los cuatro buckets — no se devuelve
+     * el "por vencer" adentro de `aging` para que esa identidad sea verificable
+     * de un vistazo.
+     */
+    private function sideSummary(array $balances, bool $isCustomer): array
+    {
+        $buckets = ['0-30' => [0.0, 0], '31-60' => [0.0, 0], '61-90' => [0.0, 0], '90+' => [0.0, 0]];
+        $overdue = [0.0, 0];
+        $notDue  = [0.0, 0];
+        $noDue   = [0.0, 0];
+        $open    = 0.0;
+        $count   = 0;
+        $byContact = [];
+
+        foreach ($balances as $b) {
+            $open += $b['open'];
+            $count++;
+
+            if ($b['missingDue']) {
+                $noDue[0] += $b['open'];
+                $noDue[1]++;
+            }
+
+            if ($b['daysOverdue'] >= 0) {
+                $overdue[0] += $b['open'];
+                $overdue[1]++;
+                $k = $b['daysOverdue'] <= 30 ? '0-30'
+                    : ($b['daysOverdue'] <= 60 ? '31-60'
+                    : ($b['daysOverdue'] <= 90 ? '61-90' : '90+'));
+                $buckets[$k][0] += $b['open'];
+                $buckets[$k][1]++;
+            } else {
+                $notDue[0] += $b['open'];
+                $notDue[1]++;
+            }
+
+            $cid = $b['cid'];
+            if (!isset($byContact[$cid])) {
+                $byContact[$cid] = ['open' => 0.0, 'count' => 0, 'oldest' => null];
+            }
+            $byContact[$cid]['open'] += $b['open'];
+            $byContact[$cid]['count']++;
+            $prev = $byContact[$cid]['oldest'];
+            if ($prev === null || strcmp((string) $b['date'], (string) $prev['date']) < 0) {
+                $byContact[$cid]['oldest'] = $b;
+            }
+        }
+
+        return [
+            'open'       => $open,
+            'count'      => $count,
+            'contacts'   => count($byContact),
+            'overdue'    => ['amount' => $overdue[0], 'count' => $overdue[1]],
+            'notDue'     => ['amount' => $notDue[0],  'count' => $notDue[1]],
+            // Sin vencimiento cargado: su antigüedad se midió desde la EMISIÓN,
+            // así que ya está sumada arriba. Se declara para que el reporte lo
+            // pueda decir en pantalla en vez de que el número mienta callado.
+            'sinVencimiento' => ['amount' => $noDue[0], 'count' => $noDue[1]],
+            'aging'      => array_map(
+                static fn ($k) => ['bucket' => $k, 'amount' => $buckets[$k][0], 'count' => $buckets[$k][1]],
+                array_keys($buckets)
+            ),
+            'top'        => $this->topContacts($byContact, $isCustomer),
+        ];
+    }
+
+    /**
+     * Los 10 contactos con más plata abierta, con su comprobante más viejo.
+     *
+     * El nombre se resuelve con `getContactData()` + `getCustomerName()`, igual
+     * que `general()` — y SOLO para estos 10 por punta: resolverlo para todos
+     * los contactos con deuda sería un N+1 sobre `contact` para tirar el 95% de
+     * las filas. Desempate por `contactId` para que dos contactos con el mismo
+     * saldo no intercambien lugares entre dos requests.
+     */
+    private function topContacts(array $byContact, bool $isCustomer): array
+    {
+        $ids = array_keys($byContact);
+        usort($ids, static function ($a, $b) use ($byContact) {
+            $cmp = $byContact[$b]['open'] <=> $byContact[$a]['open'];
+            return $cmp !== 0 ? $cmp : strcmp((string) $a, (string) $b);
+        });
+
+        $out = [];
+        foreach (array_slice($ids, 0, 10) as $cid) {
+            $agg     = $byContact[$cid];
+            $contact = getContactData($cid, $isCustomer ? 'uid' : 'id', true);
+            $oldest  = $agg['oldest'];
+
+            $out[] = [
+                'contactId' => (string) $cid,
+                'name'      => $contact ? getCustomerName($contact) : 'Sin Contacto Asociado',
+                'open'      => $agg['open'],
+                'count'     => $agg['count'],
+                'oldest'    => $oldest === null ? null : [
+                    'invoiceNo'   => $oldest['invoiceNo'],
+                    'saleId'      => $oldest['saleId'],
+                    'date'        => $oldest['date'],
+                    'dueDate'     => $oldest['dueDate'],
+                    'daysOverdue' => $oldest['daysOverdue'],
+                ],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * PROYECCIÓN POR VENCIMIENTO — aritmética de fechas, NO un pronóstico.
+     *
+     * Reparte lo que YA está emitido y abierto en las 8 semanas que vienen,
+     * según la fecha en que cada comprobante vence. No modela estacionalidad,
+     * no proyecta ventas futuras, no estima probabilidad de cobro: si nadie
+     * paga nada, ninguna de estas semanas ocurre. El nombre del método y esta
+     * nota existen para que nadie lo lea como un forecast ni lo "mejore"
+     * agregándole tendencia — para eso haría falta otra cosa, con otro nombre.
+     *
+     * Tres buckets fuera de la grilla, los tres visibles a propósito:
+     *   `overdue` lo ya vencido (arrastre: debería haber entrado y no entró),
+     *   `beyond`  lo que vence después de la semana 8,
+     *   y las semanas se cuentan desde HOY (semana 1 = hoy..hoy+6), no desde
+     *   el lunes: la pregunta es "de acá a una semana", no "en qué semana del
+     *   calendario".
+     */
+    private function dueSchedule(array $receivable, array $payable, \DateTimeImmutable $today): array
+    {
+        $weeks = [];
+        for ($i = 0; $i < 8; $i++) {
+            $from = $today->modify('+' . ($i * 7) . ' days');
+            $weeks[] = [
+                'week'    => $i + 1,
+                'from'    => $from->format('Y-m-d'),
+                'to'      => $from->modify('+6 days')->format('Y-m-d'),
+                'inflow'  => 0.0,
+                'outflow' => 0.0,
+            ];
+        }
+        $overdue = ['inflow' => 0.0, 'outflow' => 0.0];
+        $beyond  = ['inflow' => 0.0, 'outflow' => 0.0];
+
+        foreach ([[$receivable, 'inflow'], [$payable, 'outflow']] as [$balances, $key]) {
+            foreach ($balances as $b) {
+                if ($b['daysOverdue'] >= 0) {
+                    $overdue[$key] += $b['open'];
+                    continue;
+                }
+                $idx = intdiv(-$b['daysOverdue'], 7);
+                if ($idx >= 8) {
+                    $beyond[$key] += $b['open'];
+                    continue;
+                }
+                $weeks[$idx][$key] += $b['open'];
+            }
+        }
+
+        foreach ($weeks as $i => $w) {
+            $weeks[$i]['net'] = $w['inflow'] - $w['outflow'];
+        }
+
+        return [
+            // Lo dice el payload, no solo el código: quien consuma esto desde
+            // afuera (MCP, export) tiene que saber qué está leyendo.
+            'basis'   => 'dueDate',
+            'overdue' => $overdue + ['net' => $overdue['inflow'] - $overdue['outflow']],
+            'weeks'   => $weeks,
+            'beyond'  => $beyond + ['net' => $beyond['inflow'] - $beyond['outflow']],
+        ];
+    }
+
+    /**
+     * 'Y-m-d ...' → fecha sin hora anclada en UTC, o null si no hay fecha.
+     *
+     * UTC no es un descuido: el ancla es irrelevante mientras sea la MISMA para
+     * "hoy" y para los vencimientos, y anclarlas en una zona con DST hace que
+     * la resta de dos medianoches dé 23 o 25 horas y que un `floor(.../86400)`
+     * se corra un día dos veces por año. Acá la diferencia se toma con `diff()`
+     * sobre fechas, que cuenta días de calendario.
+     */
+    private function asDate(string $raw): ?\DateTimeImmutable
+    {
+        $d = substr(trim($raw), 0, 10);
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
+            return null;
+        }
+        return new \DateTimeImmutable($d, new \DateTimeZone('UTC'));
+    }
+
+    /** Días de calendario de $a a $b (negativo si $b es anterior). */
+    private function dayDelta(\DateTimeImmutable $a, \DateTimeImmutable $b): int
+    {
+        return (int) $a->diff($b)->format('%r%a');
+    }
+
+    /**
      * Saldo pendiente de UN contacto puntual (cuentas por cobrar si
      * $isCustomer, por pagar si no) — misma fuente de verdad que general():
      * transacciones a crédito incompletas (transactionComplete = false)

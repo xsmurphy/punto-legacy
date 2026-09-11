@@ -9,6 +9,14 @@
  *       multi-factura del panel para listar las facturas a crédito pendientes de UN
  *       cliente (evita traer el reporte completo de la empresa para eso).
  *
+ *   GET /v1/reports/open_invoices?view=summary
+ *       → agregados de LAS DOS puntas a la vez (totales, antigüedad, vencido vs por
+ *         vencer, top 10 por lado y proyección por vencimiento). Es el dashboard de
+ *         `/reports/open-invoices`. NO toma `state` ni `contactId`: por definición mira
+ *         cobrar Y pagar en la misma respuesta — el neto entre las dos es justamente
+ *         el número que el dueño viene a buscar, y pedirlo en dos requests sería dos
+ *         fotos de momentos distintos.
+ *
  * Read-only. Auth: realms `panel` y `api` (lectura programatica). Sin ROC (el service bindea companyId y outletId en
  * cada SELECT en vez de interpolarlos como hace `Roc::build`).
  */
@@ -23,6 +31,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 
 $state = (validateHttp('state') === 'outcome') ? 'outcome' : 'income';
+$isSummary = (validateHttp('view') === 'summary');
 
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 if (!preg_match($uuidRe, (string) COMPANY_ID)) {
@@ -61,13 +70,28 @@ if ($contactId !== '' && !preg_match($uuidRe, $contactId)) {
  * es lo que se pide, no quién pide, lo que decide la clave.
  */
 require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
-$permsLectura = $state === 'outcome'
-    ? ['reports.purchases.view']
-    : ['reports.sales.view'];
-if ($contactId !== '') {
-    $permsLectura[] = $state === 'outcome' ? 'finance.manage' : 'pos.sale.creditPayment';
+
+if ($isSummary) {
+    // `view=summary` devuelve ventas a crédito Y compras a crédito en la misma
+    // respuesta, así que pide LAS DOS claves — no "cualquiera de las dos". Con
+    // `requireAnyPermission` un rol de ventas se llevaba de regalo la deuda con
+    // proveedores, que es exactamente lo que la rama por `state` de acá abajo
+    // separa. Son dos `requirePermission` seguidos y no una variante nueva del
+    // helper: el AND ya es expresable con lo que hay.
+    if ($contactId !== '') {
+        apiError('view=summary no acepta contactId: es el agregado de la empresa', 422);
+    }
+    \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.sales.view');
+    \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.purchases.view');
+} else {
+    $permsLectura = $state === 'outcome'
+        ? ['reports.purchases.view']
+        : ['reports.sales.view'];
+    if ($contactId !== '') {
+        $permsLectura[] = $state === 'outcome' ? 'finance.manage' : 'pos.sale.creditPayment';
+    }
+    \Punto\Api\Auth\OperatorContext::requireAnyPermission($ctx, $permsLectura);
 }
-\Punto\Api\Auth\OperatorContext::requireAnyPermission($ctx, $permsLectura);
 
 // Sucursal efectiva del view-scope — mismo patrón que reports/stock.php y
 // reports/dashboard.php. `VIEW_OUTLET_ID` la define bootstrap.php a partir del
@@ -85,4 +109,6 @@ if ($contactId !== '') {
 // conjunto sin ninguna ambigüedad.
 $effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
-apiOk($svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null, $effectiveOutletIds));
+apiOk($isSummary
+    ? $svc->summary(COMPANY_ID, $effectiveOutletIds)
+    : $svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null, $effectiveOutletIds));
