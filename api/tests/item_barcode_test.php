@@ -121,6 +121,16 @@ $itemPanel   = _bcUuid();  // alta/edición por ItemService (camino del panel)
 $parentId    = _bcUuid();  // padre de variantes
 $created     = [];
 
+// Tenant víctima independiente del seed: para el caso de aislamiento
+// multi-tenant (i), donde un ítem de OTRA empresa comparte el mismo código de
+// barras. Se crea entero (company + outlet) porque `item.companyid` es FK.
+$companyB    = _bcUuid();
+$outletB     = _bcUuid();
+$itemBco     = _bcUuid();
+// Código compartido a propósito con `$itemPanel` (company A) — el catálogo NO
+// tiene UNIQUE sobre barcode, así que dos empresas pueden tener el mismo.
+$sharedBarcode = '7501031311309';
+
 $repo        = new ItemRepository($db);
 $itemService = new ItemService($repo);
 
@@ -262,8 +272,9 @@ try {
         $checks
     );
 
-    // Se deja un código cargado para los casos de catálogo/búsqueda de abajo.
-    $itemService->update($itemPanel, $companyA, ['barcode' => '7501031311309']);
+    // Se deja un código cargado para los casos de catálogo/búsqueda de abajo,
+    // el MISMO que tendrá el ítem de la otra empresa en (i).
+    $itemService->update($itemPanel, $companyA, ['barcode' => $sharedBarcode]);
 
     // ── (e) El SELECT compartido del catálogo lo expone ───────────────────────
     $rows = fetchItems($db, 'i.itemId = ? AND i.companyId = ?', [$itemPanel, $companyA]);
@@ -366,7 +377,62 @@ try {
         $checks
     );
 
+    // ── (i) AISLAMIENTO multi-tenant de la búsqueda por barcode ───────────────
+    // El código de barras NO es único entre empresas (no hay UNIQUE), así que
+    // dos tenants pueden tener el MISMO. La búsqueda tiene que devolver solo el
+    // ítem de la empresa que consulta — el aislamiento lo da el `i.companyId =
+    // ?` del WHERE, no el barcode. Sin ese filtro, escanear en una caja del
+    // tenant A traería (y podría vender) el artículo del tenant B: fuga
+    // cross-tenant por un dato que el atacante ni siquiera necesita adivinar,
+    // porque los códigos EAN son públicos y se repiten entre comercios.
+    //
+    // `$itemPanel` (company A) quedó con `$sharedBarcode` tras el caso (d).
+    $db->Execute(
+        "INSERT INTO company (companyId, status, plan, balance, isParent, config)
+         VALUES (?, 'active', 1, 0.00, FALSE, '{\"settingName\":\"BC Test B\"}'::jsonb)",
+        [$companyB]
+    );
+    $db->Execute(
+        'INSERT INTO outlet (outletId, outletName, outletStatus, companyId) VALUES (?, ?, 1, ?)',
+        [$outletB, 'BC Test B - Sucursal', $companyB]
+    );
+    $db->Execute(
+        'INSERT INTO item (itemid, itemname, companyid, itemstatus, itemcansale, barcode)
+         VALUES (?, ?, ?, 1, TRUE, ?)',
+        [$itemBco, 'BC ítem de otra empresa', $companyB, $sharedBarcode]
+    );
+
+    $searchWhere = 'i.companyId = ? AND (i.itemName ILIKE ? OR i.itemSKU ILIKE ? OR i.barcode ILIKE ?)';
+    $pat         = '%' . $sharedBarcode . '%';
+
+    // A busca su propio código: encuentra SOLO su ítem, nunca el de B.
+    $hitsA   = fetchItems($db, $searchWhere, [$companyA, $pat, $pat, $pat]);
+    $hitAIds = array_column($hitsA, 'itemId');
+    check(
+        '(i) la búsqueda por barcode de la empresa A NO devuelve el ítem homónimo de B',
+        in_array($itemPanel, $hitAIds, true) && !in_array($itemBco, $hitAIds, true),
+        'A vio: ' . implode(',', $hitAIds) . ' (esperado incluir ' . $itemPanel . ' y excluir ' . $itemBco . ')',
+        $failures,
+        $checks
+    );
+
+    // Y el recíproco: B ve el suyo y no el de A.
+    $hitsB   = fetchItems($db, $searchWhere, [$companyB, $pat, $pat, $pat]);
+    $hitBIds = array_column($hitsB, 'itemId');
+    check(
+        '(i2) la búsqueda por barcode de la empresa B NO devuelve el ítem homónimo de A',
+        in_array($itemBco, $hitBIds, true) && !in_array($itemPanel, $hitBIds, true),
+        'B vio: ' . implode(',', $hitBIds) . ' (esperado incluir ' . $itemBco . ' y excluir ' . $itemPanel . ')',
+        $failures,
+        $checks
+    );
+
 } finally {
+    // Company B y sus dependencias (item → outlet → company, respetando FKs).
+    try { $db->Execute('DELETE FROM item WHERE itemid = ?', [$itemBco]); } catch (\Throwable) {}
+    try { $db->Execute('DELETE FROM outlet WHERE outletId = ?', [$outletB]); } catch (\Throwable) {}
+    try { $db->Execute('DELETE FROM company WHERE companyId = ?', [$companyB]); } catch (\Throwable) {}
+
     // Variantes primero (FK variantparentid → item).
     foreach (array_reverse($created) as $it) {
         try { $db->Execute('DELETE FROM item_outlet WHERE itemid = ?', [$it]); } catch (\Throwable) {}
