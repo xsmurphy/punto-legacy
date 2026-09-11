@@ -53,6 +53,19 @@ export interface TransactionDetail {
   creditPayments?: { total: number; paid: number; debt: number }
   /** Notas de crédito (type=6) hijas de esta transacción. */
   creditNotes?: Array<{ transactionId: string; transactionDate: string; transactionTotal: number; invoiceNo?: string | null }>
+  /**
+   * Resumen de devoluciones VIGENTES — lo que el menú de acciones necesita
+   * para decidir qué ofrecer. DISTINTO de `creditNotes`, que lista TODAS las
+   * devoluciones (anuladas incluidas) porque es el bloque de auditoría.
+   *
+   * `count` es el mismo conjunto que el backend mira para rechazar con
+   * `HAS_RETURNS` (`SaleVoidService`), así que ocultar "Anular" con
+   * `count > 0` tapa exactamente los casos que el servidor rechazaría.
+   * `fullyReturned` = no queda ninguna unidad por devolver.
+   *
+   * Ausente en transacciones que no son venta contado/crédito.
+   */
+  returns?: { count: number; fullyReturned: boolean }
   /** Agendamientos (type=13) hijos de esta transacción. */
   appointments?: Array<{ transactionId: string; transactionDate: string; transactionTotal: number }>
   /** Recibos de pago (type=5) hijos — solo type=3. */
