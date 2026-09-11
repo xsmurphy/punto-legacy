@@ -32,6 +32,7 @@ import {
 import {
   DateRangePicker,
   rangeToBackend,
+  type DateRangeValue,
 } from "@/components/date-range-picker"
 import {
   Dialog,
@@ -140,13 +141,31 @@ function fmtDate(iso: string): string {
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface TransactionsListProps {
-  backHref: string
+  /** Destino del "volver". Irrelevante —y no se renderiza— si va embebida. */
+  backHref?: string
   mode?: "panel" | "pos"
+  /**
+   * Embebida dentro de otra página (una pestaña), no como pantalla propia.
+   *
+   * Suprime el header —volver, título y selector de fechas— porque los pone
+   * quien la contiene, y el rango viene de afuera para que cambiar de pestaña
+   * no obligue a re-elegir el período. Sin esto, dos `useDateRange()` en la
+   * misma pantalla pelean por el mismo estado compartido (mismo criterio que
+   * `RankingReportPage.embeddedRange` y `OrdersList.embeddedRange`).
+   *
+   * El export fiscal NO se suprime: es una acción del listado, no del header,
+   * y esconderla al embeber sería perder RG90 y Libro Ventas.
+   */
+  embeddedRange?: DateRangeValue
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function TransactionsList({ backHref, mode = "panel" }: TransactionsListProps) {
+export function TransactionsList({
+  backHref,
+  mode = "panel",
+  embeddedRange,
+}: TransactionsListProps) {
   const { data: bootstrap } = useBootstrap()
   // El rango es COMPARTIDO (`use-date-range`), no de esta pantalla: en el panel
   // es el mismo que se ve en órdenes, agenda y los reportes, y sobrevive al
@@ -158,7 +177,9 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   // en la caja, que comparten origin y por lo tanto localStorage. Sin separar,
   // el rango largo que el dueño dejó puesto en un reporte se le aparecería al
   // cajero buscando la venta que acaba de emitir.
-  const { range, setRange } = useDateRange(mode === "pos" ? "pos" : "panel")
+  const { range: ownRange, setRange } = useDateRange(mode === "pos" ? "pos" : "panel")
+  const embedded = embeddedRange !== undefined
+  const range = embeddedRange ?? ownRange
 
   // Filtros de Método de pago / Tipo de venta (chips removibles, ver
   // ActiveFilters más abajo). Método de pago sale de una fuente DISTINTA
@@ -837,39 +858,49 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       </Select>
     ) : null
 
+  // El export fiscal es una acción del LISTADO, no del header: se arma acá
+  // para poder seguir ofreciéndolo cuando el header no se renderiza (embebida
+  // como pestaña de /reports/sales).
+  const fiscalExport =
+    mode === "panel" && isPyTenant ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" disabled={fiscalExporting !== null}>
+            <Download className="size-4" />
+            {fiscalExporting ? "Exportando…" : "Exportar fiscal"}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => handleExportFiscal("rg90")}>
+            RG90 (Marangatu)
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => handleExportFiscal("libro-ventas")}>
+            Libro Ventas
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    ) : null
+
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <BackLink backHref={backHref} />
-          <h1 className="text-2xl font-semibold">Transacciones</h1>
-          <p className="text-sm text-muted-foreground">
-            Todas las ventas del período: facturas, tickets y notas de crédito.
-            Si necesitás ver más de 5.000 movimientos, achicá el rango de fechas.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {mode === "panel" && isPyTenant && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" disabled={fiscalExporting !== null}>
-                  <Download className="size-4" />
-                  {fiscalExporting ? "Exportando…" : "Exportar fiscal"}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => handleExportFiscal("rg90")}>
-                  RG90 (Marangatu)
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => handleExportFiscal("libro-ventas")}>
-                  Libro Ventas
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-          <DateRangePicker value={range} onChange={setRange} />
-        </div>
-      </header>
+      {embedded ? (
+        fiscalExport && <div className="flex justify-end">{fiscalExport}</div>
+      ) : (
+        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex flex-col gap-1">
+            {backHref && <BackLink backHref={backHref} />}
+            <h1 className="text-2xl font-semibold">Transacciones</h1>
+            <p className="text-sm text-muted-foreground">
+              Todas las ventas del período: facturas, tickets y notas de crédito.
+              Si necesitás ver más de 5.000 movimientos, achicá el rango de fechas.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {fiscalExport}
+            <DateRangePicker value={range} onChange={setRange} />
+          </div>
+        </header>
+      )}
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
