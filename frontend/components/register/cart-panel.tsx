@@ -869,7 +869,14 @@ function CustomerChip({
     if (!priceListName) return null
     return (
       <div className="px-3 py-1.5">
-        <p className="truncate text-[10px] text-muted-foreground lg:text-[11px]">Lista: {priceListName}</p>
+        {/* Badge y no texto plano: es un ESTADO activo de la venta (los
+            precios del carrito están alterados por esta lista), no un dato
+            informativo — pedido del owner 2026-09-11. Mismo slot, sin
+            desplazar nada (posiciones estables del POS). */}
+        <Badge variant="secondary" className="max-w-full gap-1 px-1.5 text-[10px] lg:text-[11px]">
+          <Tag className="size-3 shrink-0" />
+          <span className="truncate font-medium">{priceListName}</span>
+        </Badge>
       </div>
     )
   }
@@ -882,7 +889,10 @@ function CustomerChip({
           <p className="text-[10px] text-muted-foreground lg:text-[11px]">{customer.tin}</p>
         )}
         {priceListName && (
-          <p className="truncate text-[10px] text-muted-foreground lg:text-[11px]">Lista: {priceListName}</p>
+          <Badge variant="secondary" className="mt-0.5 max-w-full gap-1 px-1.5 text-[10px] lg:text-[11px]">
+            <Tag className="size-3 shrink-0" />
+            <span className="truncate font-medium">{priceListName}</span>
+          </Badge>
         )}
       </div>
       <Button
