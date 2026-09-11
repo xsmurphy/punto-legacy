@@ -84,7 +84,7 @@ final class EncomMigrationService
         // que validar: alcanza con que exista. Lo que NO puede pasar es
         // importar contra un companyId inventado — quedaría un catálogo
         // colgado que nadie ve y que ningún borrado alcanza.
-        $company = ncmExecute('SELECT companyId FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        $company = self::row('SELECT companyId FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
         if (!$company) {
             throw new EncomMigrationException('La empresa destino no existe.', 404);
         }
@@ -92,7 +92,7 @@ final class EncomMigrationService
         // ── Guard: un solo job vivo por empresa ─────────────────────────
         // También hay índice único parcial en la base (mig 218). Acá se
         // chequea para dar un mensaje útil en vez de un choque de constraint.
-        $alive = ncmExecute(
+        $alive = self::row(
             "SELECT jobid FROM migration_job
               WHERE companyid = ? AND status IN ('pending','running') LIMIT 1",
             [$companyId]
@@ -143,7 +143,7 @@ final class EncomMigrationService
         // cuál es, así que la elige el operador o el dominio se saltea.
         $options = ['registerOutletId' => $registerOutletId ?: null];
 
-        $row = ncmExecute(
+        $row = self::row(
             'INSERT INTO migration_job (companyid, source, status, domains, credentials, progress, createdby)
              VALUES (?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)
              RETURNING jobid',
@@ -158,7 +158,7 @@ final class EncomMigrationService
             ]
         );
 
-        $jobId = (string) ($row['jobid'] ?? $row['jobId'] ?? '');
+        $jobId = $row !== null ? (string) ($row['jobid'] ?? '') : '';
         if ($jobId === '') {
             throw new EncomMigrationException('No se pudo crear el job de migración.', 500);
         }
@@ -209,7 +209,7 @@ final class EncomMigrationService
     /** Detalle de un job, con su bitácora. Tampoco devuelve `credentials`. */
     public function detail(string $jobId): array
     {
-        $row = ncmExecute(
+        $row = self::row(
             'SELECT j.jobid, j.companyid, j.source, j.status, j.domains, j.progress,
                     j.errors, j.log, j.attempts, j.started_at, j.finished_at, j.created_at,
                     (j.credentials IS NOT NULL) AS hascredentials,
@@ -241,7 +241,7 @@ final class EncomMigrationService
      */
     public function claimNext(): ?array
     {
-        $row = ncmExecute(
+        $row = self::row(
             "UPDATE migration_job
                 SET status     = 'running',
                     attempts   = attempts + 1,
@@ -492,7 +492,7 @@ final class EncomMigrationService
      */
     public static function mapped(string $companyId, string $domain, string $legacyId): ?string
     {
-        $row = ncmExecute(
+        $row = self::row(
             'SELECT puntoid FROM migration_map
               WHERE companyid = ? AND domain = ? AND legacyid = ? LIMIT 1',
             [$companyId, $domain, $legacyId]
@@ -533,6 +533,36 @@ final class EncomMigrationService
     // ═══════════════════════════════════════════════════════════════════
 
     /** Shape estable para la API, sin `credentials`. */
+    /**
+     * Una fila, con la superficie de DB que SÍ existe en el realm admin.
+     *
+     * `ncmExecute()` vive en `includes/functions.php`, que el realm admin NO
+     * carga — es un realm aislado a propósito (ver el docblock de
+     * `CompanyAdminService`, que por lo mismo reimplementa el flatten de JSONB
+     * en vez de depender del global). Usarlo acá tiraba
+     * "Call to undefined function Punto\Api\Admin\ncmExecute()" y el endpoint
+     * respondía 500 al crear una migración — el worker no lo veía porque entra
+     * por `bootstrap.php`, que sí lo define.
+     *
+     * Devuelve un array plano o null. Los campos JSONB pueden venir como
+     * string; `jsonField()` ya tolera las dos formas, y el worker decodifica
+     * con su propio helper.
+     */
+    private static function row(string $sql, array $params = []): ?array
+    {
+        global $db;
+
+        $rs = $db->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) {
+            return null;
+        }
+        $fields = $rs->fields;
+
+        return $fields instanceof \CaseInsensitiveArray
+            ? $fields->toArray()
+            : (is_array($fields) ? $fields : []);
+    }
+
     private function shape(array|\ArrayAccess $row): array
     {
         return [

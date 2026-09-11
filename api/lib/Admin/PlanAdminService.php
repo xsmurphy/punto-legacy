@@ -63,10 +63,15 @@ class PlanAdminService
         $out = [];
         if ($r) {
             while (!$r->EOF) {
-                // ncmRow(): normalizador único del DB layer. `$r->fields` es
-                // CaseInsensitiveArray, no array — pasarlo crudo a un typehint
-                // `array` tira TypeError y dejaba /admin/plans sin listado.
-                $out[] = $this->rowToPlan(ncmRow($r->fields), true);
+                // `$r->fields` es CaseInsensitiveArray, no array — pasarlo
+                // crudo a un typehint `array` tira TypeError y dejaba
+                // /admin/plans sin listado. Se normaliza con `toArray()`, el
+                // mismo idioma que `nextPlanCode()` más abajo en este archivo:
+                // `ncmRow()` vive en includes/functions.php y el realm admin NO
+                // lo carga (es aislado a propósito — ver el docblock de esta
+                // clase), así que llamarlo acá era un 500 esperando a que
+                // alguien abriera el listado de planes.
+                $out[] = $this->rowToPlan($r->fields->toArray(), true);
                 $r->MoveNext();
             }
         }
