@@ -23,6 +23,13 @@ export interface UpstreamItemRow {
   itemId: string
   itemName: string
   itemSKU?: string | null
+  /**
+   * Código de barras propio del artículo (`item.barcode`, mig 220). Viaja en
+   * el SELECT compartido del backend (`buildItemsSelectSql()`), así que llega
+   * por los tres caminos —bootstrap, bulk-get quirúrgico y delta de sync— sin
+   * que ninguno tenga que pedirlo aparte. Ver `PosItem.barcode`.
+   */
+  barcode?: string | null
   itemPrice?: number | string | null
   itemStatus?: number | boolean | string
   itemCanSale?: boolean
@@ -79,6 +86,11 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
     id: row.itemId,
     name: row.itemName,
     sku: row.itemSKU ?? null,
+    // Defensivo: un bootstrap cacheado de ANTES de la mig 220 no trae el
+    // campo. `?? null` y no `?? row.itemSKU`: hacer que el barcode caiga al
+    // SKU los volvería indistinguibles, que es justo lo que esta feature vino
+    // a separar.
+    barcode: row.barcode ?? null,
     price: Number(row.itemPrice ?? 0),
     // `?? true` perdía la distinción "sin override" vs "explícitamente
     // incluido" — el carrito necesita el `null` para caer al default de la

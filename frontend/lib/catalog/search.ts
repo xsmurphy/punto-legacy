@@ -61,7 +61,7 @@ export const LIST_FILTER_THRESHOLD = 8
  * Busca items vendibles en el catálogo en memoria.
  *
  * @param items   Array del store (useCatalogStore.getState().items)
- * @param query   Texto libre del cajero (nombre, SKU, barcode)
+ * @param query   Texto libre del cajero (nombre, SKU, código de barras)
  * @param limit   Máximo de resultados (default 50)
  * @returns Items ordenados por relevancia (exactMatch primero)
  */
@@ -80,12 +80,17 @@ export function searchItems(
   for (const item of items) {
     const name = normalize(item.name)
     const sku = item.sku ? normalize(item.sku) : ""
+    // El código de barras también se TIPEA, no solo se escanea: el lector
+    // falla, la etiqueta está arrugada, o el artículo está en la mano del
+    // cliente y el cajero copia los dígitos. Si la búsqueda manual no lo
+    // mirara, el campo solo serviría con el scanner andando.
+    const barcode = item.barcode ? normalize(item.barcode) : ""
 
-    if (name === q || sku === q) {
+    if (name === q || sku === q || barcode === q) {
       exact.push(item)
-    } else if (name.startsWith(q) || sku.startsWith(q)) {
+    } else if (name.startsWith(q) || sku.startsWith(q) || barcode.startsWith(q)) {
       starts.push(item)
-    } else if (name.includes(q) || sku.includes(q)) {
+    } else if (name.includes(q) || sku.includes(q) || barcode.includes(q)) {
       includes.push(item)
     }
 
@@ -96,12 +101,47 @@ export function searchItems(
 }
 
 /**
- * Busca un item EXACTO por SKU/barcode. Retorna null si no encuentra.
- * Usado por el barcode scanner (keyboard-wedge) para match instantáneo.
+ * Busca un item EXACTO por SKU. Retorna null si no encuentra.
+ *
+ * Para resolver lo que llega de un LECTOR usá `findItemByCode()`: el orden
+ * entre barcode, SKU e id es parte del contrato y no puede quedar en manos de
+ * cada call-site.
  */
 export function findItemBySku(items: PosItem[], sku: string): PosItem | null {
   const q = normalize(sku)
   return items.find((i) => i.sku !== null && normalize(i.sku) === q) ?? null
+}
+
+/**
+ * Resuelve un código escaneado (o tipeado) contra el catálogo en memoria.
+ *
+ * ── El orden es el contrato: barcode → sku → id ─────────────────────────────
+ *
+ * `barcode` primero porque es lo que un lector emite: es el código que está
+ * IMPRESO en el envase que el cajero acaba de pasar. El SKU es el código
+ * interno que el comercio inventa, y el id es el UUID de la fila — ese último
+ * queda al final como escape hatch (etiquetas propias impresas por Punto), no
+ * como camino normal.
+ *
+ * Sin el orden fijo la resolución sería ambigua: el catálogo NO garantiza
+ * unicidad entre ítems (dos artículos pueden compartir código y gana el
+ * primero — decisión del owner) ni entre CAMPOS (el barcode de un artículo
+ * puede ser el SKU de otro). Con un `.find()` a mano en cada pantalla, el
+ * mismo escaneo agregaría un producto distinto según qué componente lo
+ * atendió. Por eso vive acá y no en el wiring del scanner.
+ *
+ * @returns el ítem, o null si el código no pertenece a ninguno.
+ */
+export function findItemByCode(items: PosItem[], code: string): PosItem | null {
+  const q = normalize(code)
+  if (!q) return null
+
+  return (
+    items.find((i) => i.barcode !== null && normalize(i.barcode) === q) ??
+    items.find((i) => i.sku !== null && normalize(i.sku) === q) ??
+    items.find((i) => normalize(i.id) === q) ??
+    null
+  )
 }
 
 // ── Customers ─────────────────────────────────────────────────────────────────
