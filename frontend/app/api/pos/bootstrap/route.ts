@@ -395,7 +395,7 @@ async function fetchUpstream<T>(
  * ciegas porque el panel comparte el endpoint; el bootstrap, que es el
  * único consumidor que necesita TODO, pagina hasta agotar.
  *
- * `MAX_PAGES` es un freno de emergencia (10.000 ítems), no un límite de
+ * `MAX_PAGES` es un freno de emergencia (20.000 ítems), no un límite de
  * producto: si un tenant lo pisa, mejor un catálogo al 99% que un loop
  * infinito contra un backend que repite página.
  */
@@ -404,7 +404,7 @@ async function fetchAllItems(
   headers: Headers,
 ): Promise<{ status: number; data: UpstreamItemsList | null; rawText: string }> {
   const PAGE = 200
-  const MAX_PAGES = 50
+  const MAX_PAGES = 100
   const all: UpstreamItemRow[] = []
   let status = 0
   let rawText = ""
