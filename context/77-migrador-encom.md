@@ -51,7 +51,7 @@ php api/scripts/migration_worker.php <jobId> <companyId>
 | Endpoint realm admin | `api/v1/admin/migrations.php` |
 | Worker | `api/scripts/migration_worker.php` |
 | UI | `frontend/app/(admin)/admin/migrations/page.tsx` + `components/admin/migration-*.tsx` |
-| Arnés | `api/tests/run_encom_migration_test.sh` (49 checks) |
+| Arnés | `api/tests/run_encom_migration_test.sh` (53 checks) |
 
 ### 3.1 Por qué cola + proceso aparte (D3), con la razón corregida
 
@@ -249,7 +249,12 @@ La idempotencia protege el **re-correr**, no el correr en paralelo.
   `failed` aunque parte haya entrado: `done` con errores es un verde que nadie
   vuelve a mirar.
 - **Las cookies se borran al terminar el job**, salga bien o mal, y nunca se
-  devuelven por la API (el servicio expone solo `hasCredentials`).
+  devuelven por la API (el servicio expone solo `hasCredentials`). Y el drain
+  BARRE las de los jobs que nunca llegaron a correr: a las 24 h —lo que dura
+  la sesión del legacy— se nulean y el job se cierra como `failed` con el
+  motivo escrito. Cerrarlo no es cosmético: un `pending` sin cookies no puede
+  correr, y mientras siga `pending` el índice de "un job vivo por empresa"
+  bloquearía toda migración nueva de ese comercio.
 
 ## 8. Qué queda para F2 — NO implementado
 
@@ -328,6 +333,41 @@ La idempotencia protege el **re-correr**, no el correr en paralelo.
 4. **El orden de columnas de la tabla de ARTÍCULOS** (20 columnas). Es lo único
    que sigue siendo posicional; las de cajas y sucursales ya se resuelven por
    encabezado.
+
+### 9.1 Ventana conocida: caja huérfana si el proceso muere entre medio
+
+**Esto no es un bug misterioso, está asumido y documentado.** El import de una
+caja son dos escrituras que NO están en la misma transacción:
+
+```
+RegisterAdminService::create()   → la caja existe, con su (timbrado, punto)
+        ⟵ si el proceso muere ACÁ ⟶
+EncomMigrationService::remember() → recién ahora el mapa sabe que existe
+```
+
+Si el worker muere en esa ventana (OOM, deploy que recicla el contenedor), la
+caja **queda creada pero sin mapear**. Al reintentar el dominio `config`:
+
+- `migration_map` no la conoce, así que se la considera pendiente;
+- `assertExpeditionPointsFree()` encuentra el par (timbrado, punto) ya tomado
+  —por ella misma— y **aborta el dominio entero** con el mensaje de choque;
+- el retry queda bloqueado hasta que alguien lo resuelve a mano.
+
+**Cómo se reconoce:** el mensaje de error nombra como dueña del punto de
+expedición a una caja con el MISMO nombre que la que se está importando.
+
+**Cómo se arregla:** borrar esa caja en el panel del destino (no emitió nada:
+nació en la corrida que se cortó) y volver a lanzar la migración. La otra
+salida es insertar la fila que falta en `migration_map`.
+
+**Por qué se deja así.** Cerrarlo pide una transacción que abarque el servicio
+de alta de cajas y la tabla del migrador. `RegisterAdminService::create()` ya
+abre y cierra la suya —y publica un evento realtime al commitear—, así que
+envolverla desde afuera significa meter mano en el servicio canónico de altas
+de caja para servir a un caso del migrador. El costo de esa ventana es un
+arreglo manual de un minuto en un flujo que corre una vez por cliente y con un
+operador de soporte mirando; el costo de la alternativa es tocar el camino por
+el que se dan de alta TODAS las cajas del producto.
 
 ## 10. Lo que hay que hacer antes de mergear
 

@@ -121,7 +121,10 @@ COMMENT ON TABLE migration_job IS
 
 COMMENT ON COLUMN migration_job.credentials IS
   'Cookies de sesion del legacy obtenidas al crear el job (D2: la password '
-  'NUNCA se persiste). El worker las nulea al terminar. Jamas se exponen por '
+  'NUNCA se persiste). El worker las nulea al terminar, y el barrido del drain '
+  '(EncomMigrationService::sweepStaleCredentials) las nulea a las 24 h aunque '
+  'el job nunca se haya ejecutado: pasado ese plazo la sesion del legacy ya '
+  'caduco y retenerla es solo superficie de exposicion. Jamas se exponen por '
   'la API: el servicio devuelve solo el booleano hascredentials.';
 
 -- ═══════════════════════════════════════════════════════════════════════

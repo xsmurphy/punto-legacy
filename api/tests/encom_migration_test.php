@@ -785,6 +785,70 @@ try {
         "mensaje: $brokenErr",
         $failures, $checks
     );
+
+    // ══════════════════════════════════════════════════════════════════
+    // K. Barrido de credenciales huérfanas (TTL 24 h)
+    // ══════════════════════════════════════════════════════════════════
+    // Un job que nunca se ejecuta —falta ENCOM_MIGRATION_URL, cron caído—
+    // retendría la sesión viva del panel de un cliente para siempre.
+    seedCompany($companyId, 'Comercio Migrado SA');
+
+    $db->Execute(
+        "INSERT INTO migration_job (companyid, source, status, domains, credentials, created_at)
+         VALUES (?, 'encom', 'pending', '[\"catalog\"]'::jsonb, ?::jsonb, now() - interval '30 hours')",
+        [$companyId, json_encode(['cookies' => ['PHPSESSID' => 'viva'], 'legacyUrl' => 'https://legacy.test'])]
+    );
+
+    $antes = (int) scalar(
+        'SELECT count(*) FROM migration_job WHERE companyid = ? AND credentials IS NOT NULL',
+        [$companyId]
+    );
+
+    (new EncomMigrationService())->drain();
+
+    $conCreds = (int) scalar(
+        'SELECT count(*) FROM migration_job WHERE companyid = ? AND credentials IS NOT NULL',
+        [$companyId]
+    );
+
+    check(
+        'K1 · el job viejo tenía credenciales guardadas antes del barrido',
+        $antes === 1,
+        "jobs con credenciales antes = $antes",
+        $failures, $checks
+    );
+
+    check(
+        'K2 · el drain borra las cookies de un job pending de más de 24 h',
+        $conCreds === 0,
+        "jobs con credenciales después = $conCreds",
+        $failures, $checks
+    );
+
+    // Y lo cierra: un pending sin cookies no puede correr, y mientras siga
+    // `pending` el índice de "un job vivo por empresa" bloquearía toda
+    // migración nueva de ese comercio.
+    $estado = scalar(
+        'SELECT status FROM migration_job WHERE companyid = ? ORDER BY created_at DESC LIMIT 1',
+        [$companyId]
+    );
+    check(
+        'K3 · además lo cierra como failed (si no, bloquearía toda migración futura de esa empresa)',
+        (string) $estado === 'failed',
+        'status = ' . var_export($estado, true),
+        $failures, $checks
+    );
+
+    $motivo = (string) scalar(
+        'SELECT errors::text FROM migration_job WHERE companyid = ? ORDER BY created_at DESC LIMIT 1',
+        [$companyId]
+    );
+    check(
+        'K4 · el job dice por qué murió (la sesión caducó), no queda mudo',
+        str_contains($motivo, 'caduc'),
+        "errors = $motivo",
+        $failures, $checks
+    );
 } finally {
     cleanup($companyId);
     cleanup($companyB);

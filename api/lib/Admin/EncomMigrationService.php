@@ -251,11 +251,12 @@ final class EncomMigrationService
      */
     public function drain(): array
     {
+        $swept    = $this->sweepStaleCredentials();
         $requeued = $this->requeueStale();
 
         $job = $this->claimNext();
         if ($job === null) {
-            return ['spawned' => null, 'requeued' => $requeued];
+            return ['spawned' => null, 'requeued' => $requeued, 'swept' => $swept];
         }
 
         $jobId     = (string) ($job['jobid'] ?? '');
@@ -277,7 +278,85 @@ final class EncomMigrationService
 
         @exec($cmd);
 
-        return ['spawned' => $jobId, 'requeued' => $requeued];
+        return ['spawned' => $jobId, 'requeued' => $requeued, 'swept' => $swept];
+    }
+
+    /** Vida útil de la sesión del legacy. Pasado esto, la cookie no sirve. */
+    public const CREDENTIALS_TTL_HOURS = 24;
+
+    /**
+     * Barrido de credenciales huérfanas.
+     *
+     * `finish()` borra las cookies al cerrar un job, pero eso solo cubre a los
+     * que LLEGARON a correr. Un job que nunca fue reclamado —porque faltaba
+     * `ENCOM_MIGRATION_URL`, porque el cron estuvo caído, porque el worker
+     * murió antes de empezar— se queda con la sesión viva del panel de un
+     * cliente guardada en la base para siempre.
+     *
+     * La sesión del legacy dura 24 h: pasado ese plazo la cookie ya no sirve
+     * para nada, así que retenerla es solo superficie de exposición. El TTL
+     * estaba documentado; esto lo hace EFECTIVO.
+     *
+     * ── Por qué además se cierra el job, y no solo se borra la cookie ──────
+     * Un job `pending` sin credenciales NO PUEDE correr: el worker lo tomaría,
+     * fallaría con "el job no tiene la sesión" y quemaría un intento. Peor: el
+     * índice `uq_migration_job_alive` bloquea toda migración nueva de esa
+     * empresa mientras haya una `pending`, así que un job vencido dejaría al
+     * comercio sin poder migrar nunca más hasta que alguien lo tocara a mano.
+     * Se cierra como `failed` con el motivo escrito.
+     *
+     * @return int Cuántos jobs quedaron sin credenciales.
+     */
+    private function sweepStaleCredentials(): int
+    {
+        global $db;
+
+        $motivo = json_encode([[
+            'domain'  => 'job',
+            'message' => 'La sesión del panel legacy caducó (dura '
+                . self::CREDENTIALS_TTL_HOURS . ' h) antes de que la migración llegara a ejecutarse. '
+                . 'Creá la migración de nuevo.',
+            'at'      => gmdate('c'),
+        ]], JSON_UNESCAPED_UNICODE);
+
+        // `pending` vencido: se cierra Y se le borran las cookies.
+        $rs = $db->Execute(
+            "UPDATE migration_job
+                SET status      = 'failed',
+                    credentials = NULL,
+                    errors      = errors || ?::jsonb,
+                    finished_at = now(),
+                    updated_at  = now()
+              WHERE status = 'pending'
+                AND created_at < now() - (? || ' hours')::interval
+              RETURNING jobid",
+            [$motivo, self::CREDENTIALS_TTL_HOURS]
+        );
+
+        $n = 0;
+        while ($rs !== false && !$rs->EOF) {
+            $n++;
+            $rs->MoveNext();
+        }
+
+        // Red de contención para cualquier job ya cerrado al que le hayan
+        // quedado cookies (un worker que murió entre el import y `finish()`).
+        $rs2 = $db->Execute(
+            "UPDATE migration_job
+                SET credentials = NULL, updated_at = now()
+              WHERE credentials IS NOT NULL
+                AND status IN ('done', 'failed')
+                AND created_at < now() - (? || ' hours')::interval
+              RETURNING jobid",
+            [self::CREDENTIALS_TTL_HOURS]
+        );
+
+        while ($rs2 !== false && !$rs2->EOF) {
+            $n++;
+            $rs2->MoveNext();
+        }
+
+        return $n;
     }
 
     /**
