@@ -146,6 +146,21 @@ const nextConfig: NextConfig = {
         destination: "/settings/espacios",
         permanent: true,
       },
+      // Fusión Resumen + Transacciones → Ventas (owner 2026-09-11). Las dos
+      // eran reportes que la gente tiene en marcadores —y Transacciones era
+      // además item de sidebar—, así que caen en su pestaña en vez de en un
+      // 404. (Categorías y Marcas se eliminaron SIN redirect el 2026-09-10;
+      // ahí la decisión del owner fue explícita: nadie las tenía guardadas.)
+      {
+        source: "/reports/summary",
+        destination: "/reports/sales?tab=dashboard",
+        permanent: true,
+      },
+      {
+        source: "/reports/transactions",
+        destination: "/reports/sales?tab=transacciones",
+        permanent: true,
+      },
     ]
   },
   // `/favicon.ico` servía el HTML del panel con 404: el proyecto usa

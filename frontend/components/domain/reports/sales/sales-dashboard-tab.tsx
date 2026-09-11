@@ -1,14 +1,25 @@
 "use client"
 
 /**
- * Reporte Resumen de Ventas — paridad con panel/reports/summary.html.
+ * Pestaña Dashboard de `/reports/sales` — paridad con panel/reports/summary.html.
+ *
+ * Era la página `/reports/summary`. El 2026-09-11 el owner fusionó Resumen y
+ * Transacciones en UNA página "Ventas" con pestañas: son dos granos del MISMO
+ * hecho (el período agregado y cada venta del período), y tenerlos en dos
+ * entradas del índice obligaba a saber de antemano a qué nivel de detalle se
+ * quería entrar. Mismo criterio que Artículos el 2026-09-10.
+ *
+ * El contenido se MOVIÓ tal cual: lo único que se sacó es el header (título +
+ * `<DateRangePicker>`), que ahora pone la página contenedora. El rango entra
+ * por prop en vez de leerse de `useDateRange()` acá — dos consumidores del
+ * hook en la misma pantalla pelean por el mismo estado compartido, que es
+ * exactamente por lo que `RankingReportPage` ganó `embeddedRange`.
  *
  * Layout (top → bottom):
- *  1. Header: DateRangePicker
- *  2. Chart comparativo: bars Ingreso Actual / Ingreso Anterior / Egresos + line Margen
- *  3. KPI row: 4 cards (Total Bruto / Devoluciones / Descuentos / Total Neto) con delta %
- *  4. Charts secundarios: Día de la semana + Ventas por Hora
- *  5. Tabs Resumen / Por Día:
+ *  1. Chart comparativo: bars Ingreso Actual / Ingreso Anterior / Egresos + line Margen
+ *  2. KPI row: 4 cards (Total Bruto / Devoluciones / Descuentos / Total Neto) con delta %
+ *  3. Charts secundarios: Día de la semana + Ventas por Hora
+ *  4. Tabs Resumen / Por Día:
  *     - Resumen: grid 2x2 (VENTAS / MEDIOS DE PAGO / TIPOS / GIFT CARDS)
  *     - Por Día: DataTable con bucket diario
  *
@@ -48,10 +59,9 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart"
 import {
-  DateRangePicker,
   rangeToBackend,
+  type DateRangeValue,
 } from "@/components/date-range-picker"
-import { useDateRange } from "@/hooks/use-date-range"
 import { pctDelta, shiftRangeBackwards } from "@/lib/reports/previous-range"
 import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -92,11 +102,14 @@ interface HoursRow {
  * Dado un rango "actual" como strings backend, calcula el rango anterior
  * (mismo length, termina 1 segundo antes del 'from' actual).
  */
-// ── Page ────────────────────────────────────────────────────────────────────
+// ── Tab ─────────────────────────────────────────────────────────────────────
 
-export default function SummaryReportPage() {
+/**
+ * @param range Rango del período, provisto por `/reports/sales` — que lo lee
+ *   del `useDateRange()` global y lo comparte con la pestaña Transacciones.
+ */
+export function SalesDashboardTab({ range }: { range: DateRangeValue }) {
   const { data: bootstrap } = useBootstrap()
-  const { range, setRange } = useDateRange()
   const current = React.useMemo(() => rangeToBackend(range), [range])
   const previous = React.useMemo(
     () => shiftRangeBackwards(current.from, current.to),
@@ -188,16 +201,6 @@ export default function SummaryReportPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Resumen</h1>
-          <p className="text-sm text-muted-foreground">
-            Vista panorámica del período con comparativa al período anterior.
-          </p>
-        </div>
-        <DateRangePicker value={range} onChange={setRange} />
-      </header>
-
       {summary.error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
           <AlertCircle className="mt-0.5 size-4 text-destructive" />
