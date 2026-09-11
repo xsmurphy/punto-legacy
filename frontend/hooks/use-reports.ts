@@ -545,6 +545,76 @@ export interface UserReportRow {
 /** Respuesta de /v1/reports/users (array directo, no envuelto en rows). */
 export type UsersReportResponse = UserReportRow[]
 
+/**
+ * Fila del ranking de `view=summary`. Ojo con `tickets`: es
+ * `COUNT(DISTINCT transactionId)`, no el `count` de la vista default, que
+ * cuenta LÍNEAS. Sumar los `tickets` de todos los vendedores puede dar más
+ * que `totals.tickets` — una venta con líneas de dos vendedores es un ticket
+ * de cada uno y uno solo del comercio.
+ */
+export interface UserRankingRow {
+  userId: string
+  name: string
+  usold: number
+  total: number
+  comission: number
+  discount: number
+  tickets: number
+  avgTicket: number
+  /** Descuento sobre el bruto vendido, en porcentaje (0-100). */
+  discountPct: number
+}
+
+/** Un día y un vendedor. El backend NO devuelve los días sin ventas. */
+export interface UserDailyPoint {
+  /** "YYYY-MM-DD" en la zona del tenant. */
+  date: string
+  userId: string
+  total: number
+}
+
+/** Respuesta de /v1/reports/users?view=summary. */
+export interface UsersSummaryResponse {
+  totals: {
+    total: number
+    comission: number
+    discount: number
+    usold: number
+    /** Transacciones DISTINTAS del período, no la suma de las de cada vendedor. */
+    tickets: number
+    avgTicket: number
+    sellers: number
+  }
+  ranking: UserRankingRow[]
+  daily: UserDailyPoint[]
+}
+
+/** Una venta dentro de la liquidación de un vendedor. */
+export interface UserCommissionRow {
+  transactionId: string
+  date: string
+  /** Ya formateado por el backend ("001-001-0000025"). */
+  invoiceNo: string
+  total: number
+  /** La comisión CONGELADA al vender. Nunca se recalcula. */
+  comission: number
+}
+
+export interface UserCommissionSeller {
+  userId: string
+  name: string
+  total: number
+  comission: number
+  tickets: number
+  rows: UserCommissionRow[]
+}
+
+/** Respuesta de /v1/reports/users?view=commissions. */
+export interface UsersCommissionsResponse {
+  sellers: UserCommissionSeller[]
+  totals: { total: number; comission: number; tickets: number }
+}
+
 // ── Inventory movements ───────────────────────────────────────────────────────
 
 /** Fila del endpoint /v1/reports/inventory?dataset=movements. */
