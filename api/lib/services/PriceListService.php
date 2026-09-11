@@ -315,7 +315,12 @@ final class PriceListService
             false
         );
 
-        $price = $this->applyList($list, $itemRow ?: [], $basePrice);
+        // `ncmRow()` y NO la fila cruda: es un CaseInsensitiveArray (objeto) y
+        // `applyList(array $itemRow)` tipa array — con override presente el
+        // request moría en TypeError fatal y el POS, que trata cualquier error
+        // como offline, dejaba el precio base EN SILENCIO (bug Don Ramón
+        // 2026-09-11 — misma familia que el docblock de resolveActiveList).
+        $price = $this->applyList($list, $itemRow ? ncmRow($itemRow) : [], $basePrice);
 
         return [
             'price'         => round($price, 2),
@@ -377,7 +382,9 @@ final class PriceListService
             );
             if ($rows) {
                 while (!$rows->EOF) {
-                    $listItemRows[$rows->fields['itemId']] = $rows->fields;
+                    // ncmRow(): misma razón que arriba — `fields` es un
+                    // CaseInsensitiveArray y applyList() tipa array.
+                    $listItemRows[$rows->fields['itemId']] = ncmRow($rows->fields);
                     $rows->MoveNext();
                 }
             }
