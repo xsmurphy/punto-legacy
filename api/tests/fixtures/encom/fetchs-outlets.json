@@ -1,0 +1,40 @@
+[
+  {
+    "outletId": "out-1",
+    "name": "Casa Central",
+    "outletAddress": "Avda. Mcal. Lopez 1234",
+    "outletRazon": "Comercio Migrado SA",
+    "outletRuc": "80099887-1",
+    "outletPhone": "021555000",
+    "outletEmail": "central@comercio.test",
+    "outletLatLng": "-25.2800,-57.6300",
+    "outletOpen": "08:00",
+    "outletClose": "22:00",
+    "saleTax": "10",
+    "weekHours": [
+      { "isActive": 1, "timeFrom": "08:00", "timeTill": "22:00" },
+      { "isActive": 1, "timeFrom": "08:00", "timeTill": "22:00" },
+      { "isActive": 1, "timeFrom": "08:00", "timeTill": "22:00" },
+      { "isActive": 1, "timeFrom": "08:00", "timeTill": "22:00" },
+      { "isActive": 1, "timeFrom": "08:00", "timeTill": "23:00" },
+      { "isActive": 1, "timeFrom": "09:00", "timeTill": "23:00" },
+      { "isActive": 0, "timeFrom": "", "timeTill": "" }
+    ],
+    "attendanceToken": "tok-1"
+  },
+  {
+    "outletId": "out-2",
+    "name": "Sucursal Shopping",
+    "outletAddress": "Shopping del Sol, Local 12",
+    "outletRazon": "Comercio Migrado SA",
+    "outletRuc": "80099887-1",
+    "outletPhone": "021555111",
+    "outletEmail": "",
+    "outletLatLng": "",
+    "outletOpen": "10:00",
+    "outletClose": "21:00",
+    "saleTax": "10",
+    "weekHours": [],
+    "attendanceToken": "tok-2"
+  }
+]

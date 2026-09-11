@@ -1,0 +1,71 @@
+[
+  {
+    "userId": "usr-1",
+    "name": "María Dueña",
+    "email": "maria@comercio.test",
+    "phone": "0981111222",
+    "lockPass": "1234",
+    "role": "2",
+    "roleName": "Administrador",
+    "outlet": "out-1",
+    "inCalendar": 0,
+    "calendarPosition": 0,
+    "trackGPS": 0,
+    "color": "sky",
+    "intercom": "",
+    "permissions": {
+      "register": {
+        "access": 1,
+        "orders": { "create": 1, "edit": 1, "view": 1 },
+        "quotes": 1,
+        "sales": { "discounts": 1, "price": 1 },
+        "schedule": 1,
+        "tables": 1,
+        "transactions": 1
+      }
+    },
+    "token": ""
+  },
+  {
+    "userId": "usr-2",
+    "name": "Pedro Cajero",
+    "email": "pedro@comercio.test",
+    "phone": "0982333444",
+    "lockPass": "5678",
+    "role": "4",
+    "roleName": "Cajero",
+    "outlet": "out-2",
+    "inCalendar": 0,
+    "calendarPosition": 0,
+    "trackGPS": 0,
+    "color": "emerald",
+    "permissions": {
+      "register": {
+        "access": 1,
+        "orders": { "create": 1, "edit": 0, "view": 1 },
+        "quotes": 0,
+        "sales": { "discounts": 0, "price": 0 },
+        "schedule": 0,
+        "tables": 1,
+        "transactions": 0
+      }
+    },
+    "token": ""
+  },
+  {
+    "userId": "usr-3",
+    "name": "Sin Rol Declarado",
+    "email": "",
+    "phone": "",
+    "lockPass": "",
+    "role": "",
+    "roleName": "",
+    "outlet": "",
+    "inCalendar": 0,
+    "calendarPosition": 0,
+    "trackGPS": 0,
+    "color": "",
+    "permissions": {},
+    "token": ""
+  }
+]

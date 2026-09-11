@@ -6,29 +6,33 @@ declare(strict_types=1);
  *
  * Corre contra Postgres REAL (descartable, lo levanta run_encom_migration_test.sh),
  * contra los SERVICIOS REALES de import y contra el CLIENTE REAL del legacy.
- * Lo único que se reemplaza es el TRANSPORTE HTTP: `FixtureEncomClient`
- * sobreescribe `get()` y sirve los payloads CRUDOS que devuelve el sistema
- * vivo (CSV con `\r` y comillas, `{"table": "<html>"}`, forms HTML).
+ * Lo único que se reemplaza es el TRANSPORTE: `FixtureEncomClient` sobreescribe
+ * `fetch()` y sirve los payloads de `/fetchs` con el shape EXACTO que devuelve
+ * el sistema vivo (`api/tests/fixtures/encom/fetchs-*.json`).
  *
- * Por qué así y no con un `EncomSource` de JSON normalizado: lo que más se
- * puede equivocar es justamente el mapeo —qué `action` se pide, el orden de
- * las columnas de cada tabla, de qué atributo sale el valor crudo—, y un
- * fixture ya normalizado lo saltea entero. Acá se ejercita.
+ * Por qué así y no con un `EncomSource` de JSON ya normalizado: lo que más se
+ * puede equivocar es justamente el mapeo —de qué campo sale cada dato, cómo se
+ * junta `registers` con `docsNum`, cómo se lee el `compound` inline— y un
+ * fixture normalizado lo saltea entero. Acá se ejercita.
  *
  * Casos:
+ *   S. ALCANCE — companyId/outletId salen del `?i=` en base64, por el redirect
+ *      y por el fallback del home; si no sale por ninguna vía, LANZA.
+ *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`).
+ *   X. EXPORT — el mapeo de cada dominio de `/fetchs`.
  *   A. Import completo — conteos por dominio y entidades realmente creadas.
- *   B. IDEMPOTENCIA — re-correr no duplica: todo `skipped`, conteos quietos.
+ *   R. COMBOS Y RECETAS — la composición inline se resuelve por el mapa; lo que
+ *      no mapea limpio NO se inventa y queda anotado para revisar.
  *   C. MAPEO — `migration_map`, y el artículo apunta a la categoría importada.
  *   D. CONTINUACIÓN DE NUMERACIÓN (D5) — `document_sequence` con el timbrado y
- *      el punto del legacy y `nextnumber` = último emitido + 1.
+ *      el punto del legacy y `nextnumber` = último emitido + 1, por doctype.
+ *   U. USUARIOS — PIN, sucursal y el rol de Punto asignado por nombre.
+ *   P. MEDIOS DE PAGO — se suman los del legacy sin duplicar los que ya existen.
+ *   F. La caja placeholder de la sucursal se REUSA (no quedan fantasmas).
+ *   B. IDEMPOTENCIA — re-correr no duplica NADA, recetas incluidas.
  *   E. RECHAZO por punto de expedición duplicado — aborta el dominio SIN
  *      importar ninguna caja.
- *   F. La caja placeholder de la sucursal se REUSA (no quedan fantasmas).
- *   G. PARSERS sobre los shapes exactos del sistema vivo.
- *   H. El export recorre TODAS las sucursales (switch `?o=`) y filtra por ROL.
- *   I. Fallback de artículos a la tabla HTML cuando no hay `format=json`.
- *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`) y el
- *      identificador sin normalizar.
+ *   Z. Barrido de credenciales huérfanas (TTL 24 h).
  */
 
 require_once __DIR__ . '/_harness.php';
@@ -45,14 +49,12 @@ define('TODAY', date('Y-m-d H:i:s'));
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomClient.php';
-require_once dirname(__DIR__) . '/lib/Admin/EncomParse.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomImportService.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomMigrationService.php';
 
 use Punto\Api\Admin\EncomClient;
 use Punto\Api\Admin\EncomImportService;
 use Punto\Api\Admin\EncomMigrationService;
-use Punto\Api\Admin\EncomParse;
 
 global $db;
 
@@ -73,103 +75,111 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 /**
  * Cliente real del legacy con el transporte cambiado por fixtures.
  *
- * Sobreescribe SOLO `get()`: todo lo de arriba —el recorrido de sucursales
- * con `?o=`, el orden de columnas, el fallback de artículos— es el código de
- * producción.
+ * Sobreescribe SOLO `fetch()`: todo lo de arriba —el mapeo campo a campo, la
+ * unión de `registers` con `docsNum`, la derivación de categorías y marcas, la
+ * lectura tolerante de `tags` y `paymentMethods`— es el código de producción.
  */
 final class FixtureEncomClient extends EncomClient
 {
-    /** @var array<int,array{path:string,params:array}> */
+    /** @var array<int,string> `load` pedidos, en orden. */
     public array $calls = [];
 
-    public function __construct(private readonly string $dir, private readonly bool $itemsAsJson = true)
+    public function __construct(private readonly string $dir)
     {
-        parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture']);
+        // El par que devolvió el sistema vivo en el relevamiento.
+        parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm');
     }
 
-    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    protected function fetch(string $load): array
     {
-        $this->calls[] = ['path' => $path, 'params' => $params];
+        $this->calls[] = $load;
 
-        $action = (string) ($params['action'] ?? '');
+        $file = $this->dir . '/fetchs-' . $load . '.json';
+        $raw  = is_file($file) ? (string) file_get_contents($file) : '[]';
+        $json = json_decode($raw, true);
 
-        // Switch de sucursal: el legacy contesta 302 y cuerpo inútil.
-        if (isset($params['o'])) {
-            $this->activeOutlet = (string) $params['o'];
-            return '';
-        }
+        return is_array($json) ? $json : [];
+    }
+}
 
-        if ($path === '/a_outlets' && isset($params['showTable'])) {
-            return $this->read('outlets-showtable.json');
-        }
-        if ($path === '/a_outlets' && $action === 'edit') {
-            // Sin form de sucursal en los fixtures: el cliente tiene que
-            // seguir andando con lo que trajo la tabla.
-            return '';
-        }
-        if ($path === '/a_registers' && isset($params['list'])) {
-            return $this->read('registers-' . $this->activeOutlet . '.html');
-        }
-        if ($path === '/a_registers' && $action === 'edit') {
-            return $this->read('register-edit-' . (string) $params['id'] . '.html');
-        }
-        if ($path === '/a_items') {
-            return $this->itemsAsJson
-                ? $this->read('items-showtable.json')
-                : $this->read('items-showtable-html.json');
-        }
-        if ($path === '/a_contacts' && $action === 'download') {
-            return $this->read('contacts-download.csv');
-        }
-        if ($path === '/a_settings') {
-            return '';
-        }
-
-        return '';
+/** Variante del caso E: dos cajas con el mismo (timbrado, punto). */
+final class ClashEncomClient extends EncomClient
+{
+    public function __construct()
+    {
+        parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm');
     }
 
-    private string $activeOutlet = 'out-1';
-
-    private function read(string $file): string
+    protected function fetch(string $load): array
     {
-        $full = $this->dir . '/' . $file;
-        return is_file($full) ? (string) file_get_contents($full) : '';
+        if ($load === 'outlets') {
+            return [[
+                'outletId'    => 'out-1',
+                'name'        => 'Casa Central',
+                'outletRazon' => 'Con Choque SA',
+            ]];
+        }
+        if ($load === 'registers') {
+            return [
+                'registers' => [
+                    [
+                        'registerId'    => 'dup-1',
+                        'name'          => 'Caja Uno',
+                        'outletId'      => 'out-1',
+                        'invoicePrefix' => '001-001-',
+                        'invoiceAuthNo' => '16543210',
+                        'leadingZero'   => 7,
+                    ],
+                    [
+                        'registerId'    => 'dup-2',
+                        'name'          => 'Caja Dos',
+                        'outletId'      => 'out-1',
+                        'invoicePrefix' => '001-001-',
+                        'invoiceAuthNo' => '16543210',
+                        'leadingZero'   => 7,
+                    ],
+                ],
+                'docsNum' => [
+                    ['registerId' => 'dup-1', 'invoiceNo' => 100],
+                    ['registerId' => 'dup-2', 'invoiceNo' => 250],
+                ],
+            ];
+        }
+        return [];
     }
 }
 
 /**
- * Variante: el form de la caja existe pero YA NO trae los campos esperados
- * (el legacy les cambió el `name`). Tiene que fallar fuerte, no importar una
- * numeración fiscal a medias.
+ * Sonda del ALCANCE: de dónde salen companyId y outletId del legacy.
+ *
+ * Es la pieza que, si se rompe, importa el comercio EQUIVOCADO — o ninguno. No
+ * se puede probar contra el sistema real, así que se simulan las dos vías: el
+ * header `Location` del redirect de `pos-redirect` y el HTML del home del panel.
  */
-final class BrokenFormEncomClient extends EncomClient
+final class ScopeProbeClient extends EncomClient
 {
-    public function __construct()
-    {
+    public function __construct(
+        private readonly ?string $location,
+        private readonly string $body,
+    ) {
         parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture']);
+    }
+
+    protected function lastLocation(): ?string
+    {
+        return $this->location;
     }
 
     protected function get(string $path, array $params = [], bool $allowRedirect = false): string
     {
-        if (isset($params['o'])) {
-            return '';
-        }
-        if ($path === '/a_outlets' && isset($params['showTable'])) {
-            return '{"table":"<thead><tr><th>Nombre</th></tr></thead><tbody><tr data-id=\"out-1\"><td>Casa Central</td></tr></tbody>"}';
-        }
-        if ($path === '/a_registers' && isset($params['list'])) {
-            return '<thead><tr><th>Nombre</th><th>Creado el</th><th>Sucursal</th>'
-                . '<th>No. de Timbrado o Autorización</th><th>Prefijo</th>'
-                . '<th>No. de Factura</th><th>Sufijo</th><th>Estado</th></tr></thead><tbody>'
-                . '<tr data-id="reg-x"><td>Caja Rara</td><td>hoy</td><td>Casa Central</td><td>16543210</td><td>001-001-</td><td>0000010</td><td></td><td></td></tr>'
-                . '</tbody>';
-        }
-        if ($path === '/a_registers' && ($params['action'] ?? '') === 'edit') {
-            // Un form real, pero con TODOS los `name` cambiados.
-            return '<form><input name="numero_timbrado" value="16543210">'
-                . '<input name="punto_expedicion" value="001-001"></form>';
-        }
-        return '';
+        return $this->body;
+    }
+
+    /** @return array{companyId:string,outletId:string} */
+    public function resolveNow(): array
+    {
+        $this->resolveScope();
+        return $this->scope();
     }
 }
 
@@ -179,49 +189,12 @@ final class BrokenFormEncomClient extends EncomClient
  * El login no se puede ejercitar entero sin red, pero lo que se rompió —y de
  * forma invisible desde este lado, porque el legacy contesta 200 igual— fueron
  * los `name` del form: se mandaba `phone`/`iso`, que el deploy VIVO no tiene.
- * Esta sonda fija los campos reales contra el sistema que hay que migrar.
  */
 final class LoginBodyProbe extends EncomClient
 {
     public static function body(string $identifier, string $password): string
     {
         return parent::loginBody($identifier, $password);
-    }
-}
-
-/** Variante del caso E: dos cajas con el mismo (timbrado, punto). */
-final class ClashingEncomClient extends EncomClient
-{
-    public function __construct(private readonly string $dir)
-    {
-        parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture']);
-    }
-
-    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
-    {
-        $action = (string) ($params['action'] ?? '');
-
-        if (isset($params['o'])) {
-            return '';
-        }
-        if ($path === '/a_outlets' && isset($params['showTable'])) {
-            return '{"table":"<tbody><tr data-id=\"out-1\"><td>Casa Central</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody>"}';
-        }
-        if ($path === '/a_registers' && isset($params['list'])) {
-            // Mismo layout que el sistema vivo: con columna Sucursal y el
-            // prefijo con guión final.
-            return '<thead><tr><th>Nombre</th><th>Creado el</th><th>Sucursal</th>'
-                . '<th>No. de Timbrado o Autorización</th><th>Prefijo</th>'
-                . '<th>No. de Factura</th><th>Sufijo</th><th>Estado</th></tr></thead><tbody>'
-                . '<tr data-id="dup-1"><td>Caja Uno</td><td>hoy</td><td>Casa Central</td><td class="text-right">16543210</td><td>001-001-</td><td class="text-right">0000100</td><td></td><td></td></tr>'
-                . '<tr data-id="dup-2"><td>Caja Dos</td><td>hoy</td><td>Casa Central</td><td class="text-right">16543210</td><td>001-001-</td><td class="text-right">0000250</td><td></td><td></td></tr>'
-                . '</tbody>';
-        }
-        if ($path === '/a_registers' && $action === 'edit') {
-            $f = $this->dir . '/register-edit-' . (string) $params['id'] . '.html';
-            return is_file($f) ? (string) file_get_contents($f) : '';
-        }
-        return '';
     }
 }
 
@@ -264,18 +237,26 @@ function cleanup(string $companyId): void
         'DELETE FROM migration_map WHERE companyid = ?',
         'DELETE FROM migration_job WHERE companyid = ?',
         'DELETE FROM document_sequence WHERE companyid = ?',
+        'DELETE FROM item_compound WHERE companyId = ?',
         'DELETE FROM item_category WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item_brand    WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item_tag      WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item_outlet   WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item WHERE companyId = ?',
+        'DELETE FROM tax WHERE companyId = ?',
         'DELETE FROM category WHERE companyId = ?',
         'DELETE FROM brand WHERE companyId = ?',
         'DELETE FROM tag WHERE companyId = ?',
+        // Usuarios: `contact_outlet` cuelga del contacto, y los roles del
+        // tenant viven en `taxonomy` (los borra la línea de más abajo).
+        'DELETE FROM contact_outlet WHERE companyid = ?',
         // `customeraddress` cuelga de `contact` con FK dura.
         'DELETE FROM customeraddress WHERE customerId IN (SELECT contactId FROM contact WHERE companyId = ?)',
         'DELETE FROM contact WHERE companyId = ?',
         'DELETE FROM register WHERE companyId = ?',
+        // Los roles del tenant NO tienen tabla propia: viven en `taxonomy`
+        // (type='role') y sus permisos en el JSONB de esa misma fila, así que
+        // la línea de abajo se los lleva.
         'DELETE FROM taxonomy WHERE companyId = ?',
         'DELETE FROM outlet WHERE companyId = ?',
         'DELETE FROM company WHERE companyId = ?',
@@ -295,6 +276,49 @@ cleanup($companyB);
 
 try {
     // ══════════════════════════════════════════════════════════════════
+    // S. ALCANCE — de dónde salen companyId y outletId
+    // ══════════════════════════════════════════════════════════════════
+    // Literal tomado del sistema vivo: base64('PnXa,KLzV').
+    $iParam = 'UG5YYSxLTHpW';
+
+    $porRedirect = (new ScopeProbeClient('https://app.encom.com.py/?i=' . $iParam, ''))->resolveNow();
+
+    check(
+        'S1 · el alcance sale del ?i= del redirect de pos-redirect (base64 → "companyId,outletId")',
+        $porRedirect === ['companyId' => 'PnXa', 'outletId' => 'KLzV'],
+        'scope = ' . json_encode($porRedirect),
+        $failures, $checks
+    );
+
+    // Fallback: el deploy viejo no tiene /bff/pos-redirect.php, así que el
+    // mismo `?i=` se busca en el href del botón "Caja" del home del panel.
+    $homeHtml = '<ul><li><a href="/a_items">Artículos</a></li>'
+        . '<li><a id="mnPOSBtn" href="https://app.encom.com.py/?i=' . $iParam . '">Caja</a></li></ul>';
+
+    $porHome = (new ScopeProbeClient(null, $homeHtml))->resolveNow();
+
+    check(
+        'S2 · sin pos-redirect, el alcance sale del href del botón "Caja" del panel',
+        $porHome === ['companyId' => 'PnXa', 'outletId' => 'KLzV'],
+        'scope = ' . json_encode($porHome),
+        $failures, $checks
+    );
+
+    $scopeErr = '';
+    try {
+        (new ScopeProbeClient(null, '<html><body>nada que ver</body></html>'))->resolveNow();
+    } catch (\Throwable $e) {
+        $scopeErr = $e->getMessage();
+    }
+
+    check(
+        'S3 · si NINGUNA vía da el alcance, LANZA (no exporta el comercio equivocado)',
+        $scopeErr !== '' && str_contains($scopeErr, 'comercio'),
+        'mensaje = ' . var_export($scopeErr, true),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // L. LOGIN — los campos del form del deploy VIVO
     // ══════════════════════════════════════════════════════════════════
     parse_str(LoginBodyProbe::body('cliente@example.com', 'secreta 1'), $loginFields);
@@ -307,8 +331,6 @@ try {
         $failures, $checks
     );
 
-    // Lo mismo que el cliente tipea en ESE campo cuando entra con el celular:
-    // el legacy resuelve email-o-teléfono, así que no se normaliza nada.
     parse_str(LoginBodyProbe::body('0981 123456', 'x'), $phoneFields);
 
     check(
@@ -319,175 +341,84 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
-    // G. Parsers sobre los shapes EXACTOS del sistema vivo
-    // ══════════════════════════════════════════════════════════════════
-    $csvRows = EncomParse::csvRows((string) file_get_contents($fixtures . '/contacts-download.csv'));
-
-    check(
-        'G1 · el CSV con saltos \r y comillas se parsea (4 filas)',
-        count($csvRows) === 4,
-        'filas = ' . count($csvRows),
-        $failures, $checks
-    );
-
-    check(
-        'G2 · una coma DENTRO de comillas no parte la celda',
-        ($csvRows[0]['RAZON SOCIAL'] ?? '') === 'Distribuidora del Este, SRL',
-        'razón social = ' . var_export($csvRows[0]['RAZON SOCIAL'] ?? null, true),
-        $failures, $checks
-    );
-
-    // El deploy vivo trae TELEFONO 2 y el snapshot la eliminó: si el parser
-    // fuera posicional, el email caería en la columna del teléfono.
-    check(
-        'G3 · con la columna TELEFONO 2 presente, EMAIL sigue siendo EMAIL',
-        ($csvRows[0]['EMAIL'] ?? '') === 'ana@example.com'
-            && ($csvRows[0]['TELEFONO'] ?? '') === '0981123456',
-        'email = ' . var_export($csvRows[0]['EMAIL'] ?? null, true)
-            . ' / tel = ' . var_export($csvRows[0]['TELEFONO'] ?? null, true),
-        $failures, $checks
-    );
-
-    check(
-        'G4 · la columna del documento se resuelve aunque el header sea variable (TIN_NAME)',
-        EncomParse::tinOf($csvRows[0]) === '80099887-1',
-        'tin = ' . var_export(EncomParse::tinOf($csvRows[0]), true),
-        $failures, $checks
-    );
-
-    // La tabla de transacciones usa data-order; la de artículos, data-sort.
-    $rowsOrder = EncomParse::htmlRows(
-        '<tbody><tr data-id="tx-1"><td data-order="2026-09-11 14:03:22">11 sep</td>'
-        . '<td data-order="1250000" data-format="money">1.250.000</td></tr></tbody>'
-    );
-    check(
-        'G5 · se lee el valor CRUDO de data-order, no el texto formateado',
-        ($rowsOrder[0]['cells'][1] ?? '') === '1250000',
-        'celda = ' . var_export($rowsOrder[0]['cells'][1] ?? null, true),
-        $failures, $checks
-    );
-
-    $rowsSort = EncomParse::htmlRows(
-        '<tbody><tr id="itm-9"><td>x</td><td data-sort="9900">9.900</td></tr></tbody>'
-    );
-    check(
-        'G6 · la fila de artículos usa id= y data-sort= y también se parsea',
-        ($rowsSort[0]['id'] ?? '') === 'itm-9' && ($rowsSort[0]['cells'][1] ?? '') === '9900',
-        'fila = ' . json_encode($rowsSort[0] ?? null),
-        $failures, $checks
-    );
-
-    // ══════════════════════════════════════════════════════════════════
-    // H. El export: recorre sucursales y filtra por ROL
+    // X. EXPORT — el mapeo de cada dominio de /fetchs
     // ══════════════════════════════════════════════════════════════════
     $client = new FixtureEncomClient($fixtures);
 
-    $outlets = $client->outlets();
+    $items = $client->items();
     check(
-        'H1 · se listan las 2 sucursales desde {"table": ...}',
-        count($outlets) === 2 && ($outlets[0]['name'] ?? '') === 'Casa Central',
-        'outlets = ' . json_encode($outlets, JSON_UNESCAPED_UNICODE),
-        $failures, $checks
-    );
-
-    $registers = $client->registers();
-    check(
-        'H2 · se traen las cajas de TODAS las sucursales (switch ?o=), no solo la activa',
-        count($registers) === 3,
-        'cajas = ' . count($registers) . ' → ' . json_encode(array_column($registers, 'name')),
+        'X1 · se leen los 8 artículos con su kind del legacy',
+        count($items) === 8 && ($items[0]['name'] ?? '') === 'Café Espresso',
+        'items = ' . json_encode(array_column($items, 'name'), JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
     check(
-        'H3 · cada caja sabe a qué sucursal pertenece',
-        ($registers[0]['outletLegacyId'] ?? '') === 'out-1'
-            && ($registers[2]['outletLegacyId'] ?? '') === 'out-2',
-        'outletLegacyId = ' . json_encode(array_column($registers, 'outletLegacyId')),
-        $failures, $checks
-    );
-
-    check(
-        'H4 · del form de la caja salen el timbrado, el punto y el vencimiento',
-        ($registers[0]['invoiceAuth'] ?? '') === '16543210'
-            && ($registers[0]['prefix'] ?? '') === '001-001'
-            && ($registers[0]['invoiceNo'] ?? 0) === 2128
-            && ($registers[0]['invoiceAuthExp'] ?? '') === '2027-12-31'
-            && ($registers[0]['docsZeros'] ?? 0) === 7,
-        'caja = ' . json_encode($registers[0], JSON_UNESCAPED_UNICODE),
-        $failures, $checks
-    );
-
-    // La columna `Sucursal` del sistema vivo está ANTES del timbrado: por
-    // índice fijo, el nombre de la sucursal se leería como número de timbrado.
-    check(
-        'H4b · la columna Sucursal NO corre las columnas fiscales (se resuelve por encabezado)',
-        ($registers[0]['invoiceAuth'] ?? '') === '16543210'
-            && ($registers[1]['prefix'] ?? '') === '001-002',
-        'cajas = ' . json_encode(array_map(
-            static fn($r) => [$r['name'], $r['invoiceAuth'], $r['prefix']],
-            $registers
-        ), JSON_UNESCAPED_UNICODE),
-        $failures, $checks
-    );
-
-    // El vivo muestra el punto con guión final ("001-001-"); Punto valida
-    // contra ^\d{3}-\d{3}$ y lo rechazaría, abortando el dominio entero.
-    check(
-        'H4c · el punto de expedición se normaliza: "001-001-" → "001-001"',
-        ($registers[0]['prefix'] ?? '') === '001-001',
-        'prefix = ' . var_export($registers[0]['prefix'] ?? null, true),
-        $failures, $checks
-    );
-
-    $customers = $client->customers();
-    check(
-        'H5 · del CSV solo entran los ROL=Cliente (no el proveedor ni el usuario)',
-        count($customers) === 2,
-        'clientes = ' . json_encode(array_column($customers, 'fiscalName')),
-        $failures, $checks
-    );
-
-    check(
-        'H6 · razón social y nombre de persona quedan en campos distintos',
-        ($customers[0]['fiscalName'] ?? '') === 'Distribuidora del Este, SRL'
-            && ($customers[0]['name'] ?? '') === 'Ana Gómez',
-        'cliente = ' . json_encode($customers[0], JSON_UNESCAPED_UNICODE),
+        'X2 · la composición inline viaja cruda para la segunda pasada',
+        str_contains((string) ($items[3]['compound'] ?? ''), 'itm-5')
+            && ($items[3]['kind'] ?? '') === 'combo',
+        'compound = ' . var_export($items[3]['compound'] ?? null, true),
         $failures, $checks
     );
 
     $cats = $client->categories();
     check(
-        'H7 · las categorías se derivan de los artículos y "-" no es una categoría',
-        count($cats) === 2,
+        'X3 · las categorías se derivan de los artículos por categoryId y "-" no es categoría',
+        count($cats) === 4,
         'categorías = ' . json_encode(array_column($cats, 'name'), JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
-    // ══════════════════════════════════════════════════════════════════
-    // I. Fallback de artículos a la tabla HTML
-    // ══════════════════════════════════════════════════════════════════
-    $htmlClient = new FixtureEncomClient($fixtures, false);
-    $htmlItems  = $htmlClient->items();
-
+    $regs = $client->registers();
     check(
-        'I1 · sin format=json, los artículos se leen igual de la tabla HTML',
-        count($htmlItems) === 3 && ($htmlItems[0]['name'] ?? '') === 'Café Espresso',
-        'items = ' . json_encode(array_column($htmlItems, 'name'), JSON_UNESCAPED_UNICODE),
+        'X4 · registers junta cada caja con SU último correlativo de docsNum',
+        count($regs) === 3
+            && ($regs[0]['invoiceNo'] ?? 0) === 2128
+            && ($regs[0]['quoteNo'] ?? 0) === 15
+            && ($regs[0]['returnNo'] ?? 0) === 3,
+        'caja = ' . json_encode($regs[0] ?? null, JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
     check(
-        'I2 · el fallback saca costo y precio del data-sort, no del texto con puntos',
-        (string) ($htmlItems[0]['cost'] ?? '') === '5000'
-            && (string) ($htmlItems[0]['price'] ?? '') === '12000',
-        'item = ' . json_encode($htmlItems[0], JSON_UNESCAPED_UNICODE),
+        'X5 · el punto de expedición se normaliza: "001-001-" → "001-001"',
+        ($regs[0]['prefix'] ?? '') === '001-001' && ($regs[0]['invoiceAuth'] ?? '') === '16543210',
+        'prefix = ' . var_export($regs[0]['prefix'] ?? null, true),
+        $failures, $checks
+    );
+
+    $usuarios = $client->users();
+    check(
+        'X6 · los usuarios traen su PIN y el nombre de su rol legacy',
+        count($usuarios) === 3
+            && ($usuarios[0]['lockPass'] ?? '') === '1234'
+            && ($usuarios[0]['roleName'] ?? '') === 'Administrador',
+        'usuarios = ' . json_encode($usuarios[0] ?? null, JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    $pms = $client->paymentMethods();
+    check(
+        'X7 · los medios de pago salen de settings.paymentMethods',
+        count($pms) === 3 && ($pms[1]['name'] ?? '') === 'Transferencia',
+        'medios = ' . json_encode(array_column($pms, 'name'), JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
     check(
-        'I3 · los dos caminos (JSON y HTML) dan los mismos nombres de categoría',
-        array_column($htmlClient->categories(), 'name') === array_column($cats, 'name'),
-        'html = ' . json_encode(array_column($htmlClient->categories(), 'name'), JSON_UNESCAPED_UNICODE),
+        'X8 · las etiquetas salen de settings.tags (lista de nombres)',
+        count($client->tags()) === 2,
+        'tags = ' . json_encode(array_column($client->tags(), 'name'), JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    $clientes = $client->customers();
+    check(
+        'X9 · el cliente trae id propio, documento, saldo a favor y línea de crédito',
+        ($clientes[0]['ID'] ?? '') === 'cus-1'
+            && ($clientes[0]['creditLine'] ?? 0) == 1000000
+            && ($clientes[0]['storeCredit'] ?? 0) == 50000,
+        'cliente = ' . json_encode($clientes[0] ?? null, JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
@@ -496,9 +427,8 @@ try {
     // ══════════════════════════════════════════════════════════════════
     seedCompany($companyId, 'Comercio Migrado SA');
 
-    $source = new FixtureEncomClient($fixtures);
-    $run1   = (new EncomImportService($companyId, $source, null))
-        ->run(['catalog', 'customers', 'config']);
+    $run1 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
+        ->run(['catalog', 'customers', 'config', 'users', 'payments']);
 
     $p1 = $run1['progress'];
 
@@ -510,81 +440,141 @@ try {
     );
 
     check(
-        'A2 · categorías importadas (2)',
-        ($p1['category']['imported'] ?? 0) === 2,
-        'progress.category = ' . json_encode($p1['category'] ?? null),
+        'A2 · categorías (4), marcas (1) y etiquetas (2)',
+        ($p1['category']['imported'] ?? 0) === 4
+            && ($p1['brand']['imported'] ?? 0) === 1
+            && ($p1['tag']['imported'] ?? 0) === 2,
+        'progress = ' . json_encode([$p1['category'] ?? null, $p1['brand'] ?? null, $p1['tag'] ?? null]),
         $failures, $checks
     );
 
     check(
-        'A3 · artículos importados (3)',
-        ($p1['item']['imported'] ?? 0) === 3,
+        'A3 · artículos importados (8)',
+        ($p1['item']['imported'] ?? 0) === 8,
         'progress.item = ' . json_encode($p1['item'] ?? null),
         $failures, $checks
     );
 
     check(
-        'A4 · clientes importados (2)',
-        ($p1['customer']['imported'] ?? 0) === 2,
-        'progress.customer = ' . json_encode($p1['customer'] ?? null),
+        'A4 · clientes (2), sucursales (2) y cajas (3)',
+        ($p1['customer']['imported'] ?? 0) === 2
+            && ($p1['outlet']['imported'] ?? 0) === 2
+            && ($p1['register']['imported'] ?? 0) === 3,
+        'progress = ' . json_encode([$p1['customer'] ?? null, $p1['outlet'] ?? null, $p1['register'] ?? null]),
         $failures, $checks
     );
 
     check(
-        'A5 · sucursales importadas (2)',
-        ($p1['outlet']['imported'] ?? 0) === 2,
-        'progress.outlet = ' . json_encode($p1['outlet'] ?? null),
-        $failures, $checks
-    );
-
-    check(
-        'A6 · cajas importadas (3)',
-        ($p1['register']['imported'] ?? 0) === 3,
-        'progress.register = ' . json_encode($p1['register'] ?? null),
+        'A5 · usuarios (3) y medios de pago (3)',
+        ($p1['user']['imported'] ?? 0) === 3 && ($p1['payment']['imported'] ?? 0) === 3,
+        'progress = ' . json_encode([$p1['user'] ?? null, $p1['payment'] ?? null]),
         $failures, $checks
     );
 
     $itemsInDb = countOf('item', $companyId);
     check(
-        'A7 · los artículos están en la base (3)',
-        $itemsInDb === 3,
+        'A6 · los artículos están en la base (8)',
+        $itemsInDb === 8,
         "item count = $itemsInDb",
         $failures, $checks
     );
 
     $contactsInDb = (int) scalar('SELECT count(*) FROM contact WHERE companyId = ? AND type = 1', [$companyId]);
     check(
-        'A8 · los clientes están en la base (2)',
+        'A7 · los clientes están en la base (2)',
         $contactsInDb === 2,
         "contact count = $contactsInDb",
+        $failures, $checks
+    );
+
+    // El IVA del legacy ("10") es el `name` de la tabla `tax` de Punto.
+    $itm1 = EncomMigrationService::mapped($companyId, 'item', 'itm-1');
+    $taxOfItem = $itm1 === null ? null : scalar(
+        'SELECT t.name FROM item i JOIN tax t ON t.taxId = i.taxId WHERE i.itemId = ?',
+        [$itm1]
+    );
+    check(
+        'A8 · el artículo queda con el impuesto del legacy (10)',
+        (string) $taxOfItem === '10',
+        'tax.name = ' . var_export($taxOfItem, true),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // R. COMBOS Y RECETAS — la novedad de /fetchs
+    // ══════════════════════════════════════════════════════════════════
+    check(
+        'R1 · se compusieron 2 artículos (el combo fijo y la receta), 2 quedaron sin componer',
+        ($p1['compound']['total'] ?? 0) === 4
+            && ($p1['compound']['imported'] ?? 0) === 2
+            && ($p1['compound']['failed'] ?? 0) === 2,
+        'progress.compound = ' . json_encode($p1['compound'] ?? null),
+        $failures, $checks
+    );
+
+    $compoundRows = (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]);
+    check(
+        'R2 · quedaron 3 filas de receta (2 del combo + 1 de la producción directa)',
+        $compoundRows === 3,
+        "item_compound = $compoundRows",
+        $failures, $checks
+    );
+
+    $combo = EncomMigrationService::mapped($companyId, 'item', 'itm-4');
+    $masa  = EncomMigrationService::mapped($companyId, 'item', 'itm-5');
+    $medialuna = EncomMigrationService::mapped($companyId, 'item', 'itm-2');
+
+    $qty = ($combo === null || $medialuna === null) ? null : scalar(
+        'SELECT quantity FROM item_compound WHERE parentItemId = ? AND childItemId = ?',
+        [$combo, $medialuna]
+    );
+    check(
+        'R3 · el combo resuelve sus componentes por el mapa, con la cantidad del legacy (2.000 → 2)',
+        $qty !== null && abs((float) $qty - 2.0) < 0.0001,
+        'quantity = ' . var_export($qty, true),
+        $failures, $checks
+    );
+
+    $kindCombo = $combo === null ? null : scalar('SELECT itemKind FROM item WHERE itemId = ?', [$combo]);
+    $kindMasa  = $masa === null ? null : scalar('SELECT itemKind FROM item WHERE itemId = ?', [$masa]);
+    check(
+        'R4 · los kinds del legacy se mapean: combo → combo_fijo, direct_production → produccion_directa',
+        (string) $kindCombo === 'combo_fijo' && (string) $kindMasa === 'produccion_directa',
+        'kinds = ' . var_export([$kindCombo, $kindMasa], true),
+        $failures, $checks
+    );
+
+    $logText = json_encode($run1['log'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'R5 · el combo con un componente inexistente NO se inventa: queda anotado para revisar',
+        str_contains($logText, 'Revisar a mano') && str_contains($logText, 'Combo Roto'),
+        "log = $logText",
+        $failures, $checks
+    );
+
+    check(
+        'R6 · el combo con opciones elegibles tampoco se inventa (en Punto son grupos de add-ons)',
+        str_contains($logText, 'Armá tu plato'),
+        "log = $logText",
         $failures, $checks
     );
 
     // ══════════════════════════════════════════════════════════════════
     // C. Mapeo
     // ══════════════════════════════════════════════════════════════════
-    // La clave del legacy para una categoría es su NOMBRE: el export de
-    // artículos no manda ids de taxonomía.
-    $catId = EncomMigrationService::mapped($companyId, 'category', 'Bebidas');
+    $catId = EncomMigrationService::mapped($companyId, 'category', 'cat-100');
     check(
-        'C1 · migration_map mapea la categoría por su nombre',
+        'C1 · migration_map mapea la categoría por su id del legacy',
         $catId !== null,
         'mapped() devolvió null',
         $failures, $checks
     );
 
-    $itemId = EncomMigrationService::mapped($companyId, 'item', 'itm-1');
-    check(
-        'C2 · migration_map tiene el artículo itm-1',
-        $itemId !== null,
-        'mapped() devolvió null',
-        $failures, $checks
-    );
-
-    if ($itemId !== null && $catId !== null) {
-        $itemCat = scalar('SELECT categoryId FROM item WHERE itemId = ? AND companyId = ?', [$itemId, $companyId]);
+    if ($itm1 !== null && $catId !== null) {
+        $itemCat = scalar('SELECT categoryId FROM item WHERE itemId = ? AND companyId = ?', [$itm1, $companyId]);
         check(
-            'C3 · el artículo apunta a la categoría IMPORTADA',
+            'C2 · el artículo apunta a la categoría IMPORTADA',
             (string) $itemCat === (string) $catId,
             'item.categoryId = ' . var_export($itemCat, true) . " vs mapeada $catId",
             $failures, $checks
@@ -592,21 +582,55 @@ try {
 
         $m2m = (int) scalar(
             'SELECT count(*) FROM item_category WHERE itemId = ? AND categoryId = ?',
-            [$itemId, $catId]
+            [$itm1, $catId]
         );
         check(
-            'C4 · la m2m item_category también quedó escrita (context/41)',
+            'C3 · la m2m item_category también quedó escrita (context/41)',
             $m2m === 1,
             "item_category count = $m2m",
             $failures, $checks
         );
     }
 
-    // Un cliente sin id en el CSV se mapea por su documento.
     check(
-        'C5 · el cliente sin id del CSV se mapea por clave natural (documento)',
-        EncomMigrationService::mapped($companyId, 'customer', 'tin:800998871') !== null,
-        'no hay mapeo para tin:800998871',
+        'C4 · el cliente se mapea por su id del legacy (ya no por clave natural)',
+        EncomMigrationService::mapped($companyId, 'customer', 'cus-1') !== null,
+        'no hay mapeo para cus-1',
+        $failures, $checks
+    );
+
+    $cus1 = EncomMigrationService::mapped($companyId, 'customer', 'cus-1');
+    $creditLine = $cus1 === null ? null : scalar(
+        "SELECT contactCreditLine FROM contact WHERE contactId = ?",
+        [$cus1]
+    );
+    check(
+        'C5 · el cliente conserva su línea de crédito (el CSV del panel no la traía)',
+        $creditLine !== null && (float) $creditLine == 1000000.0,
+        'contactCreditLine = ' . var_export($creditLine, true),
+        $failures, $checks
+    );
+
+    // El legacy numera los tipos de documento con SU tabla (manda 1 y 2), que
+    // no es la Tabla 3 de la SET que valida Punto (11..17). El código no se
+    // traduce a ciegas —es un dato fiscal—, pero el NÚMERO del documento, que
+    // es lo que identifica al cliente, tiene que llegar igual.
+    $tin = $cus1 === null ? null : scalar('SELECT contactTIN FROM contact WHERE contactId = ?', [$cus1]);
+    check(
+        'C6 · el documento del cliente se migra aunque su TIPO use otra tabla de códigos',
+        (string) $tin === '80099887-1',
+        'contactTIN = ' . var_export($tin, true),
+        $failures, $checks
+    );
+
+    // `contactCI` NO es columna: vive en el JSONB `data` desde la mig 25
+    // (`contactTIN` sí es columna, de ahí que C6 la lea directo).
+    $cus2 = EncomMigrationService::mapped($companyId, 'customer', 'cus-2');
+    $ci   = $cus2 === null ? null : scalar("SELECT data->>'contactCI' FROM contact WHERE contactId = ?", [$cus2]);
+    check(
+        'C7 · el cliente con cédula (sin RUC) también entra, con su número',
+        (string) $ci === '4567890',
+        'contactCI = ' . var_export($ci, true),
         $failures, $checks
     );
 
@@ -623,31 +647,44 @@ try {
 
     if ($regId !== null) {
         $auth = scalar("SELECT data ->> 'registerInvoiceAuth' FROM register WHERE registerId = ?", [$regId]);
-        check(
-            'D2 · la caja conserva el timbrado del legacy (16543210)',
-            (string) $auth === '16543210',
-            'registerInvoiceAuth = ' . var_export($auth, true),
-            $failures, $checks
-        );
-
         $prefix = scalar("SELECT data ->> 'registerInvoicePrefix' FROM register WHERE registerId = ?", [$regId]);
         check(
-            'D3 · la caja conserva el punto de expedición (001-001)',
-            (string) $prefix === '001-001',
-            'registerInvoicePrefix = ' . var_export($prefix, true),
+            'D2 · la caja conserva timbrado (16543210) y punto de expedición (001-001)',
+            (string) $auth === '16543210' && (string) $prefix === '001-001',
+            'auth = ' . var_export($auth, true) . ' / prefix = ' . var_export($prefix, true),
             $failures, $checks
         );
 
-        $next = scalar(
-            "SELECT nextnumber FROM document_sequence
-              WHERE companyid = ? AND doctype = 'factura' AND scopetype = 'register'
-                AND scopeid = ? AND invoiceauth = ? AND prefix = ?",
-            [$companyId, $regId, '16543210', '001-001']
-        );
+        $seqOf = static function (string $regId, string $docType, string $companyId, string $auth, string $prefix) {
+            return scalar(
+                "SELECT nextnumber FROM document_sequence
+                  WHERE companyid = ? AND doctype = ? AND scopetype = 'register'
+                    AND scopeid = ? AND invoiceauth = ? AND prefix = ?",
+                [$companyId, $docType, $regId, $auth, $prefix]
+            );
+        };
+
         check(
-            'D4 · document_sequence continúa la serie: nextnumber = 2129 (último 2128 + 1)',
-            (int) $next === 2129,
-            'nextnumber = ' . var_export($next, true),
+            'D3 · la FACTURA continúa la serie: nextnumber = 2129 (último emitido 2128 + 1)',
+            (int) $seqOf($regId, 'factura', $companyId, '16543210', '001-001') === 2129,
+            'nextnumber = ' . var_export($seqOf($regId, 'factura', $companyId, '16543210', '001-001'), true),
+            $failures, $checks
+        );
+
+        // `docsNum` trae un contador POR TIPO: eso es lo que el scraping no
+        // daba. La cotización no tiene serie fiscal (serie vacía) y la nota de
+        // crédito hereda la de la factura (mig 215).
+        check(
+            'D4 · la COTIZACIÓN continúa su propio correlativo: 16 (último 15 + 1)',
+            (int) $seqOf($regId, 'cotizacion', $companyId, '', '') === 16,
+            'nextnumber = ' . var_export($seqOf($regId, 'cotizacion', $companyId, '', ''), true),
+            $failures, $checks
+        );
+
+        check(
+            'D5 · la NOTA DE CRÉDITO continúa su propio correlativo: 4 (último 3 + 1)',
+            (int) $seqOf($regId, 'nota_credito', $companyId, '16543210', '001-001') === 4,
+            'nextnumber = ' . var_export($seqOf($regId, 'nota_credito', $companyId, '16543210', '001-001'), true),
             $failures, $checks
         );
 
@@ -658,33 +695,128 @@ try {
             [$companyId, $regId, '16543210', '001-001']
         );
         check(
-            'D5 · el ancho de impresión sale del form del legacy (7 dígitos)',
+            'D6 · el ancho de impresión sale de leadingZero (7 dígitos)',
             (int) $pad === 7,
             'padwidth = ' . var_export($pad, true),
             $failures, $checks
         );
 
+        $regId2 = EncomMigrationService::mapped($companyId, 'register', 'reg-2');
+        if ($regId2 !== null) {
+            check(
+                'D7 · cada caja continúa SU serie: la segunda arranca en 3779',
+                (int) $seqOf($regId2, 'factura', $companyId, '16543210', '001-002') === 3779,
+                'nextnumber = ' . var_export($seqOf($regId2, 'factura', $companyId, '16543210', '001-002'), true),
+                $failures, $checks
+            );
+        }
+
         $regId3 = EncomMigrationService::mapped($companyId, 'register', 'reg-3');
         if ($regId3 !== null) {
-            $next3 = scalar(
-                "SELECT nextnumber FROM document_sequence
-                  WHERE companyid = ? AND doctype = 'factura' AND scopetype = 'register'
-                    AND scopeid = ? AND invoiceauth = ? AND prefix = ?",
-                [$companyId, $regId3, '16543210', '002-001']
-            );
             check(
-                'D6 · una caja sin facturas emitidas arranca en 1 (no en 0)',
-                (int) $next3 === 1,
-                'nextnumber = ' . var_export($next3, true),
+                'D8 · una caja sin facturas emitidas arranca en 1 (no en 0)',
+                (int) $seqOf($regId3, 'factura', $companyId, '16543210', '002-001') === 1,
+                'nextnumber = ' . var_export($seqOf($regId3, 'factura', $companyId, '16543210', '002-001'), true),
                 $failures, $checks
             );
         }
     }
 
     // ══════════════════════════════════════════════════════════════════
+    // U. Usuarios
+    // ══════════════════════════════════════════════════════════════════
+    $usersInDb = (int) scalar('SELECT count(*) FROM contact WHERE companyId = ? AND type = 0', [$companyId]);
+    check(
+        'U1 · los 3 usuarios están en la base como equipo (type = 0)',
+        $usersInDb === 3,
+        "usuarios = $usersInDb",
+        $failures, $checks
+    );
+
+    $pedro = EncomMigrationService::mapped($companyId, 'user', 'usr-2');
+    $rolPedro = $pedro === null ? null : scalar(
+        "SELECT t.taxonomyname FROM contact c
+           JOIN taxonomy t ON t.taxonomyid::text = c.role AND t.taxonomytype = 'role'
+          WHERE c.contactId = ?",
+        [$pedro]
+    );
+    check(
+        'U2 · el "Cajero" del legacy cae en el rol Cajero de Punto (match por nombre)',
+        (string) $rolPedro === 'Cajero',
+        'rol = ' . var_export($rolPedro, true),
+        $failures, $checks
+    );
+
+    $maria = EncomMigrationService::mapped($companyId, 'user', 'usr-1');
+    $rolMaria = $maria === null ? null : scalar(
+        "SELECT t.taxonomyname FROM contact c
+           JOIN taxonomy t ON t.taxonomyid::text = c.role AND t.taxonomytype = 'role'
+          WHERE c.contactId = ?",
+        [$maria]
+    );
+    check(
+        'U3 · el "Administrador" del legacy cae en Encargado, NUNCA en Dueño (nunca de más)',
+        (string) $rolMaria === 'Encargado',
+        'rol = ' . var_export($rolMaria, true),
+        $failures, $checks
+    );
+
+    $pin = $maria === null ? null : scalar('SELECT lockPass FROM contact WHERE contactId = ?', [$maria]);
+    $pinHash = $maria === null ? null : scalar('SELECT pinhash FROM contact WHERE contactId = ?', [$maria]);
+    check(
+        'U4 · el PIN de la caja se migra y queda hasheado para la pantalla de bloqueo',
+        (string) $pin === '1234' && (string) $pinHash === hash('sha256', '1234'),
+        'lockPass = ' . var_export($pin, true),
+        $failures, $checks
+    );
+
+    $asignaciones = (int) scalar(
+        'SELECT count(*) FROM contact_outlet WHERE companyid = ?',
+        [$companyId]
+    );
+    check(
+        'U5 · cada usuario va a SU sucursal; el que no tenía queda global (2 filas, no 3)',
+        $asignaciones === 2,
+        "contact_outlet = $asignaciones",
+        $failures, $checks
+    );
+
+    check(
+        'U6 · la bitácora dice qué rol se le asignó a cada usuario (para que soporte lo revise)',
+        str_contains($logText, 'rol de Punto') && str_contains($logText, 'María Dueña'),
+        "log = $logText",
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // P. Medios de pago
+    // ══════════════════════════════════════════════════════════════════
+    $transferencia = (int) scalar(
+        "SELECT count(*) FROM taxonomy WHERE companyId = ? AND taxonomyType = 'paymentMethod' AND taxonomyName = 'Transferencia'",
+        [$companyId]
+    );
+    check(
+        'P1 · el medio de pago que el comercio tenía y Punto no, se crea',
+        $transferencia === 1,
+        "Transferencia = $transferencia",
+        $failures, $checks
+    );
+
+    $efectivo = (int) scalar(
+        "SELECT count(*) FROM taxonomy WHERE companyId = ? AND taxonomyType = 'paymentMethod' AND taxonomyName ILIKE 'efectivo'",
+        [$companyId]
+    );
+    check(
+        'P2 · "Efectivo" NO se duplica: el que ya existe se reusa',
+        $efectivo === 1,
+        "Efectivo = $efectivo",
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // F. La caja placeholder se reusa
     // ══════════════════════════════════════════════════════════════════
-    $registersInDb = (int) scalar('SELECT count(*) FROM register WHERE companyId = ?', [$companyId]);
+    $registersInDb = countOf('register', $companyId);
     check(
         'F1 · no quedan cajas fantasma: 3 cajas, no 5 (se reusa el placeholder de cada sucursal)',
         $registersInDb === 3,
@@ -696,46 +828,55 @@ try {
     // B. Idempotencia
     // ══════════════════════════════════════════════════════════════════
     $before = [
-        'item'     => countOf('item', $companyId),
-        'category' => countOf('category', $companyId),
-        'brand'    => countOf('brand', $companyId),
-        'contact'  => countOf('contact', $companyId),
-        'outlet'   => countOf('outlet', $companyId),
-        'register' => countOf('register', $companyId),
+        'item'          => countOf('item', $companyId),
+        'item_compound' => (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]),
+        'category'      => countOf('category', $companyId),
+        'brand'         => countOf('brand', $companyId),
+        'contact'       => countOf('contact', $companyId),
+        'outlet'        => countOf('outlet', $companyId),
+        'register'      => countOf('register', $companyId),
+        'tax'           => countOf('tax', $companyId),
     ];
 
     $run2 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
-        ->run(['catalog', 'customers', 'config']);
+        ->run(['catalog', 'customers', 'config', 'users', 'payments']);
     $p2 = $run2['progress'];
 
     check(
-        'B1 · la segunda corrida no importa artículos nuevos',
-        ($p2['item']['imported'] ?? -1) === 0 && ($p2['item']['skipped'] ?? 0) === 3,
-        'progress.item = ' . json_encode($p2['item'] ?? null),
+        'B1 · la segunda corrida no importa artículos ni clientes nuevos',
+        ($p2['item']['imported'] ?? -1) === 0 && ($p2['item']['skipped'] ?? 0) === 8
+            && ($p2['customer']['imported'] ?? -1) === 0 && ($p2['customer']['skipped'] ?? 0) === 2,
+        'progress = ' . json_encode([$p2['item'] ?? null, $p2['customer'] ?? null]),
         $failures, $checks
     );
 
     check(
-        'B2 · la segunda corrida no importa clientes nuevos',
-        ($p2['customer']['imported'] ?? -1) === 0 && ($p2['customer']['skipped'] ?? 0) === 2,
-        'progress.customer = ' . json_encode($p2['customer'] ?? null),
+        'B2 · la segunda corrida no importa cajas, usuarios ni medios de pago nuevos',
+        ($p2['register']['imported'] ?? -1) === 0 && ($p2['register']['skipped'] ?? 0) === 3
+            && ($p2['user']['imported'] ?? -1) === 0 && ($p2['user']['skipped'] ?? 0) === 3
+            && ($p2['payment']['imported'] ?? -1) === 0 && ($p2['payment']['skipped'] ?? 0) === 3,
+        'progress = ' . json_encode([$p2['register'] ?? null, $p2['user'] ?? null, $p2['payment'] ?? null]),
         $failures, $checks
     );
 
+    // La receta es el caso donde re-correr SIN marca duplicaría cantidades:
+    // `ItemCompoundService::add()` suma cuando el ingrediente ya está.
     check(
-        'B3 · la segunda corrida no importa cajas nuevas',
-        ($p2['register']['imported'] ?? -1) === 0 && ($p2['register']['skipped'] ?? 0) === 3,
-        'progress.register = ' . json_encode($p2['register'] ?? null),
+        'B3 · la composición NO se vuelve a aplicar (si no, cada corrida sumaría la cantidad otra vez)',
+        ($p2['compound']['imported'] ?? -1) === 0 && ($p2['compound']['skipped'] ?? 0) === 2,
+        'progress.compound = ' . json_encode($p2['compound'] ?? null),
         $failures, $checks
     );
 
     $after = [
-        'item'     => countOf('item', $companyId),
-        'category' => countOf('category', $companyId),
-        'brand'    => countOf('brand', $companyId),
-        'contact'  => countOf('contact', $companyId),
-        'outlet'   => countOf('outlet', $companyId),
-        'register' => countOf('register', $companyId),
+        'item'          => countOf('item', $companyId),
+        'item_compound' => (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]),
+        'category'      => countOf('category', $companyId),
+        'brand'         => countOf('brand', $companyId),
+        'contact'       => countOf('contact', $companyId),
+        'outlet'        => countOf('outlet', $companyId),
+        'register'      => countOf('register', $companyId),
+        'tax'           => countOf('tax', $companyId),
     ];
 
     check(
@@ -745,6 +886,19 @@ try {
         $failures, $checks
     );
 
+    if ($combo !== null && $medialuna !== null) {
+        $qtyAgain = scalar(
+            'SELECT quantity FROM item_compound WHERE parentItemId = ? AND childItemId = ?',
+            [$combo, $medialuna]
+        );
+        check(
+            'B5 · la cantidad de la receta sigue siendo 2, no 4',
+            $qtyAgain !== null && abs((float) $qtyAgain - 2.0) < 0.0001,
+            'quantity = ' . var_export($qtyAgain, true),
+            $failures, $checks
+        );
+    }
+
     if ($regId !== null) {
         $nextAgain = scalar(
             "SELECT nextnumber FROM document_sequence
@@ -753,7 +907,7 @@ try {
             [$companyId, $regId, '16543210', '001-001']
         );
         check(
-            'B5 · re-correr NO vuelve a mover la numeración fiscal (sigue en 2129)',
+            'B6 · re-correr NO vuelve a mover la numeración fiscal (sigue en 2129)',
             (int) $nextAgain === 2129,
             'nextnumber = ' . var_export($nextAgain, true),
             $failures, $checks
@@ -765,7 +919,7 @@ try {
     // ══════════════════════════════════════════════════════════════════
     seedCompany($companyB, 'Comercio Con Choque SA');
 
-    $runBad  = (new EncomImportService($companyB, new ClashingEncomClient($fixtures), null))->run(['config']);
+    $runBad  = (new EncomImportService($companyB, new ClashEncomClient(), null))->run(['config']);
     $errText = json_encode($runBad['errors'], JSON_UNESCAPED_UNICODE);
 
     check(
@@ -805,31 +959,7 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
-    // J. El form que cambió de campos falla FUERTE, no en silencio
-    // ══════════════════════════════════════════════════════════════════
-    $brokenErr = '';
-    try {
-        (new BrokenFormEncomClient())->registers();
-    } catch (\Throwable $e) {
-        $brokenErr = $e->getMessage();
-    }
-
-    check(
-        'J1 · si el form de la caja ya no trae los campos de timbrado, se LANZA (no se importa a ciegas)',
-        $brokenErr !== '',
-        'no lanzó nada: el import habría seguido con datos fiscales sin verificar',
-        $failures, $checks
-    );
-
-    check(
-        'J2 · el error dice qué caja y por qué',
-        str_contains($brokenErr, 'Caja Rara') && str_contains($brokenErr, 'timbrado'),
-        "mensaje: $brokenErr",
-        $failures, $checks
-    );
-
-    // ══════════════════════════════════════════════════════════════════
-    // K. Barrido de credenciales huérfanas (TTL 24 h)
+    // Z. Barrido de credenciales huérfanas (TTL 24 h)
     // ══════════════════════════════════════════════════════════════════
     // Un job que nunca se ejecuta —falta ENCOM_MIGRATION_URL, cron caído—
     // retendría la sesión viva del panel de un cliente para siempre.
@@ -854,28 +984,25 @@ try {
     );
 
     check(
-        'K1 · el job viejo tenía credenciales guardadas antes del barrido',
+        'Z1 · el job viejo tenía credenciales guardadas antes del barrido',
         $antes === 1,
         "jobs con credenciales antes = $antes",
         $failures, $checks
     );
 
     check(
-        'K2 · el drain borra las cookies de un job pending de más de 24 h',
+        'Z2 · el drain borra las cookies de un job pending de más de 24 h',
         $conCreds === 0,
         "jobs con credenciales después = $conCreds",
         $failures, $checks
     );
 
-    // Y lo cierra: un pending sin cookies no puede correr, y mientras siga
-    // `pending` el índice de "un job vivo por empresa" bloquearía toda
-    // migración nueva de ese comercio.
     $estado = scalar(
         'SELECT status FROM migration_job WHERE companyid = ? ORDER BY created_at DESC LIMIT 1',
         [$companyId]
     );
     check(
-        'K3 · además lo cierra como failed (si no, bloquearía toda migración futura de esa empresa)',
+        'Z3 · además lo cierra como failed (si no, bloquearía toda migración futura de esa empresa)',
         (string) $estado === 'failed',
         'status = ' . var_export($estado, true),
         $failures, $checks
@@ -886,7 +1013,7 @@ try {
         [$companyId]
     );
     check(
-        'K4 · el job dice por qué murió (la sesión caducó), no queda mudo',
+        'Z4 · el job dice por qué murió (la sesión caducó), no queda mudo',
         str_contains($motivo, 'caduc'),
         "errors = $motivo",
         $failures, $checks
