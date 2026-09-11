@@ -252,6 +252,15 @@ export function ContactDetailView({
   // estaba en el archivo pero solo gateaba el POST, así que la lectura pasaba
   // de largo. Mismo espejo que el tab "Transacciones" de acá abajo.
   const canViewSchedule = usePermission("reports.schedule.view")
+  // El tab "Órdenes" pega contra `/v1/orders-core?customerId=…`, cuyo GET exige
+  // `contacts.customer.view` desde el 2026-09-11 (gate contextual: filtrada por
+  // cliente es la ficha, sin filtro es el reporte). Para un CLIENTE el espejo
+  // es redundante —sin la clave, `/v1/contacts` ni devuelve la ficha y esta
+  // vista corta en el error— pero la ficha de un PROVEEDOR se abre con
+  // `contacts.supplier.view` y monta los mismos tabs: sin esto, un rol de
+  // compras veía "Órdenes" y se comía un 403. Mismo espejo que los dos de
+  // arriba.
+  const canViewCustomers = usePermission("contacts.customer.view")
 
   const onSubmit = async (values: ContactFormValues) => {
     try {
@@ -310,7 +319,13 @@ export function ContactDetailView({
       : []),
     { key: "packs",    label: "Packs",         icon: <Layers className="size-3.5" /> },
     { key: "addresses",label: "Direcciones",   icon: <MapPin className="size-3.5" /> },
-    { key: "orders",   label: "Órdenes",       icon: <OrdersIcon className="size-3.5" /> },
+    // En `variant="pos"` NO se gatea: `usePermission` lee el bootstrap del
+    // PANEL y en una tablet pareada ese bootstrap no existe, así que el espejo
+    // escondería el tab por falta de credencial y no por falta de permiso.
+    // Mismo criterio que el `variant === "panel" &&` del tab "Transacciones".
+    ...(variant !== "panel" || canViewCustomers
+      ? [{ key: "orders" as const, label: "Órdenes", icon: <OrdersIcon className="size-3.5" /> }]
+      : []),
     ...(calendarEnabled && canViewSchedule
       ? [{ key: "schedule" as const, label: "Agenda", icon: <CalendarDays className="size-3.5" /> }]
       : []),

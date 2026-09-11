@@ -399,6 +399,23 @@ $CASOS = [
     ['reports.schedule.view',    'reports schedule GET',        'v1/reports/schedule.php',        'GET', '',                          []],
     ['reports.recurring.view',   'reports recurring GET',       'v1/reports/recurring.php',       'GET', '',                          []],
     ['reports.satisfaction.view','reports satisfaction GET',    'v1/reports/satisfaction.php',    'GET', '',                          []],
+
+    // ── /v1/orders-core GET — el gate es CONTEXTUAL ───────────────────────
+    //
+    // Hasta el 2026-09-11 la LECTURA de órdenes no chequeaba nada: cualquier
+    // sesión de panel listaba las órdenes de todo el tenant. El owner cerró el
+    // gate sin clave nueva (`orders.view` fue rechazada) — cada superficie usa
+    // la que ya gobierna su pantalla, así que la clave exigida DEPENDE DE LA
+    // QUERY. Acá van los tres caminos contra un rol pelado; el cruce entre
+    // ellos (tener una clave y no la otra) se prueba aparte en (B2), que es lo
+    // que de verdad fija el contrato contextual.
+    //
+    // El detalle se declara con `reports.sales.view` porque `esGateDePermiso()`
+    // busca el literal "requiere: <clave>" y el mensaje del detalle lo nombra
+    // primero ("requiere: reports.sales.view o contacts.customer.view").
+    ['reports.sales.view',       'orders-core GET lista',       'v1/orders-core.php',             'GET', '',                          []],
+    ['contacts.customer.view',   'orders-core GET por cliente', 'v1/orders-core.php',             'GET', 'customerId=__CLIENTE__',    []],
+    ['reports.sales.view',       'orders-core GET detalle',     'v1/orders-core.php',             'GET', 'id=00000000-0000-0000-0000-0000000000ff', []],
 ];
 
 $permisosBajoPrueba = array_values(array_unique(array_column($CASOS, 0)));
@@ -521,6 +538,81 @@ foreach ($CASOS as [$perm, $etiqueta, $endpoint, $method, $query, $body]) {
         "el owner tiene que pasar SIEMPRE, y el endpoint tiene que responder. status={$own['status']} body=" . substr(trim($own['body']), 0, 240),
         $failures, $checks);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (B2) /v1/orders-core — el gate CONTEXTUAL, probado por el cruce
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// La matriz de (B) prueba cada camino contra un rol PELADO y contra uno que
+// tiene TODAS las claves bajo prueba. Eso no alcanza acá: el contrato que
+// cerró el owner no es "este endpoint pide una clave", es que la clave DEPENDE
+// de la query, y un rol que tiene las dos pasa por los tres caminos sin
+// distinguir nada. La regresión que importa —colapsar los tres caminos a una
+// sola clave, que es la forma más natural de "simplificar" este gate— solo se
+// ve con un rol que tiene UNA y no la OTRA.
+//
+// Los tres caminos, con la superficie que los usa:
+//   - lista sin filtro  → el reporte de órdenes (`/reports/orders`)
+//   - lista ?customerId → la pestaña Órdenes de la ficha del cliente
+//   - detalle ?id=      → `/orders/[id]`, al que se llega desde las DOS, y por
+//                         eso acepta cualquiera de las dos claves.
+echo "\n=== (B2) orders-core: el gate contextual (realm panel) ===\n";
+
+$roleSoloVentas   = makeRole('permtest-solo-ventas',   ['reports.sales.view'],     $companyId, $adminId);
+$roleSoloClientes = makeRole('permtest-solo-clientes', ['contacts.customer.view'], $companyId, $adminId);
+$tokSoloVentas    = panelSession($roleSoloVentas,   $companyId, $outletId, $adminId);
+$tokSoloClientes  = panelSession($roleSoloClientes, $companyId, $outletId, $adminId);
+
+$detalleInexistente = 'id=00000000-0000-0000-0000-0000000000ff';
+
+// El reporte: `reports.sales.view` y nada más. Un rol de contactos NO lista las
+// órdenes del tenant entero por el camino de la ficha.
+$res = hitEndpoint('v1/orders-core.php', 'GET', '', [], $tokSoloVentas);
+check('orders-core lista sin filtro — rol con reports.sales.view → pasa el gate',
+    pasaElGate($res, 'reports.sales.view'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/orders-core.php', 'GET', '', [], $tokSoloClientes);
+check('orders-core lista sin filtro — rol SOLO con contacts.customer.view → 403',
+    esGateDePermiso($res, 'reports.sales.view'),
+    "ver las órdenes de todo el tenant es el REPORTE, no la ficha del cliente. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// La ficha: `contacts.customer.view`. Y al revés — el rol del reporte no entra
+// por acá, que es la mitad que se pierde si alguien unifica el gate.
+$res = hitEndpoint('v1/orders-core.php', 'GET', 'customerId=' . $clienteId, [], $tokSoloClientes);
+check('orders-core ?customerId — rol con contacts.customer.view → pasa el gate',
+    pasaElGate($res, 'contacts.customer.view'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/orders-core.php', 'GET', 'customerId=' . $clienteId, [], $tokSoloVentas);
+check('orders-core ?customerId — rol SOLO con reports.sales.view → 403',
+    esGateDePermiso($res, 'contacts.customer.view'),
+    "la pestaña de la ficha se abre con la clave de la ficha. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// El detalle acepta CUALQUIERA de las dos: se llega desde las dos pantallas.
+foreach ([
+    ['reports.sales.view',     $tokSoloVentas],
+    ['contacts.customer.view', $tokSoloClientes],
+] as [$clave, $tok]) {
+    $res = hitEndpoint('v1/orders-core.php', 'GET', $detalleInexistente, [], $tok);
+    check("orders-core ?id= — rol con $clave → pasa el gate (404, no 403)",
+        $res['status'] === 404,
+        "el detalle se abre con cualquiera de las dos claves y el 404 prueba que el gate lo dejó pasar. status={$res['status']} body="
+            . substr(trim($res['body']), 0, 240),
+        $failures, $checks);
+}
+
+$res = hitEndpoint('v1/orders-core.php', 'GET', $detalleInexistente, [], $tokNone);
+check('orders-core ?id= — rol sin NINGUNA de las dos → 403',
+    esGateDePermiso($res, 'reports.sales.view'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // (C) Realm pos-app — el rol del DISPOSITIVO
@@ -705,6 +797,25 @@ check('device: GET /v1/reports/stock sin operador → pasa el gate',
     "el asistente de la caja consulta stock sin PIN desbloqueado. status={$res['status']} body="
         . substr(trim($res['body']), 0, 240),
     $failures, $checks);
+
+// El device LEE órdenes sin pasar por ningún permiso. El gate de lectura que se
+// agregó el 2026-09-11 es SOLO del realm panel: acá la lectura es parte de
+// operar la caja y la cocina, y el device ya viene scopeado a su outlet (O2 de
+// context/24). Si alguien "uniformiza" el gate y lo hace correr también bajo
+// pos-app, `hasPermission()` resuelve contra el rol `device` —que no tiene
+// `contacts.customer.view` para el camino por cliente ni la del reporte para la
+// lista— y el POS, el KDS y la pantalla de mozos se quedan sin órdenes.
+foreach ([
+    ['lista',    ''],
+    ['?id=',     'id=00000000-0000-0000-0000-0000000000ff'],
+] as [$camino, $query]) {
+    $res = hitEndpoint('v1/orders-core.php', 'GET', $query, [], '', $devTok);
+    check("device: GET /v1/orders-core $camino → sin gate de permiso",
+        $res['status'] !== 0 && $res['status'] !== 403,
+        "el gate de lectura es del realm panel; el device lee por diseño. status={$res['status']} body="
+            . substr(trim($res['body']), 0, 240),
+        $failures, $checks);
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // (C2) P0 — un device no puede tocar a los EMPLEADOS del comercio

@@ -124,8 +124,41 @@ function assertModuleCanSetStatus(?string $module, string $scope, string $status
     }
 }
 
+/**
+ * Gate de LECTURA para el realm panel (decisión del owner 2026-09-11).
+ * pos-app queda como estaba: el device ya viene scopeado a su outlet y la
+ * lectura es parte de operar la caja/cocina.
+ *
+ * En panel hay exactamente dos superficies que leen este endpoint, y cada
+ * una se gatea con la clave que ya gobierna su pantalla:
+ *   - ficha del cliente (pestaña Órdenes, filtra por customerId)
+ *     → `contacts.customer.view`, la misma clave que abre la ficha.
+ *   - dashboard/lista/detalle de órdenes (reporte de operación)
+ *     → `reports.sales.view`.
+ * El detalle (?id=) acepta cualquiera de las dos: se llega desde ambas.
+ * Sin clave nueva a propósito — `orders.view` fue rechazada por el owner.
+ */
+function assertPanelCanReadOrders(bool $isPosApp, ?string $id): void
+{
+    if ($isPosApp) {
+        return;
+    }
+    $byCustomer = (string) ($_GET['customerId'] ?? '') !== '';
+    if ($id !== null) {
+        if (hasPermission('reports.sales.view') || hasPermission('contacts.customer.view')) {
+            return;
+        }
+        apiError('No tenés permiso para ver órdenes (requiere: reports.sales.view o contacts.customer.view)', 403);
+    }
+    $perm = $byCustomer ? 'contacts.customer.view' : 'reports.sales.view';
+    if (!hasPermission($perm)) {
+        apiError("No tenés permiso para ver órdenes (requiere: $perm)", 403);
+    }
+}
+
 switch ($method) {
     case 'GET':
+        assertPanelCanReadOrders($isPosApp, $id);
         if ($id !== null) {
             $order = $svc->find($companyId, (string) $id);
             if ($order === null) apiError('Orden no encontrada', 404);

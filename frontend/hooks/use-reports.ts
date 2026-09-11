@@ -978,6 +978,101 @@ export interface OrdersReportResponse {
   rows: OrderRow[]
 }
 
+// ── Operación de órdenes y espacios (/v1/reports/operations) ─────────────────
+//
+// Vocabulario GENÉRICO a propósito (regla del owner 2026-09-10): el módulo de
+// órdenes lo usa un taller igual que un restaurante — etapas de proceso y
+// espacios, nunca cocina/mesas. Cada bloque trae su `coverage`: la pantalla la
+// declara arriba del bloque, no es un extra. Ver el docblock de
+// `api/lib/Reports/OperationsService.php`.
+
+export interface OperationsVolume {
+  total: number
+  cancelled: number
+  delivered: number
+  /** Entregadas + cobradas: `markPaid()` cierra sin pasar por entregada. */
+  completed: number
+  /** Ni cancelada ni terminada — sigue en curso. */
+  open: number
+  spacesUsed: number
+}
+
+export interface OperationsStages {
+  /** Órdenes no canceladas del período, tengan marcas o no. */
+  ordersTotal: number
+  /** Minutos. `null` = ninguna orden tenía las dos marcas. */
+  avgToProgress: number | null
+  avgProgressToReady: number | null
+  avgReadyToDelivered: number | null
+  avgTotal: number | null
+  medianTotal: number | null
+  /** Vueltas de la ORDEN de lista a en proceso/enviada. */
+  reworks: number
+  /** Líneas devueltas de lista a preparación. */
+  reworkItems: number
+  ordersWithRework: number
+  coverage: {
+    withProgress: number
+    withReady: number
+    withDelivered: number
+    /** Entregadas sin pasar por "en proceso" o "lista" — el salto que permite la máquina de estados. */
+    skipped: number
+    /** Con las tres marcas. */
+    fullyTracked: number
+    total: number
+    /** Denominador EXACTO de cada promedio. */
+    stageSamples: {
+      toProgress: number
+      progressToReady: number
+      readyToDelivered: number
+      total: number
+    }
+  }
+}
+
+export interface OperationsBucket {
+  bucket: number
+  orders: number
+}
+
+export interface OperationsDemand {
+  /** 0-23 en hora del tenant. Solo los buckets con órdenes. */
+  byHour: OperationsBucket[]
+  /** ISODOW: 1 = lunes … 7 = domingo. */
+  byWeekday: OperationsBucket[]
+}
+
+export interface OperationsHeatCell {
+  spaceId: string
+  spaceName: string
+  hour: number
+  sessions: number
+}
+
+export interface OperationsSpaces {
+  /** Sin fusionadas ni canceladas. */
+  sessions: number
+  /** Sesiones que se unieron a otra: no son ocupación, se informan aparte. */
+  merged: number
+  avgGuests: number | null
+  avgMinutes: number | null
+  heatmap: OperationsHeatCell[]
+  /** Espacios activos del alcance, usados o no — las filas de la matriz. */
+  spaceList: Array<{ spaceId: string; spaceName: string }>
+  coverage: {
+    withGuests: number
+    closed: number
+    total: number
+  }
+}
+
+export interface OperationsReport {
+  volume?: OperationsVolume
+  stages?: OperationsStages
+  demand?: OperationsDemand
+  spaces?: OperationsSpaces
+}
+
 // ── Transaction detail (panel mode) ──────────────────────────────────────────
 
 export interface CobrosRow {

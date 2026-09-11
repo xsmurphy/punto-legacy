@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import { AlertCircle, ArrowLeft, ClipboardList } from "lucide-react"
 
@@ -11,6 +12,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
   rangeToBackend,
+  type DateRangeValue,
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
@@ -68,11 +70,20 @@ interface OrdersListProps {
   backHref: string
   /** Filtrar por cliente (UUID). Cuando se pasa, se omite el BackLink y el header de página. */
   customerIdFilter?: string
+  /**
+   * El rango lo maneja la página que embebe el listado (tab "Listado" de
+   * `/reports/orders`). Suprime el header y el selector propios: dos
+   * `useDateRange()` en la misma pantalla pelean por el mismo estado
+   * compartido — mismo criterio que `RankingReportPage.embeddedRange`.
+   */
+  embeddedRange?: DateRangeValue
 }
 
-export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
+export function OrdersList({ backHref, customerIdFilter, embeddedRange }: OrdersListProps) {
   const { data: bootstrap } = useBootstrap()
-  const { range, setRange } = useDateRange()
+  const router = useRouter()
+  const { range: ownRange, setRange } = useDateRange()
+  const range = embeddedRange ?? ownRange
   const opts = React.useMemo(
     () => ({
       ...rangeToBackend(range),
@@ -155,7 +166,7 @@ export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {!customerIdFilter && (
+      {!customerIdFilter && !embeddedRange && (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
             <BackLink backHref={backHref} />
@@ -189,6 +200,9 @@ export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}
+        // El detalle es una página y no un modal: tiene URL propia, se
+        // comparte, y "Volver" regresa a este listado (ver /orders/[id]).
+        onRowClick={(r) => router.push(`/orders/${r.id}`)}
         isLoading={isLoading}
         searchPlaceholder="Buscar por orden, cliente, sucursal…"
         exportFileName="ordenes"

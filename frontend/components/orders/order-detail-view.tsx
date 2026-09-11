@@ -42,32 +42,15 @@ import {
   useOrder,
   type Order,
   type OrderItem,
-  type OrderStatus,
-  type OrderEvent,
 } from "@/hooks/use-orders"
+import { eventStatusLabel } from "@/lib/orders/order-event-label"
 import {
   ACTOR_KIND_LABEL,
-  STATUS_LABEL,
   canCancelOrderItem,
   orderDestination,
   orderTotal,
 } from "@/lib/orders/order-display"
 
-
-/**
- * Etiqueta legible de un extremo de la transición. El historial mezcla eventos
- * de ORDEN (`open`, `sent`, …) y de ÍTEM (`pending`, `preparing`, …): son dos
- * máquinas de estado distintas, así que se resuelve contra el mapa que
- * corresponda según el `scope` del evento. Sin esto se imprimía el valor crudo
- * de la BD ("open → sent"), que no le dice nada a quien atiende.
- */
-function eventStatusLabel(scope: OrderEvent["scope"], status: string | null): string {
-  if (!status) return ""
-  if (scope === "item") {
-    return KDS_ITEM_VISUALS[status as keyof typeof KDS_ITEM_VISUALS]?.label ?? status
-  }
-  return STATUS_LABEL[status as OrderStatus] ?? status
-}
 
 export function OrderDetailView({
   order,

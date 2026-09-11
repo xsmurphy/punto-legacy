@@ -56,7 +56,9 @@ define('OUTLET_ID',  $outletA1);
 define('USER_ID',    '0f5e7a10-0000-4000-8000-000000000021');
 
 require_once dirname(__DIR__) . '/bootstrap.php';
+require_once dirname(__DIR__) . '/lib/Orders/OrderCoreService.php';
 
+use Punto\Api\Orders\OrderCoreService;
 use Punto\Api\Reports\OperationsService;
 use Punto\Api\Reports\Roc;
 
@@ -153,6 +155,7 @@ $cleanup = static function () use ($companyId, $companyB): void {
         $db->Execute('DELETE FROM space_session   WHERE companyid = ?::uuid', [$cid]);
         $db->Execute('DELETE FROM space           WHERE companyid = ?::uuid', [$cid]);
         $db->Execute('DELETE FROM space_sector    WHERE companyid = ?::uuid', [$cid]);
+        $db->Execute('DELETE FROM contact WHERE companyId = ?', [$cid]);
         $db->Execute('DELETE FROM outlet  WHERE companyId = ?', [$cid]);
         $db->Execute('DELETE FROM company WHERE companyId = ?', [$cid]);
     }
@@ -173,6 +176,11 @@ try {
         $db->Execute('INSERT INTO outlet (outletId, outletName, outletStatus, companyId) VALUES (?, ?, 1, ?)',
             [$o, 'Ops Sucursal', $c]);
     }
+    // Sucursal A1 con ubicación (origen del mapa de entrega del detalle) y el
+    // responsable de O1 como contacto — find() tiene que resolver los dos.
+    $db->Execute('UPDATE outlet SET lat = -25.3000000, lng = -57.6000000 WHERE outletId = ?', [$outletA1]);
+    $db->Execute('INSERT INTO contact (contactId, contactName, companyId, outletId, type, contactStatus)
+                  VALUES (?, ?, ?, ?, 0, 1)', [USER_ID, 'Responsable Uno', $companyId, $outletA1]);
 
     $sectorA = '0f5e7a10-0000-4000-8000-0000000000c1';
     $sectorB = '0f5e7a10-0000-4000-8000-0000000000c2';
@@ -215,6 +223,11 @@ try {
         ['ready', 'delivered', '10:24', 'item'],
         ['ready', 'delivered', '10:25'],
     ], S2);
+    $db->Execute(
+        "UPDATE pos_order SET userid = ?::uuid, fulfillment = 'delivery', deliverylat = -25.2900000, deliverylng = -57.5800000
+          WHERE orderid = ?::uuid",
+        [USER_ID, oid(1)]
+    );
     seedOrder($companyId, $outletA1, oid(2), 'delivered', '2026-03-02 10:30:00', [
         [null, 'sent', '10:30'], ['sent', 'delivered', '11:30'],
     ]);
@@ -319,6 +332,11 @@ try {
             ($st['reworkItems'] ?? null) === 1, 'obtenido ' . v($st['reworkItems'] ?? null), $failures, $checks);
         check('ordersWithRework = 2', ($st['ordersWithRework'] ?? null) === 2,
             'obtenido ' . v($st['ordersWithRework'] ?? null), $failures, $checks);
+        // El denominador EXACTO de cada promedio.
+        $ss = $cov['stageSamples'] ?? [];
+        check('stageSamples = {toProgress:5, progressToReady:4, readyToDelivered:3, total:5}',
+            $ss === ['toProgress' => 5, 'progressToReady' => 4, 'readyToDelivered' => 3, 'total' => 5],
+            'obtenido ' . json_encode($ss), $failures, $checks);
     }
 
     // ── DEMANDA ─────────────────────────────────────────────────────────────
@@ -409,6 +427,35 @@ try {
         check('con filtro A2 (sin espacios), spaces vacío y sin heatmap',
             ($spA2['sessions'] ?? null) === 0 && ($spA2['heatmap'] ?? null) === [] && ($spA2['spaceList'] ?? null) === [],
             'obtenido ' . json_encode($spA2), $failures, $checks);
+    }
+
+    // ── Detalle de la orden (find): sucursal propia + responsable ──────────
+    try {
+        $core = new OrderCoreService($db);
+        $d = $core->find($companyId, oid(1));
+        check('find() trae la sucursal DE LA ORDEN con su ubicación (origen del mapa)',
+            ($d['outletName'] ?? null) === 'Ops Sucursal'
+                && near($d['outletLat'] ?? null, -25.3) && near($d['outletLng'] ?? null, -57.6),
+            'obtenido ' . json_encode(array_intersect_key($d ?? [], array_flip(['outletName', 'outletLat', 'outletLng']))),
+            $failures, $checks);
+        check('find() trae el nombre del responsable', ($d['userName'] ?? null) === 'Responsable Uno',
+            'obtenido ' . v($d['userName'] ?? null), $failures, $checks);
+        check('find() mantiene el destino snapshoteado de la entrega',
+            near($d['deliveryLat'] ?? null, -25.29) && ($d['fulfillment'] ?? null) === 'delivery',
+            'obtenido ' . v($d['deliveryLat'] ?? null), $failures, $checks);
+        $timeline = array_values(array_filter($d['events'] ?? [], static fn ($e) => $e['scope'] === 'order'));
+        check('find() trae la línea de tiempo de la orden (4 eventos de orden en O1)',
+            count($timeline) === 4, 'obtenido ' . count($timeline), $failures, $checks);
+        $d2 = $core->find($companyId, oid(2));
+        // `array_key_exists` y no `??`: `??` trata el null como ausente y el
+        // check nunca vería el null que se quiere verificar.
+        check('find() sin responsable: la clave viene y vale null, no string vacío',
+            is_array($d2) && array_key_exists('userName', $d2) && $d2['userName'] === null,
+            'obtenido ' . v(is_array($d2) ? ($d2['userName'] ?? '<null>') : $d2), $failures, $checks);
+        check('find() de otra empresa no se ve', $core->find($companyId, oid(9)) === null,
+            'la orden de la empresa B fue visible desde A', $failures, $checks);
+    } catch (\Throwable $e) {
+        check('find() corre sin error', false, get_class($e) . ': ' . $e->getMessage(), $failures, $checks);
     }
 
     // ── Todos los bloques juntos (lo que pide la pantalla) ─────────────────
