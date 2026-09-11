@@ -552,7 +552,7 @@ final class EInvoiceService
     {
         $rs = ncmExecute(
             "SELECT einvoicedocid, doctype, status, cdc, document_number, error_message, issued_at, attempts,
-                    sifen_status, superseded_by, cancelled_at, numbering_mismatch
+                    sifen_status, sifen_result, superseded_by, cancelled_at, numbering_mismatch
                FROM einvoice_document
               WHERE companyid = ? AND transactionid = ?
               ORDER BY created_at DESC",
@@ -585,6 +585,17 @@ final class EInvoiceService
                     // SIFEN rechazó después. Ninguna pantalla puede decir
                     // "emitida" mirando solo `status`.
                     'sifenVerdict'   => self::sifenVerdict($f['sifen_status'] ?? null),
+                    // POR QUÉ lo rechazó SIFEN. Solo viaja en el rechazo: en un
+                    // aprobado `sifen_result` trae el acuse de éxito y mostrarlo
+                    // como "motivo" confunde. Existe porque el motivo RUTEA al
+                    // arreglo (context/28 §F7 R2): "RUC inválido" manda a la
+                    // ficha del cliente, "timbrado vencido" a la config del
+                    // emisor. Mismo tratamiento que el listado de ventas
+                    // (`Reports\TransactionsService`), que ya lo mostraba — el
+                    // detalle era la única superficie que no lo tenía.
+                    'sifenReason'    => self::sifenVerdict($f['sifen_status'] ?? null) === 'rejected'
+                        ? self::sifenReason($f['sifen_result'] ?? null)
+                        : null,
                     'supersededBy'   => $f['superseded_by'] ?? null,
                     // Por qué NO se le puede entregar el KuDE, o null si sí.
                     // Lo calcula el MISMO predicado que aplica el endpoint de

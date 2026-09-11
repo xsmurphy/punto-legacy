@@ -143,6 +143,12 @@ function TransactionDetailView({
   // muerto). El backend los devuelve ordenados por fecha desc.
   const einvoiceDoc = detail.einvoiceDocuments?.[0] ?? null
   const einvoiceIssued = einvoiceDoc?.status === "issued" || einvoiceDoc?.status === "sending"
+  // El veredicto FISCAL, que es otra pregunta que `status`. Un rechazado por
+  // SIFEN queda `issued` —salió del outbox, con CDC y todo— así que esta
+  // pantalla lo rotulaba "Factura electrónica emitida" y ofrecía su KuDE,
+  // contradiciendo al listado de ventas, que sí lo pinta "Rechazada". El
+  // comercio llega acá justamente desde ese badge, a buscar el motivo.
+  const einvoiceRejected = einvoiceDoc?.sifenVerdict === "rejected"
   // Solo contado y crédito llevan factura electrónica — es el mismo mapeo que
   // hace SaleService al encolar. Una anulada no se factura.
   //
@@ -387,9 +393,10 @@ function TransactionDetailView({
               validez fiscal — hay un caso registrado de un documento con CDC
               válido que SIFEN rechazó después y cuyo KuDE se descargaba igual
               (ver EInvoiceService::reconcile). El veredicto vive en
-              `sifen_status`, y por eso el botón se ofrece por `issued` pero la
-              validez la comunica el badge del listado. */}
-          {einvoiceIssued && einvoiceDoc?.id && (
+              `sifen_status`: por eso el botón NO se ofrece sobre un documento
+              que SIFEN rechazó — descargar el PDF de algo que no vale es
+              exactamente el malentendido que este bloque produce. */}
+          {einvoiceIssued && !einvoiceRejected && einvoiceDoc?.id && (
             <Button
               variant="outline"
               size="sm"
@@ -430,6 +437,28 @@ function TransactionDetailView({
           lado (reporte del owner, 2026-09-09). Va arriba del todo porque es
           una venta cobrada SIN documento fiscal válido — no es un detalle
           más de la ficha. */}
+      {einvoiceRejected && (
+        <Card className="border-destructive/40">
+          <CardContent className="flex items-start gap-3 py-4">
+            <Ban className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div className="flex min-w-0 flex-col gap-1">
+              <p className="text-sm font-medium text-foreground">
+                SIFEN rechazó la factura electrónica
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {einvoiceDoc?.sifenReason ??
+                  "SIFEN no informó el motivo del rechazo."}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                La venta está cobrada pero sin documento fiscal válido. Corregí
+                el dato que SIFEN objeta y volvé a emitirla desde Ajustes,
+                Facturación electrónica.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Factura electrónica EMITIDA. El comercio necesita ver el CDC entero
           en algún lado —en el listado va truncado a un check— y este es ese
           lado. Reemplaza al botón de emitir, que hasta ahora aparecía sobre
@@ -440,7 +469,7 @@ function TransactionDetailView({
           y el KuDE en PDF: es requisito de legibilidad de la norma, y
           compartir la función es lo que garantiza que el código se lea igual
           en las tres superficies. */}
-      {einvoiceIssued && (
+      {einvoiceIssued && !einvoiceRejected && (
         <Card>
           <CardContent className="flex items-start gap-3 py-4">
             <FileCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

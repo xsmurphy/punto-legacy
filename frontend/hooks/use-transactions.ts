@@ -111,6 +111,12 @@ export interface TransactionDetail {
      * después. Ninguna pantalla puede decir "emitida" mirando solo `status`.
      */
     sifenVerdict: "approved" | "rejected" | "pending"
+    /**
+     * Motivo del rechazo de SIFEN, o null si no está rechazado. El backend
+     * solo lo manda en el rechazo: el `sifen_result` de un aprobado es el
+     * acuse de éxito, no un motivo.
+     */
+    sifenReason: string | null
     /** No null = hay una reemisión que reemplazó a este documento. */
     supersededBy: string | null
     /**

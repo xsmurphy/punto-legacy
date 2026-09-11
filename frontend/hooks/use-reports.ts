@@ -1540,6 +1540,12 @@ export interface TxDetailFull {
     attempts: number
     /** Veredicto FISCAL — distinto de `status`, que es el outbox de Punto. */
     sifenVerdict: "approved" | "rejected" | "pending"
+    /**
+     * Motivo del rechazo de SIFEN, o null si no está rechazado. El backend
+     * solo lo manda en el rechazo: el `sifen_result` de un aprobado es el
+     * acuse de éxito, no un motivo.
+     */
+    sifenReason: string | null
     supersededBy: string | null
     /**
      * Por qué NO se le puede entregar el KuDE al comprador, o null si sí.
