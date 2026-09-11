@@ -1470,8 +1470,10 @@ class EncomClient implements EncomSource
             'El sistema legacy devolvió exactamente ' . self::CAP_SIZE . ' filas de ' . $que . ' para este mes, '
             . 'que es su tope por pedido, y no aceptó ninguna forma de pedirle el resto (se probaron: '
             . implode('; ', $probadas) . '). O sea que el mes está TRUNCADO: hay más ' . $que . ' de las que se '
-            . 'pueden leer, y no se sabe cuántas. No se importa nada de este dominio: un mes incompleto asentado '
-            . 'como completo deja reportes que no cuadran y que nadie vuelve a revisar.',
+            . 'pueden leer, y no se sabe cuántas. El export se corta acá en vez de seguir: un mes incompleto '
+            . 'asentado como completo deja reportes que no cuadran y que nadie vuelve a revisar. Lo que este job '
+            . 'ya haya asentado de meses anteriores queda marcado en la migración, así que relanzarlo no duplica '
+            . 'nada y completa lo que falte.',
             502
         );
     }

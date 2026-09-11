@@ -19,10 +19,12 @@ namespace Punto\Api\Admin;
  *
  * Sobrevive lo que tiene lector HOY, y solo eso:
  *
- *   · `tableHtml()` + `htmlRows()` → dos lectores. El histórico de VENTAS
- *     (F2, sin implementar) sobre `a_report_transactions?action=detailTable`,
- *     y el COSTO de los artículos sobre `a_items?action=showTable` — el único
- *     dato del catálogo que `/fetchs` no manda (ver `EncomClient::itemCosts()`).
+ *   · `tableHtml()` + `htmlRows()` → tres lectores. El histórico de VENTAS
+ *     sobre `a_report_transactions?action=detailTable`, el log de ÍTEMS
+ *     VENDIDOS sobre `a_report_products?action=detailTable` (de donde salen
+ *     las líneas desde 2026-09-11, ver §17.13), y el COSTO de los artículos
+ *     sobre `a_items?action=showTable` — el único dato del catálogo que
+ *     `/fetchs` no manda (ver `EncomClient::itemCosts()`).
  *     El valor CRUDO viaja en `data-order`/`data-sort`; el texto visible está
  *     formateado para mirar (`1.250.000`, `12 ene`).
  *   · `htmlHeaders()` + `columnIndex()` → resolver una columna por su

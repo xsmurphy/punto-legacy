@@ -160,12 +160,19 @@ La que sobrevive es estrictamente mejor, y no solo por robustez:
   switch `?o=` (dos requests por sucursal) más un `?action=edit` por caja ya no
   existe.
 
-Se borraron: el parser de CSV indexado por nombre de columna, `columnIndex()` /
-`htmlHeaders()` / `htmlTable()` y todos los métodos de scraping del cliente.
-**Sobreviven** `htmlRows()`, `tableHtml()` y `formValues()` en `EncomParse`,
-más `get()` y la sesión de panel en `EncomClient`, por una sola razón: el
-histórico de VENTAS (F2) **no está en `/fetchs`** y sigue saliendo de
-`a_report_transactions` (§12). Si F2 se descarta, se van los tres juntos.
+Se borraron: el parser de CSV indexado por nombre de columna y los métodos de
+scraping del cliente que alimentaban a los dominios que hoy salen de `/fetchs`.
+
+**Sobreviven** `htmlRows()`, `tableHtml()`, `htmlHeaders()`, `columnIndex()` y
+`columnIndexExact()` en `EncomParse`, más `get()` y la sesión de panel en
+`EncomClient`, por una sola razón: el histórico **no está en `/fetchs`** y sale
+de los reportes `a_*.php` (§12, §17). Si el histórico se descarta, se van todos
+juntos.
+
+`formValues()` NO sobrevive: se eliminó el 2026-09-11 junto con el camino que
+leía el form de edición de UNA venta para sacarle sus ítems. El histórico pasó
+a leer el **log de ítems vendidos** (`a_report_products?action=detailTable`),
+que es una tabla más y entra en bloque — ver §17.13. No lo busques.
 
 ### 4.3 Cómo se obtiene el alcance sin pedírselo a nadie
 
