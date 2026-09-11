@@ -309,6 +309,39 @@ final class DocumentNumber
     }
 
     /**
+     * Número de documento PEGADO, sin guiones: `0010010002129`.
+     *
+     * Es el formato con el que los contadores presentan RG90 y Libro Ventas
+     * —el legacy emitía `invoicePrefix . leadingZeros($invoiceNo, 7)` y los
+     * archivos vienen así desde siempre—, NO el formato impreso en la factura
+     * (ese es `format()`, con guiones, context/29 §1). Los dos describen el
+     * mismo documento; cuál se usa lo decide el destinatario del papel.
+     *
+     * Vive acá, al lado de `format()`, por la misma razón que explica el
+     * bloque de arriba: un `str_pad` + `preg_replace` suelto en el reporte
+     * fiscal es exactamente cómo el mismo documento terminó saliendo con dos
+     * números distintos según qué pantalla lo pintaba.
+     *
+     * El prefijo se reduce a DÍGITOS: se guarda como "001-001" (punto de
+     * expedición con guion) y acá los separadores se caen, no se reemplazan.
+     *
+     * El ancho es fijo en 7 (`DEFAULT_PAD_WIDTH`) salvo que el caller pida
+     * otro: el layout fiscal legacy lo fija así. Un correlativo más largo que
+     * el ancho NO se recorta — se emite completo, perder un dígito del número
+     * de un comprobante declarado sería peor que una columna más ancha.
+     */
+    public static function formatFlat(
+        int|string|null $number,
+        ?string $prefix = null,
+        ?int $padWidth = null,
+    ): string {
+        $padded = self::pad($number, $padWidth);
+        $pfx    = preg_replace('/\D+/', '', (string) $prefix) ?? '';
+
+        return $pfx . $padded;
+    }
+
+    /**
      * Igual que `format()`, pero el prefijo y el ancho salen de la secuencia
      * en vez de que los pase el caller. Para los consumidores que tienen el
      * scope a mano y no cargaron la caja (ej. un reimpreso puntual).

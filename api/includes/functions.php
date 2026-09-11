@@ -1100,10 +1100,24 @@ function groupOrdersItems($orders,$ltrl=false,$strng=false){
 	}
 }
 
-function isInternalSale($tags){
+/**
+ * ¿La venta está etiquetada como INTERNA (tag 166227)?
+ *
+ * Por defecto la exclusión está gateada por el ajuste del tenant
+ * (`ignoreInternal`): en los reportes de gestión el dueño decide si una venta
+ * interna suma o no a sus números.
+ *
+ * `$force = true` ignora ese ajuste y responde solo por la etiqueta. Es para
+ * los reportes FISCALES (RG90 / Libro Ventas), donde no es una preferencia: una
+ * venta interna no es una venta declarable ante la SET, así que no puede
+ * depender de un checkbox del panel. El legacy tenía el mismo segundo
+ * parámetro (`isInternalSale($tags, true)` en `a_report_transactions.php`) y se
+ * replica acá —en el helper compartido— en vez de re-leer el tag en el caller.
+ */
+function isInternalSale($tags, $force = false){
 	global $_fullSettings;
 
-	if(empty($_fullSettings['ignoreInternal'])){
+	if(!$force && empty($_fullSettings['ignoreInternal'])){
 		return false;
 	}
 

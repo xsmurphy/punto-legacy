@@ -1184,10 +1184,10 @@ export interface FiscalReportResponse {
      *  reconstruible (anteriores a F2a, D3 del plan) — no se inventó un
      *  desglose para ellas. */
     excludedCount: number
-    /** El backend cortó en 5000 filas (mismo cap que el resto de
-     *  /v1/reports) — para un documento que se declara ante el SET, un
-     *  rango con más ventas que eso queda INCOMPLETO. Achicar el rango. */
-    truncated: boolean
+    // No hay `truncated`: el reporte fiscal dejó de cortar en 5000 filas
+    // (2026-09-11, `FiscalService` pagina el universo entero). Un archivo que
+    // se declara ante el SET no puede venir cortado, así que el caso dejó de
+    // existir en vez de avisarse.
   }
 }
 
