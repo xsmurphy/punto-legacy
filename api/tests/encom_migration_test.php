@@ -39,6 +39,7 @@ require_once __DIR__ . '/_harness.php';
 
 $companyId = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d1122';
 $companyB  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d3344';
+$companyC  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d5566';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -79,7 +80,7 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
  * unión de `registers` con `docsNum`, la derivación de categorías y marcas, la
  * lectura tolerante de `tags` y `paymentMethods`— es el código de producción.
  */
-final class FixtureEncomClient extends EncomClient
+class FixtureEncomClient extends EncomClient
 {
     /** @var array<int,string> `load` pedidos, en orden. */
     public array $calls = [];
@@ -99,6 +100,31 @@ final class FixtureEncomClient extends EncomClient
         $json = json_decode($raw, true);
 
         return is_array($json) ? $json : [];
+    }
+
+    /**
+     * El COSTO es lo único que NO sale de `/fetchs`: sale de la tabla del
+     * panel, que es lo que sirve este `get()`.
+     */
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        if ($path === '/a_items') {
+            $file = $this->dir . '/panel-items-costs.json';
+            return is_file($file) ? (string) file_get_contents($file) : '';
+        }
+        return '';
+    }
+}
+
+/**
+ * Variante: el panel no entrega la tabla de costos (otro deploy, permiso,
+ * sesión caída). El catálogo NO puede caerse por eso.
+ */
+final class SinCostosEncomClient extends FixtureEncomClient
+{
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        throw new \RuntimeException('el panel respondió 403');
     }
 }
 
@@ -273,6 +299,7 @@ $fixtures = __DIR__ . '/fixtures/encom';
 
 cleanup($companyId);
 cleanup($companyB);
+cleanup($companyC);
 
 try {
     // ══════════════════════════════════════════════════════════════════
@@ -501,6 +528,84 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
+    // Q. COSTO — el único dato del catálogo que NO sale de /fetchs
+    // ══════════════════════════════════════════════════════════════════
+    // El bootstrap del POS no manda el costo (no lo necesita para vender), así
+    // que sale de la tabla del panel y se cruza por SKU o por nombre. Perderlo
+    // deja en cero todo reporte de margen del comercio migrado.
+    $costDe = static function (?string $itemId) {
+        return $itemId === null ? null : scalar('SELECT itemCost FROM item WHERE itemId = ?', [$itemId]);
+    };
+
+    $costCafe = $costDe($itm1);
+    check(
+        'Q1 · el costo se cruza por SKU (CAF-001 → 5000)',
+        $costCafe !== null && abs((float) $costCafe - 5000.0) < 0.0001,
+        'itemCost = ' . var_export($costCafe, true),
+        $failures, $checks
+    );
+
+    // La pizza no tiene SKU en /fetchs y en la tabla del panel figura con "-":
+    // el cruce cae al nombre normalizado.
+    $costPizza = $costDe(EncomMigrationService::mapped($companyId, 'item', 'itm-4'));
+    check(
+        'Q2 · sin SKU, el costo se cruza por nombre normalizado (22000)',
+        $costPizza !== null && abs((float) $costPizza - 22000.0) < 0.0001,
+        'itemCost = ' . var_export($costPizza, true),
+        $failures, $checks
+    );
+
+    // La harina no está en la tabla del panel: entra SIN costo y con nombre y
+    // apellido en la bitácora. No se inventa un 0 — "no lo sé" y "cuesta cero"
+    // no son lo mismo, y un 0 falso arruina el margen de ese artículo.
+    $costHarina = $costDe(EncomMigrationService::mapped($companyId, 'item', 'itm-6'));
+    check(
+        // NULL, no 0: el driver puede devolverlo como null, '' o false, pero un
+        // 0 real (que sí sería un costo) tiene que fallar este check.
+        'Q3 · lo que no matchea entra SIN costo, no con 0',
+        $costHarina === null || $costHarina === '' || $costHarina === false,
+        'itemCost = ' . var_export($costHarina, true),
+        $failures, $checks
+    );
+
+    // La bitácora de la primera corrida: la miran este caso, R5/R6 (combos que
+    // hay que revisar) y U6 (el rol asignado a cada usuario).
+    $logText = json_encode($run1['log'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'Q4 · y queda nombrado en la bitácora para que soporte lo complete',
+        str_contains($logText, 'Sin costo') && str_contains($logText, 'Harina 000'),
+        "log = $logText",
+        $failures, $checks
+    );
+
+    // El costo es un ENRIQUECIMIENTO: si el panel no lo entrega, el catálogo
+    // entra igual. Es la diferencia entre migrar sin costos y no migrar.
+    seedCompany($companyC, 'Comercio Sin Costos SA');
+    $runSinCostos = (new EncomImportService($companyC, new SinCostosEncomClient($fixtures), null))->run(['catalog']);
+
+    check(
+        'Q5 · si el panel no entrega costos, el catálogo se importa IGUAL (9 artículos)',
+        ($runSinCostos['progress']['item']['imported'] ?? 0) === 9,
+        'progress.item = ' . json_encode($runSinCostos['progress']['item'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'Q6 · y el job lo dice, en vez de quedar mudo',
+        str_contains(json_encode($runSinCostos['log'], JSON_UNESCAPED_UNICODE), 'No se pudieron traer los costos'),
+        'log = ' . json_encode($runSinCostos['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'Q7 · el dominio catálogo no registró errores por la falta de costos',
+        $runSinCostos['errors'] === [],
+        'errores = ' . json_encode($runSinCostos['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // R. COMBOS Y RECETAS — la novedad de /fetchs
     // ══════════════════════════════════════════════════════════════════
     check(
@@ -543,8 +648,6 @@ try {
         'kinds = ' . var_export([$kindCombo, $kindMasa], true),
         $failures, $checks
     );
-
-    $logText = json_encode($run1['log'], JSON_UNESCAPED_UNICODE);
 
     check(
         'R5 · el combo con un componente inexistente NO se inventa: queda anotado para revisar',
@@ -1104,6 +1207,7 @@ try {
 } finally {
     cleanup($companyId);
     cleanup($companyB);
+    cleanup($companyC);
 }
 
 harnessFinish($failures, $checks);

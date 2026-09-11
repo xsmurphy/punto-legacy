@@ -35,7 +35,7 @@ const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
     key: "catalog",
     title: "Catálogo, combos y recetas",
     detail:
-      "Categorías, marcas, etiquetas, artículos y la composición de combos y recetas de producción. El stock inicial y el costo no se migran.",
+      "Categorías, marcas, etiquetas, artículos con su costo, y la composición de combos y recetas de producción. El stock inicial no se migra.",
   },
   {
     key: "customers",

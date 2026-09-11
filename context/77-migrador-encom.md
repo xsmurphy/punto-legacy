@@ -151,6 +151,39 @@ mirando, no media hora después dentro del worker.
 El alcance se guarda en `migration_job.credentials.scope`, junto a las cookies
 y con su misma vida útil: se borra cuando el job termina.
 
+### 4.4 La excepción acotada: el COSTO sale del panel
+
+`/fetchs` es el bootstrap del POS y **el POS no necesita el costo para
+vender**, así que no lo manda. Es el único campo del catálogo que el scraping
+viejo daba y este no, y perderlo deja en cero todo reporte de margen del
+comercio migrado — una regresión contra el migrador que ya está en producción.
+
+Por eso el costo —y solo el costo— se lee de `a_items?action=showTable`, la
+tabla del panel, con la sesión que ya está viva (no hay login nuevo).
+
+**Esto no contradice §4.2.** Lo que ahí se rechaza es tener DOS fuentes para el
+mismo dato; acá hay **una fuente por dato**: el catálogo entero (nombre, precio,
+IVA, categoría, marca, SKU, código de barras, composición) sigue saliendo de
+`/fetchs`, y del panel sale un campo que esa fuente no tiene.
+
+Reglas que lo mantienen acotado:
+
+- **Es un enriquecimiento, nunca un insumo.** Si el panel falla, cambia de
+  columnas o contesta vacío, el catálogo se importa igual —sin costos— y el job
+  lo dice en la bitácora. `loadItemCosts()` no propaga nunca.
+- **El cruce es por SKU y, si no hay, por nombre normalizado.** El SKU es el
+  identificador que el comercio controla; el nombre es una heurística
+  razonable (las dos superficies son del mismo comercio) pero no es una clave.
+- **Lo que no matchea NO se inventa.** El artículo entra con `itemCost = NULL`
+  ("no lo sé", que no es lo mismo que 0: un 0 falso arruina el margen de ese
+  artículo para siempre) y queda nombrado en el log para que soporte lo cargue.
+- **Las columnas se resuelven por ENCABEZADO.** La tabla de artículos era lo
+  único que en la F1 seguía siendo posicional —el supuesto #4 del plan—; ahora
+  que vuelve a tener un lector, se lee por encabezado con el orden conocido
+  como respaldo.
+- **`exportCSV` sigue descartado** (§15): exige `ids` y su header está
+  desalineado con las filas en el propio legacy.
+
 ## 5. La numeración fiscal (D5) — el corazón
 
 El contador del legacy guarda el **último** número emitido. `document_sequence.
@@ -402,12 +435,11 @@ tocar el camino por el que se dan de alta TODAS las cajas del producto.
   un saldo es un movimiento del ledger con costo y sucursal (`context/52`) y el
   export da un número suelto sin costo. Meterlo como ajuste ensucia el costeo
   promedio desde el día uno. Se carga con un conteo en la sucursal.
-- **El COSTO de los artículos.** El bootstrap del POS no lo manda (no lo
-  necesita para vender). Es la única cosa que el scraping daba y `/fetchs` no:
-  la tabla HTML tenía una columna de costo. Los artículos entran con
-  `itemCost = NULL` ("no lo sé", distinto de 0). Si hiciera falta, la vía es
-  pedirle al legacy otro `load` o un reporte — **no** revivir el scraping de
-  catálogo.
+- ~~**El COSTO de los artículos.**~~ **Se migra desde 2026-09-11** — decisión
+  del owner: perderlo era una regresión contra el migrador que ya está en
+  producción y dejaba en cero los reportes de margen. Sale de la tabla del
+  panel, no de `/fetchs`, y se cruza por SKU o por nombre. Ver §4.4: es un
+  enriquecimiento acotado, no una vuelta al scraping de catálogo.
 - **Grupos de opciones de un combo dinámico.** Ver §7.2.
 - **Horario de atención de las sucursales.** `weekHours` viene en el export,
   pero el `outlet` de Punto no tiene un modelo de horarios mantenido (la
@@ -471,7 +503,9 @@ traducción a ciegas, `ContactService` lanzaba y se perdía el cliente ENTERO.
 
 | Arquitectura | Por qué se rechazó |
 |---|---|
-| **Scraping del panel para catálogo / clientes / cajas / sucursales** | Reemplazado por `/fetchs` y **eliminado**, no dejado como fallback. Ver §4.2: dos fuentes para el mismo dominio dejan sin respuesta de dónde salió un dato y divergen en silencio. |
+| **Scraping del panel para catálogo / clientes / cajas / sucursales** | Reemplazado por `/fetchs` y **eliminado**, no dejado como fallback. Ver §4.2: dos fuentes para el mismo dominio dejan sin respuesta de dónde salió un dato y divergen en silencio. La ÚNICA lectura que queda del panel en el catálogo es el COSTO (§4.4), que `/fetchs` no manda: una fuente por dato, no dos por dato. |
+| **`a_items?action=exportCSV`** como fuente del costo | Exige `ids` (no tiene "todos") y su header declara 18 columnas mientras las filas traen 7 claves con otros nombres: está desalineado en el propio legacy. El costo sale de `showTable`, resuelto por encabezado. |
+| **Poner 0 cuando no se encuentra el costo** | "No lo sé" y "cuesta cero" no son lo mismo: un 0 falso arruina el margen de ese artículo para siempre y nadie lo vuelve a mirar. Entra `NULL` y el artículo queda nombrado en la bitácora. |
 | **Usar `/API/get_*.php` o `/bff/*.php` como fuente de datos** | NO EXISTEN en el deploy vivo: 404 y "Acceso denegado". (`/bff/pos-redirect.php` se usa SOLO por su header `Location`, y con fallback si no está.) |
 | **Pedirle al operador el companyId/outletId del legacy** | El cliente no los conoce —son hashids internos que nunca ve— y tipearlos mal importa el catálogo de otro comercio. Se deducen de la sesión (§4.3). |
 | **Seguir con el alcance a medias** si no se pudo resolver | `/fetchs` contestaría el bootstrap de otra sucursal, o de ninguna, y el job importaría eso sin señal. Se LANZA. |

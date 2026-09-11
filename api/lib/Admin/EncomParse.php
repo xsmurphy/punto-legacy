@@ -12,23 +12,27 @@ namespace Punto\Api\Admin;
  * acá vivían el parser de CSV indexado por nombre de columna, la resolución de
  * columnas por encabezado y el lector de `data-order`/`data-sort`.
  *
- * Todo eso SE ELIMINÓ junto con el scraping: esos dominios ahora salen de
+ * Casi todo eso SE ELIMINÓ junto con el scraping: esos dominios ahora salen de
  * `POST /fetchs`, que devuelve JSON. Un parser sin lectores no se conserva
  * "por si acaso" — se vuelve código que nadie prueba y que el próximo lector
  * asume vigente.
  *
- * Sobreviven exactamente los dos que el histórico de VENTAS (F2, todavía no
- * implementada) va a necesitar, porque `/fetchs` NO trae ventas y ese dominio
- * sigue saliendo de las pantallas del panel:
+ * Sobrevive lo que tiene lector HOY, y solo eso:
  *
- *   · `tableHtml()` + `htmlRows()` → `a_report_transactions?action=detailTable`,
- *     la lista de ventas del rango. El valor CRUDO viaja en `data-order`; el
- *     texto visible está formateado para mirar (`1.250.000`, `12 ene`).
+ *   · `tableHtml()` + `htmlRows()` → dos lectores. El histórico de VENTAS
+ *     (F2, sin implementar) sobre `a_report_transactions?action=detailTable`,
+ *     y el COSTO de los artículos sobre `a_items?action=showTable` — el único
+ *     dato del catálogo que `/fetchs` no manda (ver `EncomClient::itemCosts()`).
+ *     El valor CRUDO viaja en `data-order`/`data-sort`; el texto visible está
+ *     formateado para mirar (`1.250.000`, `12 ene`).
+ *   · `htmlHeaders()` + `columnIndex()` → resolver una columna por su
+ *     ENCABEZADO. Es la lección más cara de la F1: el listado vivo de cajas
+ *     tenía una columna que el snapshot no tenía y, leído por índice fijo, el
+ *     nombre de la sucursal se leía como TIMBRADO. La tabla de artículos era
+ *     justamente la única que seguía siendo posicional; ahora que vuelve a
+ *     tener un lector, lo hace por encabezado.
  *   · `formValues()` → `a_report_transactions?action=edit&id=`, el form con los
- *     ítems de UNA venta.
- *
- * Si F2 se descarta, esta clase se borra entera junto con `salesRaw()` y
- * `saleDetailRaw()` de `EncomClient`.
+ *     ítems de UNA venta (F2).
  */
 final class EncomParse
 {
@@ -103,6 +107,69 @@ final class EncomParse
         }
 
         return $out;
+    }
+
+    /**
+     * Encabezados normalizados del `<thead>`: mayúsculas, sin acentos, sin
+     * espacios de más.
+     *
+     * @return array<int,string>
+     */
+    public static function htmlHeaders(string $html): array
+    {
+        if (trim($html) === '') {
+            return [];
+        }
+
+        $doc  = new \DOMDocument();
+        $prev = libxml_use_internal_errors(true);
+        $doc->loadHTML(
+            '<?xml encoding="UTF-8"?><table>' . $html . '</table>',
+            LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        $out = [];
+        foreach ($doc->getElementsByTagName('th') as $th) {
+            $out[] = self::canon((string) $th->textContent);
+        }
+        return $out;
+    }
+
+    /**
+     * Índice de la columna cuyo encabezado contiene alguna de las palabras
+     * clave, o `null` si ninguna matchea (el caller decide el fallback).
+     *
+     * El match es por palabra clave y no por igualdad para aguantar que el
+     * título cambie de mayúsculas, de acentos o de redacción.
+     *
+     * @param array<int,string> $headers
+     * @param array<int,string> $keywords ya en mayúsculas y sin acentos
+     */
+    public static function columnIndex(array $headers, array $keywords): ?int
+    {
+        foreach ($headers as $i => $h) {
+            foreach ($keywords as $kw) {
+                if (str_contains($h, $kw)) {
+                    return $i;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Normaliza un encabezado: mayúsculas, sin acentos, sin espacios de más. */
+    private static function canon(string $h): string
+    {
+        $h = trim($h);
+        $h = str_starts_with($h, "\xEF\xBB\xBF") ? substr($h, 3) : $h;
+        $h = mb_strtoupper($h, 'UTF-8');
+        $h = strtr($h, [
+            'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
+            'Ü' => 'U', 'Ñ' => 'N',
+        ]);
+        return preg_replace('/\s+/u', ' ', $h) ?? $h;
     }
 
     /**

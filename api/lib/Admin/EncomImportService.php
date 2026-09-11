@@ -60,6 +60,13 @@ final class EncomImportService
     /** Memo de impuestos del destino: nombre normalizado → taxId. */
     private ?array $taxByName = null;
 
+    /** Costos del panel: SKU normalizado → costo, y nombre normalizado → costo. */
+    private array $costBySku  = [];
+    private array $costByName = [];
+
+    /** Artículos que entraron sin costo teniendo la tabla de costos disponible. */
+    private array $sinCosto = [];
+
     public function __construct(
         private readonly string $companyId,
         private readonly EncomSource $source,
@@ -148,6 +155,12 @@ final class EncomImportService
             return $name === '' ? null : $tags->create($this->companyId, ['name' => $name]);
         });
 
+        // El COSTO sale de otra superficie que el resto del catálogo (la tabla
+        // del panel, no `/fetchs`) y es un ENRIQUECIMIENTO: si no se puede
+        // traer, los artículos entran igual, sin costo. Se carga ANTES del
+        // bucle para no pedir la tabla una vez por artículo.
+        $this->loadItemCosts();
+
         // ── Artículos: PRIMERA pasada, sin composición ───────────────────
         // Un combo referencia ítems que pueden venir DESPUÉS que él en el
         // export, así que la composición no se puede resolver mientras se crea.
@@ -192,6 +205,19 @@ final class EncomImportService
             return $itemId;
         });
 
+        // Qué artículos quedaron sin costo teniendo la tabla disponible. No se
+        // inventa un 0 —"no lo sé" y "cuesta cero" no son lo mismo, y un 0
+        // falso arruina el margen de ese artículo para siempre—, así que se
+        // nombran para que soporte los complete.
+        if ($this->sinCosto !== []) {
+            foreach (array_slice($this->sinCosto, 0, 30) as $nombre) {
+                $this->note('Sin costo (no se encontró en la tabla del panel): ' . $nombre);
+            }
+            if (count($this->sinCosto) > 30) {
+                $this->note('… y ' . (count($this->sinCosto) - 30) . ' artículo(s) más sin costo.');
+            }
+        }
+
         // ── SEGUNDA pasada: combos y recetas ─────────────────────────────
         $this->compose();
 
@@ -230,10 +256,10 @@ final class EncomImportService
             'itemTrackInventory' => $flags['itemTrackInventory'],
             'itemProduction'     => $flags['itemProduction'],
             'itemDescription'    => trim((string) ($row['description'] ?? '')),
-            // `null` = "no lo sé", que no es lo mismo que 0. El bootstrap del
-            // POS no manda el COSTO (no lo necesita para vender), así que lo
-            // habitual es que el artículo entre sin costo — ver context/77 §8.
-            'itemCost'           => $this->numOrNull($row['cost'] ?? null),
+            // `null` = "no lo sé", que no es lo mismo que 0. `/fetchs` no manda
+            // el costo, así que casi siempre sale de la tabla del panel, por
+            // SKU o por nombre (ver `costFor()`).
+            'itemCost'           => $this->numOrNull($row['cost'] ?? null) ?? $this->costFor($row),
             'itemPrice'          => $this->numOrNull($row['price'] ?? null),
             'itemUOM'            => trim((string) ($row['uom'] ?? '')),
             'itemStatus'         => 1,
@@ -264,6 +290,98 @@ final class EncomImportService
         // que ya pisó la mig 136 (context/41).
         $this->linkM2m('item_category', 'categoryId', $itemId, $categoryId);
         $this->linkM2m('item_brand', 'brandId', $itemId, $brandId);
+    }
+
+    /**
+     * Trae los costos del panel y los indexa por SKU y por nombre.
+     *
+     * NUNCA lanza: el costo es un enriquecimiento y no puede voltear el
+     * catálogo. Si la tabla no se puede leer —el legacy cambió, el usuario no
+     * tiene permiso, la sesión del panel se cayó— los artículos entran sin
+     * costo y la bitácora lo dice con el motivo.
+     */
+    private function loadItemCosts(): void
+    {
+        try {
+            $rows = $this->source->itemCosts();
+        } catch (\Throwable $e) {
+            $this->note(
+                'No se pudieron traer los costos del panel legacy (' . $e->getMessage() . '). '
+                . 'Los artículos se importan SIN costo; se cargan después desde el panel de Punto.'
+            );
+            return;
+        }
+
+        if ($rows === []) {
+            $this->note('La tabla de artículos del panel legacy no devolvió costos: los artículos entran sin costo.');
+            return;
+        }
+
+        foreach ($rows as $r) {
+            if (!is_array($r)) {
+                continue;
+            }
+            $cost = $this->numOrNull($r['cost'] ?? null);
+            if ($cost === null) {
+                continue;
+            }
+
+            $sku = $this->normalizeSku((string) ($r['sku'] ?? ''));
+            if ($sku !== '' && !isset($this->costBySku[$sku])) {
+                $this->costBySku[$sku] = $cost;
+            }
+
+            // El nombre es el fallback, así que ante dos artículos homónimos
+            // gana el PRIMERO en vez de pisarse: con el nombre repetido no hay
+            // forma de saber cuál es cuál, y elegir el último es igual de
+            // arbitrario pero menos predecible.
+            $name = $this->normalizeName((string) ($r['name'] ?? ''));
+            if ($name !== '' && !isset($this->costByName[$name])) {
+                $this->costByName[$name] = $cost;
+            }
+        }
+    }
+
+    /**
+     * Costo de un artículo de `/fetchs`: por SKU cuando lo tiene, y por nombre
+     * normalizado como respaldo.
+     *
+     * El SKU va primero porque es el identificador que el comercio controla; el
+     * nombre es una heurística razonable —las dos superficies son del mismo
+     * comercio y el nombre lo escribió una sola vez— pero no es una clave.
+     * Lo que no matchea por ninguna de las dos NO se inventa: el artículo entra
+     * sin costo y queda nombrado en la bitácora.
+     */
+    private function costFor(array $row): ?float
+    {
+        // Sin tabla de costos no hay nada que buscar ni nada que reportar: el
+        // motivo ya se anotó una sola vez en `loadItemCosts()`.
+        if ($this->costBySku === [] && $this->costByName === []) {
+            return null;
+        }
+
+        $sku = $this->normalizeSku((string) ($row['sku'] ?? ''));
+        if ($sku !== '' && isset($this->costBySku[$sku])) {
+            return $this->costBySku[$sku];
+        }
+
+        $name = $this->normalizeName((string) ($row['name'] ?? ''));
+        if ($name !== '' && isset($this->costByName[$name])) {
+            return $this->costByName[$name];
+        }
+
+        $this->sinCosto[] = trim((string) ($row['name'] ?? '')) ?: '(sin nombre)';
+        return null;
+    }
+
+    private function normalizeSku(string $sku): string
+    {
+        return mb_strtoupper(trim($sku), 'UTF-8');
+    }
+
+    private function normalizeName(string $name): string
+    {
+        return mb_strtolower(preg_replace('/\s+/u', ' ', trim($name)) ?? trim($name), 'UTF-8');
     }
 
     /**

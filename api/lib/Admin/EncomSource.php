@@ -55,6 +55,19 @@ interface EncomSource
      */
     public function items(): array;
 
+    /**
+     * COSTO de los artículos, que es el único dato del catálogo que `/fetchs`
+     * no manda (el POS no lo necesita para vender) y que sale de otra
+     * superficie: la tabla del panel. Ver `EncomClient::itemCosts()`.
+     *
+     * Se devuelve aparte de `items()` —y no mezclado adentro— justamente para
+     * que se vea que viene de otro lado: el que lo lea tiene que saber que
+     * puede faltar entero sin que el catálogo falle.
+     *
+     * @return array<int,array{sku:string,name:string,cost:float|null}>
+     */
+    public function itemCosts(): array;
+
     /** @return array<int,array> Categorías (derivadas de los artículos). */
     public function categories(): array;
 

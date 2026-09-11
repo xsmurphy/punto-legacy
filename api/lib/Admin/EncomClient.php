@@ -26,11 +26,23 @@ require_once __DIR__ . '/EncomMigrationException.php';
  * imposibles —la composición de combos y recetas, los usuarios con su PIN y su
  * rol, los medios de pago, el último correlativo por tipo de documento—.
  *
- * **El histórico de VENTAS (F2) es la excepción y sigue en el panel**:
- * `/fetchs` no lo expone por ningún `load`. Por eso `salesRaw()` /
- * `saleDetailRaw()` conservan la sesión del panel y el transporte `get()`, y
- * por eso `EncomParse` no se borró del todo. Si F2 se descarta, se van los
- * tres juntos.
+ * **Quedan DOS excepciones, las dos por la misma razón: `/fetchs` no lo trae.**
+ * Por eso la sesión del panel y el transporte `get()` siguen vivos, y por eso
+ * `EncomParse` no se borró del todo:
+ *
+ *   1. **El histórico de VENTAS (F2)** — `/fetchs` no lo expone por ningún
+ *      `load`: es el bootstrap de una caja, no un reporte. `salesRaw()` /
+ *      `saleDetailRaw()`.
+ *   2. **El COSTO de los artículos** — el POS no lo necesita para vender, así
+ *      que el bootstrap no lo manda. `itemCosts()`.
+ *
+ * La (2) NO es "volver al scraping". El catálogo entero —nombre, precio, IVA,
+ * categoría, marca, SKU, código de barras, composición— sigue saliendo de
+ * `/fetchs`, y del panel se lee UN campo que esa fuente no tiene. No hay dos
+ * fuentes para el mismo dato, que era lo que se quería evitar: hay una fuente
+ * por dato. Y es un ENRIQUECIMIENTO, no un insumo: si el panel falla, cambia
+ * de columnas o contesta vacío, el catálogo se importa igual y sin costos —
+ * nunca se cae por esto.
  *
  * ── La password no se persiste (D2) ─────────────────────────────────────
  * `login()` es el único punto que la ve, y corre dentro de la request de
@@ -490,6 +502,88 @@ class EncomClient implements EncomSource
                 'compound'    => is_string($it['compound'] ?? null) ? $it['compound'] : '',
             ];
         }
+        return $out;
+    }
+
+    /**
+     * COSTO de cada artículo, leído de la tabla del PANEL.
+     *
+     * ── Por qué este dato viene de otra superficie ───────────────────────
+     * `/fetchs` es el bootstrap del POS y el POS no necesita el costo para
+     * vender, así que no lo manda. Es el único campo del catálogo que el
+     * scraping viejo daba y este no: perderlo deja en cero todo reporte de
+     * margen del comercio migrado.
+     *
+     * El catálogo NO vuelve al panel por eso: sigue saliendo entero de
+     * `/fetchs` y de acá sale un solo campo, que se cruza por SKU o por nombre
+     * (`EncomImportService::costFor()`).
+     *
+     * ── Por qué `showTable` y no `exportCSV` ─────────────────────────────
+     * `a_items?action=exportCSV` está descartado desde la F1 y sigue estándolo
+     * (context/77 §15): exige `ids` —no tiene "todos"— y su header declara 18
+     * columnas mientras las filas traen 7 claves con otros nombres. Está
+     * desalineado en el propio legacy.
+     *
+     * ── Las columnas se resuelven por ENCABEZADO ─────────────────────────
+     * La tabla de artículos era lo ÚNICO que en la F1 seguía leyéndose por
+     * índice fijo, y era el supuesto #4 del plan. Ahora que vuelve a tener un
+     * lector se hace por encabezado: si el legacy agrega una columna, el costo
+     * se sigue leyendo de la columna del costo y no del precio. El fallback
+     * posicional es el orden conocido del sistema vivo.
+     *
+     * Si NO hay columna de costo, lanza: el importador lo traduce en "se
+     * importa sin costos" con su nota en la bitácora. Devolver una lista vacía
+     * en silencio haría indistinguible "el comercio no carga costos" de "ya no
+     * sé leer esta tabla".
+     *
+     * @return array<int,array{sku:string,name:string,cost:float|null}>
+     */
+    public function itemCosts(): array
+    {
+        $html    = EncomParse::tableHtml($this->get('/a_items', ['action' => 'showTable']));
+        $headers = EncomParse::htmlHeaders($html);
+
+        // Orden conocido del sistema vivo como respaldo: 0 imagen · 1 nombre ·
+        // 2 tipo · 3 fecha · 4 UOM · 5 SKU · … · 14 costo · 15 precio.
+        $cName = EncomParse::columnIndex($headers, ['NOMBRE']) ?? 1;
+        $cSku  = EncomParse::columnIndex($headers, ['SKU', 'CODIGO']) ?? 5;
+        $cCost = EncomParse::columnIndex($headers, ['COSTO']);
+
+        if ($cCost === null && $headers !== []) {
+            throw new EncomMigrationException(
+                'La tabla de artículos del panel legacy ya no tiene columna de costo: los artículos se '
+                . 'importan sin costo.',
+                502
+            );
+        }
+        $cCost ??= 14;
+
+        $out = [];
+        foreach (EncomParse::htmlRows($html) as $row) {
+            $cells = $row['cells'];
+
+            $name = trim((string) ($cells[$cName] ?? ''));
+            $sku  = trim((string) ($cells[$cSku] ?? ''));
+            // El legacy pinta "-" cuando el artículo no tiene SKU.
+            if ($sku === '-') {
+                $sku = '';
+            }
+            if ($name === '' && $sku === '') {
+                continue;
+            }
+
+            // El valor crudo viaja en `data-sort`; el texto visible trae los
+            // separadores de miles del comercio ("5.000"), que NO se deshacen
+            // acá — un costo mal parseado es peor que ninguno.
+            $raw = trim((string) ($cells[$cCost] ?? ''));
+
+            $out[] = [
+                'sku'  => $sku,
+                'name' => $name,
+                'cost' => is_numeric($raw) ? (float) $raw : null,
+            ];
+        }
+
         return $out;
     }
 
