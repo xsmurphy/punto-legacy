@@ -1046,6 +1046,8 @@ export const POS_ROUTES: RouteEntry[] = [
  * buscar sin conocer el registro que se quiere abrir.
  */
 export const UNINDEXED_PAGES: Record<string, string> = {
+  "/finanzas/reportes":
+    "Redirect a /reports/finance-breakdown — el destino real ya se indexa como Ingresos y egresos por categoría.",
   "/finanzas/ajustes":
     "Redirect a /finanzas/configuracion — sobrevive solo para links y bookmarks viejos.",
   "/finanzas/categorias":
