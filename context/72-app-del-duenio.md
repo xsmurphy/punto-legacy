@@ -1,8 +1,11 @@
 # 72 — App del dueño (dashboard + Punto AI en el teléfono)
 
-> Plan sin implementar. Escrito 2026-09-07, **ampliado 2026-09-09**.
-> **D1 CERRADA 2026-09-07**: es una PWA APARTE, no el panel hecho instalable
-> ni una extensión de la PWA del POS.
+> Plan sin implementar. Escrito 2026-09-07, **ampliado y CORREGIDO 2026-09-09**.
+> ⚠ **D1 REVERTIDA por el owner el 2026-09-09** (§8): es la MISMA PWA que
+> `/pos`, una sola app instalable. Lo que sigue en §2-§3 quedó SUPERSEDED —
+> se conserva porque el análisis de auth de §3 sigue siendo válido como
+> descripción del sistema, pero su conclusión ("no pueden ser la misma app")
+> era incorrecta. Leer §8 ANTES que §2.
 > **D2 y D3 CERRADAS 2026-09-09** (§7): vive dentro de `frontend/`, y el tema
 > del preset es una variación de DENSIDAD del mismo shadcn, no una marca nueva.
 > P1-P4 y D4-D6 propuestas SIN su OK.
@@ -248,3 +251,98 @@ sola.
   valiendo: la persona existe en el realm `panel`.
 - **Facturar desde la app del dueño.** Es de la caja: otra PWA, otro realm,
   otro mandato.
+
+## 8. D1 REVERTIDA — es la misma PWA que `/pos` (owner, 2026-09-09)
+
+> Textual: *"la idea es que sea la misma PWA de /pos"*.
+
+### 8.1 Por qué el argumento original era flojo
+
+§3 hecho 2 decía: *"no pueden ser la misma app aunque se quisiera — por AUTH"*.
+**Eso es incorrecto y hay que dejarlo escrito para que nadie lo vuelva a citar.**
+
+- El manifest **no es una barrera de seguridad**. `scope` decide qué es
+  instalable y qué navega dentro de la app; no filtra credenciales ni
+  requests.
+- Panel y `/pos` **ya comparten origen hoy**: `app.punto.la` sirve los dos, y
+  los dos tokens ya conviven en un mismo browser (`_jwt_panel` de la persona,
+  `_jwt` del device). Eso no lo introduce esta decisión: ya es el estado
+  actual.
+- Lo que sostiene el mandato token-only es el **código**: `credentials:
+  "omit"` en `lib/api/pos-fetch.ts`, que `/api/pos/*` no reenvíe cookies, y el
+  guard `lib/bff/__tests__/pos-token-only.test.ts`. Unificar la PWA no toca
+  ninguna de esas tres cosas.
+
+El mandato sigue vigente sin cambios. Lo que cae es la afirmación de que el
+manifest lo defendía.
+
+### 8.2 Lo que hace innecesaria la separación: el modelo de uso del owner
+
+Textual: *"si la empresa es de solo una persona (el dueño) es una app y tiene
+todo ahí, facturación, reportes todo. Si es una empresa con empleados puede que
+los empleados instalen para operar el /pos pero no tienen acceso al panel —
+mozos, cajeros— y el dueño usa solo la app para el panel pero no usa la caja
+porque eso lo usa su personal"*.
+
+**La credencial presente YA determina la superficie.** No hace falta un modo,
+un flag ni un rol nuevo:
+
+| Quién | Qué tiene | Qué ve |
+|---|---|---|
+| Mozo / cajero | Device pareado, sin cookie de panel | Solo la caja |
+| Dueño con personal | Cookie de panel, sin device pareado | Solo el panel |
+| Dueño unipersonal | Las dos | Todo |
+
+Es el mismo mecanismo que ya gobierna el panel hoy; la app instalada no agrega
+una decisión de autorización nueva.
+
+### 8.3 Qué cambia, en concreto
+
+En `frontend/app/manifest.ts`:
+
+- `scope: "/pos"` → `"/"`.
+- `description: "Caja registradora del comercio"` → deja de ser cierto.
+- `start_url`: hoy `/pos`. Un dueño sin caja aterrizaría en una caja que no
+  usa. Necesita una ruta de arranque que derive según la credencial presente
+  (`start_url` es estático; la decisión va en la página de arranque).
+
+⚠ **`id: "/pos"` NO SE TOCA.** Es un identificador opaco, no una ruta.
+Cambiarlo convierte la app en otra distinta para todo teléfono que ya la tenga
+instalada: quedan dos íconos y la instalación vieja deja de actualizarse. Hay
+comercios facturando con esa app instalada. El docblock del archivo ya explica
+por qué `id` existe; esto es el corolario operativo.
+
+**El service worker no se toca**: se registra desde `public/sw.js`, así que su
+scope YA es `/`, no `/pos`. Ampliar el manifest no lo altera.
+
+**Consecuencia declarada**: las pantallas de panel dentro de la app instalada
+NO tienen precache. Sin red no cargan. El POS sigue siendo la única superficie
+offline-first (`context/43`, `context/51`), y está bien que así sea — lo que se
+emite funciona sin internet, el panel no lo necesita.
+
+### 8.4 Qué queda en pie de §7 y qué cae
+
+**Queda**: D3 (el tema es variación de densidad, tokens bajo la clase del route
+group), D5 (alcance de pantallas), D6 (los roles existentes gobiernan), el
+hallazgo que corrige `context/71`, y las fases A2-A5.
+
+**Cae**: D4 (host propio para la segunda PWA) — ya no hay segunda PWA que
+separar. La app móvil es un route group más del mismo origen. Y A1 (manifest
+propio + ruteo) se reduce a los tres campos de 8.3.
+
+**Cambia de naturaleza**: D2 decía "vive dentro de `frontend/`, no en un
+proyecto nuevo". Sigue valiendo y ahora es más fuerte: no solo el mismo
+proyecto, la misma app instalada.
+
+### 8.5 Arquitecturas rechazadas — actualizado
+
+- **Segunda PWA / segundo manifest / subdominio propio.** Revertido por el
+  owner. No reabrir sin pedido explícito.
+- **Cambiar `id` en `manifest.ts`.** Duplica instalaciones en producción.
+- **Usar el manifest como control de acceso.** No lo es. El aislamiento de
+  realms vive en `pos-fetch.ts`, en que `/api/pos/*` no reenvíe cookies, y en
+  el guard de token-only.
+- **Un modo/flag/rol para decidir si alguien ve caja o panel.** La credencial
+  presente ya lo resuelve (8.2).
+- **Precachear el panel para que ande offline dentro de la app.** El panel no
+  es offline-first y no debe serlo: sus pantallas leen estado compartido.
