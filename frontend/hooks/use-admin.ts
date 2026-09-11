@@ -107,6 +107,30 @@ export interface BillingRequest {
   resolvedBy: string | null
 }
 
+/**
+ * Solicitud de alta de SUCURSAL (`outlet_request`, mig 219).
+ *
+ * Cola distinta de `BillingRequest`: acá el payload es el nombre y la
+ * dirección pedidos, y aprobar CREA una sucursal (y sube la facturación
+ * mensual del tenant al precio de su plan).
+ */
+export interface AdminOutletRequest {
+  id: string
+  companyId: string
+  companyName: string
+  requestedBy: string | null
+  requestedByName: string | null
+  name: string
+  address: string | null
+  status: string
+  reason: string | null
+  createdAt: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
+  /** Sucursal creada al aprobar. `null` mientras no se aprobó. */
+  outletId: string | null
+}
+
 // ── Dashboard / Reports ───────────────────────────────────────────────────────
 
 export interface AdminOverview {
@@ -712,6 +736,49 @@ export function useAdminResolveRequest() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "requests"] })
+      qc.invalidateQueries({ queryKey: ["admin", "companies"] })
+    },
+  })
+}
+
+// ── Solicitudes de sucursal ───────────────────────────────────────────────────
+
+export function useAdminOutletRequests(status: string = "pending") {
+  const qs = status
+    ? `?outletRequests=1&status=${encodeURIComponent(status)}`
+    : "?outletRequests=1"
+  return useQuery<{ rows: AdminOutletRequest[] }>({
+    queryKey: ["admin", "outlet-requests", status],
+    queryFn: () => apiAdmin.get(`/companies.php${qs}`),
+    staleTime: 30 * 1000,
+  })
+}
+
+/**
+ * Aprueba (crea la sucursal) o rechaza (motivo obligatorio).
+ *
+ * Invalida también `["admin","companies"]`: aprobar cambia el conteo de
+ * sucursales del tenant, que la ficha y el listado muestran.
+ */
+export function useAdminResolveOutletRequest() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      requestId,
+      approve,
+      reason,
+    }: {
+      requestId: string
+      approve: boolean
+      reason?: string
+    }) =>
+      apiAdmin.post("/companies.php?action=resolveOutletRequest", {
+        requestId,
+        approve,
+        ...(reason ? { reason } : {}),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "outlet-requests"] })
       qc.invalidateQueries({ queryKey: ["admin", "companies"] })
     },
   })
