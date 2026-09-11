@@ -35,6 +35,11 @@
  */
 
 import { getPanelToken } from "@/lib/auth/panel-token"
+import {
+  ACCOUNT_DENIED_EVENT,
+  readAccountDenialFromEnvelope,
+  type AccountDeniedEventDetail,
+} from "@/lib/auth/account-denial"
 import { VIEW_SCOPE_KEY, setViewScope } from "@/hooks/use-view-scope"
 
 type Json = Record<string, unknown> | unknown[]
@@ -197,6 +202,32 @@ async function request<T>(
     ) {
       setViewScope(null)
       return request<T>(path, init, true)
+    }
+    // Cuenta bloqueada / suspendida / inactiva → estado de cuenta, no permiso.
+    //
+    // Este 403 no lo devuelve un endpoint: lo devuelve el EMBUDO de auth
+    // (`apiAuthTenant()`), o sea TODAS las requests del tenant a la vez. Sin
+    // esta señal el panel cargaba el layout con data vacía y 403s silenciosos
+    // en consola — el usuario no tenía forma de saber que su cuenta estaba
+    // bloqueada por falta de pago (incidente 2026-09-11, job `plan-lifecycle`).
+    //
+    // Se emite acá, en el transporte, y NO en el hook del bootstrap: el
+    // bloqueo puede llegar a mitad de sesión, con el panel ya cargado, y ahí
+    // el 403 lo ve cualquier request. El shell (`PanelAuthGuard`) escucha el
+    // evento y pinta la pantalla de estado — mismo patrón que
+    // `api:unauthorized` → `AuthSentinel`. Un `if` por página sería el parche.
+    //
+    // El 403 de PERMISOS no viaja por acá: no trae `reason` y sigue
+    // comportándose como siempre (error del call-site, panel operativo).
+    if (res.status === 403 && typeof window !== "undefined") {
+      const denial = readAccountDenialFromEnvelope(res.status, envelope)
+      if (denial) {
+        window.dispatchEvent(
+          new CustomEvent<AccountDeniedEventDetail>(ACCOUNT_DENIED_EVENT, {
+            detail: { reason: denial },
+          }),
+        )
+      }
     }
     // Emitir evento global para que AuthSentinel lo capture — cubre todos los
     // 401 del api-client, no solo el de useBootstrap.

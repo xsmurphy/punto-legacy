@@ -24,6 +24,13 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { AuthSentinel } from "@/components/auth/auth-sentinel"
+import { AccountDeniedScreen } from "@/components/auth/account-denied-screen"
+import {
+  ACCOUNT_DENIED_EVENT,
+  readAccountDenialReason,
+  type AccountDeniedEventDetail,
+  type AccountDenialReason,
+} from "@/lib/auth/account-denial"
 
 /**
  * Wrapper client-side del panel. Gate de auth (bootstrap → 401 → /login) y
@@ -51,7 +58,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   function moduleEnabled(m: ModulesMap | undefined, key: string): boolean {
     return !modulesLoading && m?.[key]?.enabled === true
   }
-  const { data: bootstrap, isLoading } = useBootstrap()
+  const { data: bootstrap, isLoading, error: bootstrapError } = useBootstrap()
 
   // Contexto de navegación: lo que el registro de rutas necesita para decidir
   // qué se muestra. `permsLoaded` solo es true cuando llegó el bootstrap — si
@@ -100,6 +107,48 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     qc.clear()
     router.replace("/login")
   }, [qc, router])
+
+  // ── Cuenta bloqueada / suspendida / inactiva ──────────────────────────────
+  //
+  // Este 403 NO es un permiso: lo devuelve el embudo de auth de la API
+  // (`apiAuthTenant()` → `companyAccessDenial()`) para TODAS las requests del
+  // tenant a la vez. Sin este gate el panel montaba el layout completo con cada
+  // listado vacío y 403s silenciosos en consola: un panel muerto que no le
+  // decía al usuario que su cuenta estaba bloqueada por falta de pago
+  // (incidente 2026-09-11, job `plan-lifecycle`).
+  //
+  // Vive ACÁ y no en cada página por la misma razón que el gate de auth: es el
+  // único lugar por el que pasan todas las pantallas del panel. Y se alimenta
+  // de DOS fuentes, porque el bloqueo llega en dos momentos distintos:
+  //
+  //   1. al ARRANCAR — el bootstrap ya falla con 403, se lee de su error;
+  //   2. a MITAD DE SESIÓN — el panel está cargado y el job corre mientras el
+  //      usuario trabaja: ahí el 403 lo ve la primera request que salga, y el
+  //      transporte (`lib/api-client.ts`) emite `api:account-denied`.
+  //
+  // Los 403 de permisos no llegan por ninguna de las dos: no traen `reason`.
+  const [deniedByEvent, setDeniedByEvent] = React.useState<AccountDenialReason | null>(null)
+  React.useEffect(() => {
+    function handler(e: Event) {
+      const detail = (e as CustomEvent<AccountDeniedEventDetail>).detail
+      if (detail?.reason) setDeniedByEvent(detail.reason)
+    }
+    window.addEventListener(ACCOUNT_DENIED_EVENT, handler)
+    return () => window.removeEventListener(ACCOUNT_DENIED_EVENT, handler)
+  }, [])
+
+  // El error del bootstrap MANDA sobre el evento: es la fuente que se vuelve a
+  // consultar al reintentar, así que si el bootstrap vuelve a cargar bien, el
+  // estado se apaga solo.
+  const denialReason = readAccountDenialReason(bootstrapError) ?? deniedByEvent
+
+  // "Ya regularicé el pago" — se limpia la marca del evento y se refetchea el
+  // bootstrap. Si la cuenta sigue bloqueada, su 403 vuelve a encender la
+  // pantalla por el camino 1; si se reactivó, el panel carga normalmente.
+  const handleRetryAccount = React.useCallback(() => {
+    setDeniedByEvent(null)
+    qc.invalidateQueries()
+  }, [qc])
 
   // ── Impersonación (admin "entró como" este tenant) ────────────────────────
   // La marca `_imp_panel` la setea el BFF de admin junto a `_jwt_panel` al
@@ -236,6 +285,29 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     setViewScope("all")
     invalidateScopedReads()
     toast.success("Mostrando todas las sucursales")
+  }
+
+  // La cuenta no puede operar → pantalla de estado EN LUGAR del panel. No se
+  // monta el sidebar ni los children: no hay datos que mostrar y cada query
+  // que arrancara volvería a chocar contra el mismo 403.
+  //
+  // La sesión NO se cierra sola — el usuario sale con el botón de la pantalla
+  // si quiere. Desloguearlo automáticamente le sacaría el único cartel que le
+  // explica qué pasó.
+  //
+  // `AuthSentinel` sigue montado: un 401 (sesión vencida mientras mira esta
+  // pantalla) tiene que seguir mandando al login.
+  if (denialReason) {
+    return (
+      <>
+        <AuthSentinel />
+        <AccountDeniedScreen
+          reason={denialReason}
+          onLogout={handleLogout}
+          onRetry={handleRetryAccount}
+        />
+      </>
+    )
   }
 
   return (
