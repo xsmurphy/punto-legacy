@@ -21,7 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ActiveFilters, type ActiveFilterItem } from "@/components/data-table/active-filters"
-import { DataTable, exportRowsToXlsx } from "@/components/data-table/data-table"
+import { DataTable } from "@/components/data-table/data-table"
 import {
   Select,
   SelectContent,
@@ -64,6 +64,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { sifenVerdict } from "@/lib/einvoice/sifen-status"
+import { downloadFiscalLegacyFile } from "@/lib/fiscal/legacy-export"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useDateRange } from "@/hooks/use-date-range"
 import {
@@ -273,6 +274,9 @@ export function TransactionsList({
   // porque el layout es fijo (20 columnas exactas que exige Marangatu) y los
   // datos no viven en ninguna tabla en pantalla (desglose por tasa
   // congelado, no las columnas del listado de Transacciones).
+  //
+  // El archivo NO es un XLSX: es el TSV con extensión .xls del legacy, que es
+  // el que los contadores ya presentan (ver `lib/fiscal/legacy-export.ts`).
   const [fiscalExporting, setFiscalExporting] = React.useState<"rg90" | "libro-ventas" | null>(null)
   const isPyTenant = bootstrap?.country === "PY"
 
@@ -285,19 +289,7 @@ export function TransactionsList({
         toast.error("No hay ventas con desglose fiscal en el rango elegido")
         return
       }
-      const columns = Object.keys(report.rows[0]).map((key) => ({ key, header: key }))
-      const label = dataset === "rg90" ? "RG90" : "libro-ventas"
-      const fileName = `${label}-${from.slice(0, 10)}_a_${to.slice(0, 10)}`
-      await exportRowsToXlsx(report.rows, columns, fileName)
-      // `truncated` (backend cortó en 5000 filas) es más grave que
-      // `excludedCount`: significa que el archivo NO tiene todas las ventas
-      // del rango, no que algunas quedaron sin desglose — achicar el rango
-      // es la única forma de declarar completo ante el SET.
-      if (report.meta.truncated) {
-        toast.error(
-          "El rango tiene más de 5.000 ventas — el export quedó INCOMPLETO. Achicá el rango de fechas y exportá por partes.",
-        )
-      }
+      downloadFiscalLegacyFile(report.rows, dataset, bootstrap ?? null)
       if (report.meta.excludedCount > 0) {
         toast.warning(
           `${report.meta.excludedCount} venta${report.meta.excludedCount === 1 ? "" : "s"} sin desglose fiscal congelado (anteriores) quedaron fuera del export`,
