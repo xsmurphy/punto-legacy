@@ -255,6 +255,32 @@ final class TransactionDetailService
 
         // ── Documentos vinculados (transaction_link, mig 115, context/35) ─
         $creditNotes  = $this->fetchTxSummaries($linkSvc->listDerivedIds($companyId, $id, 'return'), $companyId);
+
+        // Resumen de devoluciones VIGENTES — lo que el menú de acciones
+        // (POS y panel) necesita para decidir qué ofrecer SIN pedir un
+        // segundo endpoint. `creditNotes` de arriba no sirve para eso: lista
+        // TODAS las devoluciones, anuladas incluidas, porque es un bloque de
+        // auditoría ("desaparecer es indistinguible de se borró", context/40).
+        // La decisión del menú necesita lo contrario: solo las vigentes, que
+        // es el mismo conjunto que `SaleVoidService` mira para HAS_RETURNS.
+        //
+        // Se delega en `ReturnService::returnsSummary()` en vez de calcularlo
+        // acá: el cupo por ítem es SU regla, y una segunda implementación en
+        // el resolver del detalle es precisamente cómo la UI ofrece acciones
+        // que el backend después rechaza.
+        $returnsSummary = ['count' => 0, 'fullyReturned' => false];
+        if (in_array($type, [0, 3], true)) {
+            try {
+                $returnsSummary = (new \Punto\Api\Services\ReturnService())
+                    ->returnsSummary($companyId, $id);
+            } catch (\Throwable $e) {
+                // El detalle NO se cae por el resumen del menú. Ante la duda
+                // se devuelve el default conservador (count 0 / no devuelta
+                // del todo): el guard que MANDA es el del servidor, que
+                // igual rechaza con HAS_RETURNS.
+                error_log('[TransactionDetailService] returnsSummary: ' . $e->getMessage());
+            }
+        }
         $appointments = $this->fetchTxSummaries($linkSvc->listDerivedIds($companyId, $id, 'package_session'), $companyId);
         // quote_to_sale en AMBAS direcciones: la cotización que originó esta
         // venta (si esta transacción es una venta) y la venta facturada a
@@ -487,6 +513,10 @@ final class TransactionDetailService
             'items'            => $items,
             'taxByRate'        => $taxByRate,
             'creditNotes'      => $creditNotes,
+            // Resumen para el menú de acciones (ver arriba). Colección
+            // relacionada, no campo de la fila — mismo criterio que
+            // `einvoiceDocuments`.
+            'returns'          => $returnsSummary,
             'appointments'     => $appointments,
             'quotesOrigin'     => $quotesOrigin,
             'quotesDerived'    => $quotesDerived,

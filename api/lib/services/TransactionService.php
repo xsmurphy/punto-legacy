@@ -166,6 +166,23 @@ final class TransactionService
             }
         }
 
+        // Resumen de devoluciones VIGENTES para el menú de acciones del POS.
+        // `creditNotes` de arriba NO sirve para decidir: lista todas las
+        // devoluciones (anuladas incluidas) porque es el bloque de auditoría.
+        // Mismo campo y misma fuente que el detalle del panel
+        // (`Transactions\TransactionDetailService::find()`) — el POS todavía
+        // no migró a ese resolver (F4 de context/39), así que hasta que lo
+        // haga los dos delegan en `ReturnService::returnsSummary()` en vez de
+        // calcular el cupo cada uno por su lado.
+        $returnsSummary = ['count' => 0, 'fullyReturned' => false];
+        if (in_array((int) ($fields['transactionType'] ?? -1), [0, 3], true)) {
+            try {
+                $returnsSummary = (new ReturnService())->returnsSummary($companyId, $transactionId);
+            } catch (\Throwable $e) {
+                error_log('[TransactionService] returnsSummary: ' . $e->getMessage());
+            }
+        }
+
         $appointmentIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'package_session');
         if ($appointmentIds !== []) {
             $aptPh     = implode(',', array_fill(0, count($appointmentIds), '?'));
@@ -283,6 +300,20 @@ final class TransactionService
             'address'          => $address,
             'creditPayments'   => $creditPayments,
             'creditNotes'      => $creditNotes,
+            'returns'          => $returnsSummary,
+            // Anulación. El shape del POS NO exponía NINGUNO de estos campos
+            // pese a que `SELECT *` ya los traía, así que el guard del menú
+            // del detalle (`detail.void || detail.voidedAt`) evaluaba dos
+            // `undefined` y daba SIEMPRE "no anulada": el POS ofrecía "Anular"
+            // y "Devolución" sobre una venta ya anulada en el 100% de los
+            // casos. No era caché viejo — el dato nunca viajó.
+            // `void` cubre los dos caminos, igual que
+            // `TransactionDetailService::find()`: el legacy pisa el tipo a 7,
+            // el de venta contado/crédito marca `voidedAt` sin tocarlo.
+            'void'             => (int) ($fields['transactionType'] ?? -1) === 7
+                                  || !empty($fields['voidedAt']),
+            'voidedAt'         => !empty($fields['voidedAt']) ? (string) $fields['voidedAt'] : null,
+            'voidReason'       => !empty($fields['voidReason']) ? (string) $fields['voidReason'] : null,
             'appointments'     => $appointments,
             'paymentsReceived' => $paymentsReceived,
             'einvoiceDocuments' => $einvoiceDocuments,
