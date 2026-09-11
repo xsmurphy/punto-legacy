@@ -384,6 +384,54 @@ async function fetchUpstream<T>(
   return { status: res.status, data, rawText }
 }
 
+/**
+ * El catálogo COMPLETO, paginando contra el cap real del backend.
+ *
+ * `/v1/items` clampea `limit` a 200 (items.php) sin avisar: pedir
+ * `limit=500` devolvía los primeros 200 del orden del listado y el resto
+ * NUNCA llegaba a la caja — un tenant con 239 vendibles operaba con 39
+ * artículos invisibles en el POS, sin error en ningún lado (incidente
+ * Balloon Party 2026-09-11). El límite no se sube del lado del server a
+ * ciegas porque el panel comparte el endpoint; el bootstrap, que es el
+ * único consumidor que necesita TODO, pagina hasta agotar.
+ *
+ * `MAX_PAGES` es un freno de emergencia (10.000 ítems), no un límite de
+ * producto: si un tenant lo pisa, mejor un catálogo al 99% que un loop
+ * infinito contra un backend que repite página.
+ */
+async function fetchAllItems(
+  base: string,
+  headers: Headers,
+): Promise<{ status: number; data: UpstreamItemsList | null; rawText: string }> {
+  const PAGE = 200
+  const MAX_PAGES = 50
+  const all: UpstreamItemRow[] = []
+  let status = 0
+  let rawText = ""
+  let total = Number.POSITIVE_INFINITY
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await fetchUpstream<UpstreamItemsList>(
+      base,
+      `/v1/items?limit=${PAGE}&offset=${page * PAGE}&includeGroupChildren=true`,
+      headers,
+    )
+    status = res.status
+    rawText = res.rawText
+    // Primera página fallida → mismo contrato que antes (el caller decide).
+    // Página posterior fallida → catálogo parcial es peor que reintentar el
+    // bootstrap entero: se propaga el fallo igual.
+    if (!res.data) return { status, data: null, rawText }
+    all.push(...res.data.items)
+    total = res.data.total
+    if (res.data.items.length < PAGE || all.length >= total) break
+  }
+  return {
+    status,
+    data: { items: all, total, limit: all.length, offset: 0 },
+    rawText,
+  }
+}
+
 // ── Reshapers ─────────────────────────────────────────────────────────────────
 
 function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
@@ -545,11 +593,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     ;[bsRes, itemsRes, customersRes, registersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes, docNumbersRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
-      fetchUpstream<UpstreamItemsList>(
-        base,
-        "/v1/items?limit=500&offset=0&includeGroupChildren=true",
-        headers,
-      ),
+      fetchAllItems(base, headers),
       fetchUpstream<UpstreamContactsList>(
         base,
         "/v1/contacts?type=1&limit=500&offset=0",
