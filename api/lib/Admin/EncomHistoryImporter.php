@@ -901,12 +901,15 @@ final class EncomHistoryImporter
             'register' => ['register', 'registerName', 'registerId'],
             'user'     => ['contact', 'contactName', 'contactId'],
             'customer' => ['contact', 'contactName', 'contactId'],
-            default    => ['', '', ''],
+            // Falla RUIDOSO, no devolviendo vacío: un dominio nuevo que se
+            // cablee a `mapOf()` con alias y se olvide de esta tabla dejaría
+            // de resolver SIEMPRE, y el síntoma sería "todas las ventas
+            // rechazadas por referencia sin migrar" — un rato largo de buscar
+            // en el lugar equivocado.
+            default    => throw new \LogicException(
+                'EncomHistoryImporter: el dominio "' . $domain . '" no tiene tabla de búsqueda por nombre.'
+            ),
         };
-
-        if ($tabla === '') {
-            return '';
-        }
 
         $row = \ncmExecute(
             "SELECT $id AS id FROM $tabla
