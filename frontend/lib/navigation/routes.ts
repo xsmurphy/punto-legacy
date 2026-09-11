@@ -148,13 +148,22 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["transactions", "ventas", "facturas", "tickets", "comprobantes"],
   },
   {
-    to: "/reports/open-invoices",
+    // La página tiene tres pestañas desde 2026-09-11 (Dashboard / Por cobrar /
+    // Por pagar) y cada entrada del menú apunta a la suya. El Dashboard no
+    // tiene entrada propia porque necesita LAS DOS claves de permiso y
+    // `requires` es una sola: se llega desde acá, y la página elige la primera
+    // pestaña que el usuario puede ver. Las keywords de aging/deudores viven
+    // en esta entrada por lo mismo.
+    to: "/reports/open-invoices?tab=cobrar",
     title: "Cuentas por cobrar",
     icon: HandCoins,
     surface: "sidebar",
     sidebarGroup: "ventas",
     requires: "reports.sales.view",
-    keywords: ["open invoices", "credito", "deuda", "cobrar", "income", "morosos"],
+    keywords: [
+      "open invoices", "credito", "deuda", "cobrar", "income", "morosos",
+      "aging", "antiguedad", "antigüedad", "deudores", "vencimientos", "vencidas",
+    ],
   },
   {
     to: "/reports/giftcards",
@@ -267,17 +276,23 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["purchases", "egresos", "gastos", "proveedores"],
   },
   {
-    to: "/reports/open-invoices?state=outcome",
+    to: "/reports/open-invoices?tab=pagar",
     title: "Cuentas por pagar",
     icon: Wallet,
     surface: "sidebar",
     sidebarGroup: "compras",
-    // `state=outcome` son las COMPRAS a crédito, y el backend las gatea con la
-    // clave de compras, no con la de ventas (`api/v1/reports/open_invoices.php`
-    // ramifica por `state`). Con `reports.sales.view` acá, un rol de compras
-    // perdía el item y uno de ventas entraba para comerse un 403.
+    // La pestaña "Por pagar" son las COMPRAS a crédito, y el backend las gatea
+    // con la clave de compras, no con la de ventas
+    // (`api/v1/reports/open_invoices.php` ramifica por `state`). Con
+    // `reports.sales.view` acá, un rol de compras perdía el item y uno de
+    // ventas entraba para comerse un 403. El `?state=outcome` que este link
+    // tenía sigue funcionando (la página lo entiende), pero el parámetro
+    // canónico es `?tab=`.
     requires: "reports.purchases.view",
-    keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
+    keywords: [
+      "open invoices", "pagar", "deuda proveedores", "outcome",
+      "aging", "acreedores", "vencimientos",
+    ],
   },
   {
     to: "/ordenes-pago",
