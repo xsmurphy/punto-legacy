@@ -86,6 +86,15 @@ export const COUNTRY_LOCALE: Record<string, CountryLocaleDefaults> = {
   MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", tinName: "RFC", personalIdName: "CURP", decimal: true, thousandSeparator: ",", language: "es" },
   ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", tinName: "NIF", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
   US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", tinName: "EIN", personalIdName: "SSN", decimal: true, thousandSeparator: ",", language: "es" },
+  // Centroamérica y Caribe — espejo de CountryDefaults::LOCALE (PHP), que los
+  // sumó primero; el guard de contact-id-types exige que ambos lados coincidan.
+  CR: { currency: "₡", timeZone: "America/Costa_Rica", taxName: "IVA", tinName: "Cédula jurídica", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
+  DO: { currency: "RD$", timeZone: "America/Santo_Domingo", taxName: "ITBIS", tinName: "RNC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  GT: { currency: "Q", timeZone: "America/Guatemala", taxName: "IVA", tinName: "NIT", personalIdName: "DPI", decimal: true, thousandSeparator: ",", language: "es" },
+  HN: { currency: "L", timeZone: "America/Tegucigalpa", taxName: "ISV", tinName: "RTN", personalIdName: "Tarjeta de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  NI: { currency: "C$", timeZone: "America/Managua", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  PA: { currency: "B/.", timeZone: "America/Panama", taxName: "ITBMS", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  SV: { currency: "$", timeZone: "America/El_Salvador", taxName: "IVA", tinName: "NIT", personalIdName: "DUI", decimal: true, thousandSeparator: ",", language: "es" },
 }
 
 /**

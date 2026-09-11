@@ -153,7 +153,7 @@ describe("Catálogo completo", () => {
 
 describe("Espejo front ↔ backend", () => {
   /**
-   * GUARD — `COUNTRY_LOCALE` (front) y `CountryDefaults::ID_LABELS` (PHP)
+   * GUARD — `COUNTRY_LOCALE` (front) y `CountryDefaults::LOCALE` (PHP)
    * tienen que decir lo mismo.
    *
    * Por qué con un guard y no con un comentario: son dos tablas en dos
@@ -172,12 +172,16 @@ describe("Espejo front ↔ backend", () => {
     "api/lib/Support/CountryDefaults.php",
   )
 
-  /** Parsea las filas `'XX' => ['tax' => 'A', 'personal' => 'B'],` del PHP. */
+  /**
+   * Parsea las filas de `CountryDefaults::LOCALE` (los labels de documentos
+   * viven ahí desde que `ID_LABELS` se fusionó a la tabla única de defaults
+   * por país; cada fila trae `taxId` y `personalId` entre el resto).
+   */
   function phpIdLabels(): Record<string, { tax: string; personal: string }> {
     const src = readFileSync(PHP_PATH, "utf8")
-    const table = src.split("private const ID_LABELS = [")[1]?.split("];")[0] ?? ""
+    const table = src.split("private const LOCALE = [")[1]?.split("];")[0] ?? ""
     const out: Record<string, { tax: string; personal: string }> = {}
-    const row = /'([A-Z]{2})'\s*=>\s*\['tax'\s*=>\s*'([^']+)',\s*'personal'\s*=>\s*'([^']+)'\]/g
+    const row = /'([A-Z]{2})'\s*=>\s*\[[^\]]*'taxId'\s*=>\s*'([^']+)'[^\]]*'personalId'\s*=>\s*'([^']+)'/g
     for (const m of table.matchAll(row)) out[m[1]] = { tax: m[2], personal: m[3] }
     return out
   }
