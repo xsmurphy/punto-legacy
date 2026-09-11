@@ -140,6 +140,12 @@ function fmtDate(iso: string): string {
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Las tres vistas del listado. Son los mismos valores que usaban las pestañas
+ * internas, así que `?tab=` y el estado guardado siguen valiendo.
+ */
+export type TransactionsView = "transacciones" | "cobros" | "quotes"
+
 interface TransactionsListProps {
   /** Destino del "volver". Irrelevante —y no se renderiza— si va embebida. */
   backHref?: string
@@ -157,6 +163,24 @@ interface TransactionsListProps {
    * y esconderla al embeber sería perder RG90 y Libro Ventas.
    */
   embeddedRange?: DateRangeValue
+  /**
+   * Vista CONTROLADA desde afuera. Con esta prop el componente no dibuja sus
+   * propias pestañas: renderiza solo la vista pedida y las pestañas las pone
+   * quien lo contiene.
+   *
+   * Existe para `/reports/sales`, donde el listado va embebido dentro de una
+   * página que ya tiene pestañas de primer nivel: sin esto quedaban DOS filas
+   * de píldoras pegadas (Dashboard · Transacciones, y adentro Transacciones ·
+   * Pagos recibidos · Cotizaciones), obligando a elegir dos veces para llegar
+   * a una sola cosa.
+   *
+   * Por qué una prop y no partir el componente en tres: las tres vistas
+   * comparten el rango, los filtros, el detalle de transacción, la impresión,
+   * la anulación y la devolución. Separarlas habría triplicado todo eso o
+   * exigido un contexto nuevo para volver a unirlas. Sin la prop (el POS en
+   * `/pos/transacciones`) el componente sigue manejando sus pestañas él mismo.
+   */
+  view?: TransactionsView
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -165,6 +189,7 @@ export function TransactionsList({
   backHref,
   mode = "panel",
   embeddedRange,
+  view,
 }: TransactionsListProps) {
   const { data: bootstrap } = useBootstrap()
   // El rango es COMPARTIDO (`use-date-range`), no de esta pantalla: en el panel
@@ -180,6 +205,16 @@ export function TransactionsList({
   const { range: ownRange, setRange } = useDateRange(mode === "pos" ? "pos" : "panel")
   const embedded = embeddedRange !== undefined
   const range = embeddedRange ?? ownRange
+
+  // Vista activa: la de afuera si el contenedor la controla, la propia si no.
+  // El `<Tabs>` pasa a modo controlado en los dos casos —un solo camino de
+  // render para las tres vistas— y lo único condicional es si se dibuja la
+  // `<TabsList>`.
+  const [ownView, setOwnView] = React.useState<TransactionsView>("transacciones")
+  const activeView = view ?? ownView
+  // Sin pestañas propias no hay de qué separarse: el margen existe para
+  // despegar la tabla de la fila de píldoras.
+  const tabsContentClass = view === undefined ? "mt-4" : "mt-0"
 
   // Filtros de Método de pago / Tipo de venta (chips removibles, ver
   // ActiveFilters más abajo). Método de pago sale de una fuente DISTINTA
@@ -861,8 +896,15 @@ export function TransactionsList({
   // El export fiscal es una acción del LISTADO, no del header: se arma acá
   // para poder seguir ofreciéndolo cuando el header no se renderiza (embebida
   // como pestaña de /reports/sales).
+  //
+  // Con la vista controlada sale SOLO en Transacciones: RG90 y Libro Ventas
+  // son las VENTAS del período, y ofrecerlos parado en Cotizaciones (que no
+  // son ventas) o en Pagos recibidos (que son cobranzas de ventas ya
+  // declaradas) invita a creer que el archivo cambia según la pestaña. Sin
+  // controlar (el POS, y el panel antes de esta fusión) el botón vive arriba
+  // de las tres, donde ya se leía como acción de la pantalla entera.
   const fiscalExport =
-    mode === "panel" && isPyTenant ? (
+    mode === "panel" && isPyTenant && (view === undefined || view === "transacciones") ? (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="outline" disabled={fiscalExporting !== null}>
@@ -913,14 +955,19 @@ export function TransactionsList({
       )}
 
       {mode === "panel" ? (
-        <Tabs defaultValue="transacciones">
-          <TabsList>
-            <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
-            <TabsTrigger value="cobros">Pagos recibidos</TabsTrigger>
-            <TabsTrigger value="quotes">Cotizaciones</TabsTrigger>
-          </TabsList>
+        <Tabs
+          value={activeView}
+          onValueChange={(v) => setOwnView(v as TransactionsView)}
+        >
+          {view === undefined && (
+            <TabsList>
+              <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
+              <TabsTrigger value="cobros">Pagos recibidos</TabsTrigger>
+              <TabsTrigger value="quotes">Cotizaciones</TabsTrigger>
+            </TabsList>
+          )}
 
-          <TabsContent value="transacciones" className="mt-4">
+          <TabsContent value="transacciones" className={tabsContentClass}>
             <DataTable
               tableId="report-transactions"
               data={filteredRows}
@@ -951,7 +998,7 @@ export function TransactionsList({
             />
           </TabsContent>
 
-          <TabsContent value="cobros" className="mt-4">
+          <TabsContent value="cobros" className={tabsContentClass}>
             <DataTable
               tableId="report-cobros"
               data={filteredCobrosRows}
@@ -981,7 +1028,7 @@ export function TransactionsList({
             />
           </TabsContent>
 
-          <TabsContent value="quotes" className="mt-4">
+          <TabsContent value="quotes" className={tabsContentClass}>
             <DataTable
               tableId="report-quotes"
               data={quotesRows}

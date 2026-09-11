@@ -13,10 +13,20 @@
  * (`next.config.ts`): son reportes que la gente tiene en marcadores, y
  * `/reports/transactions` además era item de sidebar.
  *
- * Las dos pestañas se MOVIERON, no se reescribieron:
+ * Las pestañas se MOVIERON, no se reescribieron:
  *  - Dashboard    → `SalesDashboardTab`, que era la página `/reports/summary`.
- *  - Transacciones → `<TransactionsList>`, el mismo componente que el POS monta
- *    en `/pos/transacciones`; sigue siendo la única implementación del listado.
+ *  - Transacciones / Pagos / Cotizaciones → `<TransactionsList>`, el mismo
+ *    componente que el POS monta en `/pos/transacciones`; sigue siendo la
+ *    única implementación del listado.
+ *
+ * ── Por qué las cuatro están al MISMO nivel (owner, 2026-09-11) ──
+ * El listado traía sus propias pestañas (Transacciones · Pagos recibidos ·
+ * Cotizaciones), así que la pantalla mostraba DOS filas de píldoras pegadas y
+ * había que elegir dos veces para llegar a una sola cosa. Ahora las cuatro
+ * vistas son de primer nivel y el listado recibe cuál mostrar
+ * (`<TransactionsList view=…>`). El POS, que monta el mismo componente SIN esa
+ * prop, sigue con sus pestañas internas: ahí no hay un nivel de arriba que
+ * las absorba.
  *
  * El rango es UNO SOLO, leído acá del `useDateRange()` global y pasado a las
  * dos pestañas: dos consumidores del hook en la misma pantalla pelean por el
@@ -41,7 +51,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { SalesDashboardTab } from "@/components/domain/reports/sales/sales-dashboard-tab"
 import { TransactionsList } from "@/components/domain/transactions/transactions-list"
 
-const TAB_IDS = ["dashboard", "transacciones"] as const
+const TAB_IDS = ["dashboard", "transacciones", "pagos", "cotizaciones"] as const
 
 export default function SalesReportPage() {
   const { range, setRange } = useDateRange()
@@ -74,6 +84,8 @@ export default function SalesReportPage() {
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
+          <TabsTrigger value="pagos">Pagos</TabsTrigger>
+          <TabsTrigger value="cotizaciones">Cotizaciones</TabsTrigger>
         </TabsList>
 
         <TabsContent value="dashboard" className="m-0">
@@ -81,7 +93,15 @@ export default function SalesReportPage() {
         </TabsContent>
 
         <TabsContent value="transacciones" className="m-0">
-          <TransactionsList embeddedRange={range} />
+          <TransactionsList embeddedRange={range} view="transacciones" />
+        </TabsContent>
+
+        <TabsContent value="pagos" className="m-0">
+          <TransactionsList embeddedRange={range} view="cobros" />
+        </TabsContent>
+
+        <TabsContent value="cotizaciones" className="m-0">
+          <TransactionsList embeddedRange={range} view="quotes" />
         </TabsContent>
       </Tabs>
     </div>
