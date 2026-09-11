@@ -35,7 +35,7 @@ const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
     key: "catalog",
     title: "Catálogo, combos y recetas",
     detail:
-      "Categorías, marcas, etiquetas, artículos con su costo, y la composición de combos y recetas de producción. El stock inicial no se migra.",
+      "Categorías, marcas, etiquetas, artículos con su costo, y la composición de combos y recetas de producción.",
   },
   {
     key: "customers",
@@ -57,6 +57,12 @@ const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
     key: "payments",
     title: "Medios de pago",
     detail: "Los que el comercio tenía configurados. Los que ya existan en Punto se reusan, no se duplican.",
+  },
+  {
+    key: "stock",
+    title: "Stock inicial",
+    detail:
+      "El saldo de cada artículo en cada sucursal, con su costo, como una apertura de inventario. Necesita el catálogo y las sucursales. Un artículo sin costo conocido no se abre: queda nombrado en la bitácora para cargarle el costo y volver a lanzar.",
   },
 ]
 

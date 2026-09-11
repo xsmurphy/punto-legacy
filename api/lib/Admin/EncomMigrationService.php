@@ -42,8 +42,14 @@ final class EncomMigrationService
      * comercio ni sus medios de pago, así que la F1 los declaraba no migrables.
      * Los combos y las recetas NO son un dominio aparte: viajan dentro de cada
      * artículo (`compound`) y se importan con `catalog`.
+     *
+     * `stock` (la APERTURA de inventario) SÍ es un dominio aparte, y va último:
+     * necesita el mapa de ARTÍCULOS (lo llena `catalog`) y el de SUCURSALES (lo
+     * llena `config`), porque un saldo es un movimiento del ledger por (ítem,
+     * sucursal). Meterlo dentro de `catalog` lo dejaría corriendo antes de que
+     * las sucursales existieran.
      */
-    public const DOMAINS = ['catalog', 'customers', 'config', 'users', 'payments'];
+    public const DOMAINS = ['catalog', 'customers', 'config', 'users', 'payments', 'stock'];
 
     /** Tope de reintentos del drain antes de dar el job por perdido. */
     public const MAX_ATTEMPTS = 3;

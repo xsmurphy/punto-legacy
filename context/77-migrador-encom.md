@@ -5,6 +5,9 @@
 > reemplaza al scraping de pantallas con el que arrancó la F1.
 > D1-D6 cerradas por el owner, no relitigar.
 > F2 (ventas históricas) **no** está implementada — ver §12.
+> **La APERTURA DE STOCK se agregó el 2026-09-11** (decisión del owner, §16):
+> el migrador importa cantidad y costo por (artículo, sucursal). Eso REVIERTE
+> el "el stock inicial no se migra" que decían §12 y la UI.
 
 ## 1. Qué resuelve
 
@@ -430,11 +433,10 @@ tocar el camino por el que se dan de alta TODAS las cajas del producto.
   documento ya emitido, con su número congelado, sin tocar `document_sequence`
   —que es justo lo que el import de cajas deja posicionado— y sin reabrir un
   período cerrado (`context/48`).
-- **Stock inicial.** `/fetchs` SÍ trae el saldo actual (`items[].inventory[].
-  count`), así que ahora es *posible*. Sigue **fuera de alcance a propósito**:
-  un saldo es un movimiento del ledger con costo y sucursal (`context/52`) y el
-  export da un número suelto sin costo. Meterlo como ajuste ensucia el costeo
-  promedio desde el día uno. Se carga con un conteo en la sucursal.
+- ~~**Stock inicial.**~~ **Se migra desde 2026-09-11** — decisión del owner.
+  Era el mismo argumento que el costo: sin apertura, el COGS de toda venta nace
+  null y los reportes de margen salen vacíos. Cantidad y costo son la MISMA
+  operación y entran juntos. Ver §16.
 - ~~**El COSTO de los artículos.**~~ **Se migra desde 2026-09-11** — decisión
   del owner: perderlo era una regresión contra el migrador que ya está en
   producción y dejaba en cero los reportes de margen. Sale de la tabla del
@@ -519,4 +521,86 @@ traducción a ciegas, `ContactService` lanzaba y se perdía el cliente ENTERO.
 | **Guardar la password del cliente** para poder reintentar el job | D2. El reintento se resuelve creando el job de nuevo (el login son 3 campos). |
 | **INSERT directo del catálogo** para ir más rápido | D4. Los servicios son los que aplican los invariantes: saltearlos es exactamente cómo entran dos cajas con el mismo punto de expedición o una receta con un ciclo. |
 | **Correr el import inline en la request de `/admin`** | Contexto de tenant por proceso + duración del import por servicios reales. Ver §3.1. |
-| **Migrar el stock inicial ahora que el dato viene** | Un saldo es un movimiento del ledger con costo y sucursal; el export da un número suelto sin costo (§12). |
+
+## 16. La apertura de stock (2026-09-11)
+
+### 16.1 Por qué hacía falta, y por qué `itemCost` no alcanzaba
+
+El migrador ya importaba `item.itemCost` (§4.4), pero **ese campo no se usa al
+vender**. `SaleService::resolveUnitCOGS()` (`api/lib/Sales/SaleService.php`) lee
+el costo promedio ponderado que dejó el **último movimiento del ledger**
+(`getItemStock(...)['stockOnHandCOGS']`). Sin un solo movimiento no hay COGS: la
+venta lo omite y **todos los reportes de margen del comercio migrado nacen
+vacíos**. Por eso cantidad y costo son la misma operación y se importan juntos.
+
+### 16.2 Cómo entra
+
+Dominio propio **`stock`**, que corre **último**: una apertura es un movimiento
+por (artículo, sucursal), y necesita el mapa de artículos que llena `catalog` y
+el de sucursales que llena `config`.
+
+- **Por el servicio real** (D4): `Inventory::manageStock()`, único escritor del
+  ledger. `source='adjustment'` — el mismo contrato que el ajuste del panel
+  (`StockAdjustmentService`) y que la carga inicial de la planilla
+  (`ItemImporter::cargarStockInicial()`). No se inventa un source.
+- **Por sucursal**: `/fetchs` contesta el bootstrap de UNA caja, así que el
+  saldo de cada sucursal se pide con su propio `outletId`
+  (`EncomClient::itemStock()`). La caché del cliente pasó a ser por
+  **(load, sucursal)**: con una sola clave, el saldo de la primera sucursal se
+  le habría servido a todas las demás.
+- **Solo artículos con stock propio**, y lo decide el artículo YA migrado
+  (`item.itemTrackInventory`), no el flag del legacy. Servicios, combos y
+  producciones no llevan apertura: su costo sale de `RecipeCosting`.
+- **El costo sale de `item.itemCost`** (el que el propio migrador escribió, o el
+  que soporte cargó después). No se vuelve a pedir al panel: una fuente por dato.
+
+### 16.3 La regla dura: nunca un 0 que se lea como "cuesta cero"
+
+**Un artículo sin costo conocido NO se abre.** Queda nombrado en la bitácora con
+su cantidad; soporte le carga el costo y vuelve a lanzar, y la corrida siguiente
+lo abre sin tocar los que ya estaban.
+
+Verificado **empíricamente contra Postgres real** antes de elegir:
+
+| Situación | Qué pasa |
+|---|---|
+| `manageStock()` con costo desconocido | NO guarda NULL: escribe **0.00** en `stockCOGS` y `stockOnHandCOGS` |
+| Con esa fila, `resolveUnitCOGS()` | devuelve **0.0**, no null → la venta escribe `itemSoldCOGS = 0` → **margen 100%** |
+| Sin ninguna fila | devuelve **null** → la venta OMITE la columna, que es lo que `SaleService` ya hace a propósito |
+| `stockCOGS = NULL` escrito a mano | la columna lo acepta y `resolveUnitCOGS()` da null… **pero al primer movimiento posterior colapsa a 0.0** (el promedio móvil lo castea y lo propaga) |
+
+O sea que "costo sin definir" **no es un estado que el ledger sepa sostener**:
+la opción de abrir con el costo vacío estaba disponible en la columna y no en el
+comportamiento. De ahí que la decisión sea no abrir.
+
+### 16.4 Idempotencia: acá duplicar es plata
+
+Marca por **(artículo, sucursal)** en el dominio `stock_opening` de
+`migration_map`, y **el movimiento y su marca van en la misma transacción**. Sin
+eso, un worker que muere entre las dos escrituras deja el movimiento sin marcar
+y la corrida siguiente lo **suma de nuevo**: mismo riesgo que las recetas (§6),
+pero peor, porque el duplicado es stock que el comercio cree tener.
+
+### 16.5 El arreglo que esto destapó en `manageStock()`
+
+`stock.userId` es `uuid` y `manageStock()` lo escribía **sin** el `?: null` que
+ya tenían `transactionId`, `supplierId` y `locationId`. Con `USER_ID = ''` —el
+contexto del worker, que importa para OTRO tenant y no tiene usuario de sesión—
+el INSERT reventaba entero.
+
+Por el mismo motivo se guardaron las lecturas de nombres del bloque de
+auditoría: `getValue('contact', …)` y `getCurrentOutletName()` interpolan su id
+en SQL crudo, así que con la constante vacía tiran `invalid input syntax for
+type uuid` y —al correr dentro de la transacción del caller— **la abortan**.
+`REGISTER_ID` ya estaba guardado por exactamente esta razón; faltaban las otras
+dos.
+
+Va **en el wrapper**, no en el migrador: es el único punto por el que pasan los
+27 callers, y cualquier proceso sin sesión (jobs, `/admin`, sync) pisaba la
+misma piedra.
+| ~~**Migrar el stock inicial**~~ | **REVERTIDA 2026-09-11 por el owner.** El motivo para no hacerlo era que el export daba "un número suelto sin costo"; el costo ya se migra (§4.4), así que la apertura entra CON costo y el argumento cayó. Ver §16. |
+| **Abrir el stock con costo 0 cuando el costo no se sabe** | Verificado empíricamente: con la fila en 0, `resolveUnitCOGS()` devuelve `0.0` y no `null`, la venta escribe `itemSoldCOGS = 0` y el margen sale **100%**. Sin apertura devuelve `null` y la venta OMITE la columna. Un artículo sin costo NO se abre (§16). |
+| **Escribir la apertura con `stockCOGS = NULL`** ("costo sin definir") | La columna lo acepta, pero el NULL **no sobrevive**: al primer movimiento posterior el promedio móvil lo castea a 0 y lo propaga al snapshot nuevo. "Costo sin definir" no es un estado que el ledger sepa sostener (§16). |
+| **Un `stockSource` nuevo para la apertura** | Los lectores que filtran por `stockSource` buscan valores concretos y los que lo muestran lo traducen con una tabla cerrada: un valor nuevo sale crudo en pantalla y ningún reporte lo entiende. Se usa `adjustment`, el mismo contrato que el ajuste del panel y que la carga inicial de la planilla. |
+| **Meter la apertura dentro del dominio `catalog`** | Un saldo es un movimiento por (artículo, **sucursal**), y las sucursales las mapea `config`, que corre DESPUÉS. Dentro de `catalog` correría sin sucursales mapeadas. Es dominio propio y va último. |
+| **INSERT directo en `stock`** para abrir el inventario | `Inventory::manageStock()` es el ÚNICO escritor del ledger (D1/D6 de `context/52`): es quien calcula el promedio ponderado, repostea el historial y publica el evento realtime. |

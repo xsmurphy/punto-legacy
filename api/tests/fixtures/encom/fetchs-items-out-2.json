@@ -1,0 +1,62 @@
+[
+  {
+    "itemId": "itm-1",
+    "name": "Café Espresso",
+    "price": 12000,
+    "type": "product",
+    "kind": "product",
+    "tax": "10",
+    "trackInventory": 1,
+    "inventory": [{ "count": 7 }],
+    "category": "Bebidas",
+    "categoryId": "cat-100",
+    "sku": "CAF-001",
+    "compound": "",
+    "brand": "Nespresso"
+  },
+  {
+    "itemId": "itm-2",
+    "name": "Medialuna",
+    "price": 3500,
+    "type": "product",
+    "kind": "product",
+    "tax": "10",
+    "trackInventory": 1,
+    "inventory": [{ "count": 0 }],
+    "category": "Panificados",
+    "categoryId": "cat-200",
+    "sku": "PAN-001",
+    "compound": "",
+    "brand": "-"
+  },
+  {
+    "itemId": "itm-6",
+    "name": "Harina 000",
+    "price": 0,
+    "type": "product",
+    "kind": "product",
+    "tax": "10",
+    "trackInventory": 1,
+    "inventory": [{ "count": 55 }],
+    "category": "Insumos",
+    "categoryId": "cat-400",
+    "sku": "HAR-001",
+    "compound": "",
+    "brand": "-"
+  },
+  {
+    "itemId": "itm-3",
+    "name": "Corte de cabello",
+    "price": 25000,
+    "type": "service",
+    "kind": "",
+    "tax": "10",
+    "trackInventory": 0,
+    "inventory": [{ "count": 9 }],
+    "category": "-",
+    "categoryId": "",
+    "sku": "SRV-001",
+    "compound": "",
+    "brand": "-"
+  }
+]

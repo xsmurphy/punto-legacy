@@ -35,6 +35,10 @@ const DOMAIN_LABEL: Record<string, string> = {
   config: "Configuración",
   users: "Usuarios",
   payments: "Medios de pago",
+  // La apertura de inventario. `failed` acá NO es un error del job: es la
+  // cuenta de artículos que quedaron SIN abrir por no saberse su costo, y que
+  // la bitácora nombra uno por uno para que soporte los complete.
+  stock: "Stock inicial",
   category: "Categorías",
   brand: "Marcas",
   tag: "Etiquetas",
