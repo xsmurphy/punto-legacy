@@ -8,6 +8,11 @@ import { ArrowLeft, BarChart3 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable } from "@/components/data-table/data-table"
+import { StatsRow, StatTile } from "@/components/stat-tile"
+import { CompositionDonutChart } from "@/components/domain/reports/composition-donut-chart"
+import { RankingBarChart } from "@/components/domain/reports/ranking-bar-chart"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
 import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
@@ -144,12 +149,20 @@ export default function FinanzasReportesPage() {
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      <Tabs defaultValue="category">
+      <Tabs defaultValue="dashboard">
         <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="category">Por categoría</TabsTrigger>
           <TabsTrigger value="costcenter">Por centro de costo</TabsTrigger>
           <TabsTrigger value="account">Por cuenta</TabsTrigger>
         </TabsList>
+        <TabsContent value="dashboard" className="mt-4">
+          <FinanceDashboard
+            byCategory={byCategory.data?.rows ?? []}
+            byCostCenter={byCostCenter.data?.rows ?? []}
+            isLoading={byCategory.isLoading || byCostCenter.isLoading}
+          />
+        </TabsContent>
         <TabsContent value="category" className="mt-4">
           <ReportTable
             tableId="finance-reports-by-category"
@@ -191,6 +204,117 @@ export default function FinanzasReportesPage() {
           />
         </TabsContent>
       </Tabs>
+    </div>
+  )
+}
+
+/**
+ * Dashboard del período — sale de los mismos cortes que las pestañas, sin
+ * consultas nuevas.
+ *
+ * Los totales se toman de UN solo corte (categoría) y no de los tres: cada
+ * corte reparte el MISMO conjunto de movimientos con otra dimensión, así que
+ * sumar categoría + centro de costo + cuenta daría el triple. Categoría porque
+ * todo movimiento cae en alguna o en la fila de "sin clasificar", o sea que su
+ * suma es el total del período.
+ *
+ * "Sin clasificar" es un KPI propio y no un detalle: un egreso sin categoría
+ * es un egreso que el corte por categoría no puede explicar, y el porcentaje
+ * dice cuánto del gráfico de al lado está a ciegas.
+ */
+function FinanceDashboard({
+  byCategory,
+  byCostCenter,
+  isLoading,
+}: {
+  byCategory: FinanceReportRow[]
+  byCostCenter: FinanceReportRow[]
+  isLoading: boolean
+}) {
+  const { data: bootstrap } = useBootstrap()
+  const money = React.useCallback((v: number) => formatMoney(v, bootstrap), [bootstrap])
+
+  const totals = React.useMemo(() => {
+    let income = 0
+    let expense = 0
+    let unclassifiedExpense = 0
+    for (const r of byCategory) {
+      income += r.income
+      expense += r.expense
+      if (r.id === null) unclassifiedExpense += r.expense
+    }
+    return {
+      income,
+      expense,
+      net: income - expense,
+      unclassifiedPct: expense > 0 ? (unclassifiedExpense / expense) * 100 : 0,
+    }
+  }, [byCategory])
+
+  if (isLoading) {
+    return (
+      <div className="grid gap-4 lg:grid-cols-2">
+        {[0, 1].map((i) => <Skeleton key={i} className="h-[280px] w-full" />)}
+      </div>
+    )
+  }
+
+  if (byCategory.length === 0) {
+    return (
+      <EmptyState
+        icon={BarChart3}
+        title="Sin movimientos en el período"
+        description="Ajustá el rango de fechas y volvé a consultar."
+      />
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <StatsRow>
+        <StatTile label="Ingresos" value={money(totals.income)} />
+        <StatTile label="Egresos" value={money(totals.expense)} />
+        <StatTile
+          label="Neto"
+          value={money(totals.net)}
+          tone={totals.net < 0 ? "negative" : totals.net > 0 ? "positive" : "neutral"}
+          emphasis
+        />
+        <StatTile
+          label="Egresos sin categoría"
+          value={`${totals.unclassifiedPct.toFixed(1)}%`}
+          tone={totals.unclassifiedPct > 20 ? "negative" : "neutral"}
+        />
+      </StatsRow>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold tracking-tight">Egresos por categoría</CardTitle>
+            <CardDescription className="text-xs">En qué se va la plata del período.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CompositionDonutChart
+              data={byCategory.map((r) => ({ label: r.name, value: r.expense }))}
+              formatValue={money}
+              restLabel="Otras categorías"
+            />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold tracking-tight">Egresos por centro de costo</CardTitle>
+            <CardDescription className="text-xs">Qué área del negocio gasta más.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RankingBarChart
+              data={byCostCenter.map((r) => ({ label: r.name, value: r.expense }))}
+              valueLabel="Egresos"
+              formatValue={money}
+            />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
