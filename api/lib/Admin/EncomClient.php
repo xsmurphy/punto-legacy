@@ -51,6 +51,24 @@ require_once __DIR__ . '/EncomMigrationException.php';
  * `fromCookies()`. Por eso el constructor es privado: no hay forma de
  * construir un cliente en la que la password llegue al worker.
  *
+ * ── DOS hosts, no uno (incidente 2026-09-11) ────────────────────────────
+ * El sistema legacy está partido en dos aplicaciones con dominios distintos:
+ *
+ *   · el **PANEL** (`panel.encom.com.py`, `ENCOM_MIGRATION_URL`) — el login y
+ *     las pantallas de reporte de las que sale el histórico y el costo;
+ *   · el **POS** (`app.encom.com.py`) — donde vive `/fetchs`.
+ *
+ * Hasta este arreglo había UNA sola base y todos los `/fetchs` salían contra
+ * el panel, que contesta **404**: un job real terminó con cero mapeos y 512
+ * errores derivados ("la sucursal X no está migrada") que enterraban la causa.
+ * Por eso son dos propiedades con nombre —`panelUrl` y `posUrl`— y no una
+ * `baseUrl` ambigua: cada request dice contra cuál de las dos va.
+ *
+ * El host del POS **no se configura aparte**: se DERIVA de la misma URL de la
+ * que ya salía el alcance (`?i=<base64>` del redirect de `/bff/pos-redirect.php`,
+ * que es absoluto al POS). Una env var nueva sería un segundo lugar donde
+ * equivocarse, y el dato ya estaba en la respuesta.
+ *
  * ── Pacing ──────────────────────────────────────────────────────────────
  * 60 req/min del otro lado. Se espacia CADA llamada, esperando solo lo que
  * falte desde la anterior. Con `/fetchs` el export pasó de decenas de
@@ -82,6 +100,16 @@ class EncomClient implements EncomSource
     private ?string $lastLocation = null;
 
     /**
+     * Origen (esquema + host) de la app del POS legacy, donde vive `/fetchs`.
+     *
+     * NO es el panel. Se deriva de la URL absoluta que lleva el `?i=` del
+     * alcance — la misma de la que ya salían companyId y outletId — y se
+     * persiste en el job junto a ellos, porque tiene exactamente la misma
+     * procedencia y la misma vida útil.
+     */
+    private string $posUrl = '';
+
+    /**
      * Identificadores del comercio EN EL LEGACY (hashids cortos tipo `QE22`,
      * no UUID). Son el cuerpo de todo `/fetchs`.
      */
@@ -97,14 +125,19 @@ class EncomClient implements EncomSource
      * la ve). El arnés lo usa desde su subclase de fixtures.
      */
     protected function __construct(
-        private readonly string $baseUrl,
+        private readonly string $panelUrl,
         array $cookies,
         string $companyHash = '',
         string $outletHash = '',
+        string $posUrl = '',
     ) {
         $this->cookies     = $cookies;
         $this->companyHash = $companyHash;
         $this->outletHash  = $outletHash;
+        // Se guarda como ORIGEN: si viniera con path o query (la URL del POS
+        // trae el `?i=`), lo que sirve de base para `/fetchs` es solo
+        // esquema + host.
+        $this->posUrl      = self::originOf($posUrl);
     }
 
     /**
@@ -143,7 +176,7 @@ class EncomClient implements EncomSource
 
         $res = $client->raw(
             'POST',
-            '/login?login=true',
+            $baseUrl . '/login?login=true',
             static::loginBody($identifier, $password),
             'application/x-www-form-urlencoded',
             true
@@ -191,7 +224,7 @@ class EncomClient implements EncomSource
 
     /**
      * @param array<string,string> $cookies
-     * @param array{companyId?:string,outletId?:string}|null $scope
+     * @param array{companyId?:string,outletId?:string,posUrl?:string}|null $scope
      */
     public static function fromCookies(string $baseUrl, array $cookies, ?array $scope = null): self
     {
@@ -213,12 +246,18 @@ class EncomClient implements EncomSource
             $clean,
             trim((string) ($scope['companyId'] ?? '')),
             trim((string) ($scope['outletId'] ?? '')),
+            trim((string) ($scope['posUrl'] ?? '')),
         );
 
         // Un job creado antes de que el alcance se guardara —o al que le
-        // faltara una de las dos mitades— lo resuelve de nuevo con la misma
-        // sesión, en vez de fallar. Es la misma llamada que hace `login()`.
-        if ($client->companyHash === '' || $client->outletHash === '') {
+        // faltara una de sus partes— lo resuelve de nuevo con la misma sesión,
+        // en vez de fallar. Es la misma llamada que hace `login()`.
+        //
+        // `posUrl` cuenta como parte faltante: los jobs creados antes del
+        // arreglo del host tienen scope con solo dos campos, y sin el origen
+        // del POS todo `/fetchs` iría contra el panel (404) — que es
+        // exactamente el incidente que esto cierra.
+        if ($client->companyHash === '' || $client->outletHash === '' || $client->posUrl === '') {
             $client->resolveScope();
         }
 
@@ -231,14 +270,21 @@ class EncomClient implements EncomSource
     }
 
     /**
-     * El par (companyId, outletId) del legacy. Se persiste en el job junto a
-     * las cookies: sin él, `/fetchs` no sabe de qué comercio hablar.
+     * El alcance del legacy. Se persiste en el job junto a las cookies: sin él,
+     * `/fetchs` no sabe de qué comercio hablar —ni contra qué host preguntar—.
      *
-     * @return array{companyId:string,outletId:string}
+     * `posUrl` viaja acá y no en una env var propia porque sale de la MISMA
+     * respuesta que el par (companyId, outletId) y caduca con la misma sesión.
+     *
+     * @return array{companyId:string,outletId:string,posUrl:string}
      */
     public function scope(): array
     {
-        return ['companyId' => $this->companyHash, 'outletId' => $this->outletHash];
+        return [
+            'companyId' => $this->companyHash,
+            'outletId'  => $this->outletHash,
+            'posUrl'    => $this->posUrl,
+        ];
     }
 
     /**
@@ -266,12 +312,43 @@ class EncomClient implements EncomSource
      */
     protected function resolveScope(): void
     {
+        $sinOrigen = null;
+
         foreach (['/bff/pos-redirect.php', '/'] as $path) {
             $scope = $this->scopeFrom($path);
-            if ($scope !== null) {
-                [$this->companyHash, $this->outletHash] = $scope;
-                return;
+            if ($scope === null) {
+                continue;
             }
+
+            [$companyHash, $outletHash, $origin] = $scope;
+
+            // El par SIN el host del POS no alcanza: `/fetchs` no vive en el
+            // panel. Se recuerda y se prueba la vía siguiente, porque una de
+            // las dos puede traer la URL absoluta aunque la otra no.
+            if ($origin === '') {
+                $sinOrigen ??= [$companyHash, $outletHash];
+                continue;
+            }
+
+            $this->companyHash = $companyHash;
+            $this->outletHash  = $outletHash;
+            $this->posUrl      = $origin;
+            return;
+        }
+
+        // ── Fail-closed, y ACÁ, no seis 404 más tarde ────────────────────
+        // Este es el caso del incidente: el alcance se resolvía bien y el
+        // host del POS no se miraba, así que el job seguía adelante pidiendo
+        // `/fetchs` contra el panel. Seis 404 silenciosos después, cero
+        // mapeos, y 512 errores derivados que enterraban la causa.
+        if ($sinOrigen !== null) {
+            throw new EncomMigrationException(
+                'Se obtuvo el identificador del comercio en el sistema legacy, pero NO la dirección de la '
+                . 'app del POS, que es donde vive /fetchs (la URL que traía el identificador no es '
+                . 'absoluta). El panel y el POS son dos hosts distintos y el panel responde 404 a /fetchs: '
+                . 'no se migra nada para no importar un catálogo vacío.',
+                502
+            );
         }
 
         throw new EncomMigrationException(
@@ -286,7 +363,14 @@ class EncomClient implements EncomSource
      * Busca el `?i=<base64>` en el redirect de `$path` y, si no está ahí, en su
      * cuerpo.
      *
-     * @return array{0:string,1:string}|null
+     * Devuelve TRES cosas, no dos: el par del alcance y el ORIGEN de la URL que
+     * lo llevaba, que es la dirección de la app del POS. El origen sale gratis
+     * de la misma respuesta —el `Location` del 302 es
+     * `https://app.encom.com.py/?i=<base64>`, y el href del botón "Caja" del
+     * home también es absoluto al POS—, así que pedirlo aparte (una env var
+     * más) sería inventar un segundo lugar donde equivocarse.
+     *
+     * @return array{0:string,1:string,2:string}|null
      */
     private function scopeFrom(string $path): ?array
     {
@@ -317,20 +401,26 @@ class EncomClient implements EncomSource
     }
 
     /**
-     * Extrae y decodifica el parámetro `i` de una URL o de un HTML con enlaces.
+     * Extrae y decodifica el parámetro `i` de una URL o de un HTML con enlaces,
+     * junto con el ORIGEN de la URL que lo contenía.
      *
-     * @return array{0:string,1:string}|null
+     * @return array{0:string,1:string,2:string}|null
      */
     private static function decodeScope(string $haystack): ?array
     {
         // Todas las apariciones, no la primera: el home del panel tiene varios
         // enlaces y solo el de la caja lleva un `i` que decodifica a un par.
-        if (!preg_match_all('/[?&]i=([A-Za-z0-9+\/=%_-]+)/', $haystack, $matches)) {
+        // El prefijo `https?://host` se captura en el mismo match para saber a
+        // qué app apuntaba ESE enlace; es opcional porque un deploy podría
+        // servir el enlace relativo, y en ese caso el par sirve pero el origen
+        // no se puede derivar (lo resuelve `resolveScope()`, fallando).
+        $re = '~(https?://[^\s"\'<>]*?)?[?&]i=([A-Za-z0-9+/=%_-]+)~i';
+        if (!preg_match_all($re, $haystack, $matches, PREG_SET_ORDER)) {
             return null;
         }
 
-        foreach ($matches[1] as $raw) {
-            $decoded = base64_decode(urldecode((string) $raw), true);
+        foreach ($matches as $m) {
+            $decoded = base64_decode(urldecode((string) ($m[2] ?? '')), true);
             if ($decoded === false || !str_contains($decoded, ',')) {
                 continue;
             }
@@ -338,11 +428,37 @@ class EncomClient implements EncomSource
             // Los dos tienen que venir: con la sucursal vacía `/fetchs`
             // respondería el bootstrap de otra y las cajas saldrían mal.
             if ($companyId !== '' && $outletId !== '') {
-                return [$companyId, $outletId];
+                return [$companyId, $outletId, self::originOf((string) ($m[1] ?? ''))];
             }
         }
 
         return null;
+    }
+
+    /**
+     * Esquema + host (+ puerto) de una URL absoluta. '' si no lo es.
+     *
+     * Se descarta el path a propósito: la URL del POS viene con su `?i=` y lo
+     * único que sirve como base de `/fetchs` es el origen.
+     */
+    private static function originOf(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        $parts  = parse_url($url);
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        $host   = (string) ($parts['host'] ?? '');
+
+        if (($scheme !== 'http' && $scheme !== 'https') || $host === '') {
+            return '';
+        }
+
+        $port = isset($parts['port']) ? ':' . (int) $parts['port'] : '';
+
+        return $scheme . '://' . $host . $port;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1253,8 +1369,22 @@ class EncomClient implements EncomSource
             );
         }
 
+        // ── Fail-closed: `/fetchs` NO vive en el panel ───────────────────
+        // Sin el origen del POS, la alternativa sería pedirlo contra
+        // `panelUrl`, que es exactamente lo que devolvía 404 seis veces
+        // seguidas sin que el job se detuviera. Nunca se cae para atrás al
+        // panel: son dos aplicaciones distintas.
+        if ($this->posUrl === '') {
+            throw new EncomMigrationException(
+                'No se sabe contra qué dirección pedir el bootstrap del POS legacy: /fetchs vive en la app '
+                . 'del POS, no en el panel, y el origen no se pudo derivar de la sesión. Creá la migración '
+                . 'de nuevo.',
+                502
+            );
+        }
+
         $body = $this->post(
-            '/fetchs?load=' . rawurlencode($load) . '&gtoken=',
+            $this->posUrl . '/fetchs?load=' . rawurlencode($load) . '&gtoken=',
             http_build_query([
                 'companyId'  => $this->companyHash,
                 'outletId'   => $outlet,
@@ -1303,14 +1433,25 @@ class EncomClient implements EncomSource
         return is_array($rows[0] ?? null) ? $rows[0] : $rows;
     }
 
-    /** POST con pacing y UN reintento transitorio. */
-    private function post(string $path, string $body): string
+    /**
+     * POST con pacing y UN reintento transitorio.
+     *
+     * Recibe la URL **absoluta**, no un path: el único que lo usa es `fetch()`,
+     * que va contra la app del POS y no contra el panel. Que la base viaje en
+     * el argumento es lo que hace imposible repetir el bug — no hay una
+     * `baseUrl` implícita que pueda ser la equivocada.
+     */
+    private function post(string $url, string $body): string
     {
-        return $this->send('POST', $path, $body, 'application/x-www-form-urlencoded', false);
+        return $this->send('POST', $url, $body, 'application/x-www-form-urlencoded', false);
     }
 
     /**
-     * GET con pacing y UN reintento transitorio.
+     * GET contra el PANEL, con pacing y UN reintento transitorio.
+     *
+     * Toma un path porque todo lo que se lee por acá —el login, el home, el
+     * costo, el histórico— es del panel. El POS se pide por `post()`, con su
+     * URL absoluta.
      *
      * `$allowRedirect` existe para `resolveScope()`, donde el 302 ES la
      * respuesta. En cualquier otra llamada un 302 significa que la sesión se
@@ -1319,15 +1460,22 @@ class EncomClient implements EncomSource
     protected function get(string $path, array $params = [], bool $allowRedirect = false): string
     {
         $qs = $params !== [] ? (str_contains($path, '?') ? '&' : '?') . http_build_query($params) : '';
-        return $this->send('GET', $path . $qs, null, null, $allowRedirect);
+        return $this->send('GET', $this->panelUrl . $path . $qs, null, null, $allowRedirect);
     }
 
-    private function send(string $method, string $path, ?string $body, ?string $contentType, bool $allowRedirect): string
+    /**
+     * Envía a una URL ABSOLUTA.
+     *
+     * `protected` por lo mismo que `fetch()`: contra qué host sale cada request
+     * es justamente lo que se rompió, y el arnés lo verifica sondeando esta
+     * costura con dos hosts distintos, que es el caso real.
+     */
+    protected function send(string $method, string $url, ?string $body, ?string $contentType, bool $allowRedirect): string
     {
         for ($try = 0; ; $try++) {
             $this->pace();
 
-            $res = $this->raw($method, $path, $body, $contentType, $allowRedirect);
+            $res = $this->raw($method, $url, $body, $contentType, $allowRedirect);
 
             $transient = $res['error'] !== '' || $res['status'] === 429 || $res['status'] >= 500;
 
@@ -1337,7 +1485,7 @@ class EncomClient implements EncomSource
             }
 
             if ($res['error'] !== '') {
-                throw new EncomMigrationException('Error de red contra el legacy en ' . $path . ': ' . $res['error'], 502);
+                throw new EncomMigrationException('Error de red contra el legacy en ' . $url . ': ' . $res['error'], 502);
             }
 
             if ($res['status'] === 401 || $res['status'] === 403) {
@@ -1347,8 +1495,11 @@ class EncomClient implements EncomSource
                 );
             }
 
+            // La URL ENTERA, con su host: el 404 del incidente decía
+            // "en /fetchs?load=outlets&gtoken=" y ocultaba lo único que
+            // importaba, que era CONTRA QUÉ HOST se había pedido.
             if ($res['status'] < 200 || $res['status'] >= 400) {
-                throw new EncomMigrationException('El legacy respondió ' . $res['status'] . ' en ' . $path . '.', 502);
+                throw new EncomMigrationException('El legacy respondió ' . $res['status'] . ' en ' . $url . '.', 502);
             }
 
             return (string) $res['body'];
@@ -1375,12 +1526,12 @@ class EncomClient implements EncomSource
      */
     private function raw(
         string $method,
-        string $path,
+        string $url,
         ?string $body,
         ?string $contentType,
         bool $allowRedirect = false,
     ): array {
-        $ch = curl_init($this->baseUrl . $path);
+        $ch = curl_init($url);
         if ($ch === false) {
             return ['status' => 0, 'body' => null, 'error' => 'no se pudo inicializar curl'];
         }
