@@ -2,7 +2,12 @@
 /**
  * REST canónico (API compartida /api) — Reporte de Ventas por Usuarios / Recursos (raw).
  *
- *   GET /v1/reports/users?from=&to= → filas crudas por usuario.
+ *   GET /v1/reports/users?from=&to=[&view=summary|commissions] → filas crudas por usuario.
+ *
+ * Sin `view`: la respuesta histórica (array plano de filas). NO se toca — la
+ * consumen la pestaña Detalle del panel y los lectores programáticos.
+ *   `view=summary`     → { totals, ranking, daily } para el dashboard.
+ *   `view=commissions` → { sellers, totals } con el detalle liquidable.
  *
  * Sin formatear, sin HTML. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID del JWT.
  */
@@ -45,4 +50,18 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido', 500);
 }
 
-apiOk($svc->salesByUser($from, $to, COMPANY_ID));
+// El gate es el mismo para las tres vistas a propósito: todas responden la
+// misma pregunta —cuánto vendió cada persona— con distinto grano. Una clave
+// aparte para las comisiones sugeriría un permiso que el catálogo no tiene.
+$view = (string) (validateHttp('view') ?: '');
+if (!in_array($view, ['', 'summary', 'commissions'], true)) {
+    apiError('Vista no soportada', 422);
+}
+
+if ($view === 'summary') {
+    apiOk($svc->summary($from, $to, COMPANY_ID));
+} elseif ($view === 'commissions') {
+    apiOk($svc->commissions($from, $to, COMPANY_ID));
+} else {
+    apiOk($svc->salesByUser($from, $to, COMPANY_ID));
+}
