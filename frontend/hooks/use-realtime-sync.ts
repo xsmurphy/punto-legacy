@@ -88,7 +88,15 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // impreso usa; editarlos en /outlets no se reflejaba en la caja.
   // `["pos","outlets"]` (use-pos-outlets.ts:38) va explícito: TanStack matchea
   // por prefijo y `["outlets"]` no es prefijo de `["pos","outlets"]`.
-  outlet:            [["outlets"], ["pos", "outlets"], ["pos-bootstrap"]],
+  // `["bootstrap"]` va desde 2026-09-11: las sucursales del SWITCHER del panel
+  // salen del bootstrap (`Bootstrap.outlets`), no de `["outlets"]`. Sin esta
+  // entrada, una sucursal aprobada desde /admin aparecía en el listado de
+  // `/outlets` pero NO en el selector hasta recargar la página — y el alta ya
+  // no la dispara el propio usuario, así que no hay navegación que lo tape.
+  outlet:            [["outlets"], ["pos", "outlets"], ["pos-bootstrap"], ["bootstrap"]],
+  // Solicitud de alta de sucursal (mig 219): al resolverse, el switcher pasa
+  // de "Solicitud pendiente" a "Crear sucursal" sin recargar.
+  outletRequest:     [["outlet-request"]],
   category:          [["categories"], ["taxonomies", "category"], ["pos-bootstrap"]],
   brand:             [["brands"], ["taxonomies", "brand"], ["pos-bootstrap"]],
   // tag: SIN pos-bootstrap a propósito, a diferencia de category/brand. El

@@ -37,10 +37,10 @@ import {
   Search,
   ChevronRight,
   ReceiptText,
-  Check,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { OutletSwitcher } from "@/components/layout/outlet-switcher"
 import { AppCommandPalette } from "@/components/layout/app-command-palette"
 import { NotificationsMenuItem, NotificationUnreadDot } from "@/components/layout/notification-bell"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -74,7 +74,10 @@ interface AppSidebarProps {
   /** URL del logo de la empresa (viene de /v1/settings). null si no hay logo
    *  subido — el Avatar cae al AvatarFallback con iniciales. */
   companyLogo?: string | null
-  /** Sucursales activas del tenant. Solo se pinta el selector cuando hay ≥2. */
+  /**
+   * Sucursales activas del tenant. El selector se monta SIEMPRE (también con 0
+   * o 1): es la entrada al alta de sucursal y el ancla del botón de colapsar.
+   */
   outlets?: Array<{ id: string; name: string }>
   activeOutletId?: string
   onSelectOutlet?: (outletId: string) => void
@@ -172,91 +175,20 @@ export function AppSidebar({
             </button>
           )}
 
-          {/* WORDMARK + outlet selector — unified trigger when >1 outlets */}
-          {outlets.length > 1 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Cambiar sucursal"
-                  className="flex w-full items-center gap-2 rounded-md p-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground cursor-pointer group-data-[collapsible=icon]:hidden"
-                >
-                  <PuntoLogo variant="wordmark" />
-                  {scope === "Admin" && (
-                    <Badge variant="outline" className="text-[10px] font-medium">
-                      ADMIN
-                    </Badge>
-                  )}
-                  <ChevronsUpDown className="ml-auto size-4 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                className="w-auto max-w-sm"
-              >
-                <DropdownMenuLabel className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Sucursales
-                </DropdownMenuLabel>
-                {onSelectAllOutlets && (
-                  <>
-                    <DropdownMenuItem
-                      disabled={isSwitchingOutlet}
-                      onSelect={(e) => {
-                        if (viewScope === "all") {
-                          e.preventDefault()
-                          return
-                        }
-                        onSelectAllOutlets()
-                      }}
-                    >
-                      <span className="flex-1 truncate">Todas</span>
-                      {viewScope === "all" && <Check className="size-4 opacity-70" />}
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
-                {outlets.map((o) => {
-                  const isChecked =
-                    viewScope === "all"
-                      ? false
-                      : viewScope
-                        ? o.id === viewScope
-                        : o.id === activeOutletId
-                  return (
-                    <DropdownMenuItem
-                      key={o.id}
-                      disabled={isSwitchingOutlet}
-                      onSelect={(e) => {
-                        if (isChecked) {
-                          e.preventDefault()
-                          return
-                        }
-                        onSelectOutlet?.(o.id)
-                      }}
-                    >
-                      <span className="flex-1 truncate">{o.name}</span>
-                      {isChecked && <Check className="size-4 opacity-70" />}
-                    </DropdownMenuItem>
-                  )
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <div className="flex items-center gap-2 group-data-[collapsible=icon]:hidden">
-              <Link
-                href="/"
-                aria-label="Ir al dashboard"
-                className="inline-flex items-center rounded-md p-2 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                <PuntoLogo variant="wordmark" />
-              </Link>
-              {scope === "Admin" && (
-                <Badge variant="outline" className="text-[10px] font-medium">
-                  ADMIN
-                </Badge>
-              )}
-            </div>
-          )}
+          {/* WORDMARK + selector de sucursal. Se monta SIEMPRE — con 0, 1 o N
+              sucursales el trigger es el mismo y el botón de colapsar no se
+              mueve. Antes había dos ramas con anchos distintos y el tenant sin
+              sucursales veía el toggle corrido (context/14 §10). El menú es
+              además la entrada al alta con paywall; ver `outlet-switcher.tsx`. */}
+          <OutletSwitcher
+            scope={scope}
+            outlets={outlets}
+            activeOutletId={activeOutletId}
+            onSelectOutlet={onSelectOutlet}
+            isSwitchingOutlet={isSwitchingOutlet}
+            viewScope={viewScope}
+            onSelectAllOutlets={onSelectAllOutlets}
+          />
 
           <SidebarTrigger className="size-7 cursor-pointer hover:!bg-[#E3E5E9] dark:hover:!bg-[#1A1D1F] group-data-[collapsible=icon]:hidden" />
         </div>

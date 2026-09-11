@@ -28,30 +28,15 @@ export function useOutlet(id: string | undefined) {
 }
 
 /**
- * Crea una sucursal. Acepta opcionalmente el payload del form para crear con
- * los datos finales en un solo round-trip (flujo nuevo de frontend: el
- * usuario llena el form y AHÍ recién insertamos en BD; sin "outlets huérfanos"
- * si abandona sin guardar). Sin `values`, el backend crea un placeholder
- * "Nueva Sucursal" — flujo legacy.
+ * El alta directa de sucursales MURIÓ con el paywall (2026-09-11).
  *
- * Estrategia: invalidate ["outlets"] al éxito + el caller hace `router.push`
- * al detalle. Optimistic update no aporta (la lista necesita el id real).
+ * Cada sucursal se factura al precio del plan del tenant, así que el comercio
+ * no la crea: la PIDE (`useCreateOutletRequest`, `hooks/use-outlet-request.ts`)
+ * y la habilita Punto desde /admin. El backend lo hace cumplir en el único
+ * creador (`OutletsService::create()`), y `POST /v1/outlets?action=create`
+ * responde 403 — un hook que solo puede fallar no se deja "por si acaso".
  */
-export function useCreateOutlet() {
-  const qc = useQueryClient()
-  return useMutation<{ id: string }, Error, OutletFormValues | undefined>({
-    mutationFn: (values) =>
-      api.post<{ id: string }>("/v1/outlets", {
-        action: "create",
-        ...(values ? serialize(values) : {}),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["outlets"] })
-    },
-  })
-}
 
-/** Update full de una sucursal. */
 export function useUpdateOutlet() {
   const qc = useQueryClient()
   return useMutation<
