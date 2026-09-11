@@ -83,6 +83,12 @@ final class EncomHistoryImporter
     private ?array $itemBySku  = null;
     private array $itemByName  = [];
 
+    /** itemId → `item.itemCost`, o null si el artículo no tiene costo cargado. */
+    private array $costByItemId = [];
+
+    /** Artículos cuyas líneas entraron SIN costo, para la bitácora. */
+    private array $sinCostoLineas = [];
+
     /** Días tocados por dominio de rollup: "dominio|YYYY-MM-DD" → true. */
     private array $diasSucios = [];
 
@@ -199,7 +205,10 @@ final class EncomHistoryImporter
                     $db->StartTrans();
 
                     $txId = $this->insertTransaction($venta, $fecha, $outletId, $userId, $customerId, $lineas);
-                    $this->insertLines($txId, $fecha, $lineas, $outletId, $userId, $legacyId);
+                    $this->insertLines(
+                        $txId, $fecha, $lineas, $outletId, $userId, $legacyId,
+                        $this->esCredito($venta) ? '3' : '0'
+                    );
 
                     // El asiento y su marca, ATÓMICOS. Sin esto, un worker que
                     // muere entre las dos escrituras deja la venta sin marcar y
@@ -229,6 +238,8 @@ final class EncomHistoryImporter
                 . 'No se inventan contactos.'
             );
         }
+
+        $this->avisarSinCosto();
 
         if ($sinUsuario !== []) {
             $this->note(
@@ -338,7 +349,10 @@ final class EncomHistoryImporter
                     $db->StartTrans();
 
                     $txId = $this->insertPurchase($compra, $fecha, $outletId, $userId, $supplierId, $lineas);
-                    $this->insertLines($txId, $fecha, $lineas, $outletId, $userId, $legacyId);
+                    $this->insertLines(
+                        $txId, $fecha, $lineas, $outletId, $userId, $legacyId,
+                        $this->esCredito($compra) ? '4' : '1'
+                    );
 
                     EncomMigrationService::remember(
                         $this->companyId, 'purchase_history', $legacyId, $txId, $this->jobId
@@ -357,6 +371,7 @@ final class EncomHistoryImporter
             }
         }
 
+        $this->avisarSinCosto();
         $this->drenarRollups();
 
         return $counts;
@@ -490,7 +505,7 @@ final class EncomHistoryImporter
     ): string {
         [$prefix, $number] = $this->documento((string) ($venta['docNumber'] ?? ''));
 
-        $esCredito = $this->contiene((string) ($venta['type'] ?? ''), ['CREDITO', 'CRÉDITO']);
+        $esCredito = $this->esCredito($venta);
         $anulada   = $this->esAnulada($venta);
 
         $units = 0.0;
@@ -553,7 +568,7 @@ final class EncomHistoryImporter
     ): string {
         [$prefix, $number] = $this->documento((string) ($compra['docNumber'] ?? ''));
 
-        $esCredito = $this->contiene((string) ($compra['type'] ?? ''), ['CREDITO', 'CRÉDITO']);
+        $esCredito = $this->esCredito($compra);
 
         $units = 0.0;
         foreach ($lineas as $l) {
@@ -608,6 +623,7 @@ final class EncomHistoryImporter
         string $outletId,
         string $userId,
         string $legacyDocId,
+        string $typeStr,
     ): void {
         foreach ($lineas as $linea) {
             $nombre = trim((string) ($linea['itemName'] ?? ''));
@@ -633,25 +649,44 @@ final class EncomHistoryImporter
                 $total = (float) $qty * (float) $linea['price'];
             }
 
+            $records = [
+                'itemSoldTotal'       => (float) ($total ?? 0),
+                'itemSoldTax'         => $linea['tax'] ?? null,
+                'itemSoldUnits'       => $qty,
+                'itemSoldDate'        => $fecha,
+                'itemSoldDescription' => $this->recortar($nombre, 255) ?: null,
+                'itemId'              => $itemId,
+                'transactionId'       => $txId,
+                'userId'              => $userId,
+                'companyId'           => $this->companyId,
+                'outletId'            => $outletId,
+            ];
+
+            // ── COGS: el contrato es el de `SaleService` ───────────────────
+            // La columna guarda el costo UNITARIO (no el de la línea): es lo
+            // que devuelve `resolveUnitCOGS()` y lo que persiste
+            // `persistItemsAndStock()`, sin multiplicar por la cantidad.
+            //
+            // Y se OMITE cuando no se sabe, en vez de escribirse null: pasa por
+            // `flipOnReturn()`, que ante un valor no válido devuelve **0**, y un
+            // 0 se lee como "costó nada" → margen 100% en todos los reportes de
+            // ese artículo. Omitir deja la columna en NULL, que es la verdad.
+            // Mismo criterio que la apertura de stock (§16.3).
+            //
+            // `flipOnReturn` es no-op para los tipos que importa el histórico
+            // (0/3 venta, 1/4 compra) y solo invierte el signo en la devolución
+            // (tipo 6). Se llama igual para que el contrato quede literal y no
+            // haya que acordarse de esto si algún día se importan devoluciones.
+            $cogs = $this->costFor($itemId);
+            if ($cogs !== null) {
+                $records['itemSoldCOGS'] = \flipOnReturn($typeStr, $cogs);
+            } else {
+                $this->sinCostoLineas[$nombre !== '' ? $nombre : $itemId] = true;
+            }
+
             $ok = \ncmInsert([
-                'records' => [
-                    'itemSoldTotal'       => (float) ($total ?? 0),
-                    'itemSoldTax'         => $linea['tax'] ?? null,
-                    'itemSoldUnits'       => $qty,
-                    'itemSoldDate'        => $fecha,
-                    'itemSoldDescription' => $this->recortar($nombre, 255) ?: null,
-                    'itemId'              => $itemId,
-                    'transactionId'       => $txId,
-                    'userId'              => $userId,
-                    'companyId'           => $this->companyId,
-                    'outletId'            => $outletId,
-                    // El COGS NO se escribe: el legacy no lo expone (verificado
-                    // — el form de la venta trae cantidad, precio, IVA y total,
-                    // nada de costo). Dejarlo NULL es "no lo sé"; un 0 daría
-                    // margen 100% en todos los reportes de ese período, que es
-                    // el mismo error que la apertura de stock ya rechazó (§16).
-                ],
-                'table' => 'itemSold',
+                'records' => $records,
+                'table'   => 'itemSold',
             ]);
 
             if (!$ok) {
@@ -759,8 +794,12 @@ final class EncomHistoryImporter
 
         $this->itemBySku = [];
 
+        // SIN filtro de estado: el costo se necesita también para los
+        // artículos HISTÓRICOS (que nacen archivados). El filtro se aplica
+        // abajo, y solo a los índices de BÚSQUEDA — un archivado no puede
+        // ganar un match por nombre contra el catálogo vivo.
         $rs = \ncmExecute(
-            'SELECT itemId, itemName, itemSKU FROM item WHERE companyId = ? AND itemStatus = 1',
+            'SELECT itemId, itemName, itemSKU, itemCost, itemStatus FROM item WHERE companyId = ?',
             [$this->companyId],
             false,
             true
@@ -771,19 +810,46 @@ final class EncomHistoryImporter
                 $f  = $rs->fields;
                 $id = (string) ($f['itemId'] ?? $f['itemid'] ?? '');
                 if ($id !== '') {
-                    $sku    = $this->normalizar((string) ($f['itemSKU'] ?? $f['itemsku'] ?? ''));
-                    $nombre = $this->normalizar((string) ($f['itemName'] ?? $f['itemname'] ?? ''));
-                    if ($sku !== '') {
-                        $this->itemBySku[$sku] = $id;
-                    }
-                    if ($nombre !== '' && !isset($this->itemByName[$nombre])) {
-                        $this->itemByName[$nombre] = $id;
+                    // `is_numeric` y no un cast: NULL es "no lo sé" y tiene que
+                    // llegar como null hasta la decisión de escribir o no el
+                    // COGS. Un 0 acá se volvería margen 100% para siempre.
+                    $costo = $f['itemCost'] ?? $f['itemcost'] ?? null;
+                    $this->costByItemId[$id] = is_numeric($costo) ? (float) $costo : null;
+
+                    $activo = (int) ($f['itemStatus'] ?? $f['itemstatus'] ?? 0) === 1;
+                    if ($activo) {
+                        $sku    = $this->normalizar((string) ($f['itemSKU'] ?? $f['itemsku'] ?? ''));
+                        $nombre = $this->normalizar((string) ($f['itemName'] ?? $f['itemname'] ?? ''));
+                        if ($sku !== '') {
+                            $this->itemBySku[$sku] = $id;
+                        }
+                        if ($nombre !== '' && !isset($this->itemByName[$nombre])) {
+                            $this->itemByName[$nombre] = $id;
+                        }
                     }
                 }
                 $rs->MoveNext();
             }
             $rs->Close();
         }
+    }
+
+    /**
+     * Costo UNITARIO del artículo para una línea histórica.
+     *
+     * Es el costo ACTUAL del artículo (`item.itemCost`), no el del día de la
+     * venta: el legacy no expone el costo de cada venta. Ver §17.9 del doc —
+     * el margen histórico es una aproximación conocida y declarada.
+     *
+     * Sale de `item.itemCost` y no del promedio ponderado del ledger a
+     * propósito: `itemCost` es el que el propio migrador escribió (o el que
+     * soporte cargó después) y NO depende de que el dominio de apertura de
+     * stock haya corrido. Con la apertura corrida los dos valen lo mismo.
+     */
+    private function costFor(string $itemId): ?float
+    {
+        $this->cargarCatalogo();
+        return $this->costByItemId[$itemId] ?? null;
     }
 
     /**
@@ -990,6 +1056,31 @@ final class EncomHistoryImporter
     // Helpers
     // ═══════════════════════════════════════════════════════════════════
 
+    /**
+     * Deja en la bitácora los artículos cuyas líneas entraron SIN costo.
+     *
+     * No es cosmético: esas líneas tienen `itemSoldCOGS` en NULL, así que no
+     * suman margen en ningún reporte. Cargarle el costo al artículo y volver a
+     * lanzar NO las arregla —el asiento ya está escrito y no se re-importa—,
+     * así que lo que hay que saber es exactamente cuáles quedaron así.
+     */
+    private function avisarSinCosto(): void
+    {
+        if ($this->sinCostoLineas === []) {
+            return;
+        }
+
+        $nombres = array_keys($this->sinCostoLineas);
+        $this->note(
+            'Líneas importadas SIN costo (su margen no va a figurar en los reportes, porque el artículo no '
+            . 'tiene costo cargado en Punto): ' . implode(', ', array_slice($nombres, 0, 30))
+            . (count($nombres) > 30 ? ' … y ' . (count($nombres) - 30) . ' más.' : '')
+            . ' No se les pone 0: un 0 se lee como "costó nada" y daría margen 100%.'
+        );
+
+        $this->sinCostoLineas = [];
+    }
+
     /** Rango a importar: lo que eligió el operador, o los últimos 12 meses. */
     private function range(array $options): array
     {
@@ -1091,6 +1182,12 @@ final class EncomHistoryImporter
             'legacyDoc'    => (string) ($row['docNumber'] ?? ''),
             'migrationJob' => $this->jobId,
         ];
+    }
+
+    /** ¿El documento es a crédito? Define el tipo de transacción y el signo. */
+    private function esCredito(array $row): bool
+    {
+        return $this->contiene((string) ($row['type'] ?? ''), ['CREDITO', 'CRÉDITO']);
     }
 
     /** ¿El legacy marcó este documento como anulado? */
