@@ -17,6 +17,7 @@ import {
   Sparkles,
   KeyRound,
   ServerCog,
+  ArrowRightLeft,
 } from "lucide-react"
 import {
   Sidebar,
@@ -59,6 +60,7 @@ const adminNav: Array<{ title: string; to: string; icon: typeof LayoutDashboard;
   { title: "Solicitudes", to: "/admin/requests", icon: FileText },
   { title: "Reportes", to: "/admin/reports", icon: BarChart3 },
   { title: "Auditoría", to: "/admin/audit", icon: ScrollText, minRole: "support" },
+  { title: "Migraciones", to: "/admin/migrations", icon: ArrowRightLeft, minRole: "support" },
   { title: "Plataforma", to: "/admin/platform", icon: KeyRound, minRole: "owner" },
   { title: "Sistema", to: "/admin/system", icon: ServerCog, minRole: "owner" },
 ]

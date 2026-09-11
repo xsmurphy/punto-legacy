@@ -1159,3 +1159,89 @@ export function useAdminSystemStatus() {
     staleTime: 30 * 1000,
   })
 }
+
+// ── Migraciones ENCOM → Punto (context/77) ───────────────────────────────────
+
+export type AdminMigrationStatus = "pending" | "running" | "done" | "failed"
+
+/** Conteos por dominio que reporta el worker mientras importa. */
+export interface AdminMigrationCounts {
+  total: number
+  imported: number
+  skipped: number
+  failed: number
+}
+
+export interface AdminMigrationJob {
+  jobId: string
+  companyId: string
+  companyName: string
+  source: string
+  status: AdminMigrationStatus
+  domains: string[]
+  /** Además de los dominios trae `options`, de ahí el índice laxo. */
+  progress: Record<string, unknown>
+  errors: Array<{ domain: string; message: string; at: string }>
+  attempts: number
+  hasCredentials: boolean
+  startedAt: string | null
+  finishedAt: string | null
+  createdAt: string | null
+  log?: Array<{ at: string; message: string }>
+}
+
+/**
+ * `ready` es false cuando falta `ENCOM_MIGRATION_URL` en el entorno. Se
+ * consulta para avisarlo ANTES de que el operador tipee la contraseña de un
+ * cliente, no después de mandarla.
+ */
+export function useAdminMigrations(companyId?: string) {
+  const search = companyId ? `?companyId=${encodeURIComponent(companyId)}` : ""
+  return useQuery<{ jobs: AdminMigrationJob[]; domains: string[]; ready: boolean }>({
+    queryKey: ["admin", "migrations", companyId ?? "all"],
+    queryFn: () => apiAdmin.get(`/migrations.php${search}`),
+    // Un job avanza en otro proceso: sin refetch el operador ve "pendiente"
+    // hasta que recarga a mano. Solo mientras hay algo vivo.
+    refetchInterval: (query) => {
+      const jobs = query.state.data?.jobs ?? []
+      return jobs.some((j) => j.status === "pending" || j.status === "running") ? 5000 : false
+    },
+  })
+}
+
+export function useAdminMigration(jobId: string) {
+  return useQuery<AdminMigrationJob>({
+    queryKey: ["admin", "migration", jobId],
+    queryFn: () => apiAdmin.get(`/migrations.php?id=${encodeURIComponent(jobId)}`),
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const s = query.state.data?.status
+      return s === "pending" || s === "running" ? 5000 : false
+    },
+  })
+}
+
+/**
+ * La firma index (`[k: string]: unknown`) es lo que hace que este shape
+ * encaje en el `Json` que espera `apiAdmin.post`, sin castear en el
+ * call-site.
+ */
+export interface AdminMigrationInput {
+  companyId: string
+  phone: string
+  iso: string
+  password: string
+  domains: string[]
+  registerOutletId?: string
+  [k: string]: unknown
+}
+
+export function useAdminCreateMigration() {
+  const qc = useQueryClient()
+  return useMutation<{ jobId: string }, AdminApiError, AdminMigrationInput>({
+    mutationFn: (input) => apiAdmin.post("/migrations.php", input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "migrations"] })
+    },
+  })
+}
