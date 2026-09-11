@@ -1,120 +1,44 @@
 "use client"
 
 /**
- * Reporte Equipo — espejo de panel/reports/users.html.
+ * Reporte Equipo — cuánto vendió cada persona, qué comisión le corresponde y
+ * cómo se movió a lo largo del período.
  *
- * Backend: GET /v1/reports/users?from=&to=
- * → array de filas: { userId, name, usold, total, comission, discount, count }
+ * Pestañas (patrón de `/reports/production`):
+ *   Dashboard  → `view=summary`     (KPIs, ranking, participación y evolución)
+ *   Detalle    → sin `view`         (la tabla histórica, con los que no vendieron)
+ *   Comisiones → `view=commissions` (el detalle liquidable por vendedor)
  *
- * El reporte es date-scoped (por período). Muestra ventas, comisiones y
- * descuentos por persona. Incluye usuarios sin actividad (total=0).
+ * El rango vive acá, en el header, y baja a las tres: dos `useDateRange()` en
+ * la misma pantalla pelean por el mismo estado compartido (mismo motivo por el
+ * que `RankingReportPage` ganó `embeddedRange`).
  *
- * La atribución es COALESCE(vendedor de la línea, operador de la venta): ver el
- * comentario en api/lib/Reports/UsersService.php. La comisión, en cambio, sigue
- * siendo la que se congeló por línea al vender — no se recalcula acá.
+ * La atribución de una venta a una persona es
+ * COALESCE(vendedor de la línea, operador de la venta) — el comentario largo
+ * de por qué está en `api/lib/Reports/UsersService.php`.
  */
 
 import * as React from "react"
 import Link from "next/link"
-import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Users } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { DataTable } from "@/components/data-table/data-table"
-import {
-  DateRangePicker,
-  rangeToBackend,
-} from "@/components/date-range-picker"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DateRangePicker } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
-import { EmptyState } from "@/components/empty-state"
-import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useReport, type UserReportRow } from "@/hooks/use-reports"
-import { formatInt, formatMoney } from "@/lib/format"
-import { StatsRow, StatTile } from "@/components/stat-tile"
+import { UsersDashboardTab } from "@/components/domain/reports/users/users-dashboard-tab"
+import { UsersDetailTab } from "@/components/domain/reports/users/users-detail-tab"
+import { UsersCommissionsTab } from "@/components/domain/reports/users/users-commissions-tab"
+
+const TAB_IDS = ["dashboard", "detalle", "comisiones"] as const
 
 export default function UsersReportPage() {
-  const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
-  const opts = React.useMemo(() => rangeToBackend(range), [range])
-
-  const { data, isLoading, error } = useReport<UserReportRow[]>("users", opts)
-  const rows = React.useMemo(() => data ?? [], [data])
-
-  const totals = React.useMemo(() => {
-    let usold = 0
-    let total = 0
-    let count = 0
-    let discount = 0
-    rows.forEach((r) => {
-      usold += r.usold
-      total += r.total
-      count += r.count
-      discount += r.discount
-    })
-    return { usold, total, count, discount }
-  }, [rows])
-
-  const columns = React.useMemo<ColumnDef<UserReportRow>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Usuario / Recurso",
-        cell: ({ getValue }) => (
-          <span className="font-medium">{(getValue() as string) || "(sin nombre)"}</span>
-        ),
-        meta: { label: "Usuario / Recurso" },
-      },
-      {
-        accessorKey: "count",
-        header: "Transacciones",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{formatInt(Number(getValue()) || 0, bootstrap)}</span>
-        ),
-        meta: { label: "Transacciones", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "usold",
-        header: "Unidades",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {formatInt(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Unidades", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "total",
-        header: "Ventas",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums font-medium">
-            {formatMoney(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Ventas", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "discount",
-        header: "Descuentos",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {formatMoney(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Descuentos", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "comission",
-        header: "Comisión",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {formatMoney(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Comisión", className: "tabular-nums text-right" },
-      },
-    ],
-    [bootstrap],
-  )
+  const searchParams = useSearchParams()
+  const requested = searchParams.get("tab")
+  const initialTab =
+    requested && (TAB_IDS as readonly string[]).includes(requested) ? requested : "dashboard"
 
   return (
     <div className="flex flex-col gap-6">
@@ -123,51 +47,22 @@ export default function UsersReportPage() {
           <BackLink />
           <h1 className="text-2xl font-semibold">Equipo</h1>
           <p className="text-sm text-muted-foreground">
-            Ventas, unidades y comisiones por persona del período.
+            Ventas, comisiones y ticket promedio por persona del período.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      {error && (
-        <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
-          <AlertCircle className="mt-0.5 size-4 text-destructive" />
-          <div>
-            <p className="font-medium">No se pudo cargar el reporte</p>
-            <p className="text-xs text-muted-foreground">{error.message}</p>
-          </div>
-        </div>
-      )}
-
-      {!isLoading && rows.length > 0 && (
-        <StatsRow>
-          <StatTile label="Usuarios" value={formatInt(rows.length, bootstrap)} />
-          <StatTile label="Transacciones" value={formatInt(totals.count, bootstrap)} />
-          <StatTile label="Unidades vendidas" value={formatInt(totals.usold, bootstrap)} />
-          <StatTile
-            label="Total ventas"
-            value={formatMoney(totals.total, bootstrap)}
-            emphasis
-          />
-        </StatsRow>
-      )}
-
-      <DataTable
-        tableId="report-users"
-        data={rows}
-        columns={columns}
-        getRowId={(r) => r.userId}
-        isLoading={isLoading}
-        searchPlaceholder="Buscar por usuario…"
-        exportFileName="equipo"
-        emptyMessage={
-          <EmptyState
-            icon={Users}
-            title="Sin datos del equipo"
-            description="Ajustá el rango de fechas y volvé a consultar."
-          />
-        }
-      />
+      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
+        <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="detalle">Detalle</TabsTrigger>
+          <TabsTrigger value="comisiones">Comisiones</TabsTrigger>
+        </TabsList>
+        <TabsContent value="dashboard" className="m-0"><UsersDashboardTab range={range} /></TabsContent>
+        <TabsContent value="detalle" className="m-0"><UsersDetailTab range={range} /></TabsContent>
+        <TabsContent value="comisiones" className="m-0"><UsersCommissionsTab range={range} /></TabsContent>
+      </Tabs>
     </div>
   )
 }
