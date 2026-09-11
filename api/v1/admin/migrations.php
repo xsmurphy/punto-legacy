@@ -20,6 +20,12 @@
  * PHP-FPM.
  */
 
+// simple.config.php ANTES que nada: el realm admin no pasa por bootstrap.php
+// (que es quien lo carga en el realm tenant), así que sin este require la
+// constante ENCOM_MIGRATION_URL no existe en la request real y `ready` daba
+// false con la variable perfectamente cargada en el entorno (2026-09-11).
+// El worker CLI no lo necesita: entra por bootstrap.php.
+require_once __DIR__ . '/../../includes/simple.config.php';
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/EncomMigrationService.php';
