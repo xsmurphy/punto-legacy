@@ -15,15 +15,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { AlertCircle, ArrowLeft, CalendarDays } from "lucide-react"
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -34,6 +26,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type SummaryYearResponse } from "@/hooks/use-reports"
@@ -77,12 +77,25 @@ export default function SummaryYearPage() {
     () =>
       months.map((m) => ({
         name: MONTH_NAMES[m.month - 1]?.slice(0, 3) ?? `M${m.month}`,
-        Ingresos: m.salesTotal,
-        Egresos: m.expensesTotal,
-        Devoluciones: m.returnsTotal,
+        // "ventas" y no "Ingresos": `salesTotal` es la venta BRUTA del mes.
+        // El tile de al lado dice "Ventas netas" y descuenta devoluciones, así
+        // que llamarle ingresos a este número ponía dos magnitudes distintas
+        // bajo nombres que sugieren lo mismo.
+        ventas: m.salesTotal,
+        // Ya se calculaba y NUNCA se dibujaba: el gráfico omitía la magnitud
+        // que el propio reporte usa para el neto, y un mes con muchas
+        // devoluciones se veía igual de bueno que uno sin ninguna.
+        devoluciones: m.returnsTotal,
+        egresos: m.expensesTotal,
       })),
     [months],
   )
+
+  const chartConfig = {
+    ventas: { label: "Ventas", color: "var(--chart-1)" },
+    devoluciones: { label: "Devoluciones", color: "var(--chart-5)" },
+    egresos: { label: "Egresos", color: "var(--chart-3)" },
+  } satisfies ChartConfig
 
   return (
     <div className="flex flex-col gap-6">
@@ -91,7 +104,7 @@ export default function SummaryYearPage() {
           <BackLink />
           <h1 className="text-2xl font-semibold">Resumen Anual</h1>
           <p className="text-sm text-muted-foreground">
-            Ingresos y egresos mensuales del año seleccionado.
+            Ventas, devoluciones y egresos mes a mes del año seleccionado.
           </p>
         </div>
         <Select value={year} onValueChange={setYear}>
@@ -148,10 +161,16 @@ export default function SummaryYearPage() {
       {/* Chart */}
       {!isLoading && chartData.length > 0 && (
         <div className="rounded-lg border bg-card p-4">
-          <p className="mb-4 text-sm font-medium">Ingresos y egresos por mes — {year}</p>
-          <ResponsiveContainer width="100%" height={280}>
+          <p className="mb-4 text-sm font-medium">Ventas, devoluciones y egresos por mes — {year}</p>
+          {/* `ChartContainer` y no `ResponsiveContainer` + `<Tooltip>` con
+              estilos inline: el tooltip pintaba su fondo con `var(--card)`, y
+              en dark ese token es `transparent` a propósito (las cards se ven
+              por el ring, no por fondo), así que el tooltip salía translúcido
+              y el texto se mezclaba con el gráfico. El del design system usa
+              el token de superficie FLOTANTE, que es el correcto acá. */}
+          <ChartContainer config={chartConfig} className="h-[280px] w-full">
             <BarChart data={chartData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="name"
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
@@ -164,24 +183,23 @@ export default function SummaryYearPage() {
                 tickLine={false}
                 tickFormatter={(v: number) => formatMoney(v, bootstrap)}
               />
-              <Tooltip
-                contentStyle={{
-                  fontSize: 12,
-                  borderRadius: 8,
-                  border: "1px solid var(--border)",
-                  background: "var(--card)",
-                  color: "var(--foreground)",
-                }}
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              formatter={(value: any, name: any) => [
-                  formatMoney(Number(value) || 0, bootstrap),
-                  String(name),
-                ]}
+              <ChartTooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                content={
+                  <ChartTooltipContent
+                    formatter={(value, name) => {
+                      const label = chartConfig[name as keyof typeof chartConfig]?.label ?? name
+                      return `${label}: ${formatMoney(Number(value) || 0, bootstrap)}`
+                    }}
+                  />
+                }
               />
-              <Bar dataKey="Ingresos" fill="var(--chart-1)" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="Egresos" fill="var(--chart-3)" radius={[3, 3, 0, 0]} />
+              <ChartLegend content={<ChartLegendContent />} />
+              <Bar dataKey="ventas" fill="var(--color-ventas)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="devoluciones" fill="var(--color-devoluciones)" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="egresos" fill="var(--color-egresos)" radius={[3, 3, 0, 0]} />
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         </div>
       )}
 

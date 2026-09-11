@@ -52,6 +52,7 @@ import {
   rangeToBackend,
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
+import { shiftRangeBackwards } from "@/lib/reports/previous-range"
 import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
@@ -85,32 +86,11 @@ interface HoursRow {
 
 // ── Helpers de rango "período anterior" ─────────────────────────────────────
 
-/** Formatea Date → 'YYYY-MM-DD HH:mm:ss' (mismo formato que rangeToBackend). */
-function toBackendFormat(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0")
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  )
-}
 
 /**
  * Dado un rango "actual" como strings backend, calcula el rango anterior
  * (mismo length, termina 1 segundo antes del 'from' actual).
  */
-function shiftRangeBackwards(from: string, to: string): { from: string; to: string } {
-  // 'YYYY-MM-DD HH:mm:ss' es compatible con `new Date` en navegador y server.
-  const f = new Date(from.replace(" ", "T"))
-  const t = new Date(to.replace(" ", "T"))
-  const lenMs = t.getTime() - f.getTime()
-  const prevTo = new Date(f.getTime() - 1000)
-  const prevFrom = new Date(prevTo.getTime() - lenMs)
-  return {
-    from: toBackendFormat(prevFrom),
-    to: toBackendFormat(prevTo),
-  }
-}
-
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function SummaryReportPage() {
