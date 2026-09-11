@@ -106,7 +106,15 @@ try {
     }
 
     $baseUrl = (string) ($credentials['legacyUrl'] ?? (defined('ENCOM_MIGRATION_URL') ? ENCOM_MIGRATION_URL : ''));
-    $client  = EncomClient::fromCookies($baseUrl, (array) $credentials['cookies']);
+
+    // `scope` es el par (companyId, outletId) del LEGACY que el endpoint dedujo
+    // al hacer el login: es el cuerpo de todo `/fetchs`. Si el job es viejo y no
+    // lo tiene, el cliente lo resuelve de nuevo con la misma sesión.
+    $client = EncomClient::fromCookies(
+        $baseUrl,
+        (array) $credentials['cookies'],
+        is_array($credentials['scope'] ?? null) ? $credentials['scope'] : null
+    );
 
     $result = (new EncomImportService($companyId, $client, $jobId))->run($domains, $options);
 

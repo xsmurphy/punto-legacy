@@ -34,8 +34,16 @@ require_once __DIR__ . '/EncomMigrationException.php';
  */
 final class EncomMigrationService
 {
-    /** Dominios que el operador puede pedir. */
-    public const DOMAINS = ['catalog', 'customers', 'config'];
+    /**
+     * Dominios que el operador puede pedir.
+     *
+     * `users` y `payments` existen desde que el export pasa por `/fetchs`
+     * (context/77): las pantallas del panel no exponían ni el equipo del
+     * comercio ni sus medios de pago, así que la F1 los declaraba no migrables.
+     * Los combos y las recetas NO son un dominio aparte: viajan dentro de cada
+     * artículo (`compound`) y se importan con `catalog`.
+     */
+    public const DOMAINS = ['catalog', 'customers', 'config', 'users', 'payments'];
 
     /** Tope de reintentos del drain antes de dar el job por perdido. */
     public const MAX_ATTEMPTS = 3;
@@ -117,8 +125,15 @@ final class EncomMigrationService
 
         // Solo las cookies llegan a la base. `$creds['password']` no se toca
         // nunca más y no aparece en ningún log.
+        //
+        // `scope` es el par (companyId, outletId) DEL LEGACY —hashids cortos,
+        // no UUID— que `login()` dedujo de la sesión. Es lo que `/fetchs` pide
+        // en el cuerpo de cada request, así que sin él el worker no puede
+        // exportar nada. Se guarda junto a las cookies porque tiene la misma
+        // vida útil que ellas: se borra cuando el job termina.
         $credentials = [
             'cookies'   => $client->cookies(),
+            'scope'     => $client->scope(),
             'issuedAt'  => gmdate('c'),
             'legacyUrl' => $baseUrl,
         ];
