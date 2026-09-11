@@ -71,7 +71,9 @@ function AdminMigrationsPageContent() {
       cell: ({ row }) => (
         <div className="flex flex-col">
           <span className="font-medium">{row.original.companyName || "(sin nombre)"}</span>
-          <span className="text-xs text-muted-foreground">Desde ENCOM</span>
+          {/* "panel legacy" y no la marca vieja: regla #2 del proyecto — no se
+              introduce ENCOM en UI nueva. */}
+          <span className="text-sm text-muted-foreground">Desde el panel legacy</span>
         </div>
       ),
       meta: { label: "Empresa destino" },
