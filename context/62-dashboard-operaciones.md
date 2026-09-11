@@ -194,6 +194,11 @@ de `pos_order.fulfillment`, no del rollup de ventas.
 
 ### D1 [?] — Reporte propio en `/reports/operaciones`, con tabs
 
+> **CORREGIDO por el owner (2026-09-10)**: va en `/reports/orders`, no en una
+> ruta nueva — implementado así en la branch `frontend/orders-dashboard`
+> (`6d943ecb`, sin mergear). El argumento de abajo (dos dominios distintos)
+> quedó desestimado por el owner; ver `context/_handoff.md`.
+
 **Propuesta: reporte nuevo, no un tab de algo existente.**
 
 `/reports/orders` **ya existe y es otro dominio**: renderiza `OrdersList` sobre
