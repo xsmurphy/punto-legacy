@@ -199,6 +199,10 @@ final class OperationsService
                     COALESCE(SUM(reworks), 0)                                        AS reworks,
                     COALESCE(SUM(rework_items), 0)                                   AS rework_items,
                     COUNT(*) FILTER (WHERE reworks > 0 OR rework_items > 0)          AS orders_with_rework,
+                    COUNT(*) FILTER (WHERE at_progress  >= t_sent)                   AS n_to_progress,
+                    COUNT(*) FILTER (WHERE at_ready     >= at_progress)              AS n_progress_to_ready,
+                    COUNT(*) FILTER (WHERE at_delivered >= at_ready)                 AS n_ready_to_delivered,
+                    COUNT(*) FILTER (WHERE at_delivered >= t_sent)                   AS n_total,
                     AVG(EXTRACT(EPOCH FROM (at_progress - t_sent)) / 60)
                         FILTER (WHERE at_progress >= t_sent)                         AS avg_to_progress,
                     AVG(EXTRACT(EPOCH FROM (at_ready - at_progress)) / 60)
@@ -236,6 +240,16 @@ final class OperationsService
                 'skipped'       => (int) ($r['skipped'] ?? 0),
                 'fullyTracked'  => (int) ($r['fully_tracked'] ?? 0),
                 'total'         => $total,
+                // Sobre cuántas órdenes se calculó CADA promedio — exactamente
+                // su denominador, no una aproximación: "en proceso → lista"
+                // necesita las dos marcas, y `withReady` cuenta también las
+                // que llegaron a lista salteando "en proceso".
+                'stageSamples'  => [
+                    'toProgress'       => (int) ($r['n_to_progress'] ?? 0),
+                    'progressToReady'  => (int) ($r['n_progress_to_ready'] ?? 0),
+                    'readyToDelivered' => (int) ($r['n_ready_to_delivered'] ?? 0),
+                    'total'            => (int) ($r['n_total'] ?? 0),
+                ],
             ],
         ];
     }

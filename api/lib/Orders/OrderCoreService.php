@@ -1311,12 +1311,29 @@ final class OrderCoreService
         $rs = $this->db->Execute(
             // Mismo enriquecimiento de cliente y espacio que list() — el shape
             // de una orden es único, venga del listado o del detalle.
+            //
+            // SOLO en el detalle: la sucursal DE LA ORDEN (nombre + lat/lng,
+            // mig 14) y el nombre del responsable (`userid` → `contact`). La
+            // sucursal no se puede tomar del bootstrap: ese solo trae la
+            // ACTIVA, y con el selector en "Todas" el panel abre órdenes de
+            // otras sucursales — el mapa de entrega marcaría el origen en el
+            // local equivocado.
             'SELECT o.*,
                     c.contactname          AS customer_name,
                     c.data->>\'contactLatLng\' AS customer_latlng,
                     sp.name                AS space_name,
-                    co.contactname         AS courier_name
+                    co.contactname         AS courier_name,
+                    ou.outletname          AS outlet_name,
+                    ou.lat                 AS outlet_lat,
+                    ou.lng                 AS outlet_lng,
+                    us.contactname         AS user_name
                FROM pos_order o
+          LEFT JOIN outlet ou
+                 ON ou.outletid = o.outletid
+                AND ou.companyid = o.companyid
+          LEFT JOIN contact us
+                 ON us.contactid = o.userid
+                AND us.companyid = o.companyid
           LEFT JOIN contact c
                  ON c.contactid = o.customerid
                 AND c.companyid = o.companyid
@@ -1633,6 +1650,17 @@ final class OrderCoreService
         // plato. null cuando la orden no es de espacio o el row no lo trajo.
         $spaceName = $row['space_name'] ?? null;
         $out['spaceName'] = ($spaceName !== null && $spaceName !== '') ? (string) $spaceName : null;
+
+        // Sucursal de la orden y responsable — solo los trae find() (ver su
+        // SELECT). En list() quedan null: el listado no los necesita y
+        // sumarlos ahí era un JOIN más por fila para nada. lat/lng: float o
+        // null, nunca NaN — mismo criterio que deliveryLat/deliveryLng.
+        $outletName = $row['outlet_name'] ?? null;
+        $out['outletName'] = ($outletName !== null && $outletName !== '') ? (string) $outletName : null;
+        $out['outletLat']  = isset($row['outlet_lat']) && is_numeric($row['outlet_lat']) ? (float) $row['outlet_lat'] : null;
+        $out['outletLng']  = isset($row['outlet_lng']) && is_numeric($row['outlet_lng']) ? (float) $row['outlet_lng'] : null;
+        $userName = $row['user_name'] ?? null;
+        $out['userName'] = ($userName !== null && $userName !== '') ? (string) $userName : null;
 
         if ($withItems && $companyId !== null) {
             $rs = $this->db->Execute(
