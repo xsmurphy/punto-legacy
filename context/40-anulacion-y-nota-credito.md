@@ -5,14 +5,16 @@
 > final. **D2+D3 implementadas en la DEVOLUCIÓN (2026-08-21)** — ver sección
 > "Implementación de D2/D3 en la devolución" al final: `ReturnService`
 > reparte stock según la misma política que la anulación (`StockReversalPolicy`,
-> wrapper compartido) y respeta `settingReturnRefund`. **F3/F4/F6 (numeración
-> de NC como doctype propio con timbrado independiente del correlativo
-> INTERNO, nota de crédito como documento propio distinto de `transactionType=6`,
-> UI en `/pos`) siguen sin implementar** — la devolución YA es, en los
-> hechos, la "nota de crédito interna" que F4 describía (documento con su
-> propio correlativo `nota_credito`/scope outlet desde antes de esta sesión,
-> D1 parcial-por-ítem ya soportado), así que lo que falta de F3/F4 es más
-> acotado de lo que el plan original sugería — ver el detalle en esa sección.
+> wrapper compartido) y respeta `settingReturnRefund`. **F3 IMPLEMENTADA
+> 2026-09-10** (mig 215, commit `418b679c`): la NC numera con serie fiscal
+> propia de Punto, heredando la CAJA (sucursal+caja/timbrado) de la factura
+> que corrige — se eliminó el kill-switch `legacyAutoNumbering`. **F4/F6
+> (nota de crédito como documento propio distinto de `transactionType=6`, UI
+> en `/pos`) siguen sin implementar** — la devolución YA es, en los hechos,
+> la "nota de crédito interna" que F4 describía (documento con su propio
+> correlativo `nota_credito`/scope outlet desde antes, D1 parcial-por-ítem ya
+> soportado), así que lo que falta de F4 es más acotado de lo que el plan
+> original sugería — ver el detalle en esa sección.
 > **F5 (NC electrónica) — VERIFICADA end-to-end esta sesión, funciona**: ver
 > esa sección. Pedido del owner desde `/pos` → detalle de transacción: los
 > botones "Anular" y "Devolución" siguen deshabilitados en la UI hasta que el

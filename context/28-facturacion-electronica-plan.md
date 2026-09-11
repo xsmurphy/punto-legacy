@@ -32,6 +32,18 @@
 >
 > Ver también el bloque SUPERSEDED de `context/73-kude-propio.md`: el KuDE lo
 > renderiza el motor, no Punto.
+>
+> **Dos hallazgos más de esta sesión, sobre el outbox contra el motor único:**
+> un deploy que cambió el payload en el medio envenenó el reintento de una NC
+> (mismo `transactionid`+`doctype`, distinto body → "Idempotency-Key was
+> reused with a different request body"); se corrigió persistiendo
+> `provider_txn_id` en columna propia (mig 217, el JSONB `provider_response`
+> se pisa entero en cada intento) y reconsultando `GET /de/txn/{txnId}` al
+> motor ANTES de cada reintento — la garantía real contra duplicado fiscal es
+> el índice único de FE-PY, no la Idempotency-Key (TTL 24h). Y: un documento
+> RECHAZADO por SIFEN llega con CDC y QR poblados igual (se calculan ANTES de
+> ir a SIFEN), así que "tiene CDC" no es señal de validez — `printableDocumentFor()`
+> ahora excluye por `sifen_status`, no solo por `status`/`cdc` (`0a35e91a`).
 
 > Estado: **F0–F4, F6 y F7 implementadas** (F0 2026-07-28, el resto 2026-07-30/31 — ver tabla de fases).
 > F1–F3 verificadas contra la API real solo en el camino de factura al contado con un único medio de pago.
