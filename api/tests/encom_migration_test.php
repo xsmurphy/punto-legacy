@@ -40,6 +40,8 @@ require_once __DIR__ . '/_harness.php';
 $companyId = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d1122';
 $companyB  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d3344';
 $companyC  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d5566';
+// Empresa con un período contable CERRADO, para el caso H17/H18.
+$companyD  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d7788';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -119,11 +121,30 @@ class FixtureEncomClient extends EncomClient
      */
     protected function get(string $path, array $params = [], bool $allowRedirect = false): string
     {
-        if ($path === '/a_items') {
-            $file = $this->dir . '/panel-items-costs.json';
-            return is_file($file) ? (string) file_get_contents($file) : '';
+        $action = (string) ($params['action'] ?? '');
+
+        // El COSTO y todo el HISTÓRICO son lo único que NO sale de `/fetchs`:
+        // salen de las pantallas del panel, que es lo que sirve este `get()`.
+        $file = match (true) {
+            $path === '/a_items'                                          => 'panel-items-costs.json',
+            $path === '/a_report_transactions' && $action === 'detailTable' => 'panel-sales.json',
+            // El detalle es por VENTA: una request por cada una.
+            $path === '/a_report_transactions' && $action === 'edit'
+                => 'panel-sale-detail-' . (string) ($params['id'] ?? '') . '.html',
+            $path === '/a_report_purchases' && $action === 'general'       => 'panel-purchases.json',
+            $path === '/a_report_purchases' && $action === 'detailTable'   => 'panel-purchase-lines.json',
+            $path === '/a_report_expenses'  && $action === 'generalTable'  => 'panel-expenses.json',
+            default                                                        => '',
+        };
+
+        if ($file === '') {
+            return '';
         }
-        return '';
+
+        $this->calls[] = $path . '?' . $action;
+
+        $full = $this->dir . '/' . $file;
+        return is_file($full) ? (string) file_get_contents($full) : '';
     }
 }
 
@@ -1326,6 +1347,275 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
+    // H. HISTÓRICO (F2) — ventas con líneas, compras y movimientos de caja
+    // ══════════════════════════════════════════════════════════════════
+    // Es el dominio donde el import NO pasa por los servicios de negocio, así
+    // que el arnés tiene que probar las dos mitades: que los hechos entren
+    // BIEN, y —sobre todo— que NO pase nada de lo que tiene prohibido pasar
+    // (numeración fiscal, stock, caja, facturación electrónica).
+    //
+    // El rango es agosto de 2026 a propósito: es un mes ANTERIOR al actual, o
+    // sea que su partición no existe cuando el test arranca. Si el importador
+    // no la creara, las filas caerían en la partición DEFAULT — que es
+    // exactamente el modo de falla que la mig 221 viene a cerrar.
+
+    $seqAntes    = (int) scalar('SELECT count(*) FROM document_sequence WHERE companyid = ?', [$companyId]);
+    $stockAntes  = (int) scalar('SELECT count(*) FROM stock WHERE companyId = ?', [$companyId]);
+
+    $histOpts = ['historyFrom' => '2026-08-01', 'historyTo' => '2026-08-31'];
+    $runH = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
+        ->run(['sales_history', 'purchases_history', 'expenses_history'], $histOpts);
+
+    $ph = $runH['progress'];
+
+    check(
+        'H1 · ventas: 3 leídas, 2 asentadas y 1 rechazada por usuario sin migrar',
+        ($ph['sales_history']['total'] ?? 0) === 3
+            && ($ph['sales_history']['imported'] ?? 0) === 2
+            && ($ph['sales_history']['failed'] ?? 0) === 1,
+        'progress.sales_history = ' . json_encode($ph['sales_history'] ?? null),
+        $failures, $checks
+    );
+
+    // Prohibido inventar una dimensión obligatoria: `transaction.userid` es NOT
+    // NULL, y meterle cualquier usuario le atribuiría ventas a quien no las
+    // hizo. La venta no entra y el log dice qué falta.
+    check(
+        'H2 · la venta del usuario sin migrar NO se asentó con otro usuario',
+        (int) scalar(
+            "SELECT count(*) FROM transaction WHERE companyId = ? AND meta->>'legacyId' = 'tx-3'",
+            [$companyId]
+        ) === 0,
+        'tx-3 no debía entrar',
+        $failures, $checks
+    );
+
+    $tx1 = $db->Execute(
+        "SELECT transactionid, transactiontype, invoiceno, invoiceprefix, invoiceauth, voidedat,
+                transactiontotal, tableoid::regclass::text AS particion
+           FROM transaction WHERE companyId = ? AND meta->>'legacyId' = 'tx-1' LIMIT 1",
+        [$companyId]
+    );
+    $f1 = ($tx1 !== false && !$tx1->EOF) ? $tx1->fields : [];
+
+    check(
+        'H3 · el número fiscal entra CONGELADO del legacy (001-001-0001234, timbrado 16543210)',
+        (int) ($f1['invoiceno'] ?? 0) === 1234
+            && (string) ($f1['invoiceprefix'] ?? '') === '001-001'
+            && (string) ($f1['invoiceauth'] ?? '') === '16543210',
+        'tx-1 = ' . json_encode($f1),
+        $failures, $checks
+    );
+
+    // ── Lo que el histórico tiene PROHIBIDO tocar ──────────────────────
+    check(
+        'H4 · NO se creó ninguna serie fiscal nueva (document_sequence intacta)',
+        (int) scalar('SELECT count(*) FROM document_sequence WHERE companyid = ?', [$companyId]) === $seqAntes,
+        'document_sequence cambió: el histórico estaría numerando con la serie del comercio',
+        $failures, $checks
+    );
+
+    check(
+        'H5 · NO se movió el stock (la mercadería de esas ventas ya salió hace meses)',
+        (int) scalar('SELECT count(*) FROM stock WHERE companyId = ?', [$companyId]) === $stockAntes,
+        'aparecieron movimientos de stock nuevos',
+        $failures, $checks
+    );
+
+    check(
+        'H6 · NO se encoló ningún documento electrónico',
+        (int) scalar('SELECT count(*) FROM einvoice_document WHERE companyid = ?', [$companyId]) === 0,
+        'el histórico estaría mandando documentos ya emitidos a SIFEN',
+        $failures, $checks
+    );
+
+    // Las VENTAS no mueven caja. Las 2 filas de `expenses` son las del dominio
+    // de movimientos de caja, que es otra cosa.
+    check(
+        'H7 · la caja solo tiene los 2 movimientos del dominio de gastos, ninguno de las ventas',
+        (int) scalar('SELECT count(*) FROM expenses WHERE companyId = ?', [$companyId]) === 2,
+        'expenses = ' . scalar('SELECT count(*) FROM expenses WHERE companyId = ?', [$companyId]),
+        $failures, $checks
+    );
+
+    // ── Particionado: la prueba de que la mig 221 hace falta ───────────
+    check(
+        'H8 · la venta de agosto quedó en SU partición mensual, no en la DEFAULT',
+        (string) ($f1['particion'] ?? '') === 'transaction_y2026m08',
+        'partición = ' . var_export($f1['particion'] ?? null, true)
+            . ' (si dice transaction_default, el histórico no se reclasifica NUNCA)'
+            . ' — bitácora del job: ' . json_encode($runH['log'] ?? [], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Anulada: `voidedAt`, no tipo 7 ────────────────────────────────
+    $tx2 = $db->Execute(
+        "SELECT transactiontype, voidedat FROM transaction
+          WHERE companyId = ? AND meta->>'legacyId' = 'tx-2' LIMIT 1",
+        [$companyId]
+    );
+    $f2 = ($tx2 !== false && !$tx2->EOF) ? $tx2->fields : [];
+
+    check(
+        'H9 · la venta anulada entra marcada con voidedAt (que es lo que los rollups excluyen)',
+        !empty($f2['voidedat']) && (int) ($f2['transactiontype'] ?? -1) === 0,
+        'tx-2 = ' . json_encode($f2),
+        $failures, $checks
+    );
+
+    // ── Líneas ────────────────────────────────────────────────────────
+    $lineas = (int) scalar(
+        "SELECT count(*) FROM itemSold WHERE transactionId = ?",
+        [(string) ($f1['transactionid'] ?? '')]
+    );
+    check(
+        'H10 · la venta entró con sus 2 líneas',
+        $lineas === 2,
+        "itemSold de tx-1 = $lineas",
+        $failures, $checks
+    );
+
+    // El artículo que no existe en el catálogo migrado NO se descarta (el total
+    // de la venta dejaría de cerrar contra la suma de sus ítems): entra como
+    // artículo HISTÓRICO archivado y fuera del POS.
+    $hist = $db->Execute(
+        "SELECT itemName, itemStatus, itemCanSale FROM item
+          WHERE companyId = ? AND itemName LIKE '[Histórico]%' LIMIT 1",
+        [$companyId]
+    );
+    $fh = ($hist !== false && !$hist->EOF) ? $hist->fields : [];
+
+    check(
+        'H11 · el artículo sin match entra como histórico ARCHIVADO y no vendible',
+        !empty($fh['itemname'])
+            && (int) ($fh['itemstatus'] ?? 1) === 0
+            && in_array((string) ($fh['itemcansale'] ?? ''), ['0', 'f', 'false', ''], true),
+        'artículo histórico = ' . json_encode($fh),
+        $failures, $checks
+    );
+
+    // ── COGS por línea ────────────────────────────────────────────────
+    // El legacy no expone el costo de cada venta, así que se congela el costo
+    // ACTUAL del artículo (`item.itemCost`). Sin esta columna el margen
+    // histórico directamente NO EXISTE: los reportes leen el costo congelado
+    // por línea, no lo recalculan.
+    //
+    // El contrato es el de `SaleService`: la columna guarda el costo UNITARIO,
+    // no el de la línea. "Café Espresso" costó 5.000 la unidad y la línea son
+    // 2 unidades a 15.000 — si acá apareciera 10.000 (2 × 5.000) o 30.000, el
+    // contrato estaría roto y todos los márgenes saldrían mal.
+    $cogsConCosto = scalar(
+        "SELECT itemSoldCOGS FROM itemSold
+          WHERE transactionId = ? AND itemSoldDescription = 'Café Espresso' LIMIT 1",
+        [(string) ($f1['transactionid'] ?? '')]
+    );
+    check(
+        'H12 · la línea de un artículo CON costo guarda el COGS UNITARIO (5.000)',
+        $cogsConCosto !== null && $cogsConCosto !== false && abs((float) $cogsConCosto - 5000.0) < 0.01,
+        'itemSoldCOGS = ' . var_export($cogsConCosto, true)
+            . ' — esperado 5000 (item.itemCost unitario, NO 10000 = 2×5000 ni el total de la línea)',
+        $failures, $checks
+    );
+
+    // Y el que no se sabe queda NULL, nunca 0: `flipOnReturn(null)` devuelve 0
+    // y un 0 se lee como "costó nada" → margen 100%. Por eso la columna se
+    // OMITE del insert en vez de escribirse en null.
+    $rsSinCosto = $db->Execute(
+        "SELECT itemSoldCOGS, (itemSoldCOGS IS NULL) AS es_null FROM itemSold
+          WHERE transactionId = ? AND itemSoldDescription = 'Producto Que Ya No Existe' LIMIT 1",
+        [(string) ($f1['transactionid'] ?? '')]
+    );
+    $fSinCosto = ($rsSinCosto !== false && !$rsSinCosto->EOF) ? $rsSinCosto->fields : [];
+
+    check(
+        'H12b · la línea de un artículo SIN costo deja el COGS en NULL, nunca en 0',
+        in_array((string) ($fSinCosto['es_null'] ?? $fSinCosto['ES_NULL'] ?? ''), ['1', 't', 'true'], true),
+        'itemSoldCOGS = ' . var_export($fSinCosto['itemsoldcogs'] ?? $fSinCosto['itemSoldCOGS'] ?? null, true)
+            . ' — un 0 acá daría margen 100% en todos los reportes de ese artículo',
+        $failures, $checks
+    );
+
+    // ── Compras y movimientos de caja ─────────────────────────────────
+    check(
+        'H13 · la compra entró como tipo 1 (contado) con el documento del proveedor',
+        ($ph['purchases_history']['imported'] ?? 0) === 1
+            && (int) scalar(
+                "SELECT count(*) FROM transaction
+                  WHERE companyId = ? AND transactionType = 1 AND supplierDocNo = 55",
+                [$companyId]
+            ) === 1,
+        'progress.purchases_history = ' . json_encode($ph['purchases_history'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'H14 · los 2 movimientos de caja entran con su signo (type 1 = ingreso, NULL = extracción)',
+        ($ph['expenses_history']['imported'] ?? 0) === 2
+            && (int) scalar('SELECT count(*) FROM expenses WHERE companyId = ? AND type = 1', [$companyId]) === 1
+            && (int) scalar('SELECT count(*) FROM expenses WHERE companyId = ? AND type IS NULL', [$companyId]) === 1,
+        'progress.expenses_history = ' . json_encode($ph['expenses_history'] ?? null),
+        $failures, $checks
+    );
+
+    // ── REANUDACIÓN: dos corridas = mismos totales, cero duplicados ────
+    // Es el caso que protege al job que se corta a la mitad. Sin la marca en
+    // `migration_map` —y sin que esa marca vaya en la MISMA transacción que el
+    // asiento— la segunda corrida asentaría todo de nuevo y el comercio vería
+    // el doble de facturación.
+    $txAntes  = (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyId]);
+    $linAntes = (int) scalar('SELECT count(*) FROM itemSold WHERE companyId = ?', [$companyId]);
+    $expAntes = (int) scalar('SELECT count(*) FROM expenses WHERE companyId = ?', [$companyId]);
+
+    $runH2 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
+        ->run(['sales_history', 'purchases_history', 'expenses_history'], $histOpts);
+
+    $ph2 = $runH2['progress'];
+
+    check(
+        'H15 · la segunda corrida NO duplica ningún asiento',
+        (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyId]) === $txAntes
+            && (int) scalar('SELECT count(*) FROM itemSold WHERE companyId = ?', [$companyId]) === $linAntes
+            && (int) scalar('SELECT count(*) FROM expenses WHERE companyId = ?', [$companyId]) === $expAntes,
+        'transacciones antes/después = ' . $txAntes . '/'
+            . scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyId]),
+        $failures, $checks
+    );
+
+    check(
+        'H16 · y lo ya asentado se reporta como salteado, no como importado',
+        ($ph2['sales_history']['skipped'] ?? 0) === 2
+            && ($ph2['purchases_history']['skipped'] ?? 0) === 1
+            && ($ph2['expenses_history']['skipped'] ?? 0) === 2,
+        'progress 2ª corrida = ' . json_encode($ph2),
+        $failures, $checks
+    );
+
+    // ── PERÍODO CERRADO ───────────────────────────────────────────────
+    // El guard de la base (mig 157) es BEFORE UPDATE OR DELETE: un INSERT con
+    // fecha en un período cerrado entra sin que nada lo frene. O sea que si el
+    // importador no chequea, una migración reescribe un mes ya conciliado.
+    seedCompany($companyD, 'Comercio Con Período Cerrado SA');
+    $db->Execute("SELECT period_close_run(?::uuid, '2026-08-01'::date, NULL, 'manual')", [$companyD]);
+
+    $runCerrado = (new EncomImportService($companyD, new FixtureEncomClient($fixtures), null))
+        ->run(['sales_history'], $histOpts);
+
+    check(
+        'H17 · un período CERRADO no se toca: no se asienta nada de ese mes',
+        ($runCerrado['progress']['sales_history']['total'] ?? -1) === 0
+            && (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyD]) === 0,
+        'progress = ' . json_encode($runCerrado['progress'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'H18 · y el job dice POR QUÉ no entró (no queda mudo)',
+        str_contains(json_encode($runCerrado['errors'], JSON_UNESCAPED_UNICODE), 'CERRADO'),
+        'errors = ' . json_encode($runCerrado['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // Z. Barrido de credenciales huérfanas (TTL 24 h)
     // ══════════════════════════════════════════════════════════════════
     // Un job que nunca se ejecuta —falta ENCOM_MIGRATION_URL, cron caído—
@@ -1389,6 +1679,15 @@ try {
     cleanup($companyId);
     cleanup($companyB);
     cleanup($companyC);
+    // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
+    // línea, una segunda corrida del arnés contra la misma base encontraría el
+    // período ya cerrado y H17 pasaría por el motivo equivocado.
+    try {
+        $db->Execute('DELETE FROM period_close WHERE companyid = ?', [$companyD]);
+    } catch (\Throwable $e) {
+        // la tabla puede no existir en una base vieja; el cleanup no falla por eso
+    }
+    cleanup($companyD);
 }
 
 harnessFinish($failures, $checks);
