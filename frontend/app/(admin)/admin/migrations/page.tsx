@@ -37,6 +37,8 @@ const DOMAIN_LABEL: Record<string, string> = {
   catalog: "Catálogo",
   customers: "Clientes",
   config: "Configuración",
+  users: "Usuarios",
+  payments: "Medios de pago",
 }
 
 /** Suma los `imported` de todos los dominios, ignorando `options`. */
@@ -136,8 +138,8 @@ function AdminMigrationsPageContent() {
         <div className="flex-1">
           <h1 className="text-2xl font-semibold">Migraciones</h1>
           <p className="text-sm text-muted-foreground">
-            Trae el catálogo, los clientes y la configuración de un cliente desde el panel legacy a una
-            empresa de Punto ya creada.
+            Trae el catálogo con sus combos y recetas, los clientes, las sucursales y cajas, los usuarios y
+            los medios de pago de un cliente del sistema legacy a una empresa de Punto ya creada.
           </p>
         </div>
         <Button onClick={() => setFormOpen(true)} disabled={!ready}>
