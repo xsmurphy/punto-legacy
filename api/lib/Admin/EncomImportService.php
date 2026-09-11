@@ -359,14 +359,24 @@ final class EncomImportService
                 $fields['lng'] = (float) $lng;
             }
 
+            // `ORIGIN_SUPPORT`: la migración la opera Punto, no el comercio —
+            // estas sucursales YA existían en el sistema anterior, así que no
+            // pasan por la solicitud con paywall (mig 219). Ver el docblock de
+            // `OutletsService::create()`.
+            $origin = \Punto\Api\Outlets\OutletsService::ORIGIN_SUPPORT;
+
             try {
-                $id = $outlets->create($this->companyId, $phone !== '' ? $fields + ['phone' => $phone] : $fields);
+                $id = $outlets->create($this->companyId, $phone !== '' ? $fields + ['phone' => $phone] : $fields, $origin);
+            } catch (\DomainException $e) {
+                // El gate de origen NO es un teléfono inválido: reintentar sin
+                // teléfono lo volvería a rechazar y escondería el motivo real.
+                throw $e;
             } catch (\Throwable $e) {
                 if ($phone === '') {
                     throw $e;
                 }
                 $this->note('La sucursal "' . $name . '" se importó sin teléfono: el legacy tenía "' . $phone . '", que no es un número válido.');
-                $id = $outlets->create($this->companyId, $fields);
+                $id = $outlets->create($this->companyId, $fields, $origin);
             }
 
             return is_string($id) && $id !== '' ? $id : null;

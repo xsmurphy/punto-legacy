@@ -204,7 +204,36 @@ final class OutletsService
     }
 
     /**
-     * Crea una sucursal: outlet + caja + filas de inventario a 0 para items rastreados.
+     * Alta aprobada por Punto: la solicitud del comercio la resolvió /admin
+     * (`Outlets\OutletRequestService::resolve()`).
+     */
+    public const ORIGIN_REQUEST_APPROVAL = 'request-approval';
+
+    /**
+     * Alta operada por Punto sin solicitud: migrador ENCOM, scripts de soporte.
+     * NO es un camino del comercio.
+     */
+    public const ORIGIN_SUPPORT = 'support';
+
+    /** Orígenes que pueden crear una sucursal. Todo lo demás falla cerrado. */
+    private const ORIGENES_VALIDOS = [self::ORIGIN_REQUEST_APPROVAL, self::ORIGIN_SUPPORT];
+
+    /**
+     * Crea una sucursal: outlet + caja + depósito por defecto.
+     *
+     * ── El paywall se hace cumplir ACÁ ──────────────────────────────────
+     * Cada sucursal se factura al precio del plan del tenant por mes (owner,
+     * 2026-09-11), así que el comercio no puede crearse una: la PIDE
+     * (`outlet_request`, mig 219) y Punto la aprueba desde /admin.
+     *
+     * El gate vive en este método y no en los endpoints porque este es el
+     * ÚNICO creador de sucursales del producto, y había más de una puerta
+     * abierta: el `POST /v1/outlets?action=create` del panel y la acción
+     * `create_outlet` del asistente IA, las dos gateadas por la MISMA clave
+     * (`settings.outlet.manage`) que exige pedir una. Cerrar una y dejar la
+     * otra es cómo el paywall se vuelve decorativo. Acá falla cerrado: un
+     * camino de alta nuevo que no declare origen no compila una sucursal, que
+     * es exactamente el aviso que se busca.
      *
      * Si `$fields` está vacío, crea un placeholder ("Nueva Sucursal" activa). Esto
      * sigue soportado por compatibilidad con el flujo legacy (click → blank → edit)
@@ -214,12 +243,24 @@ final class OutletsService
      *
      * Usa RETURNING para obtener el UUID generado (compatible con PG; Insert_ID()
      * no funciona con UUIDs).
+     *
      * @param array|null $fields Mismo shape que update() recibe. Null = blank.
+     * @param string     $origin Uno de los `ORIGIN_*`. Sin un origen válido
+     *                           lanza — el alta directa por el comercio no existe.
      * @return string|null UUID de la nueva sucursal, null en error.
+     * @throws \DomainException si el origen no está autorizado.
      */
-    public function create($companyId, ?array $fields = null)
+    public function create($companyId, ?array $fields = null, string $origin = '')
     {
         global $db;
+
+        if (!in_array($origin, self::ORIGENES_VALIDOS, true)) {
+            throw new \DomainException(
+                'El alta de sucursales se pide desde el panel ("Crear sucursal" en el '
+                . 'selector de sucursales) y la habilita Punto: cada sucursal se factura '
+                . 'al precio de tu plan.'
+            );
+        }
 
         // Defaults para el INSERT inicial. ncmInsert rutea automáticamente
         // los campos no-whitelist al JSONB `data`, así que solo entregamos

@@ -446,33 +446,23 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
         }
 
         case 'create_outlet': {
-            $name = trim((string) ($payload['name'] ?? ''));
-            $svc  = new \Punto\Api\Outlets\OutletsService();
-            // El servicio es el ÚNICO creador válido: la sucursal nace
-            // encadenada a su depósito por defecto y a una caja inicial
-            // (invariante del owner 2026-08-24, arnés
-            // `outlet_chain_invariant_test.php`). Un INSERT desde acá dejaría
-            // una sucursal en la que no se puede guardar stock ni abrir turno.
-            $newId = $svc->create($companyId, ['name' => $name, 'status' => 1]);
-            if (!$newId) {
-                throw new \RuntimeException('No se pudo crear la sucursal');
-            }
-            // La entidad `outlet` SÍ tiene invalidación registrada en el front
-            // (`ENTITY_TO_QUERY_KEYS` de `hooks/use-realtime-sync.ts` la mapea
-            // a `["outlets"]` y `["pos-bootstrap"]`) — el comentario que decía
-            // lo contrario acá estaba viejo, y por creerle ni esta acción ni el
-            // POST de /v1/outlets emitían nada. Ahora los tres caminos de alta
-            // avisan. Va también por `register` porque el alta encadena la caja
-            // inicial.
-            realtimePublish('outlet', 'create', (string) $newId);
-            realtimePublish('register', 'create', null);
-            return [
-                'id'   => (string) $newId,
-                'name' => $name,
-                // Se declara para que el agente pueda contárselo al cliente en
-                // vez de que aparezca una caja que nadie pidió.
-                'note' => 'La sucursal se creó con su depósito y una caja inicial ("Nueva Caja").',
-            ];
+            // ── El agente tampoco crea sucursales ──────────────────────────
+            //
+            // Desde 2026-09-11 el alta tiene paywall: cada sucursal se factura
+            // al precio del plan del tenant, así que se PIDE
+            // (`POST /v1/outlet-requests`) y la habilita Punto desde /admin.
+            //
+            // La acción sigue en el catálogo a propósito, devolviendo este
+            // error en vez de desaparecer: si el cliente le pide al asistente
+            // "creame una sucursal", la respuesta útil es explicarle cómo se
+            // pide — no un "no sé hacer eso". El gate real está en
+            // `OutletsService::create()`, que es el único creador; esto es el
+            // mensaje, no la defensa.
+            throw new \RuntimeException(
+                'El alta de sucursales se pide desde "Crear sucursal" en el selector de '
+                . 'sucursales del panel: cada sucursal se factura al precio del plan y la '
+                . 'habilita Punto. Desde acá no puedo crearla.'
+            );
         }
 
         case 'update_outlet': {

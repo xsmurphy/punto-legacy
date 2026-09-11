@@ -631,16 +631,22 @@ echo "\n=== update_outlet: el patch parcial NO pisa el resto de la sucursal ===\
 
 $outletSvc = new OutletsService();
 
-// 5.1 — El alta del agente (`create_outlet`) por su camino real.
+// 5.1 — La sucursal sobre la que se prueba el patch parcial.
+//
+// Desde 2026-09-11 el agente YA NO crea sucursales: el alta tiene paywall
+// (mig 219, se pide y la aprueba Punto) y `create()` falla cerrado sin un
+// origen autorizado. El fixture se crea con `ORIGIN_SUPPORT`, que es el mismo
+// creador y por lo tanto sigue probando los defaults del alta — lo que dejó de
+// existir es la PUERTA del agente, no la cadena.
 $idEditable = (string) $outletSvc->create($companyId, [
     'name'   => 'ARNES-CAMPOS Shopping Mariano',
     'status' => 1,
-]);
-check('create_outlet devuelve un id', $idEditable !== '', true, $failures, $checks);
+], OutletsService::ORIGIN_SUPPORT);
+check('el alta devuelve un id', $idEditable !== '', true, $failures, $checks);
 
 $recienCreada = $outletSvc->get($idEditable, $companyId);
-check('la sucursal del agente nace con IVA INCLUIDO', $recienCreada['taxIncluded'] ?? null, true, $failures, $checks);
-check('la sucursal del agente nace ACTIVA',           (int) ($recienCreada['status'] ?? -1), 1, $failures, $checks);
+check('la sucursal nace con IVA INCLUIDO', $recienCreada['taxIncluded'] ?? null, true, $failures, $checks);
+check('la sucursal nace ACTIVA',           (int) ($recienCreada['status'] ?? -1), 1, $failures, $checks);
 
 // 5.2 — Se le cargan datos por el camino del PANEL (payload completo, las 16
 // claves), que es como llega hoy toda edición desde /v1/outlets. Ese camino no
