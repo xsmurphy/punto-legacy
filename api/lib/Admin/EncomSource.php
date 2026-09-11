@@ -68,6 +68,20 @@ interface EncomSource
      */
     public function itemCosts(): array;
 
+    /**
+     * SALDO de cada artículo EN UNA SUCURSAL del legacy.
+     *
+     * Va aparte de `items()` porque el catálogo es del comercio y el saldo es
+     * de la SUCURSAL: `/fetchs` contesta el bootstrap de UNA caja, así que el
+     * mismo `load=items` devuelve `inventory[].count` distinto según el
+     * `outletId` que viaje en el cuerpo. Pedirlo por sucursal es la única forma
+     * de que el saldo entre donde corresponde — un saldo suelto, sin sucursal,
+     * no es un movimiento de ledger válido (context/52).
+     *
+     * @return array<int,array{ID:string,count:float,hasCount:bool,trackStock:mixed}>
+     */
+    public function itemStock(string $outletLegacyId): array;
+
     /** @return array<int,array> Categorías (derivadas de los artículos). */
     public function categories(): array;
 

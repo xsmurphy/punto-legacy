@@ -506,6 +506,56 @@ class EncomClient implements EncomSource
     }
 
     /**
+     * SALDO de cada artículo EN UNA SUCURSAL.
+     *
+     * Es el mismo `load=items`, pedido con OTRO `outletId` en el cuerpo: el
+     * bootstrap del POS legacy devuelve el stock de la caja que arranca, así
+     * que el saldo de cada sucursal solo se consigue preguntando por ella.
+     *
+     * `inventory` viaja como lista (`[{"count": 24}]`) y puede venir vacía —un
+     * artículo que no lleva stock, o que nunca tuvo movimientos—. Un artículo
+     * SIN entrada de inventario no es lo mismo que uno con saldo 0, así que se
+     * devuelve `hasCount` además del número: quién decide qué hacer con cada
+     * caso es el importador, no este cliente.
+     *
+     * @return array<int,array{ID:string,count:float,hasCount:bool,trackStock:mixed}>
+     */
+    public function itemStock(string $outletLegacyId): array
+    {
+        $out = [];
+        foreach ($this->fetch('items', $outletLegacyId) as $it) {
+            if (!is_array($it)) {
+                continue;
+            }
+
+            $id = self::str($it['itemId'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+
+            $count    = 0.0;
+            $hasCount = false;
+            foreach ((is_array($it['inventory'] ?? null) ? $it['inventory'] : []) as $bucket) {
+                if (is_array($bucket) && is_numeric($bucket['count'] ?? null)) {
+                    $count   += (float) $bucket['count'];
+                    $hasCount = true;
+                }
+            }
+
+            $out[] = [
+                'ID'         => $id,
+                'count'      => $count,
+                'hasCount'   => $hasCount,
+                // Se devuelve por completitud, pero el importador NO lo usa
+                // para decidir: quien manda es `item.itemTrackInventory` del
+                // artículo YA migrado, que es lo que el ledger mira.
+                'trackStock' => $it['trackInventory'] ?? null,
+            ];
+        }
+        return $out;
+    }
+
+    /**
      * COSTO de cada artículo, leído de la tabla del PANEL.
      *
      * ── Por qué este dato viene de otra superficie ───────────────────────
@@ -848,13 +898,25 @@ class EncomClient implements EncomSource
      *
      * @return array<mixed>
      */
-    protected function fetch(string $load): array
+    protected function fetch(string $load, ?string $outletHash = null): array
     {
-        if (isset($this->cache[$load])) {
-            return $this->cache[$load];
+        // `$outletHash` existe por el STOCK: `/fetchs` contesta el bootstrap de
+        // UNA sucursal, así que el mismo `load=items` trae `inventory[].count`
+        // distinto según qué `outletId` viaje en el cuerpo. El resto de los
+        // dominios no lo pasa y sigue saliendo de la sucursal de la sesión.
+        //
+        // La caché va por (load, sucursal) y no por `load` a secas: con una
+        // sola clave, el saldo de la PRIMERA sucursal se le habría servido a
+        // todas las demás — cada sucursal habría abierto su inventario con el
+        // stock de la otra.
+        $outlet   = ($outletHash !== null && trim($outletHash) !== '') ? trim($outletHash) : $this->outletHash;
+        $cacheKey = $load . '@' . $outlet;
+
+        if (isset($this->cache[$cacheKey])) {
+            return $this->cache[$cacheKey];
         }
 
-        if ($this->companyHash === '' || $this->outletHash === '') {
+        if ($this->companyHash === '' || $outlet === '') {
             throw new EncomMigrationException(
                 'No se sabe qué comercio del sistema legacy exportar (falta el identificador de la sesión). '
                 . 'Creá la migración de nuevo.',
@@ -866,7 +928,7 @@ class EncomClient implements EncomSource
             '/fetchs?load=' . rawurlencode($load) . '&gtoken=',
             http_build_query([
                 'companyId'  => $this->companyHash,
-                'outletId'   => $this->outletHash,
+                'outletId'   => $outlet,
                 // El bootstrap completo, no el incremental: `lastUpdate=false`
                 // es lo que hace que devuelva TODO y no solo lo cambiado.
                 'updateData' => 'true',
@@ -890,7 +952,7 @@ class EncomClient implements EncomSource
             $json = $json['data'];
         }
 
-        return $this->cache[$load] = $json;
+        return $this->cache[$cacheKey] = $json;
     }
 
     /**

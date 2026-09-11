@@ -39,6 +39,7 @@ const DOMAIN_LABEL: Record<string, string> = {
   config: "Configuración",
   users: "Usuarios",
   payments: "Medios de pago",
+  stock: "Stock inicial",
 }
 
 /** Suma los `imported` de todos los dominios, ignorando `options`. */

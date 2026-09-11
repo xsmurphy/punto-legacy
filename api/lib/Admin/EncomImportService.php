@@ -94,7 +94,11 @@ final class EncomImportService
         //   · `users` va DESPUÉS de `config` porque un usuario se asigna a las
         //     sucursales del legacy, y esas sucursales tienen que existir y
         //     estar mapeadas para poder asignarlas.
-        $order = ['catalog', 'customers', 'config', 'users', 'payments'];
+        //   · `stock` va ÚLTIMO porque una apertura de inventario es un
+        //     movimiento por (artículo, sucursal): necesita el mapa de
+        //     artículos que llena `catalog` Y el de sucursales que llena
+        //     `config`.
+        $order = ['catalog', 'customers', 'config', 'users', 'payments', 'stock'];
 
         foreach ($order as $domain) {
             if (!in_array($domain, $domains, true)) {
@@ -108,6 +112,7 @@ final class EncomImportService
                     'config'    => $this->config($options),
                     'users'     => $this->users(),
                     'payments'  => $this->payments(),
+                    'stock'     => $this->stockOpening(),
                 };
             } catch (\Throwable $e) {
                 $this->fail($domain, $e->getMessage());
@@ -221,12 +226,9 @@ final class EncomImportService
         // ── SEGUNDA pasada: combos y recetas ─────────────────────────────
         $this->compose();
 
-        // El stock inicial NO se migra: un saldo es un movimiento del ledger
-        // (context/52), con costo y sucursal, y aunque `/fetchs` trae el conteo
-        // actual (`inventory[].count`) sigue siendo un número suelto. Meterlo
-        // como ajuste sin fecha ni costo real ensucia el costeo promedio desde
-        // el día uno.
-        $this->note('El stock inicial no se migra: se carga con un conteo en la sucursal (context/77 §8).');
+        // El stock inicial SÍ se migra desde 2026-09-11, pero NO acá: es su
+        // propio dominio (`stock`) y corre al final, porque una apertura
+        // necesita además el mapa de SUCURSALES que llena `config`.
     }
 
     /** Completa el artículo recién creado y engancha sus taxonomías. */
@@ -1273,6 +1275,317 @@ final class EncomImportService
                 . implode(', ', array_unique($adoptados)) . '.'
             );
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // stock — APERTURA de inventario (context/52, context/77)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Abre el inventario de cada artículo en cada sucursal: cantidad y costo.
+     *
+     * ── Por qué existe (y por qué `item.itemCost` no alcanzaba) ──────────
+     * El migrador ya importaba `item.itemCost`, pero ESE CAMPO NO SE USA AL
+     * VENDER: `SaleService::resolveUnitCOGS()` lee el costo promedio ponderado
+     * que dejó el ÚLTIMO movimiento del ledger
+     * (`getItemStock(...)['stockOnHandCOGS']`). Sin un solo movimiento, el COGS
+     * de la venta es null y TODO reporte de margen del comercio migrado nace
+     * vacío. Cantidad y costo son la misma operación —una apertura— y por eso
+     * se importan juntos.
+     *
+     * ── Por el servicio real, nunca INSERT (D4) ──────────────────────────
+     * `Inventory::manageStock()` es el ÚNICO escritor del ledger (D1/D6 de
+     * context/52). El contrato que se copia es el del ajuste que ya existe
+     * (`StockAdjustmentService::create()` y `ItemImporter::cargarStockInicial()`,
+     * que hace exactamente esto para la planilla de alta): `source='adjustment'`.
+     *
+     * No se inventa un `source` nuevo: los lectores que FILTRAN por `stockSource`
+     * buscan valores concretos (`production`, `purchase_credit_note`) y los que
+     * lo MUESTRAN lo traducen con una tabla cerrada —`adjustment` → "Ajuste" en
+     * el reporte de inventario, "Ajuste manual" en la ficha del ítem—. Un valor
+     * nuevo saldría crudo en pantalla y no lo entendería ningún reporte.
+     *
+     * ── El costo: NUNCA un 0 que se lea como "cuesta cero" ───────────────
+     * Verificado EMPÍRICAMENTE contra Postgres real antes de elegir:
+     *
+     *   · `manageStock()` con el costo desconocido NO guarda NULL: lo escribe
+     *     como 0.00 en `stockCOGS` y en `stockOnHandCOGS`.
+     *   · Con esa fila, `resolveUnitCOGS()` devuelve 0.0 —no null—, así que la
+     *     venta ESCRIBE `itemSoldCOGS = 0` y el margen sale 100%.
+     *   · Sin ninguna fila, devuelve null y la venta OMITE la columna, que es
+     *     exactamente lo que `SaleService` ya hace a propósito.
+     *   · La columna `stock.stockCOGS` sí acepta NULL escrito a mano, pero ese
+     *     NULL NO SOBREVIVE: al primer movimiento posterior el promedio móvil
+     *     lo castea a 0 y lo propaga al snapshot nuevo. O sea que "costo sin
+     *     definir" no es un estado que el ledger sepa sostener.
+     *
+     * Por eso, artículo sin costo conocido ⇒ **NO se abre** (opción (b) del
+     * plan). Queda nombrado en la bitácora, con su cantidad, para que soporte
+     * le cargue el costo y vuelva a lanzar: la corrida siguiente lo abre sin
+     * tocar los que ya estaban. Es el mismo criterio que `itemCost` (§4.4): "no
+     * lo sé" y "cuesta cero" no son lo mismo.
+     *
+     * ── Por sucursal ─────────────────────────────────────────────────────
+     * Un saldo vive en UNA sucursal. `/fetchs` contesta el bootstrap de una
+     * caja, así que el saldo de cada sucursal se pide con su propio `outletId`
+     * (`itemStock()`), y entra en la sucursal de Punto que le corresponde por
+     * el mapa. Una sucursal sin mapear NO se resuelve con "la primera activa":
+     * se saltea y se dice en la bitácora.
+     *
+     * ── Idempotencia: acá duplicar es PLATA ──────────────────────────────
+     * La marca es por (artículo, sucursal) en el dominio `stock_opening`, y el
+     * movimiento y su marca van en la MISMA transacción. Sin eso, un worker que
+     * muere entre las dos escrituras dejaría el movimiento sin marcar y la
+     * corrida siguiente lo SUMARÍA de nuevo: el mismo riesgo que las recetas
+     * (§6), pero peor, porque acá el duplicado es stock que el comercio cree
+     * tener.
+     */
+    private function stockOpening(): void
+    {
+        require_once dirname(__DIR__) . '/Taxonomies/LocationTaxonomyService.php';
+
+        global $db;
+
+        $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+
+        $locations = new \Punto\Api\Taxonomies\LocationTaxonomyService($db);
+        $catalogo  = $this->puntoItemIndex();
+
+        /** @var array<int,string> Artículos con saldo que se quedaron sin abrir. */
+        $sinCosto  = [];
+        $sinMapear = [];
+
+        foreach ($this->source->outlets() as $o) {
+            if (!is_array($o)) {
+                continue;
+            }
+
+            $legacyOutlet = $this->legacyIdOf($o);
+            if ($legacyOutlet === null) {
+                continue;
+            }
+
+            $nombreSucursal = trim((string) ($o['name'] ?? '')) ?: $legacyOutlet;
+
+            // Prohibido resolver una dimensión faltante con "la primera activa"
+            // (memoria del proyecto): sin sucursal mapeada no hay dónde imputar
+            // el saldo, y meterlo en otra sucursal es peor que no meterlo.
+            $outletId = $this->mapOf('outlet', $legacyOutlet);
+            if ($outletId === '') {
+                $this->note(
+                    'La sucursal "' . $nombreSucursal . '" no está mapeada, así que su stock no se abre: '
+                    . 'migrá también la configuración y volvé a lanzar.'
+                );
+                continue;
+            }
+
+            // El stock siempre está en un depósito (D8 de context/52). El de
+            // por defecto es el que el panel preselecciona; si la sucursal no
+            // tuviera ninguno, el ledger acepta NULL y los lectores lo
+            // consolidan igual.
+            $default    = $locations->defaultFor($this->companyId, $outletId);
+            $locationId = $default['id'] ?? null;
+
+            try {
+                $saldos = $this->source->itemStock($legacyOutlet);
+            } catch (\Throwable $e) {
+                $this->fail(
+                    'stock',
+                    'No se pudo traer el stock de la sucursal "' . $nombreSucursal . '": ' . $e->getMessage()
+                );
+                continue;
+            }
+
+            foreach ($saldos as $fila) {
+                if (!is_array($fila)) {
+                    continue;
+                }
+
+                $legacyItem = $this->legacyIdOf($fila);
+                if ($legacyItem === null) {
+                    continue;
+                }
+
+                $cantidad = $this->numOrNull($fila['count'] ?? null) ?? 0.0;
+
+                // Saldo 0 (o negativo) no es una apertura: no hay movimiento
+                // que registrar. `manageStock()` además lo trataría como no-op.
+                if ($cantidad <= 0) {
+                    continue;
+                }
+
+                $counts['total']++;
+
+                $marca = $this->openingKey($legacyItem, $legacyOutlet);
+                if (EncomMigrationService::mapped($this->companyId, 'stock_opening', $marca) !== null) {
+                    $counts['skipped']++;
+                    continue;
+                }
+
+                $itemId = $this->mapOf('item', $legacyItem);
+                if ($itemId === '' || !isset($catalogo[$itemId])) {
+                    $counts['failed']++;
+                    $sinMapear[] = $legacyItem;
+                    continue;
+                }
+
+                $articulo = $catalogo[$itemId];
+
+                // Solo los artículos con stock PROPIO. Un servicio, un combo o
+                // una producción no llevan apertura: su costo se calcula por
+                // explosión de receta (`RecipeCosting`), no por saldo. Manda el
+                // artículo YA migrado, no el flag del legacy.
+                if (!$articulo['track']) {
+                    $counts['skipped']++;
+                    continue;
+                }
+
+                // Ver el docblock: un 0 acá pinta margen 100% para siempre.
+                if ($articulo['cost'] === null) {
+                    $counts['failed']++;
+                    $sinCosto[] = $articulo['name'] . ' (' . $nombreSucursal . ': ' . $this->cantidad($cantidad) . ')';
+                    continue;
+                }
+
+                try {
+                    // El movimiento y su marca, atómicos: ver el docblock.
+                    $db->StartTrans();
+
+                    \Punto\App\Domain\Inventory::manageStock([
+                        'itemId'        => $itemId,
+                        'source'        => 'adjustment',
+                        'count'         => $cantidad,
+                        'type'          => '+',
+                        'cogs'          => $articulo['cost'],
+                        // El worker no tiene usuario de sesión: la fila queda
+                        // sin autor (NULL), no con una cadena vacía.
+                        'userId'        => '',
+                        'transactionId' => null,
+                        'outletId'      => $outletId,
+                        'locationId'    => $locationId,
+                        'note'          => 'Apertura de stock — migración desde el sistema anterior',
+                        'date'          => TODAY,
+                        'companyId'     => $this->companyId,
+                    ]);
+
+                    EncomMigrationService::remember(
+                        $this->companyId,
+                        'stock_opening',
+                        $marca,
+                        $itemId,
+                        $this->jobId
+                    );
+
+                    $db->CompleteTrans();
+                    $counts['imported']++;
+                } catch (\Throwable $e) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    $counts['failed']++;
+                    $this->fail(
+                        'stock',
+                        'No se pudo abrir el stock de "' . $articulo['name'] . '" en "' . $nombreSucursal
+                        . '": ' . $e->getMessage()
+                    );
+                }
+            }
+        }
+
+        $this->progress['stock'] = $counts;
+
+        if ($sinCosto !== []) {
+            $this->note(
+                'Artículos CON saldo que NO se abrieron por no saberse su costo (un costo 0 daría margen '
+                . '100% en todos los reportes): cargales el costo y volvé a lanzar la migración, que abre '
+                . 'solo los que faltan.'
+            );
+            foreach (array_slice($sinCosto, 0, 30) as $linea) {
+                $this->note('Sin costo, sin apertura: ' . $linea);
+            }
+            if (count($sinCosto) > 30) {
+                $this->note('… y ' . (count($sinCosto) - 30) . ' artículo(s) más sin abrir por falta de costo.');
+            }
+        }
+
+        if ($sinMapear !== []) {
+            $this->note(
+                'Hay ' . count($sinMapear) . ' artículo(s) con saldo en el legacy que no existen en el '
+                . 'catálogo migrado: migrá el catálogo y volvé a lanzar.'
+            );
+        }
+    }
+
+    /**
+     * Artículos del destino indexados por su id de Punto: si llevan stock y
+     * cuánto costaron.
+     *
+     * Una sola consulta para todo el catálogo en vez de una por artículo: la
+     * apertura recorre (artículos × sucursales) y preguntar de a uno convierte
+     * un catálogo mediano en miles de round-trips.
+     *
+     * El costo sale de `item.itemCost` —el que el propio migrador escribió, o
+     * el que soporte cargó después— y NO se vuelve a pedir al panel legacy: es
+     * una fuente por dato (§4.4), y para cuando corre este dominio el costo ya
+     * vive en Punto.
+     *
+     * @return array<string,array{track:bool,cost:?float,name:string}>
+     */
+    private function puntoItemIndex(): array
+    {
+        $rs = ncmExecute(
+            'SELECT itemId, itemName, itemTrackInventory, itemCost
+               FROM item WHERE companyId = ? AND itemStatus = 1',
+            [$this->companyId],
+            false,
+            true // forceObj → recordset, se itera con EOF
+        );
+
+        $out = [];
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f  = $rs->fields;
+                $id = (string) ($f['itemId'] ?? $f['itemid'] ?? '');
+                if ($id !== '') {
+                    $cost = $f['itemCost'] ?? $f['itemcost'] ?? null;
+                    $out[$id] = [
+                        'track' => self::pgTruthy($f['itemTrackInventory'] ?? $f['itemtrackinventory'] ?? false),
+                        // `is_numeric` y no un cast: NULL es "no lo sé" y tiene
+                        // que llegar como null hasta la decisión de abrir o no.
+                        'cost'  => is_numeric($cost) ? (float) $cost : null,
+                        'name'  => trim((string) ($f['itemName'] ?? $f['itemname'] ?? '')) ?: '(sin nombre)',
+                    ];
+                }
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        return $out;
+    }
+
+    /**
+     * Clave de la apertura de UN artículo en UNA sucursal, en `migration_map`.
+     *
+     * Mismo criterio que `compoundKey()`: `legacyid` es `varchar(64)` y una
+     * clave que no entra haría fallar el INSERT de la marca, que es lo único
+     * que impide volver a sumar el saldo en la corrida siguiente.
+     */
+    private function openingKey(string $legacyItemId, string $legacyOutletId): string
+    {
+        $key = $legacyItemId . '@' . $legacyOutletId;
+        return strlen($key) <= 64 ? $key : 'h:' . sha1($key);
+    }
+
+    /** Los booleanos de PG llegan como `t`/`f`, `true`/`false` o 1/0 según el driver. */
+    private static function pgTruthy(mixed $v): bool
+    {
+        return $v === true || $v === 1 || $v === '1' || $v === 't' || $v === 'true';
+    }
+
+    /** Cantidad legible para la bitácora, sin decimales de relleno. */
+    private function cantidad(float $n): string
+    {
+        return rtrim(rtrim(number_format($n, 3, '.', ''), '0'), '.');
     }
 
     // ═══════════════════════════════════════════════════════════════════

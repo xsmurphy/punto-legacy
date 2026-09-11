@@ -1110,7 +1110,15 @@ final class Inventory
         $row['stockOnHandCOGS'] = $newTotalCOGS;
         $row['itemId']          = $itemId;
         $row['transactionId']   = $transaction ?: null;
-        $row['userId']          = $user;
+        // `?: null` como sus columnas hermanas, y por el mismo motivo:
+        // `stock.userId` es `uuid` y la cadena vacía NO es un uuid válido
+        // ("invalid input syntax for type uuid"). `transactionId`,
+        // `supplierId` y `locationId` ya lo hacían; `userId` era la única que
+        // faltaba, y por eso TODO movimiento nacido fuera de una sesión de
+        // usuario —el worker de migración, un job, /admin— reventaba el INSERT
+        // en vez de escribir la fila. Un movimiento sin autor conocido es
+        // NULL ("no lo sé"), que es lo que la columna sabe expresar.
+        $row['userId']          = $user ?: null;
         $row['supplierId']      = $supplier ?: null;
         $row['outletId']        = $outlet;
         $row['locationId']      = $location ?: null;
@@ -1188,17 +1196,29 @@ final class Inventory
         // ya migraron; el DROP de la tabla va en una mig posterior.
 
         try {
-            $userName     = getValue('contact',  'contactName',  "WHERE contactId = '" . USER_ID . "'");
-            // REGISTER_ID es '' en contexto panel (compras/ajustes sin caja). Un
-            // SELECT con registerId = '' tira "invalid input syntax for type uuid"
-            // y, al correr DENTRO de la TX de la compra, la ABORTA (la transacción
-            // PG queda envenenada aunque PHP no lance). Solo resolvemos el nombre
-            // si hay una caja real.
+            // Las TRES constantes de contexto reciben el MISMO trato, y no por
+            // simetría: cada una de estas lecturas interpola su id en SQL crudo,
+            // así que con la constante en '' tira "invalid input syntax for type
+            // uuid" y —al correr DENTRO de la transacción del caller— la ABORTA
+            // (la transacción PG queda envenenada aunque PHP no lance, porque
+            // esto vive en un try/catch).
+            //
+            // REGISTER_ID ya estaba guardado (contexto panel: compras y ajustes
+            // sin caja). Faltaban las otras dos, y son justo las que un proceso
+            // sin sesión deja vacías: el worker de migración corre con USER_ID y
+            // OUTLET_ID en '' porque importa para OTRO tenant y no hay usuario
+            // ni sucursal "actual". El guard va en el wrapper, no en el caller:
+            // es el único lugar por el que pasan los 27 callers.
+            $userName     = (defined('USER_ID') && USER_ID !== '')
+                ? getValue('contact', 'contactName', "WHERE contactId = '" . USER_ID . "'")
+                : '';
             $registerName = (defined('REGISTER_ID') && REGISTER_ID !== '')
                 ? getValue('register', 'registerName', "WHERE registerId = '" . REGISTER_ID . "'")
                 : '';
             $companyName  = defined('COMPANY_NAME') ? COMPANY_NAME : '';
-            $outletName   = getCurrentOutletName(OUTLET_ID);
+            $outletName   = (defined('OUTLET_ID') && OUTLET_ID !== '')
+                ? getCurrentOutletName(OUTLET_ID)
+                : '';
             $itemName     = getItemName($itemId);
 
             $auditoriaData = [

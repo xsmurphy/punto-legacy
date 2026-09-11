@@ -91,11 +91,22 @@ class FixtureEncomClient extends EncomClient
         parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm');
     }
 
-    protected function fetch(string $load): array
+    protected function fetch(string $load, ?string $outletHash = null): array
     {
-        $this->calls[] = $load;
+        $this->calls[] = $load . ($outletHash !== null ? '@' . $outletHash : '');
 
-        $file = $this->dir . '/fetchs-' . $load . '.json';
+        // El STOCK se pide por sucursal: `/fetchs` contesta el bootstrap de UNA
+        // caja. El fixture por sucursal (`fetchs-items-out-2.json`) es lo que
+        // permite verificar que cada saldo entra donde corresponde; sin archivo
+        // propio, la sucursal usa el payload general.
+        $file = $outletHash !== null
+            ? $this->dir . '/fetchs-' . $load . '-' . $outletHash . '.json'
+            : $this->dir . '/fetchs-' . $load . '.json';
+
+        if (!is_file($file)) {
+            $file = $this->dir . '/fetchs-' . $load . '.json';
+        }
+
         $raw  = is_file($file) ? (string) file_get_contents($file) : '[]';
         $json = json_decode($raw, true);
 
@@ -136,7 +147,7 @@ final class ClashEncomClient extends EncomClient
         parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm');
     }
 
-    protected function fetch(string $load): array
+    protected function fetch(string $load, ?string $outletHash = null): array
     {
         if ($load === 'outlets') {
             return [[
@@ -268,6 +279,9 @@ function cleanup(string $companyId): void
         'DELETE FROM item_brand    WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item_tag      WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
         'DELETE FROM item_outlet   WHERE itemId IN (SELECT itemId FROM item WHERE companyId = ?)',
+        // El ledger ANTES que los artículos: `stock.itemId` es FK dura y sin
+        // esta línea el DELETE de `item` falla y deja la empresa a medio limpiar.
+        'DELETE FROM stock WHERE companyId = ?',
         'DELETE FROM item WHERE companyId = ?',
         'DELETE FROM tax WHERE companyId = ?',
         'DELETE FROM category WHERE companyId = ?',
@@ -455,7 +469,7 @@ try {
     seedCompany($companyId, 'Comercio Migrado SA');
 
     $run1 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
-        ->run(['catalog', 'customers', 'config', 'users', 'payments']);
+        ->run(['catalog', 'customers', 'config', 'users', 'payments', 'stock']);
 
     $p1 = $run1['progress'];
 
@@ -917,6 +931,148 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
+    // I. APERTURA DE STOCK — cantidad y costo, por sucursal
+    // ══════════════════════════════════════════════════════════════════
+    // El migrador ya importaba `item.itemCost`, pero ESE CAMPO NO SE USA AL
+    // VENDER: `SaleService::resolveUnitCOGS()` lee el costo promedio ponderado
+    // que dejó el ÚLTIMO movimiento del ledger. Sin apertura, el COGS de toda
+    // venta es null y los reportes de margen del comercio migrado nacen vacíos.
+
+    $outlet1 = EncomMigrationService::mapped($companyId, 'outlet', 'out-1');
+    $outlet2 = EncomMigrationService::mapped($companyId, 'outlet', 'out-2');
+    $harinaId = EncomMigrationService::mapped($companyId, 'item', 'itm-6');
+    $servicioId = EncomMigrationService::mapped($companyId, 'item', 'itm-3');
+
+    $saldoDe = static function (?string $itemId, ?string $outletId): ?float {
+        if ($itemId === null || $outletId === null) {
+            return null;
+        }
+        return (float) scalar(
+            'SELECT COALESCE(SUM(stockCount), 0) FROM stock WHERE itemId = ? AND outletId = ?',
+            [$itemId, $outletId]
+        );
+    };
+
+    // La expresión EXACTA de `SaleService::resolveUnitCOGS()` para un artículo
+    // con stock propio. Se copia a propósito: lo que se está verificando es
+    // qué COGS resolvería una venta posterior, y el método real es privado.
+    $cogsDeLaVenta = static function (?string $itemId, ?string $outletId): ?float {
+        if ($itemId === null || $outletId === null) {
+            return null;
+        }
+        $stock = \Punto\App\Domain\Inventory::getItemStock($itemId, $outletId);
+        if (!is_array($stock) && !($stock instanceof \ArrayAccess)) {
+            return null;
+        }
+        $val = $stock['stockOnHandCOGS'] ?? null;
+        return is_numeric($val) ? (float) $val : null;
+    };
+
+    check(
+        'I1 · la apertura se contabiliza por (artículo, sucursal): 6 con saldo, 3 abiertos, 1 salteado, 2 sin costo',
+        ($p1['stock']['total'] ?? 0) === 6
+            && ($p1['stock']['imported'] ?? 0) === 3
+            && ($p1['stock']['skipped'] ?? 0) === 1
+            && ($p1['stock']['failed'] ?? 0) === 2,
+        'progress.stock = ' . json_encode($p1['stock'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'I2 · el saldo entra en la sucursal que le toca, con la cantidad del legacy (Café: 24 en Casa Central)',
+        abs(($saldoDe($itm1, $outlet1) ?? -1) - 24.0) < 0.0001,
+        'saldo = ' . var_export($saldoDe($itm1, $outlet1), true),
+        $failures, $checks
+    );
+
+    check(
+        'I3 · MULTI-SUCURSAL: la segunda sucursal recibe SU propio saldo, no el de la primera (Café: 7)',
+        abs(($saldoDe($itm1, $outlet2) ?? -1) - 7.0) < 0.0001,
+        'saldo en sucursal 2 = ' . var_export($saldoDe($itm1, $outlet2), true),
+        $failures, $checks
+    );
+
+    // Lo que esta feature vino a arreglar: que la venta tenga de dónde sacar
+    // el costo.
+    check(
+        'I4 · el COGS que resolvería una venta posterior sale de la apertura (5000), no de la nada',
+        $cogsDeLaVenta($itm1, $outlet1) === 5000.0,
+        'resolveUnitCOGS = ' . var_export($cogsDeLaVenta($itm1, $outlet1), true),
+        $failures, $checks
+    );
+
+    // ── La regla dura: NUNCA un 0 que se lea como "cuesta cero" ──────────
+    // La harina tiene saldo (120) pero no está en la tabla de costos del panel.
+    // Abrirla con costo 0 haría que toda venta suya saliera con margen 100%,
+    // para siempre y sin que nadie lo mire. Se prefiere NO abrirla.
+    check(
+        'I5 · el artículo SIN costo conocido NO recibe apertura (un 0 daría margen 100%)',
+        abs(($saldoDe($harinaId, $outlet1) ?? -1) - 0.0) < 0.0001,
+        'saldo de la harina = ' . var_export($saldoDe($harinaId, $outlet1), true),
+        $failures, $checks
+    );
+
+    check(
+        'I6 · y por eso su COGS queda en null (la venta OMITE la columna) en vez de 0.0 → NO hay margen 100%',
+        $cogsDeLaVenta($harinaId, $outlet1) === null,
+        'resolveUnitCOGS = ' . var_export($cogsDeLaVenta($harinaId, $outlet1), true),
+        $failures, $checks
+    );
+
+    check(
+        'I7 · el artículo sin costo queda NOMBRADO en la bitácora, con su cantidad, para que soporte lo complete',
+        str_contains($logText, 'Sin costo, sin apertura') && str_contains($logText, 'Harina 000'),
+        "log = $logText",
+        $failures, $checks
+    );
+
+    // Un servicio no lleva stock propio: su costo sale de la receta
+    // (`RecipeCosting`). El legacy manda 9 unidades igual — no se le cree.
+    check(
+        'I8 · el artículo que NO trackea inventario no recibe apertura aunque el legacy mande cantidad',
+        abs(($saldoDe($servicioId, $outlet2) ?? -1) - 0.0) < 0.0001,
+        'saldo del servicio = ' . var_export($saldoDe($servicioId, $outlet2), true),
+        $failures, $checks
+    );
+
+    $filaCafe = ($itm1 === null || $outlet1 === null) ? null : $db->GetRow(
+        'SELECT stocksource, userid, stockcogs, stockonhandcogs, locationid
+           FROM stock WHERE itemId = ? AND outletId = ? LIMIT 1',
+        [$itm1, $outlet1]
+    );
+
+    // El wrapper devuelve un `CaseInsensitiveArray` (ArrayAccess), NO un array
+    // nativo: `is_array()` da false sobre una fila perfectamente válida. Es el
+    // mismo idioma que usan `SaleService` y `manageStock()` para leer filas.
+    $hayFila = is_array($filaCafe) || $filaCafe instanceof \ArrayAccess;
+
+    check(
+        'I9 · el movimiento entra por el camino del AJUSTE (source que los reportes ya traducen) y con su costo',
+        $hayFila
+            && (string) ($filaCafe['stocksource'] ?? '') === 'adjustment'
+            && abs((float) ($filaCafe['stockcogs'] ?? 0) - 5000.0) < 0.0001,
+        'fila = ' . json_encode($filaCafe),
+        $failures, $checks
+    );
+
+    // El worker corre sin usuario de sesión. `stock.userId` es uuid: antes de
+    // arreglar `manageStock()`, la cadena vacía reventaba el INSERT entero.
+    check(
+        'I10 · el movimiento del worker queda SIN autor (NULL), no con una cadena vacía que reviente el uuid',
+        $hayFila && ($filaCafe['userid'] ?? null) === null,
+        'userid = ' . var_export($filaCafe['userid'] ?? null, true),
+        $failures, $checks
+    );
+
+    // D8 de context/52: el stock siempre está en un depósito.
+    check(
+        'I11 · la apertura queda imputada al depósito por defecto de la sucursal',
+        $hayFila && ($filaCafe['locationid'] ?? null) !== null,
+        'locationid = ' . var_export($filaCafe['locationid'] ?? null, true),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // F. La caja placeholder se reusa
     // ══════════════════════════════════════════════════════════════════
     $registersInDb = countOf('register', $companyId);
@@ -932,6 +1088,10 @@ try {
     // ══════════════════════════════════════════════════════════════════
     $before = [
         'item'          => countOf('item', $companyId),
+        // El ledger entra en la comparación porque acá duplicar es PLATA: una
+        // segunda corrida que vuelva a abrir el inventario le regala stock al
+        // comercio y nadie lo nota hasta el primer arqueo.
+        'stock'         => countOf('stock', $companyId),
         'item_compound' => (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]),
         'category'      => countOf('category', $companyId),
         'brand'         => countOf('brand', $companyId),
@@ -942,7 +1102,7 @@ try {
     ];
 
     $run2 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
-        ->run(['catalog', 'customers', 'config', 'users', 'payments']);
+        ->run(['catalog', 'customers', 'config', 'users', 'payments', 'stock']);
     $p2 = $run2['progress'];
 
     check(
@@ -973,6 +1133,7 @@ try {
 
     $after = [
         'item'          => countOf('item', $companyId),
+        'stock'         => countOf('stock', $companyId),
         'item_compound' => (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]),
         'category'      => countOf('category', $companyId),
         'brand'         => countOf('brand', $companyId),
@@ -986,6 +1147,26 @@ try {
         'B4 · los conteos de la base NO se movieron tras re-correr',
         $before === $after,
         'antes=' . json_encode($before) . ' después=' . json_encode($after),
+        $failures, $checks
+    );
+
+    // La apertura de stock es el otro caso donde re-correr cuesta plata: el
+    // movimiento SUMA al saldo, así que sin la marca por (artículo, sucursal)
+    // cada corrida le regalaría 24 unidades más de café al comercio.
+    check(
+        'B7 · la apertura NO se vuelve a aplicar: los 3 abiertos quedan en skipped, ninguno se importa de nuevo',
+        ($p2['stock']['imported'] ?? -1) === 0
+            && ($p2['stock']['skipped'] ?? 0) === 4
+            && ($p2['stock']['total'] ?? 0) === 6,
+        'progress.stock = ' . json_encode($p2['stock'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'B8 · y el SALDO es el mismo tras dos corridas (24, no 48)',
+        abs(($saldoDe($itm1, $outlet1) ?? -1) - 24.0) < 0.0001
+            && abs(($saldoDe($itm1, $outlet2) ?? -1) - 7.0) < 0.0001,
+        'saldos = ' . var_export([$saldoDe($itm1, $outlet1), $saldoDe($itm1, $outlet2)], true),
         $failures, $checks
     );
 
