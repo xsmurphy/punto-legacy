@@ -58,6 +58,36 @@ export interface RankingDatum {
   overlayValue?: number
 }
 
+/**
+ * Top N ordenado desc, con la barra partida en `part` + `rest`.
+ *
+ * Función pura y exportada porque es donde vive la aritmética del gráfico —
+ * y donde estuvo el bug de las barras vacías: sin `overlay`, `part` salía 0 y
+ * el chart no dibujaba nada, sin tirar ningún error. Un gráfico que falla en
+ * silencio necesita un test, y un test necesita que esto no esté adentro del
+ * render.
+ */
+export function buildRankingSlices(
+  data: RankingDatum[],
+  limit: number,
+  hasOverlay: boolean,
+): Array<RankingDatum & { part: number; rest: number }> {
+  return [...data]
+    .filter((d) => Number.isFinite(d.value) && d.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .slice(0, limit)
+    .map((d) => {
+      // Sin `overlay` la barra es UNA sola y vale el total.
+      if (!hasOverlay) return { ...d, part: d.value, rest: 0 }
+      // Con `overlay`, el resto se DERIVA del total en vez de pasarse aparte:
+      // así la barra siempre suma exactamente el valor que ordena el ranking,
+      // aunque el desglose de costos no cierre (descuento, comisión).
+      const part = Math.max(0, Math.min(d.overlayValue ?? 0, d.value))
+      return { ...d, part, rest: d.value - part }
+    })
+}
+
+
 /** Corta el nombre para el eje; el completo va en el tooltip. */
 function shortLabel(v: string): string {
   return v.length > 14 ? `${v.slice(0, 13)}…` : v
@@ -86,20 +116,10 @@ export function RankingBarChart({
   emptyMessage?: string
   className?: string
 }) {
+  const hasOverlay = overlay !== undefined
   const top = React.useMemo(
-    () =>
-      [...data]
-        .filter((d) => Number.isFinite(d.value) && d.value > 0)
-        .sort((a, b) => b.value - a.value)
-        .slice(0, limit)
-        .map((d) => {
-          // El resto se DERIVA del total en vez de pasarse aparte: así la
-          // barra siempre suma exactamente el valor que ordena el ranking,
-          // aunque el desglose de costos no cierre (descuento, comisión).
-          const part = Math.max(0, Math.min(d.overlayValue ?? 0, d.value))
-          return { ...d, part, rest: d.value - part }
-        }),
-    [data, limit],
+    () => buildRankingSlices(data, limit, hasOverlay),
+    [data, limit, hasOverlay],
   )
 
   const config = React.useMemo<ChartConfig>(() => {
