@@ -190,6 +190,16 @@ export interface Order {
   items?: OrderItem[]
   /** Timeline de transiciones — solo presente en el detalle (`find()`), ver OrderEvent. */
   events?: OrderEvent[]
+  /**
+   * Sucursal DE LA ORDEN con su ubicación (mig 14) — solo en el detalle
+   * (`find()`); `list()` los manda en null. No sale del bootstrap: ese solo
+   * trae la sucursal ACTIVA, y el panel con "Todas" abre órdenes de otras.
+   */
+  outletName?: string | null
+  outletLat?: number | null
+  outletLng?: number | null
+  /** Nombre del responsable (`userid` → contacto). Solo en el detalle. */
+  userName?: string | null
 }
 
 export interface CreateOrderItemInput {
@@ -351,6 +361,22 @@ export function useOrdersByCustomer(
       return api.get<{ orders: Order[] }>(`/v1/orders-core?${qs.toString()}`)
     },
     enabled: !!customerId,
+    staleTime: 10 * 1000,
+  })
+}
+
+/**
+ * Detalle de una orden para el PANEL (`/orders/[id]`) — con ítems y línea de
+ * tiempo. Mismo endpoint que `useOrder`, pero por `api` (cookie del panel):
+ * `useOrder` es de la caja y va con el Bearer del device, y usarlo acá sería
+ * el cruce de realms que prohíbe `lib/api-client.ts`. La queryKey se separa
+ * por la misma razón — el scope de sucursal de cada realm es otro.
+ */
+export function useOrderDetail(orderId: string | null) {
+  return useQuery<Order>({
+    queryKey: ["orders", "panel-detail", orderId],
+    queryFn: () => api.get<Order>(`/v1/orders-core?id=${encodeURIComponent(orderId as string)}`),
+    enabled: !!orderId,
     staleTime: 10 * 1000,
   })
 }

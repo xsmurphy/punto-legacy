@@ -52,7 +52,7 @@ import {
   rangeToBackend,
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
-import { shiftRangeBackwards } from "@/lib/reports/previous-range"
+import { pctDelta, shiftRangeBackwards } from "@/lib/reports/previous-range"
 import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
@@ -456,14 +456,6 @@ function ComparativeChart({
 }
 
 // ── KPI Cards ───────────────────────────────────────────────────────────────
-
-function pctDelta(curr: number, prev: number): number | null {
-  if (prev === 0) {
-    if (curr === 0) return 0
-    return null
-  }
-  return ((curr - prev) / Math.abs(prev)) * 100
-}
 
 // ── Weekday chart ──────────────────────────────────────────────────────────
 

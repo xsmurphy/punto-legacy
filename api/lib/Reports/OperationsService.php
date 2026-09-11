@@ -338,7 +338,7 @@ final class OperationsService
         );
 
         // Matriz espacio × hora: el "mapa de calor" que se pidió — qué espacio
-        // está OCUPADO a qué hora. NO es el plano del salón; el plano es otro
+        // está OCUPADO a qué hora. NO es el plano del local; el plano es otro
         // trabajo (`space.posx/posy`) y responde otra pregunta.
         //
         // Una sesión cerrada ocupa CADA hora que tocó (20:30-22:10 pinta 20,

@@ -29,6 +29,26 @@ function toBackendFormat(d: Date): string {
  *  2. Ese primer bucket cubría un solo segundo, o sea entraba como un ~0 que
  *     parecía un día pésimo del período anterior.
  */
+/**
+ * Variación porcentual contra el período anterior, en el formato que espera
+ * `StatTile.delta.pct`.
+ *
+ * `null` cuando el anterior fue cero y este no: el porcentaje sería infinito
+ * y el tile dice "Sin base para comparar" en vez de inventar un número. Cero
+ * contra cero es "sin cambios" (0), no una división imposible.
+ *
+ * Vive acá, al lado de `shiftRangeBackwards`, porque las dos mitades de "compará
+ * contra el período anterior" van juntas; hasta 2026-09-10 era una función
+ * local de `/reports/summary` y el siguiente reporte con delta la iba a copiar.
+ */
+export function pctDelta(curr: number, prev: number): number | null {
+  if (prev === 0) {
+    if (curr === 0) return 0
+    return null
+  }
+  return ((curr - prev) / Math.abs(prev)) * 100
+}
+
 export function shiftRangeBackwards(from: string, to: string): { from: string; to: string } {
   // 'YYYY-MM-DD HH:mm:ss' es compatible con `new Date` en navegador y server.
   const f = new Date(from.replace(" ", "T"))
