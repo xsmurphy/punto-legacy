@@ -838,24 +838,29 @@ check('(G2a) un rechazo conocido NO se reintenta',
 check('(G2b) el rechazo se refleja: issued + sifen_status Rechazado',
     $filaG2['status'] === 'issued' && $filaG2['sifen'] === 'Rechazado',
     "status={$filaG2['status']} sifen={$filaG2['sifen']} error={$filaG2['error']}", $failures, $checks);
-// HALLAZGO abierto, encontrado al escribir esta sección y NO resuelto acá:
-// `printableDocumentFor()` decide qué se imprime mirando
-// `status`/`superseded_by`/`numbering_mismatch`/`cdc`, pero NO `sifen_status`
-// — así que un documento RECHAZADO por SIFEN sigue imprimiendo su CDC y su QR.
-// Es exactamente el mismo hueco que `context/28` §F7 ya anota para
-// `kudeAvailable` en el portal del cliente, o sea que no es un descuido
-// aislado sino el predicado "documento válido" al que le falta el veredicto
-// fiscal en los dos lados.
+// UN RECHAZADO NO SE IMPRIME (decisión del owner, 2026-09-10).
 //
-// No se corrige en este slice a propósito: qué ve el cliente final cuando
-// SIFEN rechaza es una decisión de producto ya tomada por el owner en §F7
-// (R1: al cliente NO se le avisa del rechazo), y cambiar de callado lo que
-// sale impreso tocaría comprobantes de ventas YA cobradas. El check fija el
-// comportamiento de HOY para que, el día que se decida cambiarlo, el arnés
-// avise en vez de quedarse mudo.
-check('(G2c) [hallazgo abierto] hoy un rechazado SIGUE siendo imprimible — ver context/28 §F7',
-    (new EInvoiceService($provG2b))->printableDocumentFor($companyId, $txG2) !== null,
-    'cambió el comportamiento: printableDocumentFor ya filtra por sifen_status — actualizar este check y el hallazgo de context/28',
+// El hallazgo se abrió al escribir esta sección: `printableDocumentFor()`
+// miraba `status`/`superseded_by`/`numbering_mismatch`/`cdc` pero NO
+// `sifen_status`, así que un documento rechazado por SIFEN imprimía su CDC y
+// su QR. Filtrar por "hay cdc" no alcanza: el equipo de FE-PY confirmó que un
+// rechazado llega con los DOS campos poblados, porque el CDC se calcula al
+// generar el XML y el QR al firmarlo — ambos antes de que el documento salga
+// hacia SIFEN.
+//
+// Se planteó dejarlo como estaba, apoyándose en el R1 de `context/28` §F7 (al
+// cliente final NO se le avisa del rechazo). El owner resolvió lo contrario, y
+// la distinción es la que importa: no avisar no es lo mismo que AFIRMAR. Un
+// CDC impreso afirma que existe un documento electrónico válido; si SIFEN lo
+// rechazó, eso es falso ante el cliente y ante la SET.
+//
+// El PENDIENTE se sigue imprimiendo. No es una concesión: el ticket sale en el
+// mostrador segundos después de la venta, cuando SIFEN todavía no contestó, así
+// que exigir el veredicto dejaría sin CDC al caso normal. La regla es excluir
+// el rechazo, no exigir la aprobación.
+check('(G2c) un documento RECHAZADO por SIFEN ya no es imprimible, aunque tenga CDC y QR',
+    (new EInvoiceService($provG2b))->printableDocumentFor($companyId, $txG2) === null,
+    'printableDocumentFor devolvió el CDC de un documento que SIFEN rechazó',
     $failures, $checks);
 
 // ── (G3) sin txnId: el fallback por número lleva SIEMPRE el tipo ──────────
