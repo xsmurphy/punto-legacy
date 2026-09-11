@@ -2637,6 +2637,41 @@ primer paso es el doc de plan propio.
 
 ---
 
+## Feature request — horario de atención de la sucursal (2026-09-11, sin planificar)
+
+**La sucursal no tiene dónde guardar su horario de atención.** Lo levantó el
+migrador ENCOM en la primera corrida real: el legacy SÍ trae el horario por
+sucursal y el importador tiene que descartarlo, con el aviso "El horario de
+atención de las sucursales no se migra: Punto todavía no tiene dónde
+guardarlo" (`EncomImportService`, dominio `config`). O sea que hay un dato de
+clientes reales que hoy se pierde en cada migración.
+
+Estado de la tabla: `outlet` tiene `outletid, outletname, outletstatus,
+outletcreationdate, outletpurchaseorderno, outletordertransferno, taxid,
+companyid, data, lat, lng` — ninguna columna de horario. La columna `data`
+(JSONB) es el candidato natural y evita una migración de schema, pero la
+decisión no está tomada: un horario que se va a CONSULTAR (no solo mostrar)
+probablemente quiera estructura propia.
+
+Lo que hay que cerrar cuando se retome, antes de escribir código:
+
+- **Qué forma tiene el horario.** Rango simple por día vs. varios tramos por
+  día (el corte del mediodía es lo normal en Paraguay) vs. excepciones por
+  fecha (feriados, horario de temporada). Los tres son modelos distintos.
+- **Para qué se lee.** Si es solo informativo (ficha de la sucursal, sitio,
+  agente), alcanza con texto por día. Si algo lo va a EVALUAR —el agente
+  contestando "¿están abiertos?", una alerta de venta fuera de horario, la
+  agenda— necesita ser consultable y anclado a la zona horaria del tenant
+  (nada hardcodeado a Paraguay: `TenantClock` ya fija la zona de la sesión).
+- **Quién más lo quiere.** El módulo de espacios/agenda y el contexto del
+  negocio del agente (`context/69`) son los dos consumidores probables; el
+  sitio de marketing (`context/61`) es el tercero.
+
+Hasta que se cierre eso, el migrador sigue avisando y descartando, que es el
+comportamiento correcto: no inventa un lugar donde guardarlo.
+
+---
+
 ## Backlog testing 2026-07-07 — Panel + POS (feedback testers)
 
 **Re-reportado casi íntegro por testers el 2026-07-30** (doc "Punto Panel") —
