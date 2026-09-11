@@ -126,6 +126,7 @@ final class EncomHistoryImporter
         $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
         [$desde, $hasta] = $this->range($options);
 
+        $this->assertPrerequisitos('sales_history');
         $this->ensurePartitions($desde, $hasta);
 
         $sinCliente = 0;
@@ -266,6 +267,7 @@ final class EncomHistoryImporter
         $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
         [$desde, $hasta] = $this->range($options);
 
+        $this->assertPrerequisitos('purchases_history');
         $this->ensurePartitions($desde, $hasta);
 
         foreach ($this->months($desde, $hasta) as [$mesIni, $mesFin]) {
@@ -398,6 +400,8 @@ final class EncomHistoryImporter
 
         $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
         [$desde, $hasta] = $this->range($options);
+
+        $this->assertPrerequisitos('expenses_history');
 
         foreach ($this->months($desde, $hasta) as [$mesIni, $mesFin]) {
             if ($this->periodoCerrado($mesIni, 'expenses_history')) {
@@ -922,6 +926,71 @@ final class EncomHistoryImporter
         }
 
         return (string) ($row['id'] ?? '');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Prerequisitos del dominio
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Que exista al menos UNA sucursal a la que colgar un asiento. Se evalúa
+     * una sola vez, antes de iterar y antes de pedirle nada al legacy.
+     *
+     * ── Por qué existe: incidente del 2026-09-11 ─────────────────────────
+     * Un job real terminó con **512 errores**, todos de la forma "Venta X: la
+     * sucursal OLIVA no está migrada". La causa verdadera eran cuatro errores
+     * de `config` que quedaron sepultados: el export pedía `/fetchs` contra el
+     * panel y recibía 404, así que no se mapeó ni una sucursal. Quien miraba
+     * el job veía 512 veces el SÍNTOMA y no tenía cómo llegar a la causa.
+     *
+     * ── Por qué un chequeo previo y no un corte "a los N errores iguales" ─
+     * Se eligió el prerequisito por tres razones:
+     *
+     *   1. **Nombra la causa, no el síntoma.** Un corte por repetición sigue
+     *      diciendo "la sucursal no está migrada" —la frase que manda a mirar
+     *      el lugar equivocado—, solo que menos veces. Acá el mensaje dice que
+     *      falta el prerequisito y a qué dominio hay que ir a mirar.
+     *   2. **Se evalúa antes de gastar la red.** Un corte por N errores ya
+     *      pagó N requests paceadas a 60/min contra el legacy (y en ventas es
+     *      una request POR VENTA) para terminar sabiendo lo que se podía saber
+     *      con dos `count(*)` locales.
+     *   3. **No necesita un umbral.** "N errores de la misma causa" obliga a
+     *      elegir N y a clasificar mensajes por parecido, que es una heurística
+     *      que se desajusta sola. La condición real es binaria: sin sucursales,
+     *      NINGÚN asiento puede entrar.
+     *
+     * Esto NO reemplaza al error por fila: una sucursal suelta que no resuelve
+     * —el comercio tiene tres y el legacy nombra una cuarta— sigue siendo un
+     * error de ESA venta, que es información legítima. Lo que se corta es el
+     * caso en que el dominio entero era imposible desde antes de empezar.
+     *
+     * Se cuentan las dos fuentes con las que `mapOf()` resuelve una sucursal:
+     * el mapa de la migración y las sucursales del destino (que es contra lo
+     * que busca por nombre). Con cualquiera de las dos no vacía, el dominio
+     * corre normal.
+     */
+    private function assertPrerequisitos(string $domain): void
+    {
+        $enDestino = \ncmExecute(
+            'SELECT count(*) AS n FROM outlet WHERE companyId = ?',
+            [$this->companyId]
+        );
+        $mapeadas = \ncmExecute(
+            "SELECT count(*) AS n FROM migration_map WHERE companyid = ? AND domain = 'outlet'",
+            [$this->companyId]
+        );
+
+        if ((int) ($enDestino['n'] ?? 0) > 0 || (int) ($mapeadas['n'] ?? 0) > 0) {
+            return;
+        }
+
+        throw new EncomMigrationException(
+            'No se importó nada: la empresa destino no tiene NINGUNA sucursal, y un asiento histórico '
+            . 'necesita una (es un dato obligatorio de la transacción). La causa está en el dominio '
+            . '"config" —miralo en esta misma lista: si falló, ahí está el error de verdad—. '
+            . 'Migrá la configuración y volvé a lanzar ' . $domain . '.',
+            422
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════

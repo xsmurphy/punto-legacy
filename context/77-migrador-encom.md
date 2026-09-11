@@ -100,6 +100,35 @@ Verificado vivo el 2026-09-11 con `companyId=QE22&outletId=62Lm`. `gtoken`
 vacío funciona; la autorización real es la cookie **PHPSESSID** del login.
 Devuelve JSON limpio, no HTML.
 
+> ### ⚠ El legacy son DOS hosts, no uno
+>
+> | Host | Qué sirve | De dónde sale |
+> |---|---|---|
+> | `panel.encom.com.py` | login, home, costos, **todo el histórico** | `ENCOM_MIGRATION_URL` |
+> | `app.encom.com.py` | **`/fetchs`** (el bootstrap del POS) | **derivado** del `?i=` del alcance |
+>
+> Verificado en vivo: `/fetchs` contesta JSON en `app.` y **404 en `panel.`**.
+>
+> **Incidente del 2026-09-11** (job `c5747625…`, company `01a081dd…`): el
+> cliente tenía UNA sola base y `post('/fetchs?load=…')` la resolvía contra
+> `ENCOM_MIGRATION_URL`, o sea contra el panel. Resultado en la base de
+> producción:
+>
+> - 4 errores reales —`outlets`, `users`, `customers`, `settings`, todos
+>   "El legacy respondió 404 en /fetchs?load=…&gtoken="—;
+> - **cero filas en `migration_map`**: no se mapeó nada;
+> - **512 errores derivados** ("Venta X: la sucursal OLIVA no está migrada")
+>   que enterraron esos cuatro. El histórico sí había traído datos (300 ventas,
+>   207 compras) porque usa el PANEL, que es otra superficie y sí respondía.
+>
+> El arreglo tiene tres partes, y las tres importan: **(1)** dos propiedades con
+> nombre —`panelUrl` y `posUrl`— en vez de una `baseUrl` ambigua, con el
+> transporte hablando en URLs absolutas para que ninguna base quede implícita;
+> **(2)** el origen del POS se DERIVA (§4.3) y, si no se puede, el job **falla
+> ahí** sin importar nada; **(3)** el error de red ahora incluye el **host**, no
+> solo el path — el 404 original decía `/fetchs?load=outlets` y ocultaba lo
+> único que importaba.
+
 ### 4.1 Qué devuelve cada `load`
 
 | `load` | Forma | Lo que aporta |
@@ -149,14 +178,32 @@ de la sesión recién abierta:
 2. Fallback para el deploy viejo (donde ese archivo da 404): el mismo `?i=` en
    el href del botón "Caja" del home del panel.
 
+**Y de la misma URL sale el host del POS.** Ese `Location` es literalmente
+`https://app.encom.com.py/?i=<base64>`, y el href del botón "Caja" también es
+absoluto al POS: el origen (esquema + host, sin path) se captura en el mismo
+match que el `?i=` y se usa como base de TODOS los `/fetchs`. Por eso **no hay
+una env var nueva** para el POS: el dato ya venía en la respuesta, y una
+segunda variable sería un segundo lugar donde equivocarse —y uno que soporte
+tendría que cargar a mano por cada cliente—.
+
 Si **ninguna** vía da un par completo, el cliente **LANZA** y el job no se
 crea. Es deliberado: seguir con un companyId vacío haría que `/fetchs`
 devolviera el catálogo de otro comercio —o de ninguno— y el job lo importaría
 sin una sola señal. El error sale en la pantalla del alta, con el operador
 mirando, no media hora después dentro del worker.
 
+**Si sale el par pero NO el origen** (un deploy que sirviera el enlace
+relativo), también LANZA, y lo dice nombrando el POS. Nunca se cae de vuelta al
+panel: eso es exactamente lo que produjo el incidente. Mismo criterio en
+`fetch()`, que falla cerrado si `posUrl` está vacío — el fallback silencioso al
+panel no existe en ninguna capa.
+
 El alcance se guarda en `migration_job.credentials.scope`, junto a las cookies
-y con su misma vida útil: se borra cuando el job termina.
+y con su misma vida útil: se borra cuando el job termina. Desde el arreglo,
+`scope` tiene **tres** campos (`companyId`, `outletId`, `posUrl`); un job viejo
+con solo dos lo vuelve a resolver con la misma sesión (`fromCookies()` trata al
+`posUrl` faltante como alcance incompleto), así que no quedan jobs a mitad de
+camino pidiendo `/fetchs` contra el panel.
 
 ### 4.4 La excepción acotada: el COSTO sale del panel
 
@@ -864,3 +911,34 @@ ANTES de correr el histórico.
 | **Descartar la línea cuyo artículo no matchea** | El total de la venta deja de cerrar contra la suma de sus ítems. Entra un artículo histórico archivado y se nombra en la bitácora. |
 | **Ponerle un usuario cualquiera a la venta cuyo usuario no está migrado** | `userid` es NOT NULL, pero completarlo con otro le atribuye ventas a quien no las hizo. La venta no entra y el log dice qué falta. |
 | **Traer "todo el histórico" sin rango** | El legacy no dice desde cuándo tiene datos, y son decenas de miles de requests (una por venta) más años de particiones. El rango lo elige el operador; sin elección, 12 meses. |
+| **Dejar que un dominio dependiente emita un error por fila cuando el prerequisito no está** | Es el incidente del 2026-09-11: 512 líneas de "la sucursal no está migrada" enterrando los 4 errores que eran la causa. Ver §17.12. |
+| **Cortar "a los N errores iguales"** | Sigue nombrando el síntoma (solo que menos veces), ya pagó N requests paceadas contra el legacy, y obliga a elegir un N y a clasificar mensajes por parecido. La condición real es binaria. Ver §17.12. |
+
+### 17.12 El prerequisito: por qué el histórico se fija ANTES de iterar
+
+**El incidente.** El job `c5747625…` terminó `failed` con **512 errores**, todos
+de la forma "Venta X: la sucursal OLIVA no está migrada". La causa real eran
+**cuatro**: `/fetchs` pedido contra el host equivocado (§4), que dejó
+`migration_map` sin una sola fila. Quien miraba el job veía 512 veces el
+síntoma y no tenía ningún camino hasta el 404.
+
+Cada uno de esos 512 errores era, por separado, correcto: una venta sin
+sucursal no puede entrar y el motivo estaba bien dicho. El problema es de
+AGREGADO — un job cuya causa raíz está sepultada bajo cientos de líneas
+derivadas es un job que no se puede diagnosticar.
+
+**El mecanismo.** `EncomHistoryImporter::assertPrerequisitos()` corre al
+principio de los tres dominios de histórico, antes de iterar y antes de pedirle
+nada al legacy: si no hay NINGUNA sucursal —ni en `migration_map`, ni en el
+destino, que son las dos fuentes con las que `mapOf()` resuelve— aborta el
+dominio con un error que nombra el prerequisito y manda a mirar `config`.
+
+**Por qué esto y no un corte por repetición**: nombra la causa en vez del
+síntoma, se evalúa con dos `count(*)` locales en vez de gastar N requests
+paceadas a 60/min (y en ventas es una request POR VENTA), y no necesita elegir
+un umbral ni comparar mensajes por parecido.
+
+**Lo que NO cambia**: el error por fila sigue existiendo. Una sucursal suelta
+que no resuelve —el comercio tiene tres y el legacy nombra una cuarta— es
+información legítima de ESA venta. Lo único que se corta es el caso en que el
+dominio entero era imposible desde antes de empezar.
