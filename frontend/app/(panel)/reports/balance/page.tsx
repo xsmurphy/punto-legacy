@@ -15,7 +15,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { AlertCircle, ArrowLeft, Info } from "lucide-react"
+import { AlertCircle, ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -118,28 +118,6 @@ export default function BalanceReportPage() {
             </Card>
           </div>
 
-          {/* No es una nota al pie decorativa: Punto no modela activo fijo, así
-              que el patrimonio de arriba está SUBESTIMADO. Un número presentado
-              como patrimonio que ignora la mitad de los bienes es peor que no
-              mostrarlo, así que se dice acá y no en un comentario del código. */}
-          {data.notes.missingFixedAssets && (
-            <Card variant="soft">
-              <CardContent className="flex gap-3">
-                <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    Este balance no incluye tus bienes
-                  </span>
-                  <span>
-                    Heladeras, vitrinas, vehículos y equipamiento no están cargados en
-                    Punto, así que el patrimonio real es mayor al que ves acá. Es un
-                    resumen para decidir, no un balance contable — para eso está tu
-                    contador.
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </>
       )}
     </div>
