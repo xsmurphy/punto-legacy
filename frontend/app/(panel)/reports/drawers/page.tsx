@@ -44,7 +44,8 @@ import {
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
 import { DrawerCorrectDialog } from "@/components/reports/drawer-correct-dialog"
 import { CashCountBadge } from "@/components/reports/cash-count-badge"
@@ -60,7 +61,23 @@ export default function DrawersReportPage() {
 
   const { data, isLoading, error } = useReport<DrawersReportResponse>("drawers", opts)
 
-  const rows = data?.rows ?? []
+  const rows = React.useMemo(() => data?.rows ?? [], [data])
+
+  const kpis = React.useMemo(() => {
+    let faltantes = 0
+    let sobrantes = 0
+    let diferencia = 0
+    let anulado = 0
+    for (const r of rows) {
+      if (r.cashStatus === "short") faltantes++
+      if (r.cashStatus === "over") sobrantes++
+      // Solo cerradas y con esperado: una caja abierta no tiene monto contado,
+      // y sumarle una diferencia sería inventar un descuadre.
+      if (r.isClosed && r.difference !== null) diferencia += parseNum(r.difference)
+      anulado += parseNum(r.cancelAmount)
+    }
+    return { turnos: rows.length, faltantes, sobrantes, diferencia, anulado }
+  }, [rows])
   const tolerance = data?.tolerance
 
   const columns = React.useMemo<ColumnDef<DrawerRow>[]>(
@@ -242,6 +259,30 @@ export default function DrawersReportPage() {
             <p className="text-xs text-muted-foreground">{error.message}</p>
           </div>
         </div>
+      )}
+
+      {/* Lo que el dueño viene a buscar antes de mirar fila por fila: cuántos
+          turnos cerraron descuadrados y por cuánto. El veredicto de cada fila
+          lo resuelve el backend (es el único que conoce la tolerancia); acá
+          solo se cuenta y se suma. La diferencia neta sale SOLO de cajas
+          cerradas: una abierta no tiene monto contado. */}
+      {!isLoading && rows.length > 0 && (
+        <StatsRow>
+          <StatTile label="Turnos" value={formatInt(kpis.turnos, bootstrap)} />
+          <StatTile
+            label="Con faltante"
+            value={formatInt(kpis.faltantes, bootstrap)}
+            tone={kpis.faltantes > 0 ? "negative" : "neutral"}
+          />
+          <StatTile label="Con sobrante" value={formatInt(kpis.sobrantes, bootstrap)} />
+          <StatTile
+            label="Diferencia neta"
+            value={formatMoney(kpis.diferencia, bootstrap)}
+            tone={kpis.diferencia < 0 ? "negative" : kpis.diferencia > 0 ? "positive" : "neutral"}
+            emphasis
+          />
+          <StatTile label="Anulado" value={formatMoney(kpis.anulado, bootstrap)} />
+        </StatsRow>
       )}
 
       <DataTable

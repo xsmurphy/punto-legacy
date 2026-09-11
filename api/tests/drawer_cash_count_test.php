@@ -461,6 +461,73 @@ check(
     $failures, $checks
 );
 
+// ── (g) Las ventas se asignan por drawerid, como el cierre en vivo ─────────
+echo "\n=== (g) Alcance por drawerid (mismo criterio que DrawerService) ===\n";
+
+// El reporte asignaba ventas SOLO por ventana de fechas; el vivo, por
+// `drawerid` primero. Divergían con fechas corregidas desde el panel y con
+// turnos que cierran después del último día del rango. Estos casos fijan el
+// criterio del vivo en el reporte.
+resetShift($companyId, $registerId, $day);
+$gOpen    = $day . ' 08:00:00';
+$gDrawer  = openShift($svc, $companyId, $registerId, $gOpen, 100000.0, $userId);
+
+// 1) Venta normal del turno.
+insertSale($companyId, $outletId, $registerId, $userId, $gDrawer, $day . ' 09:00:00', 20000.0, 'efectivo', 'Efectivo');
+// 2) Venta del turno con fecha DESPUÉS del cierre (fechas corregidas / pasada
+//    la medianoche): lleva el drawerid, así que es de este turno.
+insertSale($companyId, $outletId, $registerId, $userId, $gDrawer, date('Y-m-d', strtotime($day . ' +1 day')) . ' 03:00:00', 30000.0, 'efectivo', 'Efectivo');
+// 3) Venta de OTRO turno dentro de esta ventana: no es de este.
+$otherDrawer = sprintf('%08x-%04x-4%03x-a%03x-%012x',
+    random_int(0, 0xffffffff), random_int(0, 0xffff), random_int(0, 0xfff),
+    random_int(0, 0xfff), random_int(0, 0xffffffffffff));
+insertSale($companyId, $outletId, $registerId, $userId, $otherDrawer, $day . ' 11:00:00', 99999.0, 'efectivo', 'Efectivo');
+// 4) Venta vieja SIN drawerid dentro de la ventana: cae por fecha.
+$db->Execute(
+    "INSERT INTO transaction
+        (transactionId, transactionDate, transactionTotal, transactionDiscount,
+         transactionType, transactionPaymentType, transactionComplete,
+         drawerId, registerId, outletId, companyId, userId, meta)
+     VALUES (gen_random_uuid(), ?, 5000, 0, 0, ?, TRUE, NULL, ?, ?, ?, ?, '{}'::jsonb)",
+    [$day . ' 10:00:00', json_encode([['type' => 'efectivo', 'name' => 'Efectivo', 'price' => 5000, 'total' => 5000]]),
+     $registerId, $outletId, $companyId, $userId]
+);
+
+$reports->close($gDrawer, $companyId, $day . ' 20:00:00', 155000.0, $userId);
+// Sin congelado, para ejercitar el ESTIMADO (el camino que recalcula).
+$db->Execute('UPDATE drawer SET drawerExpectedAmount = NULL WHERE drawerId = ?', [$gDrawer]);
+
+// 100.000 + 20.000 + 30.000 (drawerid, fuera de ventana) + 5.000 (legacy) = 155.000.
+// Los 99.999 del otro turno NO entran.
+$gExpected = 155000.0;
+
+$reports = new DrawersService();
+$gRow = reportRow($reports, $companyId, $outletId, $gDrawer, $from, $to);
+check(
+    'el estimado cuenta por drawerid, incluye la venta vieja y excluye la del otro turno (155.000)',
+    $gRow !== null && near((float) $gRow['expectedAmount'], $gExpected) && $gRow['expectedSource'] === 'estimated',
+    'expected=' . var_export($gRow['expectedAmount'] ?? null, true) . ' source=' . var_export($gRow['expectedSource'] ?? null, true),
+    $failures, $checks
+);
+
+// El rango del reporte termina el MISMO día: la venta de las 03:00 del día
+// siguiente queda fuera del rango, pero sigue siendo de este turno.
+$gRowShort = reportRow($reports, $companyId, $outletId, $gDrawer, $from, $day . ' 23:59:59');
+check(
+    'un rango que termina el día del turno igual cuenta la venta posterior del mismo turno',
+    $gRowShort !== null && near((float) $gRowShort['expectedAmount'], $gExpected),
+    'expected=' . var_export($gRowShort['expectedAmount'] ?? null, true),
+    $failures, $checks
+);
+
+$gDetail = $reports->detail($gDrawer, $companyId, Roc::build($companyId, $outletId));
+check(
+    'el detalle del turno da el mismo esperado que el listado',
+    $gDetail !== null && near((float) $gDetail['expectedAmount'], $gExpected),
+    'detail expected=' . var_export($gDetail['expectedAmount'] ?? null, true),
+    $failures, $checks
+);
+
 // ── Limpieza ────────────────────────────────────────────────────────────────
 resetShift($companyId, $registerId, $day);
 

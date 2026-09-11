@@ -15,7 +15,7 @@ use Punto\Api\Contacts\ContactDisplayName;
  *  - el ROC se recibe por PARÁMETRO en `listMovements` (no `getROC(1)` interno)
  *  - `getAllSalesByDrawerPeriod` (sólo en panel) → portado como `salesByDrawerPeriod()` privado
  *    que recibe `$roc` (no usa getROC interno). Mismo SQL y semántica.
- *  - `sumTotalBetweenDateRanges` (sólo en panel) → portado como `sumForRegister()` privado.
+ *  - `sumTotalBetweenDateRanges` (sólo en panel) → hoy `sumForDrawer()`: por `drawerid`, como el vivo.
  *  - `getSalesByPayment($from, $to, $register, false)` (resolvería a la versión de /app: firma
  *    `($from,$to,$regId)` — funciona pero filtra tipo 6 además de 0,5, semántica distinta a la
  *    panel) → reemplazado por `NonAddingSales::salesByPayment` con $roc register-scoped.
@@ -113,8 +113,19 @@ final class DrawersService
         $registers = $this->nameMap('register', 'registerId', 'registerName', array_keys($registerIds), $companyId);
         $users     = ContactDisplayName::batch(array_keys($userIds), $companyId);
 
-        // Ventas por caja del período (una sola query, scopeada por $roc del caller).
-        $allSales = $this->salesByDrawerPeriod($from, $to, $roc);
+        // Ventas de TODOS los turnos listados, en una sola query. Por
+        // `drawerid` y no por el rango del reporte: un turno que abre el último
+        // día y cierra al siguiente vende después de `$to`, y esas ventas
+        // también son suyas. Las viejas sin `drawerid` se buscan en la ventana
+        // que cubre a todos los turnos, no en la del reporte, por lo mismo.
+        $winFrom = $from;
+        $winTo   = $to;
+        foreach ($raw as $r) {
+            if ($r['openDate'] !== '' && $r['openDate'] < $winFrom) { $winFrom = $r['openDate']; }
+            $bound = $r['closeDate'] !== '' ? $r['closeDate'] : date('Y-m-d ', strtotime(TODAY)) . Date::END_OF_DAY;
+            if ($bound > $winTo) { $winTo = $bound; }
+        }
+        $allSales = $this->salesByDrawerPeriod($winFrom, $winTo, $roc, array_column($raw, 'drawerId'));
 
         $tolerance = $this->toleranceFor($companyId);
 
@@ -122,7 +133,7 @@ final class DrawersService
         foreach ($raw as $r) {
             $isClosed = $r['closeDate'] !== '';
             $closeBound = $isClosed ? $r['closeDate'] : date('Y-m-d ', strtotime(TODAY)) . Date::END_OF_DAY;
-            $t = $this->componentsFor($r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales, $roc);
+            $t = $this->componentsFor($r['drawerId'], $r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales, $roc);
             $cancels = $this->cancellationsFor($r['openDate'], $closeBound, $r['outletId'], $companyId);
             $count = $this->cashCount($isClosed, $r['expected'], $r['closeAmount'], $r['openAmount'], $t, $tolerance);
 
@@ -181,7 +192,7 @@ final class DrawersService
         $outlets   = $this->nameMap('outlet',   'outletId',   'outletName',   [$outlet],   $companyId);
         $registers = $this->nameMap('register', 'registerId', 'registerName', [$register], $companyId);
 
-        $t = $this->componentsFor($openDate, $closeBound, $register, $companyId, null, $roc);
+        $t = $this->componentsFor($drawerId, $openDate, $closeBound, $register, $companyId, null, $roc);
         // Con detalle: es UNA caja y es la pantalla donde el dueño viene a
         // mirar justamente esto. El tope acompaña al del cierre en vivo.
         $cancels = $this->cancellationsFor($openDate, $closeBound, $outlet, $companyId, self::CANCELLATIONS_ROW_LIMIT);
@@ -416,7 +427,7 @@ final class DrawersService
                 return null;
             }
 
-            $t = $this->componentsFor($openDate, $closeBound, $registerId, $companyId, null, $regRoc);
+            $t = $this->componentsFor($drawerId, $openDate, $closeBound, $registerId, $companyId, null, $regRoc);
             return $openAmount + $t['cash'] + $t['income'] - $t['expense'];
         } catch (\Throwable $e) {
             error_log("[Reports\\DrawersService] no se pudo congelar el esperado (drawerId={$drawerId}): " . $e->getMessage());
@@ -498,12 +509,12 @@ final class DrawersService
     }
 
     /** Vendido / vendido-en-efectivo / extracciones / ingresos / devoluciones para una caja [open, closeBound]. */
-    private function componentsFor(string $openDate, string $closeBound, string $registerId, string $companyId, ?array $allSales, string $roc): array
+    private function componentsFor(string $drawerId, string $openDate, string $closeBound, string $registerId, string $companyId, ?array $allSales, string $roc): array
     {
         if ($allSales === null) {
-            $allSales = $this->salesByDrawerPeriod($openDate, $closeBound, $roc);
+            $allSales = $this->salesByDrawerPeriod($openDate, $closeBound, $roc, [$drawerId]);
         }
-        $sums = $this->sumForRegister($allSales, $registerId, $openDate, $closeBound);
+        $sums = $this->sumForDrawer($allSales, $drawerId, $registerId, $openDate, $closeBound);
         $sold = $sums['total'];
         $cash = $sums['cash'];
 
@@ -515,9 +526,14 @@ final class DrawersService
         );
         $expense = $exp ? abs((float) ($exp['v'] ?? 0)) : 0.0;
 
+        // `type = 1` y no `type IS NOT NULL`: es el filtro de `getIncome()` del
+        // cierre en vivo. Hoy dan lo mismo —el único código que escribe
+        // ingresos usa `type = 1`, propinas incluidas—, pero el día que alguien
+        // agregue otro tipo, el reporte lo sumaría al efectivo esperado y el
+        // cierre no, y el mismo turno tendría dos esperados.
         $inc = ncmExecute(
             "SELECT SUM(expensesAmount) AS v FROM expenses
-             WHERE expensesDate > ? AND expensesDate < ? AND type IS NOT NULL AND registerId = ? AND companyId = ?",
+             WHERE expensesDate > ? AND expensesDate < ? AND type = 1 AND registerId = ? AND companyId = ?",
             [$openDate, $closeBound, $registerId, $companyId]
         );
         $income = $inc ? abs((float) ($inc['v'] ?? 0)) : 0.0;
@@ -607,17 +623,45 @@ final class DrawersService
      *
      * @return array<string, array<int, array{date:string,total:float,cash:float}>>
      */
-    private function salesByDrawerPeriod(string $from, string $to, string $roc): array
+    /**
+     * Ventas que pertenecen a los turnos pedidos, con el MISMO criterio que el
+     * cierre en vivo (`DrawerService`, `(drawerid = ? OR (drawerid IS NULL AND
+     * transactionDate > ?))`): una venta es del turno cuyo `drawerid` lleva, y
+     * solo las que no tienen `drawerid` (anteriores a la mig 70) se asignan por
+     * fecha.
+     *
+     * Antes asignaba TODO por fecha, y eso divergía del vivo en dos casos
+     * reales: una caja cuyas fechas se corrigieron desde el panel (las ventas
+     * conservan su `drawerid`, la ventana se movió) y un turno que cierra
+     * después del último día del rango del reporte (sus ventas de después de
+     * medianoche no entraban en la consulta). Los dos daban un esperado
+     * distinto al que vio el cajero.
+     *
+     * @param list<string> $drawerIds turnos a cubrir; vacío = solo por fecha.
+     * @return array{byDrawer: array<string, list<array>>, byRegister: array<string, list<array>>}
+     */
+    private function salesByDrawerPeriod(string $from, string $to, string $roc, array $drawerIds = []): array
     {
+        $drawerIds = array_values(array_filter($drawerIds, static fn ($id) => preg_match(self::UUID_RE, (string) $id)));
+
+        $scope  = '(drawerid IS NULL AND transactionDate BETWEEN ? AND ?)';
+        $params = [$from, $to];
+        if ($drawerIds !== []) {
+            $ph     = implode(',', array_fill(0, count($drawerIds), '?'));
+            $scope  = "(drawerid IN ($ph) OR $scope)";
+            $params = array_merge($drawerIds, $params);
+        }
+
         $sql = "SELECT transactionId, transactionTotal as total, transactionDiscount as discount, registerId,
-                       transactionDate, transactionType, transactionPaymentType, meta->>'tags' AS tags
+                       transactionDate, transactionType, transactionPaymentType, meta->>'tags' AS tags,
+                       drawerid
                 FROM transaction
-                WHERE transactionDate BETWEEN ? AND ?
+                WHERE $scope
                   AND transactionType IN (0,5,6)" . $roc;
 
-        $result = ncmExecute($sql, [$from, $to], false, true);
+        $result = ncmExecute($sql, $params, false, true);
         if (!$result) {
-            return [];
+            return ['byDrawer' => [], 'byRegister' => []];
         }
 
         $rows = [];
@@ -641,7 +685,7 @@ final class DrawersService
             ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $paymentIds, 'credit_payment')
             : [];
 
-        $a = [];
+        $a = ['byDrawer' => [], 'byRegister' => []];
         foreach ($rows as $f) {
             if ((int) $f['transactionType'] === 5) {
                 $parentId = $originByPayment[(string) $f['transactionId']] ?? null;
@@ -651,12 +695,20 @@ final class DrawersService
                 $ignore = isInternalSale($tags);
             }
             if (!$ignore) {
-                $reg = (string) ($f['registerId'] ?? '');
-                $a[$reg][] = [
+                $entry = [
                     'date'  => (string) $f['transactionDate'],
                     'total' => (float) $f['total'] - (float) $f['discount'],
                     'cash'  => self::cashPortion($f),
                 ];
+                // Indexadas por turno las que lo traen y por caja las viejas:
+                // el listado cruza hasta 1000 turnos contra todas las ventas, y
+                // recorrer la lista entera por cada turno sería cuadrático.
+                $drawer = (string) ($f['drawerid'] ?? '');
+                if ($drawer !== '') {
+                    $a['byDrawer'][$drawer][] = $entry;
+                } else {
+                    $a['byRegister'][(string) ($f['registerId'] ?? '')][] = $entry;
+                }
             }
         }
         return $a;
@@ -716,20 +768,26 @@ final class DrawersService
      *
      * @return array{total:float,cash:float}
      */
-    private function sumForRegister(array $allSales, string $registerId, string $from, string $to): array
+    /**
+     * Ventas de UN turno: todas las que llevan su `drawerid`, sin mirar la
+     * fecha, más las viejas sin `drawerid` de su caja dentro de la ventana.
+     * Es el criterio del cierre en vivo; ver `salesByDrawerPeriod()`.
+     */
+    private function sumForDrawer(array $allSales, string $drawerId, string $registerId, string $from, string $to): array
     {
         if ($to === '0000-00-00 00:00:00' || $to === '') {
             $to = TODAY;
         }
         $total = 0.0;
         $cash  = 0.0;
-        foreach ($allSales as $reg => $values) {
-            if ($reg !== $registerId) { continue; }
-            foreach ($values as $data) {
-                if ($data['date'] > $from && $data['date'] < $to) {
-                    $total += (float) $data['total'];
-                    $cash  += (float) ($data['cash'] ?? 0);
-                }
+        foreach ($allSales['byDrawer'][$drawerId] ?? [] as $data) {
+            $total += (float) $data['total'];
+            $cash  += (float) ($data['cash'] ?? 0);
+        }
+        foreach ($allSales['byRegister'][$registerId] ?? [] as $data) {
+            if ($data['date'] > $from && $data['date'] < $to) {
+                $total += (float) $data['total'];
+                $cash  += (float) ($data['cash'] ?? 0);
             }
         }
         return ['total' => $total, 'cash' => $cash];
