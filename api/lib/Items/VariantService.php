@@ -104,6 +104,14 @@ final class VariantService
      * Si no viene: INSERT de nueva variante con stock inicial via Inventory::manageStock.
      * Todo en una única TX. Retorna el array de variantes finales.
      *
+     * `barcode` va a la COLUMNA `item.barcode` (mig 220). Hasta esa migración
+     * esta función lo escribía como `data.itemBarcode` —una clave suelta del
+     * JSONB— y esa era la ÚNICA forma de cargar un código de barras en Punto:
+     * el dato quedaba fuera del SELECT del catálogo, el POS nunca lo veía y
+     * ningún escaneo podía pegar contra él. El backfill de la mig 220 promovió
+     * lo ya escrito y borró la clave; `itemBarcode` es LEGADO y no se escribe
+     * más desde ningún lado — si aparece en un payload, ignoralo.
+     *
      * @throws \RuntimeException
      */
     public function bulkUpsertVariants(string $companyId, string $parentId, array $variants): array
@@ -165,12 +173,19 @@ final class VariantService
                     }
                     $patch = [
                         'itemSKU'           => $sku ?: null,
+                        // Columna `item.barcode` (mig 220), NO la clave suelta
+                        // `data.itemBarcode` que esta función escribía antes.
+                        // Se manda SIEMPRE, incluido el null: con el `if
+                        // ($barcode !== null)` de antes, vaciar la celda de la
+                        // matriz no borraba nada — el código viejo quedaba
+                        // pegado al ítem y no había forma de sacarlo desde la
+                        // UI que lo cargó.
+                        'barcode'           => $barcode,
                         'itemPrice'         => $price,
                         'itemCost'          => $cost,
                         'variantAttributes' => $attrs ? json_encode($attrs) : null,
                         'updated_at'        => TODAY,
                     ];
-                    if ($barcode !== null) $patch['itemBarcode'] = $barcode;
                     ncmUpdate([
                         'table'       => 'item',
                         'records'     => $patch,
@@ -204,8 +219,9 @@ final class VariantService
                         // visibilidad sale de `item_outlet`. Las sucursales de
                         // la variante se heredan del padre más abajo.
                         'categoryId'         => $parentRow['categoryid'] ?? $parentRow['categoryId'] ?? null,
+                        // Columna real (mig 220) — ver el comentario del UPDATE.
+                        'barcode'            => $barcode,
                     ];
-                    if ($barcode !== null) $record['itemBarcode'] = $barcode;
                     $newId = ncmInsert(['table' => 'item', 'records' => $record]);
                     if ($newId === false) {
                         throw new \RuntimeException('No se pudo insertar la variante', 500);

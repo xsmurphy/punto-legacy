@@ -69,6 +69,11 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         // para precargar la categoría de cada línea al agregar el ítem a una
         // compra (owner 2026-08-20: "no obligatorio, pero fácil de heredar").
         'expensecategoryid'   => 'expenseCategoryId',
+        // `barcode` (mig 220) NO necesita entrada: Postgres lo devuelve en
+        // minúsculas y su nombre canónico hacia el front es el mismo, así que
+        // el fallback `$map[$kLower] ?? $k` ya lo deja bien. Se anota para que
+        // nadie lo "agregue por completitud" con un casing distinto — el POS
+        // lee `row.barcode` tal cual (lib/pos-bff/reshape.ts).
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -187,7 +192,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
  */
 function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
 {
-    return "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
+    return "SELECT i.itemId, i.itemName, i.itemSKU, i.barcode, i.itemType, i.itemKind, i.itemStatus,
                    i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
                    i.itemCanSale, i.itemTrackInventory, i.taxId,
                    i.itemIsParent, i.itemParentId,

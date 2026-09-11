@@ -72,6 +72,7 @@ import {
   type CartLine,
 } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { findItemByCode } from "@/lib/catalog/search"
 import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useLockStore } from "@/lib/pos/lock-store"
@@ -249,9 +250,11 @@ export function CartPanel() {
     maxTimeBetweenKeys: 100,
     parseWeightBarcode: false,
     onScan: ({ code }) => {
-      const match = catalogItems.find(
-        (item) => item.sku === code || item.id === code,
-      )
+      // `findItemByCode` y no un `.find()` acá: el orden barcode → sku → id es
+      // el contrato del resolver (ver lib/catalog/search.ts). Antes esto
+      // matcheaba solo sku/id, o sea que el código de barras del envase —el
+      // único que emite un lector— no pegaba con nada.
+      const match = findItemByCode(catalogItems, code)
       if (match) {
         addCatalogItem(match)
       } else {

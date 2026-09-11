@@ -21,7 +21,6 @@ import {
   useItemVariants,
   useBulkUpsertVariants,
   type VariantInput,
-  type VariantRow,
 } from "@/hooks/use-item-variants"
 
 interface Axis {
@@ -112,7 +111,10 @@ export function VariantsTab({
       itemId: v.itemId,
       attrs: v.variantAttributes ?? {},
       sku: v.itemSKU ?? "",
-      barcode: (v as VariantRow & { itemBarcode?: string | null }).itemBarcode ?? "",
+      // Columna real (mig 220). Antes se leía `itemBarcode` del JSONB con un
+      // cast a mano — el dato estaba ahí pero no llegaba a ningún otro lado
+      // del sistema, así que el código cargado acá era invisible para el POS.
+      barcode: v.barcode ?? "",
       price: typeof v.itemPrice === "number" ? v.itemPrice : Number(v.itemPrice) || null,
       cost: typeof v.itemCost === "number" ? v.itemCost : Number(v.itemCost) || 0,
       stock: 0,
@@ -307,7 +309,7 @@ export function VariantsTab({
                       </TableHead>
                     ))}
                     <TableHead>SKU</TableHead>
-                    <TableHead>Barcode</TableHead>
+                    <TableHead>Código de barras</TableHead>
                     <TableHead>Precio</TableHead>
                     <TableHead>Costo</TableHead>
                     <TableHead>Stock inicial</TableHead>
@@ -339,7 +341,7 @@ export function VariantsTab({
                       <TableCell>
                         <Input
                           className="h-8 w-28 tabular-nums text-sm"
-                          placeholder="Codigo de barras"
+                          placeholder="Código de barras"
                           value={row.barcode}
                           onChange={(e) =>
                             handleRowChange(idx, "barcode", e.target.value)

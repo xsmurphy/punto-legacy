@@ -133,10 +133,29 @@ final class ItemService
 
     /**
      * Actualizar campos arbitrarios de un item (con sanitización mínima).
+     *
+     * `barcode` (mig 220) no necesita ninguna rama propia: `Schema::split()`
+     * decide columna-vs-JSONB contra el catálogo REAL de Postgres, así que
+     * desde que la columna existe el mismo patch genérico que trae el alta
+     * (`POST /v1/items` → `$extras`) y la edición (`PUT` → `$patch`) la
+     * escribe. Lo único que se hace acá es normalizar el vacío — ver abajo.
      */
     public function update(string $id, string $companyId, array $patch): bool
     {
         if (empty($patch)) return false;
+
+        // Código de barras: "" y NULL son la MISMA cosa de negocio (el ítem no
+        // tiene código), y guardarlas como dos valores distintos deja el dato
+        // con dos representaciones — el índice parcial `WHERE barcode IS NOT
+        // NULL` indexaría filas vacías y cualquier chequeo de "¿tiene código?"
+        // tendría que acordarse de las dos. El form del panel manda "" al
+        // limpiar el campo, así que la normalización va en el choke point de
+        // escritura y no en cada caller.
+        if (array_key_exists('barcode', $patch)) {
+            $bc = $patch['barcode'];
+            $bc = is_string($bc) ? trim($bc) : $bc;
+            $patch['barcode'] = ($bc === '' || $bc === false) ? null : $bc;
+        }
 
         // Sucursales (`item_outlet`, mig 170): NO son una columna de `item`, así
         // que se sacan del patch ANTES de que llegue al writer genérico —

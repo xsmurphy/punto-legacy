@@ -148,6 +148,10 @@ const itemSchema = z.object({
   ]),
   name: z.string().min(1, "El nombre es requerido"),
   sku: z.string(),
+  // Sin validación de formato a propósito: conviven EAN-13, UPC-A, códigos
+  // internos del comercio y etiquetas de proveedor. Rechazar lo que no parezca
+  // EAN dejaría al cajero sin poder cargar el código que SÍ le va a escanear.
+  barcode: z.string(),
   description: z.string(),
   price: z.number().nonnegative().nullable(),
   cost: z.number().nonnegative().nullable(),
@@ -277,7 +281,7 @@ function ItemEditPageInner() {
   const { tabsWithErrors, onInvalid } = useFormTabErrors({
     form,
     fields: {
-      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions", "currencies"],
+      perfil: ["name", "sku", "barcode", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions", "currencies"],
       config: ["outletIds", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
       disponibilidad: ["availability"],
       produccion: ["procedure"],
@@ -375,6 +379,7 @@ function ItemEditPageInner() {
       kind: inferKind(data),
       name: toStr(data.itemName),
       sku: toStr(data.itemSKU),
+      barcode: toStr(data.barcode),
       description: toStr(data.itemDescription),
       price: toNum(data.itemPrice),
       cost: toNum(data.itemCost),
@@ -861,25 +866,54 @@ function PerfilTab({
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="sku"
-                render={({ field }) => (
-                  <FormItem className="space-y-1">
-                    <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      SKU / Código
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Código interno"
-                        className="h-8 tabular-nums text-sm"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {/* SKU y código de barras, lado a lado: son los dos códigos del
+                  artículo y separarlos en bloques distintos los haría parecer
+                  cosas de naturaleza distinta. El SKU es el código INTERNO que
+                  inventa el comercio; el de barras es el que viene impreso en
+                  el envase y es contra el que pega el lector del POS.
+                  `h-8 text-sm` (no el h-9 canónico de shadcn) por paridad con
+                  el resto del hero: son subcampos del nombre, que es el que
+                  manda visualmente acá. */}
+              <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="sku"
+                  render={({ field }) => (
+                    <FormItem className="space-y-1">
+                      <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        SKU / Código
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Código interno"
+                          className="h-8 tabular-nums text-sm"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="barcode"
+                  render={({ field }) => (
+                    <FormItem className="space-y-1">
+                      <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        Código de barras
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Escaneá o escribí el código"
+                          className="h-8 tabular-nums text-sm"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
           </div>
 

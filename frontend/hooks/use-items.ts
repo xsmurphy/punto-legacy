@@ -567,6 +567,11 @@ function serialize(
   return {
     itemName: values.name,
     itemSKU: values.sku,
+    // Columna real `item.barcode` (mig 220) — NO la clave legada
+    // `data.itemBarcode`, que la mig promovió y borró. Viaja siempre, incluido
+    // el vacío: el backend normaliza "" a NULL, así que limpiar el campo en el
+    // form efectivamente BORRA el código en vez de dejar el viejo pegado.
+    barcode: values.barcode,
     itemDescription: values.description,
     itemPrice: values.price,
     itemCost: values.cost,

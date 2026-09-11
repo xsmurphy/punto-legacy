@@ -186,6 +186,18 @@ export interface PosItem {
   id: string
   name: string
   sku: string | null
+  /**
+   * Código de barras del artículo (`item.barcode`, mig 220). Campo PROPIO,
+   * distinto del SKU: el SKU es el código interno que el comercio inventa y el
+   * barcode es el que viene impreso en el envase. Pueden coincidir, pueden no
+   * existir los dos, y el escaneo tiene que pegar contra el segundo.
+   *
+   * `null` = el artículo no tiene código cargado. El catálogo NO garantiza
+   * unicidad (decisión: dos ítems pueden compartir código y gana el primero),
+   * así que resolvelo siempre con `findItemByCode()` —que fija el orden
+   * barcode → sku → id— y nunca con un `.find()` a mano.
+   */
+  barcode: string | null
   price: number
   /**
    * Override de "precio incluye impuesto" a nivel ítem (`itemTaxIncluded`).
