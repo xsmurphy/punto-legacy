@@ -357,6 +357,86 @@ export interface OpenInvoicesReportResponse {
   }
 }
 
+/**
+ * `?view=summary` — el dashboard de Cuentas por cobrar y pagar.
+ *
+ * Las dos puntas del crédito en UNA respuesta: pedirlas por separado daría dos
+ * fotos de momentos distintos y el neto entre ambas dejaría de cerrar.
+ */
+export interface OpenInvoicesAgingBucket {
+  /** '0-30' | '31-60' | '61-90' | '90+' — días DESDE EL VENCIMIENTO. */
+  bucket: string
+  amount: number
+  count: number
+}
+
+export interface OpenInvoicesTopContact {
+  contactId: string
+  name: string
+  /** Saldo pendiente del contacto (no lo emitido). */
+  open: number
+  count: number
+  oldest: {
+    invoiceNo: string
+    saleId: string
+    date: string
+    dueDate: string
+    /** Positivo = vencido hace N días; negativo = todavía no vence. */
+    daysOverdue: number
+  } | null
+}
+
+export interface OpenInvoicesSide {
+  open: number
+  count: number
+  contacts: number
+  overdue: { amount: number; count: number }
+  notDue: { amount: number; count: number }
+  /**
+   * Comprobantes sin vencimiento cargado: su antigüedad se midió desde la
+   * EMISIÓN y ya están sumados en los buckets. Se declaran en pantalla — no se
+   * esconden ni se dejan afuera del total.
+   */
+  sinVencimiento: { amount: number; count: number }
+  aging: OpenInvoicesAgingBucket[]
+  top: OpenInvoicesTopContact[]
+}
+
+export interface OpenInvoicesProjectionWeek {
+  week: number
+  from: string
+  to: string
+  inflow: number
+  outflow: number
+  net: number
+}
+
+export interface OpenInvoicesSummaryResponse {
+  /** Hoy en la zona del tenant — el corte contra el que se midió todo. */
+  today: string
+  totals: {
+    receivable: number
+    payable: number
+    net: number
+    receivableCount: number
+    payableCount: number
+  }
+  receivable: OpenInvoicesSide
+  payable: OpenInvoicesSide
+  /**
+   * Reparto de lo YA EMITIDO según su fecha de vencimiento. No es un
+   * pronóstico: no modela ventas futuras ni probabilidad de cobro (`basis`
+   * lo dice explícito). `overdue` es el arrastre y `beyond` lo que vence
+   * después de la semana 8 — los dos visibles a propósito.
+   */
+  projection: {
+    basis: string
+    overdue: { inflow: number; outflow: number; net: number }
+    weeks: OpenInvoicesProjectionWeek[]
+    beyond: { inflow: number; outflow: number; net: number }
+  }
+}
+
 // ── Rankings simples (Categories / Brands / Payment Methods) ─────────────────
 
 export interface CategoryRow {
