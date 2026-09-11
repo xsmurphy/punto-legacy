@@ -4,7 +4,11 @@
 > mismo día sobre `POST /fetchs` (branch `api/migrador-fetchs`): ver §4, que
 > reemplaza al scraping de pantallas con el que arrancó la F1.
 > D1-D6 cerradas por el owner, no relitigar.
-> F2 (ventas históricas) **no** está implementada — ver §12.
+> **F2 (HISTÓRICO) implementada 2026-09-11** — ventas con sus líneas, compras
+> y movimientos de caja, como REGISTRO CONTABLE. Ver **§17**, que reemplaza al
+> "no se migra" de §12. Lo primero que hay que leer ahí es §17.1: el histórico
+> NO toca stock, caja, numeración fiscal ni FE, y por eso es la ÚNICA parte
+> del migrador que no pasa por los servicios de negocio.
 > **La APERTURA DE STOCK se agregó el 2026-09-11** (decisión del owner, §16):
 > el migrador importa cantidad y costo por (artículo, sucursal). Eso REVIERTE
 > el "el stock inicial no se migra" que decían §12 y la UI.
@@ -424,15 +428,11 @@ tocar el camino por el que se dan de alta TODAS las cajas del producto.
 
 ## 12. Qué NO se migra, y por qué
 
-- **Ventas históricas (F2).** `/fetchs` no las expone por ningún `load`: es el
-  bootstrap de una caja, no un reporte. La superficie ya está relevada y el
-  cliente listo (`salesRaw()` / `saleDetailRaw()` sobre
-  `a_report_transactions`), pero **ningún dominio los llama**. Lo que falta
-  decidir: una venta importada NO puede pasar por `SaleService::save()`
-  (asignaría numeración nueva y movería stock y caja); tiene que entrar como
-  documento ya emitido, con su número congelado, sin tocar `document_sequence`
-  —que es justo lo que el import de cajas deja posicionado— y sin reabrir un
-  período cerrado (`context/48`).
+- ~~**Ventas históricas (F2).**~~ **Se migra desde 2026-09-11** — decisión del
+  owner, junto con compras y movimientos de caja. Sigue siendo cierto que
+  `/fetchs` no lo expone (es el bootstrap de una caja, no un reporte) y que
+  una venta importada NO puede pasar por `SaleService::save()`; eso dejó de
+  ser una pregunta abierta y pasó a ser el diseño. Ver **§17**.
 - ~~**Stock inicial.**~~ **Se migra desde 2026-09-11** — decisión del owner.
   Era el mismo argumento que el costo: sin apertura, el COGS de toda venta nace
   null y los reportes de margen salen vacíos. Cantidad y costo son la MISMA
@@ -604,3 +604,212 @@ misma piedra.
 | **Un `stockSource` nuevo para la apertura** | Los lectores que filtran por `stockSource` buscan valores concretos y los que lo muestran lo traducen con una tabla cerrada: un valor nuevo sale crudo en pantalla y ningún reporte lo entiende. Se usa `adjustment`, el mismo contrato que el ajuste del panel y que la carga inicial de la planilla. |
 | **Meter la apertura dentro del dominio `catalog`** | Un saldo es un movimiento por (artículo, **sucursal**), y las sucursales las mapea `config`, que corre DESPUÉS. Dentro de `catalog` correría sin sucursales mapeadas. Es dominio propio y va último. |
 | **INSERT directo en `stock`** para abrir el inventario | `Inventory::manageStock()` es el ÚNICO escritor del ledger (D1/D6 de `context/52`): es quien calcula el promedio ponderado, repostea el historial y publica el evento realtime. |
+
+## 17. El HISTÓRICO (F2) — 2026-09-11
+
+Decisión del owner: se importa el histórico de **ventas (con sus líneas),
+compras y movimientos de caja** como **REGISTRO CONTABLE**. Alimenta reportes,
+balance y cuentas por cobrar/pagar.
+
+### 17.1 La regla que manda sobre todo
+
+El histórico **NO TOCA**: stock, caja/arqueos, numeración fiscal de Punto, ni
+facturación electrónica. Son hechos que YA ocurrieron en otro sistema; acá
+solo se registran para poder leerlos.
+
+De ahí sale todo lo demás, incluida la excepción al D4:
+
+> **No se usa `SaleService::save()`.** Ese camino asigna un número nuevo de
+> `document_sequence`, encola FE, y mueve stock y caja — exactamente las
+> cuatro cosas prohibidas. Llamarlo con una fecha vieja no produce un asiento
+> histórico: produce una **venta nueva con fecha vieja**, que le rompe la
+> serie fiscal al comercio y le descuadra el inventario.
+
+La operación es OTRA, así que el camino es otro: `EncomHistoryImporter`, en su
+propio archivo —para que la excepción no se lea como la regla— y acotado a
+insertar los hechos. Sigue usando `ncmInsert()` (el helper canónico, que
+resuelve los nombres reales de columna contra el schema) y el mecanismo de
+rollups de siempre: lo que se saltea es la lógica de NEGOCIO de vender, no la
+capa de datos.
+
+### 17.2 Tres dominios, no uno
+
+`sales_history`, `purchases_history`, `expenses_history`. Salen de endpoints
+distintos y con formas distintas, escriben cosas distintas (un movimiento de
+caja no es una `transaction`: va a `expenses`), y el operador tiene que poder
+pedir uno sin los otros. Van al final del orden: un asiento referencia
+artículos, clientes, usuarios y sucursales, y esos mapas los llenan los
+dominios anteriores.
+
+**No están en la selección por defecto de la UI**, y es la única excepción a
+"todo tildado". No es una duda sobre si conviene traerlos: el legacy no tiene
+endpoint de líneas por rango para las ventas, así que hay que pedirle el
+detalle de CADA venta, una por una y paceada. Un comercio con miles de ventas
+al año es un job de horas, y eso se elige a sabiendas.
+
+### 17.3 Particionado — mig 221, con evidencia
+
+`transaction` e `itemSold` están particionadas por mes (mig 156) y tienen
+partición DEFAULT. **Verificado empíricamente contra Postgres real**: un
+INSERT con fecha vieja **no falla**, cae en la DEFAULT. El problema es que se
+queda ahí para siempre — `ensure_month_partitions()` ancla su cobertura en la
+partición mensual más vieja YA CREADA y, *a propósito*, no se deja empujar
+hacia atrás por los datos (para que una fecha basura no genere años de
+particiones vacías).
+
+O sea: un año de histórico caería entero en la DEFAULT, ninguna corrida futura
+lo reclasificaría, y toda consulta por un mes viejo la escanearía. El
+particionado (E1 de `context/48`) anulado justo para el comercio que más filas
+trajo.
+
+La mig 221 separa los dos casos que hasta ahora compartían mecanismo:
+
+| Caso | Qué pasa |
+|---|---|
+| Fecha vieja SUELTA (tipeo, dato basura) | No mueve la cobertura. `ensure_month_partitions()` intacta. |
+| RANGO conocido que un operador pidió importar | Crea sus meses, con `ensure_month_partitions_range()`. |
+
+El cuerpo (dropear FK → DETACH de la default con `lock_timeout` → mover filas
+→ re-attach → recrear FK) vive **una sola vez**: la función por rango es el
+motor y la de siempre delega en ella, con la misma firma y el mismo resultado.
+Copiarlo hubiera garantizado que las dos diverjan en el primer fix.
+
+Tope duro de **120 meses**: un rango mayor es casi siempre una fecha mal leída
+del origen, y ahí falla fuerte en vez de crear 672 particiones (verificado).
+
+**Los límites se anclan en UTC explícito**, y eso es una corrección, no un
+detalle. Un `date` convertido a `timestamptz` se interpreta en la zona de la
+SESIÓN, y el importador fija la del tenant antes de escribir: con
+America/Asuncion el límite superior de agosto caía 4 horas DENTRO de
+septiembre y Postgres rechazaba la partición por solaparse. Lo encontró el
+arnés, no el diseño. El mes de una partición es una decisión de
+ALMACENAMIENTO: tiene que dar el mismo resultado corra quien corra.
+
+> **Chequeo previo al deploy** (levantado por el `code-reviewer`): esto asume
+> que las particiones que YA existen en producción tienen sus límites en UTC.
+> Se verificó así en una base migrada de cero (`FROM '2026-09-01 00:00:00+00'`),
+> que es como las creó la mig 156, pero **no** contra la base de producción. Si
+> alguna partición viva tuviera límites en otra zona, el próximo mes que cree
+> el cron podría chocar por solapamiento. Confirmar con:
+> `SELECT relname, pg_get_expr(relpartbound, oid) FROM pg_class WHERE relname LIKE 'transaction_y%'`.
+
+### 17.4 Cierre de período
+
+`fn_period_guard` (mig 157) es **BEFORE UPDATE OR DELETE únicamente** — un
+INSERT en un mes cerrado entra sin que nada lo frene (es deliberado:
+offline-first, el back nunca rechaza una venta ya emitida). **La base NO
+protege al comercio de que una migración le reescriba un mes conciliado.**
+
+Así que el chequeo lo hace el importador con `period_is_closed()`, **antes de
+insertar y por MES entero**: se salta el mes completo con un mensaje claro, en
+vez de dejar medio mes importado.
+
+### 17.5 Rollups
+
+Los reportes leen rollups pre-agregados, no la tabla de hechos: sin recalcular,
+el histórico no aparece en ningún lado. Cada asiento marca su día con
+`rollupMarkDirty()` y al final del dominio se drena con `rollup_reconcile()`
+—el mismo motor del job de mantenimiento— en tandas acotadas y con techo, para
+que un histórico grande no deje al worker recalculando sin fin.
+
+### 17.6 Idempotencia y reanudación
+
+Por mes, y con marca en `migration_map` (`sale_history` / `purchase_history` /
+`expense_history`) **en la misma transacción que el asiento**. Sin eso, un
+worker que muere entre las dos escrituras deja la venta sin marcar y la
+corrida siguiente la asienta de nuevo: el comercio vería el doble de
+facturación. Es el mismo riesgo que la apertura de stock (§16.4), y acá
+también duplicar es plata.
+
+**Supuesto que sostiene esto** (levantado por el `code-reviewer`): que hay UN
+worker por empresa, que es lo que garantiza el índice único parcial de
+`migration_job` (§6). `remember()` usa `ON CONFLICT DO NOTHING` y no comprueba
+si insertó, así que si alguna vez dos workers procesaran el mismo job en
+paralelo, uno podría dejar una `transaction` ya commiteada sin su marca —y la
+corrida siguiente la duplicaría—. La idempotencia protege el RE-CORRER, no el
+correr en paralelo.
+
+### 17.7 Referencias que no resuelven
+
+- **Artículo**: mapa por id → SKU → nombre normalizado → **artículo HISTÓRICO
+  archivado** (`[Histórico] <nombre>`, `itemStatus = 0`, no vendible). Existe
+  para que los totales CIERREN: `itemsold.itemid` es NOT NULL, y descartar la
+  línea dejaría una venta cuyo total no coincide con la suma de sus ítems.
+  Todos los lectores del catálogo activo filtran `itemStatus = 1`, así que no
+  aparece en el POS. Queda nombrado en la bitácora.
+- **Cliente**: la venta entra SIN cliente y al log. No se inventan contactos.
+- **Usuario y sucursal**: la venta **no entra**. `transaction.userid` y
+  `.outletid` son NOT NULL, y resolverlos con "el primero activo" le
+  atribuiría ventas a quien no las hizo (memoria del proyecto: prohibido
+  resolver una dimensión faltante adivinando). El log dice qué migrar.
+
+### 17.8 Anuladas
+
+Se marcan con **`voidedAt`** (mig 154), que es lo que los rollups miran para
+excluirlas (mig 155) — no con `transactionType = 7`, que las sacaría de los
+reportes por otro camino y les borraría el tipo real.
+
+### 17.9 COGS — se ESCRIBE, y es una aproximación declarada
+
+**`itemSoldCOGS` se escribe en cada línea importada** (corrección del owner,
+2026-09-11). No alcanza con "el margen se calcula después": los reportes leen
+el costo **congelado por línea**, no lo recalculan, así que con la columna
+vacía el margen histórico sencillamente NO EXISTE.
+
+**Qué costo se escribe**: `item.itemCost` del artículo ya migrado — el costo
+**ACTUAL**, no el del día de la venta, porque el legacy no expone el costo de
+cada venta (verificado: el form trae cantidad, precio, IVA y total, nada de
+costo). **El margen histórico es entonces una aproximación conocida, no el
+dato original**, y está dicho acá y en la UI del job.
+
+Sale de `item.itemCost` y no del promedio ponderado del ledger a propósito: es
+el que el propio migrador escribió (§4.4) o el que soporte cargó después, y
+**no depende de que el dominio de apertura de stock haya corrido**. Con la
+apertura corrida los dos valen lo mismo.
+
+**El contrato es el de `SaleService`, copiado, no reinventado**:
+
+- La columna guarda el costo **UNITARIO**, no el de la línea. Es lo que
+  devuelve `resolveUnitCOGS()` y lo que persiste `persistItemsAndStock()`, sin
+  multiplicar por la cantidad.
+- El valor pasa por **`flipOnReturn()`**, que es no-op para los tipos que
+  importa el histórico (0/3 venta, 1/4 compra) y solo invierte el signo en la
+  devolución (tipo 6). Se llama igual para que el contrato quede literal y no
+  haya que acordarse de esto si alguna vez se importan devoluciones.
+- **Un artículo sin costo conocido deja la columna en NULL, nunca en 0.** Y no
+  se escribe `null`: se **OMITE** del insert, porque `flipOnReturn(null)`
+  devuelve **0** — y un 0 se lee como "costó nada", o sea **margen 100%** para
+  siempre en ese artículo. Es el mismo criterio de §16.3.
+
+Esas líneas quedan **nombradas en la bitácora del job**. Ojo con una asimetría
+que conviene tener presente: cargarle el costo al artículo después **no las
+arregla**, porque el asiento ya está escrito y la reanudación no lo
+re-importa. Si importa que el margen figure, el costo tiene que estar cargado
+ANTES de correr el histórico.
+
+### 17.10 Supuestos que quedan
+
+1. **Los nombres de los inputs del detalle de venta** (`itemQty[<id>]`,
+   `itemPrice[<id>]`). El nombre del artículo NO está en un input sino en una
+   celda, y se empareja con su línea **por orden de aparición**. Si el legacy
+   desordenara uno de los dos lados, el nombre saldría corrido — por eso
+   ninguna línea se descarta en silencio.
+2. **Las columnas de compras** están relevadas parcialmente. Se resuelven por
+   ENCABEZADO con palabras clave, que tolera columnas nuevas o de más.
+3. **Cómo marca el legacy una anulada** (se busca `ANUL`/`CANCEL` en Tipo y
+   Tipo Documento) y **contado vs crédito** (`CREDITO`).
+
+### 17.11 Arquitecturas rechazadas — no reintroducir
+
+| Arquitectura | Por qué se rechazó |
+|---|---|
+| **Importar el histórico por `SaleService::save()`** | Numera con `document_sequence`, encola FE, mueve stock y mueve caja. Es una venta nueva con fecha vieja, no un asiento. |
+| **Una columna `source` nueva en `transaction`** | No existe, y la única parecida —`channel`— tiene CHECK cerrado (`mostrador|mesa|delivery`): inventarle un valor es el error que el proyecto ya documentó con `stockSource`. La convención real para "vino de una migración" es `migration_map`, que además da idempotencia; en la fila queda `meta.importedFrom`. |
+| **Dejar que las filas viejas caigan en la partición DEFAULT** | No se reclasifican nunca (§17.3) y anulan el particionado para el comercio migrado. |
+| **Hacer que `ensure_month_partitions()` mire los datos para ir hacia atrás** | Es justo lo que la mig 156 evitó a propósito: una fecha basura generaría años de particiones vacías. El rango se declara, no se deduce. |
+| **Copiar la lógica de creación de particiones en una función nueva** | Es una danza de FK + DETACH + mover + re-attach: dos copias divergen en el primer fix. El motor es uno y la función vieja delega. |
+| **Confiar en que la base rechace un INSERT en período cerrado** | El guard es BEFORE UPDATE OR DELETE. El INSERT entra. El chequeo es del importador (§17.4). |
+| **Poner `itemSoldCOGS = 0` cuando el legacy no da el costo** | Margen 100% en todos los reportes del período. Mismo argumento que §16.3. |
+| **Descartar la línea cuyo artículo no matchea** | El total de la venta deja de cerrar contra la suma de sus ítems. Entra un artículo histórico archivado y se nombra en la bitácora. |
+| **Ponerle un usuario cualquiera a la venta cuyo usuario no está migrado** | `userid` es NOT NULL, pero completarlo con otro le atribuye ventas a quien no las hizo. La venta no entra y el log dice qué falta. |
+| **Traer "todo el histórico" sin rango** | El legacy no dice desde cuándo tiene datos, y son decenas de miles de requests (una por venta) más años de particiones. El rango lo elige el operador; sin elección, 12 meses. |
