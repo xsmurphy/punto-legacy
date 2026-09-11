@@ -135,6 +135,42 @@ final class FixtureEncomClient extends EncomClient
     }
 }
 
+/**
+ * Variante: el form de la caja existe pero YA NO trae los campos esperados
+ * (el legacy les cambió el `name`). Tiene que fallar fuerte, no importar una
+ * numeración fiscal a medias.
+ */
+final class BrokenFormEncomClient extends EncomClient
+{
+    public function __construct()
+    {
+        parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture']);
+    }
+
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        if (isset($params['o'])) {
+            return '';
+        }
+        if ($path === '/a_outlets' && isset($params['showTable'])) {
+            return '{"table":"<thead><tr><th>Nombre</th></tr></thead><tbody><tr data-id=\"out-1\"><td>Casa Central</td></tr></tbody>"}';
+        }
+        if ($path === '/a_registers' && isset($params['list'])) {
+            return '<thead><tr><th>Nombre</th><th>Creado el</th><th>Sucursal</th>'
+                . '<th>No. de Timbrado o Autorización</th><th>Prefijo</th>'
+                . '<th>No. de Factura</th><th>Sufijo</th><th>Estado</th></tr></thead><tbody>'
+                . '<tr data-id="reg-x"><td>Caja Rara</td><td>hoy</td><td>Casa Central</td><td>16543210</td><td>001-001-</td><td>0000010</td><td></td><td></td></tr>'
+                . '</tbody>';
+        }
+        if ($path === '/a_registers' && ($params['action'] ?? '') === 'edit') {
+            // Un form real, pero con TODOS los `name` cambiados.
+            return '<form><input name="numero_timbrado" value="16543210">'
+                . '<input name="punto_expedicion" value="001-001"></form>';
+        }
+        return '';
+    }
+}
+
 /** Variante del caso E: dos cajas con el mismo (timbrado, punto). */
 final class ClashingEncomClient extends EncomClient
 {
@@ -154,9 +190,13 @@ final class ClashingEncomClient extends EncomClient
             return '{"table":"<tbody><tr data-id=\"out-1\"><td>Casa Central</td><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody>"}';
         }
         if ($path === '/a_registers' && isset($params['list'])) {
-            return '<tbody>'
-                . '<tr data-id="dup-1"><td>Caja Uno</td><td>hoy</td><td class="text-right">16543210</td><td>001-001</td><td class="text-right">0000100</td><td></td><td></td></tr>'
-                . '<tr data-id="dup-2"><td>Caja Dos</td><td>hoy</td><td class="text-right">16543210</td><td>001-001</td><td class="text-right">0000250</td><td></td><td></td></tr>'
+            // Mismo layout que el sistema vivo: con columna Sucursal y el
+            // prefijo con guión final.
+            return '<thead><tr><th>Nombre</th><th>Creado el</th><th>Sucursal</th>'
+                . '<th>No. de Timbrado o Autorización</th><th>Prefijo</th>'
+                . '<th>No. de Factura</th><th>Sufijo</th><th>Estado</th></tr></thead><tbody>'
+                . '<tr data-id="dup-1"><td>Caja Uno</td><td>hoy</td><td>Casa Central</td><td class="text-right">16543210</td><td>001-001-</td><td class="text-right">0000100</td><td></td><td></td></tr>'
+                . '<tr data-id="dup-2"><td>Caja Dos</td><td>hoy</td><td>Casa Central</td><td class="text-right">16543210</td><td>001-001-</td><td class="text-right">0000250</td><td></td><td></td></tr>'
                 . '</tbody>';
         }
         if ($path === '/a_registers' && $action === 'edit') {
@@ -332,6 +372,28 @@ try {
             && ($registers[0]['invoiceAuthExp'] ?? '') === '2027-12-31'
             && ($registers[0]['docsZeros'] ?? 0) === 7,
         'caja = ' . json_encode($registers[0], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // La columna `Sucursal` del sistema vivo está ANTES del timbrado: por
+    // índice fijo, el nombre de la sucursal se leería como número de timbrado.
+    check(
+        'H4b · la columna Sucursal NO corre las columnas fiscales (se resuelve por encabezado)',
+        ($registers[0]['invoiceAuth'] ?? '') === '16543210'
+            && ($registers[1]['prefix'] ?? '') === '001-002',
+        'cajas = ' . json_encode(array_map(
+            static fn($r) => [$r['name'], $r['invoiceAuth'], $r['prefix']],
+            $registers
+        ), JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // El vivo muestra el punto con guión final ("001-001-"); Punto valida
+    // contra ^\d{3}-\d{3}$ y lo rechazaría, abortando el dominio entero.
+    check(
+        'H4c · el punto de expedición se normaliza: "001-001-" → "001-001"',
+        ($registers[0]['prefix'] ?? '') === '001-001',
+        'prefix = ' . var_export($registers[0]['prefix'] ?? null, true),
         $failures, $checks
     );
 
@@ -697,6 +759,30 @@ try {
         'E4 · no quedó ninguna serie fiscal a medio crear',
         $seqBad === 0,
         "document_sequence tiene $seqBad filas con ese timbrado, esperado 0",
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // J. El form que cambió de campos falla FUERTE, no en silencio
+    // ══════════════════════════════════════════════════════════════════
+    $brokenErr = '';
+    try {
+        (new BrokenFormEncomClient())->registers();
+    } catch (\Throwable $e) {
+        $brokenErr = $e->getMessage();
+    }
+
+    check(
+        'J1 · si el form de la caja ya no trae los campos de timbrado, se LANZA (no se importa a ciegas)',
+        $brokenErr !== '',
+        'no lanzó nada: el import habría seguido con datos fiscales sin verificar',
+        $failures, $checks
+    );
+
+    check(
+        'J2 · el error dice qué caja y por qué',
+        str_contains($brokenErr, 'Caja Rara') && str_contains($brokenErr, 'timbrado'),
+        "mensaje: $brokenErr",
         $failures, $checks
     );
 } finally {

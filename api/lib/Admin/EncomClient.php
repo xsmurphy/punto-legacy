@@ -188,20 +188,28 @@ class EncomClient implements EncomSource
      */
     public function outlets(): array
     {
-        $html = EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true']));
-        $rows = EncomParse::htmlRows($html);
+        $table   = EncomParse::htmlTable(EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true'])));
+        $headers = $table['headers'];
+
+        // Por encabezado, igual que las cajas. La columna del documento
+        // fiscal es `TIN_NAME` (dice "RUC" en PY y otra cosa en otro país),
+        // así que esa se resuelve por posición conocida.
+        $cName    = EncomParse::columnIndex($headers, ['NOMBRE']) ?? 0;
+        $cBilling = EncomParse::columnIndex($headers, ['RAZON']) ?? 1;
+        $cPhone   = EncomParse::columnIndex($headers, ['TELEFONO']) ?? 3;
+        $cAddress = EncomParse::columnIndex($headers, ['DIRECCION']) ?? 4;
 
         $out = [];
-        foreach (array_slice($rows, 0, self::MAX_ENTITIES) as $row) {
+        foreach (array_slice($table['rows'], 0, self::MAX_ENTITIES) as $row) {
             $cells = $row['cells'];
 
             $outlet = [
                 'ID'          => $row['id'],
-                'name'        => $cells[0] ?? '',
-                'billingName' => $cells[1] ?? '',
-                'tin'         => $cells[2] ?? '',
-                'phone'       => $cells[3] ?? '',
-                'address'     => $cells[4] ?? '',
+                'name'        => trim((string) ($cells[$cName] ?? '')),
+                'billingName' => trim((string) ($cells[$cBilling] ?? '')),
+                'tin'         => trim((string) ($cells[2] ?? '')),
+                'phone'       => trim((string) ($cells[$cPhone] ?? '')),
+                'address'     => trim((string) ($cells[$cAddress] ?? '')),
             ];
 
             // El form trae lo que la tabla no: email, descripción, lat/lng.
@@ -256,60 +264,169 @@ class EncomClient implements EncomSource
      */
     public function registers(): array
     {
-        $out = [];
+        // Indexado por id del legacy, NO una lista: ver la deduplicación de
+        // más abajo.
+        $out         = [];
+        $outletNames = $this->outletNamesById();
 
-        foreach ($this->outletIds() as $outletId) {
+        foreach (array_keys($outletNames) as $outletId) {
             // (1) Fijar la sucursal activa. Responde 302 a propósito —
             // `allowRedirect` evita que se lea como "sesión caída".
             $this->get('/a_registers', ['o' => $outletId], true);
 
-            // (2) Ahora sí, las cajas de ESA sucursal.
-            $rows = EncomParse::htmlRows($this->get('/a_registers', ['list' => 'true']));
+            // (2) Ahora sí, el listado. OJO: viene SIN el wrapper `{"table":…}`
+            // (a diferencia del de sucursales); `tableHtml()` tolera las dos.
+            $table   = EncomParse::htmlTable(EncomParse::tableHtml($this->get('/a_registers', ['list' => 'true'])));
+            $headers = $table['headers'];
 
-            foreach (array_slice($rows, 0, self::MAX_ENTITIES) as $row) {
+            // Columnas POR ENCABEZADO. El sistema vivo tiene una columna
+            // `Sucursal` que el snapshot no tiene, así que por índice fijo el
+            // nombre de la sucursal se leería como TIMBRADO.
+            $cName   = EncomParse::columnIndex($headers, ['NOMBRE']) ?? 0;
+            $cOutlet = EncomParse::columnIndex($headers, ['SUCURSAL']);
+            $cAuth   = EncomParse::columnIndex($headers, ['TIMBRADO', 'AUTORIZACION']) ?? 2;
+            $cPrefix = EncomParse::columnIndex($headers, ['PREFIJO']) ?? 3;
+            $cNumber = EncomParse::columnIndex($headers, ['FACTURA']) ?? 4;
+            $cSufix  = EncomParse::columnIndex($headers, ['SUFIJO']) ?? 5;
+
+            foreach (array_slice($table['rows'], 0, self::MAX_ENTITIES) as $row) {
+                // ── Deduplicación ────────────────────────────────────────
+                // No está garantizado que el listado esté acotado a la
+                // sucursal activa: el vivo trae una columna `Sucursal`, que es
+                // justamente lo que tendría una lista que abarca varias. Si
+                // fuera así, el recorrido devolvería cada caja una vez POR
+                // SUCURSAL, y dos copias de la misma caja se verían como dos
+                // cajas con el mismo (timbrado, punto) — o sea, el import
+                // abortaría por un choque que no existe.
+                if (isset($out[$row['id']])) {
+                    continue;
+                }
+
                 $cells = $row['cells'];
 
-                // El número de la tabla viene YA pasado por `leadingZeros()`,
-                // así que esa misma cadena da el correlativo y el ancho. Igual
-                // se prefiere el del form, que es el valor sin formatear.
-                $paddedNo = preg_replace('/\D/', '', (string) ($cells[4] ?? '')) ?? '';
+                // El número viene pasado por `leadingZeros()` ("0006848"), así
+                // que esa cadena da el correlativo Y el ancho de impresión.
+                $paddedNo = preg_replace('/\D/', '', (string) ($cells[$cNumber] ?? '')) ?? '';
 
                 $reg = [
                     'ID'             => $row['id'],
                     'outletLegacyId' => $outletId,
-                    'name'           => $cells[0] ?? '',
-                    'invoiceAuth'    => preg_replace('/\D/', '', (string) ($cells[2] ?? '')) ?? '',
-                    'prefix'         => trim((string) ($cells[3] ?? '')),
-                    'sufix'          => trim((string) ($cells[5] ?? '')),
+                    'name'           => trim((string) ($cells[$cName] ?? '')),
+                    'invoiceAuth'    => preg_replace('/\D/', '', (string) ($cells[$cAuth] ?? '')) ?? '',
+                    'prefix'         => self::normalizePrefix((string) ($cells[$cPrefix] ?? '')),
+                    'sufix'          => trim((string) ($cells[$cSufix] ?? '')),
                     'invoiceNo'      => $paddedNo === '' ? 0 : (int) $paddedNo,
                     'docsZeros'      => $paddedNo === '' ? null : strlen($paddedNo),
                 ];
 
-                $form = EncomParse::formValues(
-                    $this->get('/a_registers', ['action' => 'edit', 'id' => $row['id']])
-                );
-                if ($form !== []) {
-                    $reg['name']        = $form['name'] ?: $reg['name'];
-                    $reg['invoiceAuth'] = preg_replace('/\D/', '', (string) ($form['auth'] ?? '')) ?: $reg['invoiceAuth'];
-                    $reg['prefix']      = trim((string) ($form['prefix'] ?? '')) ?: $reg['prefix'];
-                    $reg['sufix']       = trim((string) ($form['sufix'] ?? ''));
-                    // Estos DOS solo existen en el form; la tabla no los trae.
-                    $reg['invoiceAuthExp'] = trim((string) ($form['expiration'] ?? ''));
-                    $reg['invoiceNoMax']   = trim((string) ($form['registerInvoiceNoMax'] ?? ''));
-
-                    if (isset($form['invoice']) && trim((string) $form['invoice']) !== '') {
-                        $reg['invoiceNo'] = (int) preg_replace('/\D/', '', (string) $form['invoice']);
-                    }
-                    if (isset($form['leadingZero']) && trim((string) $form['leadingZero']) !== '') {
-                        $reg['docsZeros'] = (int) $form['leadingZero'];
+                // Si el listado dice a qué sucursal pertenece, ESO manda sobre
+                // la sucursal que se activó para pedirlo.
+                if ($cOutlet !== null) {
+                    $byName = $this->outletIdByName($outletNames, (string) ($cells[$cOutlet] ?? ''));
+                    if ($byName !== null) {
+                        $reg['outletLegacyId'] = $byName;
                     }
                 }
 
-                $out[] = $reg;
+                $out[$row['id']] = $this->enrichRegisterFromForm($reg);
             }
         }
 
+        return array_values($out);
+    }
+
+    /**
+     * Completa la caja con el form de `?action=edit`, que es el único lugar
+     * donde están el vencimiento del timbrado y la numeración máxima.
+     *
+     * **Falla fuerte, nunca en silencio**: si el legacy devolvió un form pero
+     * no trae NINGUNO de los campos esperados, significa que los `name`
+     * cambiaron y que el timbrado que se está por importar no es confiable.
+     * Importar igual dejaría una caja fiscal con datos de una tabla que
+     * tampoco sabemos leer. Preferimos que el dominio falle con un mensaje
+     * que diga qué caja y qué pasó.
+     */
+    private function enrichRegisterFromForm(array $reg): array
+    {
+        $body = $this->get('/a_registers', ['action' => 'edit', 'id' => $reg['ID']]);
+
+        // Sin cuerpo no hay form que leer (el legacy puede no exponerlo para
+        // esa caja). Se sigue con lo que dio el listado, que ya trae timbrado,
+        // punto y número.
+        if (trim($body) === '') {
+            return $reg;
+        }
+
+        $form = EncomParse::formValues($body);
+
+        $esperados = ['auth', 'prefix', 'invoice', 'expiration', 'leadingZero', 'name'];
+        if (array_intersect($esperados, array_keys($form)) === []) {
+            throw new EncomMigrationException(
+                'El formulario de la caja "' . $reg['name'] . '" no trae ninguno de los campos de timbrado '
+                . 'esperados (auth/prefix/invoice/expiration). El panel legacy cambió sus campos: no se importa '
+                . 'ninguna caja para no cargar una numeración fiscal incorrecta.',
+                502
+            );
+        }
+
+        $reg['name']        = trim((string) ($form['name'] ?? '')) ?: $reg['name'];
+        $reg['invoiceAuth'] = (preg_replace('/\D/', '', (string) ($form['auth'] ?? '')) ?: '') ?: $reg['invoiceAuth'];
+        $reg['prefix']      = self::normalizePrefix((string) ($form['prefix'] ?? '')) ?: $reg['prefix'];
+        $reg['sufix']       = trim((string) ($form['sufix'] ?? ''));
+
+        // Estos dos SOLO existen en el form.
+        $reg['invoiceAuthExp'] = trim((string) ($form['expiration'] ?? ''));
+        $reg['invoiceNoMax']   = trim((string) ($form['registerInvoiceNoMax'] ?? ''));
+
+        if (trim((string) ($form['invoice'] ?? '')) !== '') {
+            $reg['invoiceNo'] = (int) (preg_replace('/\D/', '', (string) $form['invoice']) ?: '0');
+        }
+        if (trim((string) ($form['leadingZero'] ?? '')) !== '') {
+            $reg['docsZeros'] = (int) $form['leadingZero'];
+        }
+
+        return $reg;
+    }
+
+    /**
+     * Normaliza el punto de expedición a `EEE-PPP`.
+     *
+     * El sistema vivo lo muestra con un GUIÓN FINAL (`009-001-`), que es como
+     * se arma el número completo al imprimirlo. Punto valida contra
+     * `^\d{3}-\d{3}$`, así que sin esto TODAS las cajas serían rechazadas por
+     * formato y el dominio abortaría entero.
+     */
+    private static function normalizePrefix(string $raw): string
+    {
+        return trim(trim($raw), '-');
+    }
+
+    /** Nombre de cada sucursal por su id, para el recorrido y el match. */
+    private function outletNamesById(): array
+    {
+        $table   = EncomParse::htmlTable(EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true'])));
+        $cName   = EncomParse::columnIndex($table['headers'], ['NOMBRE']) ?? 0;
+
+        $out = [];
+        foreach (array_slice($table['rows'], 0, self::MAX_ENTITIES) as $row) {
+            $out[$row['id']] = trim((string) ($row['cells'][$cName] ?? ''));
+        }
         return $out;
+    }
+
+    /** Id de la sucursal cuyo nombre coincide, o null. */
+    private function outletIdByName(array $outletNames, string $name): ?string
+    {
+        $name = mb_strtolower(trim($name), 'UTF-8');
+        if ($name === '') {
+            return null;
+        }
+        foreach ($outletNames as $id => $outletName) {
+            if (mb_strtolower(trim($outletName), 'UTF-8') === $name) {
+                return (string) $id;
+            }
+        }
+        return null;
     }
 
     /**
@@ -492,19 +609,6 @@ class EncomClient implements EncomSource
     // ═══════════════════════════════════════════════════════════════════
     // Internos
     // ═══════════════════════════════════════════════════════════════════
-
-    /** Ids de sucursal, para recorrerlas cambiando la sucursal activa. */
-    private function outletIds(): array
-    {
-        $html = EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true']));
-
-        $ids = [];
-        foreach (array_slice(EncomParse::htmlRows($html), 0, self::MAX_ENTITIES) as $row) {
-            $ids[] = $row['id'];
-        }
-        return $ids;
-    }
-
     /** Nombres distintos de un campo de los artículos, como filas `{ID,name}`. */
     private function distinctNames(string $field): array
     {

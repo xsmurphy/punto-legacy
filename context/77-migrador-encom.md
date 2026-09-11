@@ -51,7 +51,7 @@ php api/scripts/migration_worker.php <jobId> <companyId>
 | Endpoint realm admin | `api/v1/admin/migrations.php` |
 | Worker | `api/scripts/migration_worker.php` |
 | UI | `frontend/app/(admin)/admin/migrations/page.tsx` + `components/admin/migration-*.tsx` |
-| Arnés | `api/tests/run_encom_migration_test.sh` (45 checks) |
+| Arnés | `api/tests/run_encom_migration_test.sh` (49 checks) |
 
 ### 3.1 Por qué cola + proceso aparte (D3), con la razón corregida
 
@@ -103,8 +103,8 @@ Se resuelve por alias y, si ninguno matchea, por su posición conocida.
 | Clientes | `a_contacts?action=download` | CSV (coma, comillas, saltos `\r`) |
 | Artículos | `a_items?action=showTable&format=json` | JSON; **fallback** a la tabla HTML |
 | Categorías / marcas | derivadas de los artículos | el export los trae por NOMBRE |
-| Sucursales | `a_outlets?showTable=true` + `?action=edit&id=` | `{"table": "<html>"}` + form |
-| Cajas | `a_registers?list=true` + `?action=edit&id=` | HTML + form |
+| Sucursales | `a_outlets?showTable=true` + `?action=edit&id=` | `{"table": "<html>"}` **con** wrapper + form |
+| Cajas | `a_registers?list=true` + `?action=edit&id=` | HTML **sin wrapper** + form |
 | Empresa | `a_settings` (página entera) | form HTML |
 | Ventas (F2) | `a_report_transactions?action=detailTable` + `?action=edit&id=` | HTML |
 
@@ -114,6 +114,15 @@ Notas que gobiernan el diseño:
   contactos/transacciones) o en `data-sort` (tabla de artículos); el texto
   está formateado para mirar (`1.250.000`, `12 ene`). El parser prueba
   `data-order` → `data-sort` → `data-filter` → texto, en ese orden.
+- **Las columnas se resuelven por ENCABEZADO, no por índice.** El listado vivo
+  de cajas tiene una columna `Sucursal` que el snapshot no tiene: por índice
+  fijo, el nombre de la sucursal se lee como TIMBRADO y todo lo de la derecha
+  queda corrido uno. Es el mismo defecto que el CSV posicional, y la misma
+  solución (`EncomParse::columnIndex()`).
+- **El punto de expedición viene con GUIÓN FINAL** (`009-001-`) y el número con
+  ceros (`0006848`). Punto valida `^\d{3}-\d{3}$`, así que sin normalizar el
+  prefijo TODAS las cajas serían rechazadas por formato. Los ceros sí sirven:
+  de esa cadena salen el correlativo y el ancho de impresión.
 - **El id de la fila tampoco está siempre en el mismo atributo**: cajas,
   sucursales y transacciones usan `data-id`, pero la tabla de ARTÍCULOS usa
   `id` a secas. Mirar solo `data-id` saltearía en silencio todo el catálogo.
@@ -277,34 +286,48 @@ La idempotencia protege el **re-correr**, no el correr en paralelo.
 
 ## 9. Supuestos que quedan, y qué se verificó
 
-**Verificado contra el sistema vivo** (coordinador, 2026-09-11): que `/API` y
-`/bff` no sirven, que el login por `POST /login?login=true` devuelve `"true"` y
-que PHPSESSID alcanza, el header exacto del CSV de contactos, y que
-`generalTable`/`detailTable` devuelven `{"table": …}` con los valores crudos en
-`data-order`.
+**Verificado contra el sistema vivo** (coordinador, 2026-09-11):
 
-**Sigue asumido del snapshot, a confirmar en la primera corrida real:**
+- `/API` y `/bff` no sirven; el login por `POST /login?login=true` devuelve
+  `"true"` y PHPSESSID alcanza.
+- El header exacto del CSV de contactos (10 columnas, con `TELEFONO 2`).
+- **`registerInvoiceNumber` es el ÚLTIMO número EMITIDO** — la caja
+  "AUTOIMPRESOR OLIVA 2026" muestra `0006848` y la última factura del día es
+  `009-001-0006848`. **El `+1` de la continuación de serie es correcto.** Era
+  el supuesto más caro del plan y queda cerrado.
+- `a_outlets?showTable=true` responde **con** wrapper `{"table": …}`; columnas
+  Nombre | Razón Social | RUC | Teléfono | Dirección | Online | Estado.
+- `a_registers?list=true` responde **SIN** wrapper (HTML pelado) y sus
+  columnas son Nombre | Creado el | **Sucursal** | Timbrado | Prefijo | No. de
+  Factura | Sufijo | Estado. **Dos trampas ya corregidas**: esa columna
+  `Sucursal` no existe en el snapshot y corría un lugar todo lo fiscal (el
+  nombre de la sucursal se leía como timbrado), y el prefijo viene con **guión
+  final** (`009-001-`), que el regex `^\d{3}-\d{3}$` de Punto habría rechazado
+  abortando el dominio entero. Por eso las columnas se resuelven **por
+  encabezado** y el prefijo se normaliza.
 
-1. **Que el orden de columnas de las dos tablas sea el del snapshot** — la de
-   cajas (nombre, creado, timbrado, prefijo, número, sufijo, estado) y la de
-   artículos (20 columnas). Es lo único posicional que queda. Mitigación: de la
-   caja, los datos FISCALES se releen del form por `name`, así que un cambio de
-   orden en la tabla no corrompe el timbrado.
-2. **Que los `name` de los inputs del form de caja sean los del snapshot**
+**Sigue asumido, a confirmar en la primera corrida real:**
+
+1. **Que los `name` de los inputs del form de caja sean los del snapshot**
    (`auth`, `prefix`, `sufix`, `invoice`, `leadingZero`, `expiration`,
-   `registerInvoiceNoMax`). Si cambiaron, el vencimiento y el número se leen
-   del listado igual, pero con menos precisión.
-3. **Que `?o=<outletId>` siga cambiando la sucursal activa** y que el listado de
-   cajas siga acotado por ella. Si el deploy viejo NO tuviera ese switch, se
-   migrarían solo las cajas de una sucursal — se notaría en el conteo.
-4. **Que `a_items?action=showTable` acepte `format=json`.** Probablemente NO
-   (es más nuevo); por eso hay fallback a la tabla HTML, y el arnés prueba los
+   `registerInvoiceNoMax`). **No falla en silencio**: si el form llega y no
+   trae NINGUNO de esos campos, `enrichRegisterFromForm()` lanza nombrando la
+   caja y el dominio aborta sin importar ninguna (arnés, caso J).
+2. **Que `?o=<outletId>` siga cambiando la sucursal activa.** Cubierto por los
+   dos lados: si el switch no anduviera, se migrarían las cajas de una sola
+   sucursal (se nota en el conteo); y si el listado NO estuviera acotado por
+   sucursal —posible, porque el vivo trae una columna `Sucursal`, que es
+   justamente lo que tendría una lista que abarca varias— el recorrido
+   devolvería cada caja una vez por sucursal. Eso se ve como dos cajas con el
+   mismo (timbrado, punto) y habría abortado el import por un choque
+   inexistente, así que **las cajas se deduplican por id** y la sucursal sale
+   de esa columna cuando está.
+3. **Que `a_items?action=showTable` acepte `format=json`.** Probablemente NO
+   (es más nuevo); por eso hay fallback a la tabla HTML y el arnés prueba los
    dos caminos.
-5. **Que `registerInvoiceNumber` sea el ÚLTIMO número emitido** (de ahí el +1).
-   Inferido del comentario de la mig 117, no del código legacy. **Es el
-   supuesto más caro de los cinco**: si fuera el PRÓXIMO, cada caja migrada
-   saltearía un número. Se confirma mirando UNA caja real: comparar el número
-   del listado contra la última factura emitida de esa caja.
+4. **El orden de columnas de la tabla de ARTÍCULOS** (20 columnas). Es lo único
+   que sigue siendo posicional; las de cajas y sucursales ya se resuelven por
+   encabezado.
 
 ## 10. Lo que hay que hacer antes de mergear
 

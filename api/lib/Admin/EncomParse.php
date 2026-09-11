@@ -112,6 +112,72 @@ final class EncomParse
      *
      * @return array<int,array{id:string,cells:array<int,string>}>
      */
+    /**
+     * Tabla HTML completa: encabezados + filas.
+     *
+     * ── Por qué hace falta, y no alcanza con `htmlRows()` ────────────────
+     * Las columnas del legacy NO son estables entre versiones. El listado de
+     * cajas del sistema VIVO tiene una columna `Sucursal` en la posición 2
+     * que el snapshot no tiene: leyendo por índice, el nombre de la sucursal
+     * se lee como TIMBRADO y todo lo de la derecha queda corrido uno.
+     *
+     * Es el mismo defecto que ya se había corregido en el CSV, y la misma
+     * solución: resolver la columna por su ENCABEZADO. `columnIndex()` hace
+     * el match por palabra clave, que aguanta que el título cambie de
+     * mayúsculas, de acentos o de redacción.
+     *
+     * @return array{headers:array<int,string>,rows:array<int,array{id:string,cells:array<int,string>}>}
+     */
+    public static function htmlTable(string $html): array
+    {
+        return [
+            'headers' => self::htmlHeaders($html),
+            'rows'    => self::htmlRows($html),
+        ];
+    }
+
+    /**
+     * Índice de la columna cuyo encabezado contiene alguna de las palabras
+     * clave, o `null` si ninguna matchea (el caller decide el fallback).
+     *
+     * @param array<int,string> $headers
+     * @param array<int,string> $keywords ya en mayúsculas y sin acentos
+     */
+    public static function columnIndex(array $headers, array $keywords): ?int
+    {
+        foreach ($headers as $i => $h) {
+            foreach ($keywords as $kw) {
+                if (str_contains($h, $kw)) {
+                    return $i;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** @return array<int,string> Encabezados normalizados del `<thead>`. */
+    public static function htmlHeaders(string $html): array
+    {
+        if (trim($html) === '') {
+            return [];
+        }
+
+        $doc  = new \DOMDocument();
+        $prev = libxml_use_internal_errors(true);
+        $doc->loadHTML(
+            '<?xml encoding="UTF-8"?><table>' . $html . '</table>',
+            LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        $out = [];
+        foreach ($doc->getElementsByTagName('th') as $th) {
+            $out[] = self::canon((string) $th->textContent);
+        }
+        return $out;
+    }
+
     public static function htmlRows(string $html): array
     {
         if (trim($html) === '') {
