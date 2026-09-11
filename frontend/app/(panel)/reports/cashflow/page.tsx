@@ -57,14 +57,18 @@ export default function CashflowReportPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3">
-        <Button variant="ghost" size="sm" asChild className="w-fit -ml-2">
-          <Link href="/reports">
-            <ArrowLeft className="size-4" />
-            Volver a reportes
-          </Link>
-        </Button>
+      {/* Mismo header que el resto de los reportes: título a la izquierda y
+          selector de fechas a la derecha. Estaba en una sola columna, así que
+          el picker —hijo directo de un `flex-col`, o sea estirado por el
+          `align-items: stretch` del flex— salía de borde a borde. */}
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
+          <Button variant="ghost" size="sm" asChild className="w-fit -ml-2">
+            <Link href="/reports">
+              <ArrowLeft className="size-4" />
+              Volver a reportes
+            </Link>
+          </Button>
           <h1 className="text-2xl font-semibold">Flujo de efectivo</h1>
           <p className="text-sm text-muted-foreground">
             Entradas y salidas reales de tus cuentas en el período, con el saldo al

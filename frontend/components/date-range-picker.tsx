@@ -76,7 +76,16 @@ export function DateRangePicker({ value, onChange, className }: Props) {
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn("h-9 gap-2 font-normal", className)}
+          // `w-fit` acá y no en cada página: el trigger se estiraba al ancho
+          // completo en todo header que lo dejara en un contenedor
+          // `flex-col` —el `align-items: stretch` del flex es el default— y
+          // así aparecía un selector de fechas de borde a borde en varios
+          // reportes. Depender de que cada call-site lo envuelva bien ya
+          // falló; el ancho correcto es una propiedad del control.
+          //
+          // `className` va después, así una página que necesite estirarlo a
+          // propósito (un filtro de ancho completo en mobile) sigue pudiendo.
+          className={cn("h-9 w-fit gap-2 font-normal", className)}
         >
           <CalendarIcon className="size-3.5 text-muted-foreground" />
           <span className="tabular-nums">
