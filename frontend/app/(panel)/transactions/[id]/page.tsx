@@ -872,7 +872,7 @@ function BackButton() {
       size="sm"
       className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
     >
-      <Link href="/reports/transactions">
+      <Link href="/reports/sales?tab=transacciones">
         <ArrowLeft className="size-3.5" />
         Volver a transacciones
       </Link>

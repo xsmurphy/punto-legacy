@@ -133,8 +133,13 @@ export const PANEL_ROUTES: RouteEntry[] = [
   },
 
   // Ventas
+  // Fusión del 2026-09-11: `/reports/transactions` y `/reports/summary` son
+  // ahora pestañas de `/reports/sales`. Las dos entradas SOBREVIVEN apuntando
+  // a su pestaña —quien busca "transacciones" no tiene por qué saber que vive
+  // adentro de Ventas—, mismo patrón que Categorías y Marcas dentro de
+  // Artículos.
   {
-    to: "/reports/transactions",
+    to: "/reports/sales?tab=transacciones",
     title: "Transacciones",
     icon: ScrollText,
     surface: "sidebar",
@@ -439,14 +444,14 @@ export const PANEL_ROUTES: RouteEntry[] = [
   // quien sí puede verlo o lo ofrece a quien no. Si cambia el gate del backend,
   // cambia acá en el mismo commit.
   {
-    to: "/reports/summary",
-    title: "Resumen",
-    paletteTitle: "Reportes · Resumen",
+    to: "/reports/sales?tab=dashboard",
+    title: "Ventas",
+    paletteTitle: "Reportes · Ventas",
     icon: BarChart3,
     surface: "palette",
     paletteGroup: "Reportes",
     requires: "reports.sales.view",
-    keywords: ["summary", "totales", "ventas totales", "kpi"],
+    keywords: ["summary", "resumen", "totales", "ventas totales", "kpi"],
   },
   {
     to: "/reports/summary-year",

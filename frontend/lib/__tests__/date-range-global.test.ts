@@ -104,7 +104,10 @@ describe("el rango de fecha del panel es global", () => {
     // El propio `date-range-picker.tsx` DEFINE el componente en vez de
     // importarlo, así que queda fuera del escaneo por construccion — no
     // necesita excepción.
-    expect(pickerConsumers.map(rel)).toContain("app/(panel)/reports/summary/page.tsx")
+    // Era `reports/summary/page.tsx` hasta el 2026-09-11: esa página pasó a
+    // ser la pestaña Dashboard de `/reports/sales`, que es quien pone ahora el
+    // selector (la pestaña recibe el rango por prop, no lo elige).
+    expect(pickerConsumers.map(rel)).toContain("app/(panel)/reports/sales/page.tsx")
   })
 
   it("todo consumidor del selector usa el hook global", () => {

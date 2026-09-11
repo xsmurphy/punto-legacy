@@ -208,7 +208,7 @@ export default function DashboardPage() {
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <BigMetricCard
               label="Ingresos"
-              href="/reports/summary"
+              href="/reports/sales?tab=dashboard"
               value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
               isLoading={stats.isLoading}
               sparkline={incomeChart.data?.data.map((p) => p.ingresos)}

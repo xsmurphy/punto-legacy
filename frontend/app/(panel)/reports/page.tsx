@@ -17,6 +17,14 @@
  * `implemented: false` renderiza el tile sin link y con badge "Próximamente".
  * Hoy están todos en true; el mecanismo queda porque es como se suma un
  * reporte que todavía se está construyendo.
+ *
+ * 2026-09-11 (owner): los tiles "Resumen" y "Transacciones" se fusionaron en
+ * UNO, **Ventas** (`/reports/sales`, pestañas Dashboard · Transacciones). Eran
+ * dos granos del mismo hecho —el período agregado y cada venta de ese
+ * período—, así que el índice obligaba a decidir el nivel de detalle antes de
+ * entrar, que es justo lo que este hub existe para no pedir. Las URLs viejas
+ * redirigen a su pestaña (`next.config.ts`), porque estaban en marcadores y
+ * Transacciones era además item del sidebar.
  */
 
 import * as React from "react"
@@ -37,7 +45,6 @@ import {
   LayoutDashboard,
   Package,
   PieChart,
-  ReceiptText,
   Repeat,
   Scale,
   ShieldCheck,
@@ -71,18 +78,17 @@ const GROUPS: ReportGroup[] = [
     title: "Ventas y clientes",
     description: "El rendimiento comercial del negocio y quiénes le compran.",
     items: [
+      // Ventas absorbió Resumen y Transacciones el 2026-09-11 (owner): son el
+      // MISMO hecho en dos granos —el período agregado y cada venta de ese
+      // período—, y dos tiles obligaban a elegir el nivel de detalle antes de
+      // entrar. A diferencia de Categorías/Marcas, las URLs viejas sí
+      // redirigen (next.config.ts): estaban en marcadores.
       {
-        title: "Resumen",
-        description: "Vista panorámica del período, comparada con el anterior.",
-        to: "/reports/summary",
+        title: "Ventas",
+        description:
+          "El panorama del período comparado con el anterior, y cada venta con su documento y detalle.",
+        to: "/reports/sales",
         icon: LayoutDashboard,
-        implemented: true,
-      },
-      {
-        title: "Transacciones",
-        description: "Cada venta del período con su documento, estado y detalle.",
-        to: "/reports/transactions",
-        icon: ReceiptText,
         implemented: true,
       },
       // Artículos absorbió Categorías y Marcas el 2026-09-10: son atributos
