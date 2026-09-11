@@ -119,6 +119,13 @@ export interface ItemListItem {
   itemId: string
   itemName: string
   itemSKU: string | null
+  /**
+   * Código de barras del artículo (`item.barcode`, mig 220). Distinto del
+   * SKU: el SKU es el código interno del comercio, este es el impreso en el
+   * envase. Viaja en el SELECT compartido del catálogo, así que lo traen el
+   * listado, el bulk-get y el delta de sync por igual.
+   */
+  barcode: string | null
   /** Kind canónico — viene directo del backend (itemKind column). */
   kind: ItemKind
   /** itemType legacy — se mantiene para compat. Preferir `kind`. */
@@ -240,6 +247,15 @@ export interface ItemFormValues {
   kind: ItemKind
   name: string
   sku: string
+  /**
+   * Código de barras del artículo (`item.barcode`, mig 220) — campo PROPIO,
+   * no un alias del SKU: el SKU es el código interno que inventa el comercio
+   * y este es el que viene impreso en el envase. Sin validación de formato
+   * (EAN/UPC/interno/lo que sea): lo que el lector emita tiene que poder
+   * guardarse. Vacío = el artículo no tiene código (el backend lo normaliza a
+   * NULL).
+   */
+  barcode: string
   description: string
   price: number | null
   cost: number | null
@@ -575,6 +591,7 @@ export function emptyItemValues(): ItemFormValues {
     kind: "producto",
     name: "",
     sku: "",
+    barcode: "",
     description: "",
     price: null,
     cost: null,

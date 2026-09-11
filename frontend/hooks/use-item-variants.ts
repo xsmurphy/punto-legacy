@@ -6,9 +6,12 @@ import type { ItemListItem } from "@/lib/types/item"
 
 export interface VariantRow extends Omit<ItemListItem, "tags"> {
   variantAttributes?: Record<string, string> | null
-  itemBarcode?: string | null
   tags?: string[]
 }
+// `itemBarcode` (la clave suelta del JSONB donde vivía el código de barras
+// antes de la mig 220) ya NO existe: la migración la promovió a `barcode` —
+// campo de `ItemListItem`, heredado acá — y borró la clave. Si vuelve a
+// aparecer en un payload es un backend viejo, no una fuente de verdad.
 
 export interface VariantInput {
   itemId?: string
