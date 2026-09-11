@@ -431,15 +431,27 @@ function BackLink() {
 /* ─────────────────────────── Ranking (view=general) ─────────────────────────── */
 
 /**
- * `only` separa Productos de Servicios. Los dos son `itemType='product'` en
- * el backend y lo único que los distingue es si llevan stock, así que el
- * corte se hace sobre `trackInventory` — que este reporte expone desde el
- * 2026-09-10 justamente para esto.
+ * Kinds que van a la pestaña SERVICIOS. Todo lo demás vendible es Producto.
  *
- * Un `/api` anterior no lo manda: en ese caso `trackInventory` es `undefined`
- * y el filtro deja pasar todo, o sea la pestaña Productos se comporta como el
- * ranking completo de antes. Es la degradación correcta — esconder filas
- * porque falta un campo sería peor que mostrar de más.
+ * Se listan los de servicio y no los de producto porque la lista corta es la
+ * que se puede mantener: un kind nuevo en el catálogo (otro tipo de combo,
+ * otra forma de producción) es mercadería salvo prueba en contrario, y cae del
+ * lado correcto sin que nadie se acuerde de tocar esto.
+ */
+const SERVICE_KINDS = new Set(["servicio", "servicio_sesiones", "pack"])
+
+/**
+ * `only` separa Productos de Servicios por el KIND canónico del artículo.
+ *
+ * El criterio anterior —`trackInventory`— estaba mal y el owner lo reportó:
+ * metía combos y producción adentro de Servicios, porque ninguno de los dos
+ * lleva stock. `itemType` tampoco alcanza: servicio, pack de sesiones y
+ * producción directa son los tres `product`.
+ *
+ * Sin `kind` (artículo anterior a la mig 15, o `/api` anterior a este cambio)
+ * se cae a `trackInventory`, que era el criterio viejo — imperfecto pero mejor
+ * que esconder la fila. Y sin ninguno de los dos, la fila pasa: mostrar de más
+ * es preferible a que un artículo vendido no aparezca en ningún lado.
  */
 function RankingTab({
   range,
@@ -463,6 +475,11 @@ function RankingTab({
     const all = data?.rows ?? []
     if (!only) return all
     return all.filter((r) => {
+      const kind = (r.kind ?? "").trim()
+      if (kind !== "") {
+        const esServicio = SERVICE_KINDS.has(kind)
+        return only === "product" ? !esServicio : esServicio
+      }
       if (r.trackInventory === undefined) return true
       return only === "product" ? r.trackInventory : !r.trackInventory
     })

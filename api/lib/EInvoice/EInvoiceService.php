@@ -3434,7 +3434,7 @@ final class EInvoiceService
     public function printableDocumentFor(string $companyId, string $transactionId): ?array
     {
         $row = ncmExecute(
-            "SELECT cdc, provider_response FROM einvoice_document
+            "SELECT cdc, sifen_status, provider_response FROM einvoice_document
               WHERE companyid = ? AND transactionid = ? AND status = 'issued'
                 AND superseded_by IS NULL
                 AND numbering_mismatch IS NULL
@@ -3443,6 +3443,26 @@ final class EInvoiceService
             [$companyId, $transactionId]
         );
         if (!$row || trim((string) ($row['cdc'] ?? '')) === '') {
+            return null;
+        }
+
+        // UN RECHAZADO NO SE IMPRIME.
+        //
+        // Tener CDC no prueba nada: el motor lo calcula al GENERAR el XML y el
+        // QR se arma al FIRMARLO, los dos antes de que el documento salga hacia
+        // SIFEN. Un rechazado llega acá con las dos cosas pobladas (confirmado
+        // por el equipo de FE-PY, 2026-09-10), así que filtrar por "hay cdc"
+        // —que es lo que hacía esta consulta— deja pasar un documento sin
+        // ningún efecto fiscal y lo imprime en el ticket como si valiera.
+        //
+        // El PENDIENTE sí se imprime, y no es una concesión: el ticket sale en
+        // el mostrador segundos después de la venta, cuando SIFEN todavía no
+        // contestó. Exigir el veredicto dejaría sin CDC al caso NORMAL. Por eso
+        // la regla es excluir el rechazo, no exigir la aprobación.
+        //
+        // Mismo predicado que usa la entrega del KuDE (`deliveryBlockerForRow`):
+        // el criterio de "esto tiene efecto fiscal" vive en UN solo lugar.
+        if (self::sifenVerdict($row['sifen_status'] ?? null) === 'rejected') {
             return null;
         }
 

@@ -254,13 +254,18 @@ export interface ProductRow {
   category: string
   itemType: string
   /**
-   * Si el artículo lleva control de stock. Es lo ÚNICO que separa un producto
-   * de un servicio: los dos son `itemType='product'` (ver `KIND_META` en
-   * lib/types/item.ts), así que sin este campo las pestañas Productos y
-   * Servicios del reporte no se pueden armar.
+   * Kind canónico del artículo (`item.itemKind`, mig 15) — lo que separa las
+   * pestañas Productos y Servicios del reporte.
    *
-   * Opcional porque un `/api` anterior al 2026-09-10 no lo manda.
+   * `itemType` no alcanza: servicio, pack de sesiones y producción directa son
+   * los tres `product` sin stock. Y `trackInventory` tampoco — con ese criterio
+   * los combos y la producción caían en Servicios.
+   *
+   * Vacío en artículos anteriores a la migración, y ausente en un `/api`
+   * anterior al 2026-09-10; en los dos casos se cae a los flags legacy.
    */
+  kind?: string
+  /** Si lleva control de stock. Fallback cuando `kind` no está. */
   trackInventory?: boolean
   price: number
   taxName: string

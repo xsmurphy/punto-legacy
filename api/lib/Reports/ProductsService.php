@@ -391,11 +391,17 @@ final class ProductsService
                 'price'    => $m ? (float) ($m['itemPrice'] ?? 0) : 0,
                 'taxName'  => $m ? (string) ($taxes[$m['taxId']]['name'] ?? '') : '',
                 'itemType' => $m ? (string) ($m['itemType'] ?? '') : '',
-                // Producto y servicio comparten `itemType='product'` — lo que
-                // los separa es si llevan stock (`KIND_META` en
-                // frontend/lib/types/item.ts). El reporte de artículos los
-                // muestra en pestañas distintas, así que el dato tiene que
-                // viajar; derivarlo de otra cosa en el front sería adivinar.
+                // El KIND canónico del artículo (`item.itemkind`, mig 15). El
+                // reporte muestra Productos y Servicios en pestañas distintas
+                // y esta es la única forma de separarlos bien: `itemType` NO
+                // alcanza —servicio, pack de sesiones y producción directa son
+                // los tres `product` sin stock— y derivarlo de
+                // `itemTrackInventory` metía combos y producción adentro de
+                // Servicios (reportado por el owner 2026-09-10).
+                //
+                // Vacío en artículos anteriores a esa migración; el front cae
+                // entonces a los flags legacy, igual que `inferKind()`.
+                'kind' => $m ? (string) ($m['itemKind'] ?? '') : '',
                 'trackInventory' => $m ? ((int) ($m['itemTrackInventory'] ?? 0) === 1) : false,
             ]);
         }
