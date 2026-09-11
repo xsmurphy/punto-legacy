@@ -41,7 +41,7 @@
  */
 
 import * as React from "react"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts"
 
 import {
   ChartContainer,
@@ -56,6 +56,14 @@ export interface RankingDatum {
   value: number
   /** Porción de `value` a resaltar dentro de la barra (ver `overlay`). */
   overlayValue?: number
+  /**
+   * La porción no se pudo calcular: falta el dato, no es que valga cero.
+   *
+   * Sin esto la barra se pinta entera del color de la porción y el gráfico
+   * AFIRMA algo que no sabe — en el reporte de artículos, un costo que nadie
+   * cargó se vería como margen del 100%.
+   */
+  overlayUnknown?: boolean
 }
 
 /**
@@ -130,7 +138,11 @@ export function RankingBarChart({
       },
     }
     if (overlay) {
-      c.rest = { label: overlay.restLabel, color: "var(--chart-4)" }
+      // `--chart-5` y no `--chart-4`: los dos son verdes de la escala de marca,
+      // pero el 4 queda tan cerca del 1 que el corte entre las dos porciones no
+      // se distingue (reportado por el owner 2026-09-10). El 5 es el extremo
+      // oscuro, o sea el mayor contraste posible sin salirse de la paleta.
+      c.rest = { label: overlay.restLabel, color: "var(--chart-5)" }
     }
     return c
   }, [overlay, valueLabel])
@@ -188,7 +200,18 @@ export function RankingBarChart({
           {/* `part` primero: arranca en cero en todas las barras, así las
               porciones se comparan entre sí. Sin `overlay` es la barra
               entera. */}
-          <Bar dataKey="part" stackId="v" fill="var(--color-part)" radius={overlay ? 0 : [4, 4, 0, 0]} />
+          <Bar dataKey="part" stackId="v" radius={overlay ? 0 : [4, 4, 0, 0]}>
+            {top.map((d) => (
+              <Cell
+                key={d.label}
+                // Dato faltante en gris, NO en el color de la porción: una
+                // barra sin costo cargado pintada de "utilidad" afirma un
+                // margen perfecto que nadie midió.
+                fill={d.overlayUnknown ? "var(--muted-foreground)" : "var(--color-part)"}
+                fillOpacity={d.overlayUnknown ? 0.35 : 1}
+              />
+            ))}
+          </Bar>
           {overlay && (
             <Bar dataKey="rest" stackId="v" fill="var(--color-rest)" radius={[4, 4, 0, 0]} />
           )}

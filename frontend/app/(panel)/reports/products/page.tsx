@@ -333,7 +333,7 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
     <div className="grid gap-4 lg:grid-cols-2">
       <ChartCard
         title="Más facturado"
-        description="La barra entera es lo facturado; la parte oscura, lo que quedó de utilidad."
+        description="La barra entera es lo facturado. La parte clara es la utilidad; la oscura, el costo y la comisión. En gris, los que no tienen costo cargado."
         footnote={sinCosto > 0
           ? `${sinCosto} de estos artículos no tienen costo cargado: su barra se ve como utilidad pura, pero es costo sin registrar, no margen.`
           : undefined}
@@ -343,6 +343,9 @@ function ChartsTab({ range }: { range: DateRangeValue }) {
             label: r.name,
             value: r.total,
             overlayValue: utilityOf(r),
+            // Costo en cero = costo que nadie cargó, no margen del 100%. La
+            // barra va en gris para no afirmar una utilidad que no se midió.
+            overlayUnknown: r.cogs === 0,
           }))}
           valueLabel="Total facturado"
           overlay={{ label: "Utilidad", restLabel: "Costo y comisión" }}
