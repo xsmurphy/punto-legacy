@@ -87,6 +87,14 @@ try {
             $domains = [];
         }
 
+        // El usuario del legacy es UN campo de texto libre: el cliente entra
+        // con su email o con su celular, y el backend legacy resuelve cuál
+        // es. No se normaliza nada acá (ver `EncomClient::login()`).
+        $identifier = trim((string) ($_POST['identifier'] ?? ''));
+        if ($identifier === '') {
+            apiError('Falta el usuario del cliente en el sistema legacy (email o celular).', 422);
+        }
+
         $password = (string) ($_POST['password'] ?? '');
         if (trim($password) === '') {
             apiError('Falta la contraseña del cliente en el sistema legacy.', 422);
@@ -95,9 +103,8 @@ try {
         $res = $svc->create(
             $companyId,
             [
-                'phone'    => (string) ($_POST['phone'] ?? ''),
-                'iso'      => (string) ($_POST['iso'] ?? 'PY'),
-                'password' => $password,
+                'identifier' => $identifier,
+                'password'   => $password,
             ],
             $domains,
             $registerOutletId !== '' ? $registerOutletId : null,

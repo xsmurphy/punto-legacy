@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import { toast } from "sonner"
-import type { CountryCode } from "libphonenumber-js"
 
 import {
   Dialog,
@@ -17,7 +16,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { PasswordInput } from "@/components/ui/password-input"
-import { PhoneInput } from "@/components/forms/phone-input"
 import {
   Select,
   SelectContent,
@@ -61,9 +59,10 @@ export function MigrationFormDialog({
 }) {
   const [companyId, setCompanyId] = React.useState("")
   const [search, setSearch] = React.useState("")
-  const [phone, setPhone] = React.useState("")
-  const [phoneE164, setPhoneE164] = React.useState<string | null>(null)
-  const [country, setCountry] = React.useState<CountryCode>("PY")
+  // Un solo campo de texto: el login del legacy resuelve si es email o
+  // celular. No se valida ni se normaliza acá — cualquier transformación
+  // cambiaría la credencial que el cliente usa todos los días.
+  const [identifier, setIdentifier] = React.useState("")
   const [password, setPassword] = React.useState("")
   const [domains, setDomains] = React.useState<string[]>(["catalog", "customers", "config"])
   const [registerOutletId, setRegisterOutletId] = React.useState("")
@@ -78,8 +77,7 @@ export function MigrationFormDialog({
     if (!open) {
       setCompanyId("")
       setSearch("")
-      setPhone("")
-      setPhoneE164(null)
+      setIdentifier("")
       setPassword("")
       setDomains(["catalog", "customers", "config"])
       setRegisterOutletId("")
@@ -91,16 +89,18 @@ export function MigrationFormDialog({
   }
 
   const canSubmit =
-    companyId !== "" && phoneE164 !== null && password.trim() !== "" && domains.length > 0 && !create.isPending
+    companyId !== "" &&
+    identifier.trim() !== "" &&
+    password.trim() !== "" &&
+    domains.length > 0 &&
+    !create.isPending
 
   const submit = () => {
     if (!canSubmit) return
     create.mutate(
       {
         companyId,
-        // El legacy espera el teléfono en E.164, igual que su propio login.
-        phone: phoneE164 ?? "",
-        iso: country,
+        identifier: identifier.trim(),
         password,
         domains,
         registerOutletId: registerOutletId || undefined,
@@ -155,17 +155,16 @@ export function MigrationFormDialog({
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="migration-phone">Teléfono del cliente en el legacy</Label>
-              <PhoneInput
-                id="migration-phone"
-                value={phone}
-                country={country}
-                onChange={(v) => {
-                  setPhone(v.value)
-                  setPhoneE164(v.isValid ? v.e164 : null)
-                  setCountry(v.country)
-                }}
+              <Label htmlFor="migration-identifier">Usuario del legacy</Label>
+              <Input
+                id="migration-identifier"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                autoComplete="off"
               />
+              <p className="text-sm text-muted-foreground">
+                Email o número de celular con el que el cliente entra al panel legacy.
+              </p>
             </div>
 
             <div className="flex flex-col gap-2">
