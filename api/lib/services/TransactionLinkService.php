@@ -74,6 +74,107 @@ final class TransactionLinkService
     }
 
     /**
+     * Igual que `listDerivedIds()` pero excluyendo los derivados ANULADOS —
+     * criterio ÚNICO de "vínculo vigente" para todo el codebase.
+     *
+     * Existe porque este repo anula con TRES marcas distintas, cada una de un
+     * mecanismo distinto, y cada consumidor miraba solo la que conocía:
+     *
+     *   - `transactionStatus = 6` — soft-void de compras, notas de crédito de
+     *     compra y recibos (`CreditPaymentService::void()`, context/40).
+     *   - `transactionType = 7`   — camino LEGACY
+     *     (`TransactionService::voidTransaction()`), el que se usa hoy para
+     *     anular una DEVOLUCIÓN desde el listado: le pisa el tipo a 7 y NO
+     *     toca `transactionStatus`.
+     *   - `voidedAt IS NOT NULL`  — anulación de venta contado/crédito
+     *     (F1 de context/40, mig 154), que a propósito NO pisa el tipo.
+     *
+     * Mirar una sola marca deja huecos reales: `SaleVoidService` filtraba
+     * únicamente por `transactionStatus <> 6`, así que una devolución anulada
+     * por el camino legacy (type=7) seguía contando como vigente y bloqueaba
+     * la anulación de su factura con `HAS_RETURNS` PARA SIEMPRE, sin forma de
+     * destrabarla desde la UI. Un documento anulado es anulado por cualquiera
+     * de las tres vías — el criterio se define una vez, acá.
+     *
+     * @return list<string>
+     */
+    public function listVigenteDerivedIds(string $companyId, string $originId, ?string $kind = null): array
+    {
+        return $this->filterVigente($companyId, $this->listDerivedIds($companyId, $originId, $kind));
+    }
+
+    /**
+     * Versión batch de `listVigenteDerivedIds()` — para los listados que
+     * necesitan saber si CADA fila tiene derivados vigentes sin disparar una
+     * query por fila (ej. el menú de acciones del listado de ventas, que
+     * oculta "Anular" cuando la venta ya tiene devoluciones).
+     *
+     * @param list<string> $originIds
+     * @return array<string, list<string>> originId → derivedIds vigentes
+     */
+    public function mapVigenteDerivedIdsByOrigins(string $companyId, array $originIds, ?string $kind = null): array
+    {
+        $map = $this->mapDerivedIdsByOrigins($companyId, $originIds, $kind);
+        if ($map === []) {
+            return [];
+        }
+
+        $all = [];
+        foreach ($map as $derivedIds) {
+            foreach ($derivedIds as $d) {
+                $all[] = $d;
+            }
+        }
+        $vigentes = array_flip($this->filterVigente($companyId, $all));
+
+        $out = [];
+        foreach ($map as $originId => $derivedIds) {
+            $kept = array_values(array_filter($derivedIds, static fn ($d) => isset($vigentes[$d])));
+            if ($kept !== []) {
+                $out[$originId] = $kept;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Se queda con los ids que NO están anulados por ninguna de las tres
+     * marcas. Única implementación del criterio — ver `listVigenteDerivedIds()`.
+     *
+     * @param list<string> $ids
+     * @return list<string>
+     */
+    private function filterVigente(string $companyId, array $ids): array
+    {
+        $ids = array_values(array_unique(array_filter($ids, static fn ($v) => $v !== '' && $v !== null)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT transactionId
+               FROM transaction
+              WHERE companyId = ?
+                AND transactionId IN ($ph)
+                AND COALESCE(transactionStatus, 1) <> 6
+                AND COALESCE(transactionType, -1) <> 7
+                AND voidedAt IS NULL",
+            array_merge([$companyId], $ids),
+            false,
+            false,
+            true
+        );
+        $res = is_array($res) ? $res : [];
+
+        $vigentes = [];
+        foreach ($res as $r) {
+            $vigentes[] = (string) $r['transactionId'];
+        }
+        return $vigentes;
+    }
+
+    /**
      * IDs de los documentos ORIGEN de $derivedId (ej. la venta original de
      * una devolución, la cotización de la que nació una venta).
      *

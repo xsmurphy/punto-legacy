@@ -212,7 +212,12 @@ final class ReturnService
         $policy = $this->stockPolicy();
         $allowIngredientReversal = $policy->settingAllowIngredientReversal($companyId);
         $lines = $this->aggregatedParentLines($parentTransactionId);
-        $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+        // VIGENTES: una devolución ANULADA no puede seguir consumiendo cupo —
+        // si lo hiciera, anular una devolución equivocada dejaría esas
+        // unidades imposibles de devolver para siempre. Criterio único en
+        // `TransactionLinkService::listVigenteDerivedIds()` (las tres marcas
+        // de anulación del codebase).
+        $returnIds = $this->links()->listVigenteDerivedIds($companyId, $parentTransactionId, 'return');
         $alreadyByItem = $this->alreadyReturnedByItem($companyId, $returnIds);
 
         $out = [];
@@ -379,7 +384,11 @@ final class ReturnService
             // y lo ya devuelto por itemId — ambas UNA sola query cada una
             // (antes: una query POR ítem solicitado, dentro del loop).
             $aggregatedLines = $this->aggregatedParentLines($parentTransactionId);
-            $returnIds       = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+            // VIGENTES, mismo criterio que `returnOptions()`: el cupo que
+            // valida la escritura tiene que ser EXACTAMENTE el que la UI
+            // mostró al armar el formulario, o el cajero ve unidades
+            // disponibles que el guard después rechaza.
+            $returnIds       = $this->links()->listVigenteDerivedIds($companyId, $parentTransactionId, 'return');
             $alreadyByItem   = $this->alreadyReturnedByItem($companyId, $returnIds);
 
             // Procesar cada ítem: leer original + validar qty disponible (dentro de la TX)
@@ -810,6 +819,54 @@ final class ReturnService
             'wasted'                => $wasted,
             'customerCreditApplied' => $refundMode === 'credit' ? abs($returnNet) : null,
         ];
+    }
+
+    /**
+     * Resumen BARATO de las devoluciones vigentes de una venta — lo que el
+     * menú del detalle necesita para decidir qué ofrecer, sin pagar el costo
+     * de `returnOptions()` (que clasifica cada línea contra la tabla D2 y
+     * explota recetas multi-nivel por ítem).
+     *
+     * Reusa las MISMAS dos fuentes que el cupo real (`aggregatedParentLines()`
+     * + `alreadyReturnedByItem()`): la regla de "cuánto queda por devolver"
+     * se define una sola vez, acá. Duplicarla en el resolver del detalle es
+     * exactamente cómo la UI y el backend se desincronizan.
+     *
+     * `count` cuenta devoluciones VIGENTES, el mismo conjunto que mira
+     * `SaleVoidService` para rechazar con `HAS_RETURNS` — así el menú oculta
+     * "Anular" en exactamente los casos en que el backend la rechazaría, ni
+     * uno más.
+     *
+     * @return array{count:int, fullyReturned:bool}
+     */
+    public function returnsSummary(string $companyId, string $parentTransactionId): array
+    {
+        $returnIds = $this->links()->listVigenteDerivedIds($companyId, $parentTransactionId, 'return');
+        if ($returnIds === []) {
+            return ['count' => 0, 'fullyReturned' => false];
+        }
+
+        $lines = $this->aggregatedParentLines($parentTransactionId);
+        if ($lines === []) {
+            return ['count' => count($returnIds), 'fullyReturned' => false];
+        }
+
+        $alreadyByItem = $this->alreadyReturnedByItem($companyId, $returnIds);
+
+        $fullyReturned = true;
+        foreach ($lines as $itemId => $row) {
+            $sold    = abs((float) ($row['itemsoldunits'] ?? 0));
+            $already = (float) ($alreadyByItem[(string) $itemId] ?? 0.0);
+            // Mismo redondeo a 4 decimales que `returnOptions()` usa para
+            // `availableQty` — sin él, un arrastre binario de 1e-15 haría que
+            // una venta devuelta del todo se reporte como parcial.
+            if (round($sold - $already, 4) > 0) {
+                $fullyReturned = false;
+                break;
+            }
+        }
+
+        return ['count' => count($returnIds), 'fullyReturned' => $fullyReturned];
     }
 
     /**

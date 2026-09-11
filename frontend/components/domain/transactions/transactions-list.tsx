@@ -1243,13 +1243,26 @@ export function TransactionDetailContent({
   const [showQuotePdf, setShowQuotePdf] = React.useState(false)
 
   const txType = tx.type
-  const isVoid = isVoided(txType)
+  // `isVoided(txType)` sola NO alcanza: solo reconoce el camino legacy
+  // (`type === 7`). La anulación de venta contado/crédito (F1 de context/40)
+  // marca `voidedAt` y a propósito NO pisa el tipo, así que este menú seguía
+  // ofreciendo "Anular" y "Devolución" sobre una venta ya anulada. Mismo
+  // criterio que `pos-transactions-dialog.tsx`.
+  const isVoid = isVoided(txType) || tx.void === true || Boolean(tx.voidedAt)
   const isReturn = isReturnType(txType)
   const isReadOnly = isVoid || isReturn
   const isQuote = isQuoteType(txType)
 
-  const canVoid = (isInvoicedSale(txType) || isQuote) && !isVoid
-  const canReturn = isInvoicedSale(txType) && !isVoid && !isReturn
+  // Devoluciones vigentes (`returns` del detalle): el menú ofrece exactamente
+  // lo que el servidor aceptaría. "Anular" se rechaza con HAS_RETURNS si hay
+  // cualquier devolución vigente; "Devolución", si ya no queda cupo. Backend
+  // sin `returns` → se sigue ofreciendo: el guard que manda es el del
+  // servidor, y ocultar de más deja al cajero sin la acción legítima.
+  const hasVigenteReturns = (tx.returns?.count ?? 0) > 0
+  const fullyReturned = tx.returns?.fullyReturned === true
+
+  const canVoid = (isInvoicedSale(txType) || isQuote) && !isVoid && !hasVigenteReturns
+  const canReturn = isInvoicedSale(txType) && !isVoid && !isReturn && !fullyReturned
   const canDuplicate = !isReadOnly
   const canAddToCart = (tx.transactionDatas?.filter((i) => i.status !== 0).length ?? 0) > 0 && !isVoid
   const canInvoice = isQuote && !isVoid
@@ -1591,8 +1604,18 @@ export function TransactionDetailContent({
                       setVoidDialogOpen(false)
                       onClose?.()
                     },
-                    onError: () => {
-                      toast.error("No se pudo anular la transacción")
+                    // El backend explica POR QUÉ rechaza (HAS_RETURNS,
+                    // HAS_PAYMENTS, VOID_WINDOW_EXPIRED, ALREADY_VOIDED) con
+                    // un mensaje ya redactado para el cajero. Tirarlo y
+                    // pintar un literal fijo dejaba al operador sin la única
+                    // pista accionable — "anulá primero los recibos",
+                    // "pasaron más de 48 horas, hacé una nota de crédito".
+                    onError: (err: unknown) => {
+                      const msg =
+                        err instanceof Error && err.message.trim() !== ""
+                          ? err.message
+                          : "No se pudo anular la transacción"
+                      toast.error(msg)
                     },
                   },
                 )

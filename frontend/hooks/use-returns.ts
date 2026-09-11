@@ -144,6 +144,12 @@ export function useCreateReturn() {
       queryClient.invalidateQueries({ queryKey: ["transactions"] })
       queryClient.invalidateQueries({ queryKey: ["pos-transactions"] })
       queryClient.invalidateQueries({ queryKey: ["pos-transaction"] })
+      // El detalle del PANEL y el `canVoid` cacheado también cambian con una
+      // devolución: el menú pasa a no poder ofrecer "Anular" (HAS_RETURNS) y
+      // el cupo por ítem baja. Sin estas dos, el menú decide sobre un detalle
+      // anterior a la mutación que acaba de hacer este mismo operador.
+      queryClient.invalidateQueries({ queryKey: ["transaction-detail"] })
+      queryClient.invalidateQueries({ queryKey: ["sale-void-options"] })
       queryClient.invalidateQueries({ queryKey: ["return-options", vars.parentTransactionId] })
       queryClient.invalidateQueries({ queryKey: ["returns-for-parent", vars.parentTransactionId] })
       queryClient.invalidateQueries({ queryKey: ["stock"] })

@@ -103,7 +103,7 @@ final class SaleVoidService
             ];
         }
 
-        if ($this->hasVigenteAmong($companyId, $this->links()->listDerivedIds($companyId, $transactionId, 'return'))) {
+        if ($this->links()->listVigenteDerivedIds($companyId, $transactionId, 'return') !== []) {
             return [
                 'allowed'   => false,
                 'reason'    => 'Esta venta tiene devoluciones vigentes: se corrige con una nota de crédito, no se anula.',
@@ -111,7 +111,7 @@ final class SaleVoidService
             ];
         }
 
-        if ($this->hasVigenteAmong($companyId, $this->links()->listDerivedIds($companyId, $transactionId, 'credit_payment'))) {
+        if ($this->links()->listVigenteDerivedIds($companyId, $transactionId, 'credit_payment') !== []) {
             return [
                 'allowed'   => false,
                 'reason'    => 'Esta venta tiene recibos de cobro vigentes: anulalos primero.',
@@ -237,7 +237,7 @@ final class SaleVoidService
 
         // HAS_RETURNS: una factura con devoluciones vigentes no se anula —
         // se termina con nota de crédito (context/40, notas finales).
-        if ($this->hasVigenteAmong($companyId, $this->links()->listDerivedIds($companyId, $transactionId, 'return'))) {
+        if ($this->links()->listVigenteDerivedIds($companyId, $transactionId, 'return') !== []) {
             $db->FailTrans();
             $db->CompleteTrans();
             apiConflict(
@@ -249,7 +249,7 @@ final class SaleVoidService
         // HAS_PAYMENTS: recibos de cobro vigentes tienen que anularse primero
         // (CreditPaymentService::void()) — anular la venta debajo de un
         // recibo vigente dejaría el recibo pagando una factura fantasma.
-        if ($this->hasVigenteAmong($companyId, $this->links()->listDerivedIds($companyId, $transactionId, 'credit_payment'))) {
+        if ($this->links()->listVigenteDerivedIds($companyId, $transactionId, 'credit_payment') !== []) {
             $db->FailTrans();
             $db->CompleteTrans();
             apiConflict(
@@ -431,20 +431,6 @@ final class SaleVoidService
             return PHP_FLOAT_MAX;
         }
         return (time() - $ts) / 3600;
-    }
-
-    /** @param list<string> $ids */
-    private function hasVigenteAmong(string $companyId, array $ids): bool
-    {
-        if ($ids === []) {
-            return false;
-        }
-        $ph = implode(',', array_fill(0, count($ids), '?'));
-        $row = ncmExecute(
-            "SELECT transactionid FROM transaction WHERE transactionid IN ($ph) AND companyid = ? AND COALESCE(transactionstatus, 1) <> 6 LIMIT 1",
-            array_merge($ids, [$companyId])
-        );
-        return (bool) $row;
     }
 
     /**

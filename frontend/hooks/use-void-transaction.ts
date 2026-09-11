@@ -16,9 +16,24 @@ export function useVoidTransaction() {
       api.put(`/v1/transactions?resource=void&id=${encodeURIComponent(id)}`, {
         motive: motive ?? "",
       }),
-    onSuccess: (_data, vars) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pos-transactions"] })
-      qc.invalidateQueries({ queryKey: ["pos-transaction", vars.id] })
+      // SIN el id: el detalle se cachea bajo `enc(transactionId)` y acá
+      // `vars.id` es el UUID crudo, así que `["pos-transaction", vars.id]`
+      // NUNCA matcheaba la entrada abierta — el menú seguía decidiendo sobre
+      // el detalle anterior a la anulación que acababa de hacer el operador.
+      // El key parcial matchea por prefijo cualquier id abierto (mismo
+      // criterio que `useVoidSale` y el mapa de realtime).
+      qc.invalidateQueries({ queryKey: ["pos-transaction"] })
+      // Para ventas contado/crédito este endpoint delega en SaleVoidService:
+      // mueve stock, caja y reportes igual que `useVoidSale`, y hasta ahora
+      // no invalidaba nada de eso.
+      qc.invalidateQueries({ queryKey: ["transactions"] })
+      qc.invalidateQueries({ queryKey: ["transaction-detail"] })
+      qc.invalidateQueries({ queryKey: ["sale-void-options"] })
+      qc.invalidateQueries({ queryKey: ["stock"] })
+      qc.invalidateQueries({ queryKey: ["reports"] })
+      qc.invalidateQueries({ queryKey: ["dashboard"] })
     },
   })
 }

@@ -342,4 +342,137 @@ check(
     $failures
 );
 
+// ─────────────────────────────────────────────────────────────────────────
+// (h)(i)(j) Criterio ÚNICO de "derivado vigente"
+// (TransactionLinkService::listVigenteDerivedIds) y resumen de devoluciones
+// (ReturnService::returnsSummary), que alimenta el menú del detalle.
+//
+// El codebase anula con TRES marcas y `hasVigenteAmong()` miraba solo una
+// (`transactionStatus <> 6`): una devolución anulada por el camino LEGACY
+// —que pisa `transactionType` a 7 y NO toca el status— seguía contando como
+// vigente y bloqueaba la anulación de su factura con HAS_RETURNS para
+// siempre, sin forma de destrabarla.
+// ─────────────────────────────────────────────────────────────────────────
+
+/** Inserta una devolución (type=6) vinculada a $parentId y devuelve su id. */
+$makeReturn = function (string $parentId, float $amount, int $type = 6, int $status = 1) use (
+    $db, $companyId, $registerId, $userId, $outletId, $links
+): string {
+    $rid = (string) $db->GetOne('SELECT gen_random_uuid()');
+    $db->Execute(
+        'INSERT INTO transaction (
+            transactionid, transactiontotal, transactiondiscount, transactiontype,
+            transactioncomplete, transactionstatus, transactiondate, invoiceno,
+            registerid, userid, outletid, companyid
+        ) VALUES (?, ?, 0, ?, TRUE, ?, ?, ?, ?, ?, ?, ?)',
+        [
+            $rid, -$amount, $type, $status, date('Y-m-d H:i:s'),
+            random_int(1000000, 9999999), $registerId, $userId, $outletId, $companyId,
+        ]
+    );
+    $links->link($companyId, $parentId, $rid, 'return');
+    return $rid;
+};
+
+// (h) devolución anulada por el camino LEGACY (type=7): la venta SÍ se anula.
+$saleH = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $serviceItemId, 'units' => 1, 'total' => 4200, 'cogs' => 0],
+]);
+$makeReturn($saleH, 4200, 7); // devolución anulada a la legacy
+
+$cmd = escapeshellarg($phpBin) . ' -d variables_order=EGPCS ' . escapeshellarg(__DIR__ . '/_sale_void_once_cli.php')
+    . ' ' . escapeshellarg($companyId) . ' ' . escapeshellarg($saleH) . ' ' . escapeshellarg($userId)
+    . ' ' . escapeshellarg($registerId) . ' ' . escapeshellarg($outletId) . ' ' . escapeshellarg('devolución anulada legacy') . ' 2>&1';
+$output = shell_exec($cmd) ?? '';
+check(
+    '(h) devolución anulada por el camino legacy (type=7) NO bloquea la anulación',
+    str_contains($output, '"ok":true') && voidedAt($saleH) !== null,
+    "salida del subproceso: $output / voidedat=" . voidedAt($saleH),
+    $failures
+);
+
+// (i) devolución anulada por soft-void (status=6): la venta SÍ se anula.
+$saleI = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $serviceItemId, 'units' => 1, 'total' => 4300, 'cogs' => 0],
+]);
+$makeReturn($saleI, 4300, 6, 6); // type 6 pero status 6 = anulada
+
+$cmd = escapeshellarg($phpBin) . ' -d variables_order=EGPCS ' . escapeshellarg(__DIR__ . '/_sale_void_once_cli.php')
+    . ' ' . escapeshellarg($companyId) . ' ' . escapeshellarg($saleI) . ' ' . escapeshellarg($userId)
+    . ' ' . escapeshellarg($registerId) . ' ' . escapeshellarg($outletId) . ' ' . escapeshellarg('devolución soft-void') . ' 2>&1';
+$output = shell_exec($cmd) ?? '';
+check(
+    '(i) devolución anulada por soft-void (status=6) NO bloquea la anulación',
+    str_contains($output, '"ok":true') && voidedAt($saleI) !== null,
+    "salida del subproceso: $output / voidedat=" . voidedAt($saleI),
+    $failures
+);
+
+// (j) returnsSummary: lo que el menú del detalle usa para decidir. `count`
+// tiene que ser el MISMO conjunto que mira HAS_RETURNS — si divergen, el
+// menú ofrece "Anular" en casos que el backend rechaza (o al revés).
+$returns = new \Punto\Api\Services\ReturnService();
+
+$saleJ0 = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $serviceItemId, 'units' => 2, 'total' => 5000, 'cogs' => 0],
+]);
+$sumJ0 = $returns->returnsSummary($companyId, $saleJ0);
+check(
+    '(j1) venta sin devoluciones: count=0, fullyReturned=false',
+    $sumJ0['count'] === 0 && $sumJ0['fullyReturned'] === false,
+    json_encode($sumJ0),
+    $failures
+);
+
+// Devolución VIGENTE que NO cubre todas las unidades → parcial.
+$saleJ1 = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $serviceItemId, 'units' => 2, 'total' => 5000, 'cogs' => 0],
+]);
+$retJ1 = $makeReturn($saleJ1, 2500);
+$db->Execute(
+    'INSERT INTO itemsold (itemsoldid, transactionid, itemid, itemsoldunits, itemsoldtotal, itemsoldcogs, companyid)
+     VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, ?)',
+    [$retJ1, $serviceItemId, -1, -2500, $companyId]
+);
+$sumJ1 = $returns->returnsSummary($companyId, $saleJ1);
+check(
+    '(j2) devolución parcial: count=1, fullyReturned=false (queda 1 unidad)',
+    $sumJ1['count'] === 1 && $sumJ1['fullyReturned'] === false,
+    json_encode($sumJ1),
+    $failures
+);
+
+// Segunda devolución vigente que cubre la unidad restante → total.
+$retJ1b = $makeReturn($saleJ1, 2500);
+$db->Execute(
+    'INSERT INTO itemsold (itemsoldid, transactionid, itemid, itemsoldunits, itemsoldtotal, itemsoldcogs, companyid)
+     VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, ?)',
+    [$retJ1b, $serviceItemId, -1, -2500, $companyId]
+);
+$sumJ1b = $returns->returnsSummary($companyId, $saleJ1);
+check(
+    '(j3) devuelta del todo: count=2, fullyReturned=true (el menú oculta "Devolución")',
+    $sumJ1b['count'] === 2 && $sumJ1b['fullyReturned'] === true,
+    json_encode($sumJ1b),
+    $failures
+);
+
+// Una devolución ANULADA no cuenta ni consume cupo — mismo criterio que (h)/(i).
+$saleJ2 = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $serviceItemId, 'units' => 1, 'total' => 3000, 'cogs' => 0],
+]);
+$retJ2 = $makeReturn($saleJ2, 3000, 7); // anulada
+$db->Execute(
+    'INSERT INTO itemsold (itemsoldid, transactionid, itemid, itemsoldunits, itemsoldtotal, itemsoldcogs, companyid)
+     VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, ?)',
+    [$retJ2, $serviceItemId, -1, -3000, $companyId]
+);
+$sumJ2 = $returns->returnsSummary($companyId, $saleJ2);
+check(
+    '(j4) devolución anulada: count=0 y NO consume cupo (fullyReturned=false pese al itemsold)',
+    $sumJ2['count'] === 0 && $sumJ2['fullyReturned'] === false,
+    json_encode($sumJ2),
+    $failures
+);
+
 harnessFinish($failures);

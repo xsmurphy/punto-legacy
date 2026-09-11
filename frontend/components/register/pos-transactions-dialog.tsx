@@ -650,8 +650,20 @@ export function TransactionDetail({
   // solo si NO está anulada — para otros tipos y para una tx ya anulada los
   // items del menú se OCULTAN, no se deshabilitan.
   const isVoided = detail.void === true || Boolean(detail.voidedAt)
-  const canOfferVoid = (typeNum === 0 || typeNum === 3) && !isVoided
-  const canOfferReturn = (typeNum === 0 || typeNum === 3) && !isVoided
+  const isSaleType = typeNum === 0 || typeNum === 3
+  // Devoluciones vigentes (backend: `returns` del detalle). El menú tiene que
+  // ofrecer exactamente lo que el servidor aceptaría, no menos y no más:
+  //   - "Anular" se rechaza con HAS_RETURNS si hay CUALQUIER devolución
+  //     vigente (SaleVoidService) — se oculta con count > 0.
+  //   - "Devolución" se rechaza si no queda cupo — se oculta con
+  //     fullyReturned.
+  // El default conservador ante un backend viejo que no mande `returns` es
+  // seguir ofreciendo: el guard que MANDA es el del servidor, que igual
+  // rechaza; ocultar de más dejaría al cajero sin la acción legítima.
+  const returnsCount = detail.returns?.count ?? 0
+  const fullyReturned = detail.returns?.fullyReturned === true
+  const canOfferVoid = isSaleType && !isVoided && returnsCount === 0
+  const canOfferReturn = isSaleType && !isVoided && !fullyReturned
 
   const items = detail.transactionDatas ?? []
   const payments = detail.pMethods ?? []
