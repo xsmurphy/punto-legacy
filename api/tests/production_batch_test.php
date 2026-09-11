@@ -470,4 +470,68 @@ check('(H4) el lote no se lee desde otro tenant',
     $batches->find('fa8cf679-9003-417e-8726-5b772d3b6e88', $batchId) === null,
     'find() con otro companyId devolvió algo', $failures, $checks);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// (R) Reporte de producción F1 (context/76): vistas `consumption` y `orders`
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Se verifican contra lo que este mismo arnés produjo por el camino real. No se
+// fijan cantidades absolutas —otras secciones también consumen—, sino las
+// propiedades que un error de SQL rompería: el signo que separa consumo de
+// ingreso, la aritmética del costo, la cobertura de la duración y el tenant.
+
+echo "\n=== (R) reporte de producción: consumos y órdenes ===\n";
+
+require_once dirname(__DIR__) . '/lib/Reports/ProductionService.php';
+$rep  = new \Punto\Api\Reports\ProductionService();
+$rFrom = date('Y-m-d', strtotime('-1 day')) . ' 00:00:00';
+$rTo   = date('Y-m-d', strtotime('+1 day')) . ' 23:59:59';
+$rRoc  = \Punto\Api\Reports\Roc::build($companyId, $outletId);
+
+$cons = $rep->consumption($rFrom, $rTo, $rRoc, $companyId);
+$byId = [];
+foreach ($cons['rows'] as $r) { $byId[$r['itemId']] = $r; }
+
+$pech = $byId[IT_PECHUGA] ?? null;
+check('(R1) la pechuga aparece como consumida, al menos los 10 de (E) y (G)',
+    $pech !== null && $pech['qty'] >= 10.0 - 1e-6,
+    'qty = ' . json_encode($pech['qty'] ?? null), $failures, $checks);
+check('(R2) su costo es cantidad × costo del ledger (' . COSTO_PECHUGA . ' c/u)',
+    $pech !== null && near((float) $pech['cost'], (float) $pech['qty'] * COSTO_PECHUGA, 0.5),
+    'cost = ' . json_encode($pech['cost'] ?? null) . ', qty = ' . json_encode($pech['qty'] ?? null), $failures, $checks);
+check('(R3) lo PRODUCIDO no aparece como consumo (el signo separa ingreso de consumo)',
+    !isset($byId[IT_MILANESA]) && !isset($byId[IT_SUPREMA]) && !isset($byId[IT_SUELTO]),
+    'ids = ' . json_encode(array_keys($byId)), $failures, $checks);
+check('(R4) el insumo SIN control de stock no aparece: no deja movimiento (límite declarado)',
+    !isset($byId[IT_SAL]),
+    'sal presente = ' . json_encode(isset($byId[IT_SAL])), $failures, $checks);
+check('(R5) el subproducto consumido sí aparece',
+    isset($byId[IT_SALSA]) && $byId[IT_SALSA]['qty'] >= 1.0 - 1e-6,
+    'salsa = ' . json_encode($byId[IT_SALSA]['qty'] ?? null), $failures, $checks);
+
+$ord = $rep->orders($rFrom, $rTo, $rRoc, $companyId);
+$oById = [];
+foreach ($ord['rows'] as $r) { $oById[$r['orderId']] = $r; }
+$sueltaRow = $oById[$orderId] ?? null;
+
+check('(R6) la orden suelta aparece completada con rendimiento 100%',
+    $sueltaRow !== null && $sueltaRow['status'] === 'completed'
+        && near((float) $sueltaRow['qtyPlanned'], 3.0) && near((float) $sueltaRow['qtyProduced'], 3.0)
+        && $sueltaRow['yieldPct'] !== null && near((float) $sueltaRow['yieldPct'], 100.0),
+    json_encode($sueltaRow), $failures, $checks);
+check('(R7) "producir ahora" no registra inicio: su duración es null, no milisegundos',
+    $sueltaRow !== null && $sueltaRow['durationMin'] === null,
+    'durationMin = ' . json_encode($sueltaRow['durationMin'] ?? 'AUSENTE'), $failures, $checks);
+check('(R8) las líneas del lote se marcan como de un lote',
+    count(array_filter($ord['rows'], static fn (array $r): bool => $r['fromBatch'] === true)) >= 2,
+    'fromBatch = ' . json_encode(array_column($ord['rows'], 'fromBatch')), $failures, $checks);
+check('(R9) la cobertura de duración nunca supera a las completadas',
+    $ord['coverage']['timed'] <= $ord['coverage']['completed'] && $ord['totals']['completed'] >= 3,
+    json_encode($ord['coverage']) . ' completed=' . json_encode($ord['totals']['completed']), $failures, $checks);
+
+$otherRoc = \Punto\Api\Reports\Roc::build('fa8cf679-9003-417e-8726-5b772d3b6e88', '');
+$foreign  = $rep->orders($rFrom, $rTo, $otherRoc, 'fa8cf679-9003-417e-8726-5b772d3b6e88');
+check('(R10) otro tenant no ve estas órdenes',
+    !in_array($orderId, array_column($foreign['rows'], 'orderId'), true),
+    'filas ajenas = ' . count($foreign['rows']), $failures, $checks);
+
 harnessFinish($failures, $checks);

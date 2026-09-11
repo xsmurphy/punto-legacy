@@ -311,6 +311,157 @@ final class ProductionService
     /* ───────────── helpers ───────────── */
 
     /** $roc con alias prefijado en outletId/registerId/companyId (para JOINs). */
+    /**
+     * Consumo de insumos por producción en el período, desde el LEDGER.
+     *
+     * Sale de `stock` con `stockSource='production'` y `stockCount < 0`: el
+     * consumo y el ingreso del terminado comparten `source` y solo el signo los
+     * separa (hueco documentado en context/76 §3). Es el consumo REAL que se
+     * descontó, no el de receta: el teórico no se guarda cuando hubo ajuste,
+     * así que el desvío no se puede calcular acá (F2 de context/76).
+     *
+     * Dos límites que la respuesta declara en vez de esconder: los insumos SIN
+     * control de stock (agua, sal) no dejan fila en el ledger y no aparecen,
+     * y el consumo no se puede atribuir a una orden — el ledger apunta a la
+     * orden solo por texto en la nota.
+     */
+    public function consumption($from, $to, string $roc, string $companyId): array
+    {
+        $rows = ncmRows(
+            "SELECT itemId,
+                    SUM(-stockCount)             AS qty,
+                    SUM(-stockCount * stockCOGS) AS cost,
+                    COUNT(*)                     AS moves
+               FROM stock
+              WHERE stockSource = 'production'
+                AND stockCount < 0
+                AND stockDate BETWEEN ? AND ?" . $roc . "
+              GROUP BY itemId
+              ORDER BY cost DESC",
+            [$from, $to]
+        );
+
+        $ids   = array_values(array_filter(array_map(static fn ($r) => (string) ($r['itemId'] ?? ''), $rows)));
+        $names = $this->itemNameSku($ids, $companyId);
+
+        $out = [];
+        $tCost = 0.0;
+        foreach ($rows as $r) {
+            $id   = (string) ($r['itemId'] ?? '');
+            $meta = $names[$id] ?? ['name' => '', 'sku' => ''];
+            $cost = (float) ($r['cost'] ?? 0);
+            $out[] = [
+                'itemId' => $id,
+                'name'   => $meta['name'],
+                'sku'    => $meta['sku'],
+                'qty'    => (float) ($r['qty'] ?? 0),
+                'cost'   => $cost,
+                'moves'  => (int) ($r['moves'] ?? 0),
+            ];
+            $tCost += $cost;
+        }
+
+        return ['rows' => $out, 'totals' => ['cost' => $tCost, 'items' => count($out)]];
+    }
+
+    /**
+     * Órdenes de producción del período con rendimiento y duración.
+     *
+     * Rendimiento = `qtyproduced / qtyplanned`, solo en órdenes COMPLETADAS
+     * (una en curso todavía no produjo). Duración = `completed_at -
+     * started_at`, solo cuando existen los dos: "producir ahora" crea y
+     * completa en el mismo pedido y deja `started_at` nulo, así que esas
+     * órdenes quedan fuera del promedio y la cobertura lo dice. Promediar
+     * contando esos milisegundos daría un tiempo de producción inventado.
+     */
+    public function orders($from, $to, string $roc, string $companyId): array
+    {
+        $rows = ncmRows(
+            "SELECT orderid, itemid, qtyplanned, qtyproduced, qtywaste, status,
+                    ingredientcost, unitcogs, batchid, docnumber,
+                    created_at, started_at, completed_at
+               FROM production_order
+              WHERE created_at BETWEEN ? AND ?" . $roc . "
+              ORDER BY created_at DESC",
+            [$from, $to]
+        );
+
+        $ids   = array_values(array_filter(array_map(static fn ($r) => (string) ($r['itemid'] ?? ''), $rows)));
+        $names = $this->itemNameSku($ids, $companyId);
+
+        $out = [];
+        $planned = $produced = $waste = $cost = 0.0;
+        $completed = $cancelled = $timed = 0;
+        $durationSum = 0.0;
+        foreach ($rows as $r) {
+            $status   = (string) ($r['status'] ?? '');
+            $qPlanned = (float) ($r['qtyplanned'] ?? 0);
+            $qProd    = $r['qtyproduced'] !== null ? (float) $r['qtyproduced'] : null;
+            $qWaste   = (float) ($r['qtywaste'] ?? 0);
+            $started  = $r['started_at'] ?? null;
+            $done     = $r['completed_at'] ?? null;
+
+            $duration = null;
+            if ($started && $done) {
+                $duration = round((strtotime((string) $done) - strtotime((string) $started)) / 60, 1);
+            }
+            $yield = ($status === 'completed' && $qPlanned > 0 && $qProd !== null)
+                ? round($qProd / $qPlanned * 100, 1)
+                : null;
+
+            if ($status === 'completed') {
+                $completed++;
+                $planned  += $qPlanned;
+                $produced += (float) $qProd;
+                $waste    += $qWaste;
+                $cost     += (float) ($r['ingredientcost'] ?? 0);
+                if ($duration !== null) { $timed++; $durationSum += $duration; }
+            } elseif ($status === 'cancelled') {
+                $cancelled++;
+            }
+
+            $id   = (string) ($r['itemid'] ?? '');
+            $meta = $names[$id] ?? ['name' => '', 'sku' => ''];
+            $out[] = [
+                'orderId'      => (string) ($r['orderid'] ?? ''),
+                'docNumber'    => (string) ($r['docnumber'] ?? ''),
+                'itemId'       => $id,
+                'name'         => $meta['name'],
+                'sku'          => $meta['sku'],
+                'status'       => $status,
+                'qtyPlanned'   => $qPlanned,
+                'qtyProduced'  => $qProd,
+                'qtyWaste'     => $qWaste,
+                'yieldPct'     => $yield,
+                'unitCogs'     => $r['unitcogs'] !== null ? (float) $r['unitcogs'] : null,
+                'ingredientCost' => $r['ingredientcost'] !== null ? (float) $r['ingredientcost'] : null,
+                'fromBatch'    => (string) ($r['batchid'] ?? '') !== '',
+                'durationMin'  => $duration,
+                'createdAt'    => (string) ($r['created_at'] ?? ''),
+                'completedAt'  => (string) ($done ?? ''),
+            ];
+        }
+
+        return [
+            'rows'   => $out,
+            'totals' => [
+                'orders'      => count($out),
+                'completed'   => $completed,
+                'cancelled'   => $cancelled,
+                'planned'     => $planned,
+                'produced'    => $produced,
+                'waste'       => $waste,
+                'cost'        => $cost,
+                // Sobre lo PLANEADO de las completadas: cuánto de lo que se
+                // intentó salió bueno. `null` sin completadas, no un 0 que se
+                // leería como "todo salió mal".
+                'yieldPct'    => $planned > 0 ? round($produced / $planned * 100, 1) : null,
+                'avgDurationMin' => $timed > 0 ? round($durationSum / $timed, 1) : null,
+            ],
+            'coverage' => ['timed' => $timed, 'completed' => $completed],
+        ];
+    }
+
     private function rocAlias(string $roc, string $alias): string
     {
         return str_replace(

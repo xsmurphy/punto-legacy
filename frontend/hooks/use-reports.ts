@@ -621,6 +621,89 @@ export interface ProductionReportResponse {
   totals: ProductionTotals
 }
 
+/** `view=waste` — eventos de merma del período (`waste_event`). */
+export interface ProductionWasteRow {
+  itemId: string
+  name: string
+  sku: string
+  reasonId: string
+  reasonName: string
+  qty: number
+  cost: number
+  /** `production` = unidades falladas de una orden; `manual` = merma suelta. */
+  source: "production" | "manual" | string
+  outletName: string
+  userName: string
+  date: string
+}
+
+export interface ProductionWasteResponse {
+  rows: ProductionWasteRow[]
+  totals: { qty: number; cost: number }
+  /** Costo de merma por nombre de motivo. */
+  byReason: Record<string, number>
+}
+
+/**
+ * `view=consumption` — insumos consumidos por producción, desde el ledger.
+ *
+ * Es el consumo REAL descontado, no el de receta: el teórico no se guarda
+ * cuando hubo ajuste (context/76 §3). Los insumos sin control de stock no
+ * aparecen, porque no dejan movimiento.
+ */
+export interface ProductionConsumptionRow {
+  itemId: string
+  name: string
+  sku: string
+  qty: number
+  cost: number
+  moves: number
+}
+
+export interface ProductionConsumptionResponse {
+  rows: ProductionConsumptionRow[]
+  totals: { cost: number; items: number }
+}
+
+/** `view=orders` — órdenes de producción con rendimiento y duración. */
+export interface ProductionOrderRow {
+  orderId: string
+  docNumber: string
+  itemId: string
+  name: string
+  sku: string
+  status: "draft" | "in_progress" | "completed" | "cancelled" | string
+  qtyPlanned: number
+  qtyProduced: number | null
+  qtyWaste: number
+  /** `qtyProduced / qtyPlanned` en %, solo en completadas. */
+  yieldPct: number | null
+  unitCogs: number | null
+  ingredientCost: number | null
+  fromBatch: boolean
+  /** Minutos entre inicio y fin; `null` si la orden no registró inicio. */
+  durationMin: number | null
+  createdAt: string
+  completedAt: string
+}
+
+export interface ProductionOrdersResponse {
+  rows: ProductionOrderRow[]
+  totals: {
+    orders: number
+    completed: number
+    cancelled: number
+    planned: number
+    produced: number
+    waste: number
+    cost: number
+    yieldPct: number | null
+    avgDurationMin: number | null
+  }
+  /** Cuántas completadas tienen inicio y fin — la base del promedio de duración. */
+  coverage: { timed: number; completed: number }
+}
+
 // ── Gift cards ────────────────────────────────────────────────────────────────
 // F2 giftcard-issue-flow (2026-07-18): repuntado a la tabla `giftcard` (mig
 // 44+78) — antes leía `giftCardSold` (legacy, no borrado pero ya no reportado).

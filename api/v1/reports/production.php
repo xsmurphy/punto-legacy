@@ -34,7 +34,7 @@ require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
 \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'production.manage');
 
 $view = (string) (validateHttp('view') ?: 'general');
-if (!in_array($view, ['general', 'detail', 'compound', 'waste'], true)) {
+if (!in_array($view, ['general', 'detail', 'compound', 'waste', 'consumption', 'orders'], true)) {
     apiError('Vista no soportada', 422);
 }
 
@@ -60,6 +60,10 @@ if ($view === 'detail') {
     apiOk($svc->compound($from, $to, $roc, $companyId, (bool) validateHttp('byDay')));
 } elseif ($view === 'waste') {
     apiOk($svc->waste($from, $to, $roc, $companyId));
+} elseif ($view === 'consumption') {
+    apiOk($svc->consumption($from, $to, $roc, $companyId));
+} elseif ($view === 'orders') {
+    apiOk($svc->orders($from, $to, $roc, $companyId));
 } else {
     apiOk($svc->general($from, $to, $roc, $companyId));
 }

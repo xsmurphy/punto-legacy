@@ -6,10 +6,9 @@
  * Backend: GET /v1/reports/production?view=general&from=&to=
  * → { rows: [...], totals: { qty, cogs, utility } }
  *
- * Reporte date-scoped. El legacy tenía 3 tabs (General / Detallado / Compuestos).
- * Acá mostramos la vista "general" como tabla principal, con KPIs de totales
- * arriba. El view=detail y view=compound son vistas secundarias que se pueden
- * agregar si el módulo de producción está activo.
+ * Pestañas (F1 de context/76, 2026-09-10): Dashboard, Productos (la vista
+ * `general` que había antes), Consumos, Mermas y Órdenes. `view=compound` NO
+ * se muestra: mezcla la tabla legacy `production`, que nada escribe hoy.
  */
 
 import * as React from "react"
@@ -22,7 +21,14 @@ import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
   rangeToBackend,
+  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useSearchParams } from "next/navigation"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ProductionDashboardTab } from "@/components/domain/reports/production/production-dashboard-tab"
+import { ProductionConsumptionTab } from "@/components/domain/reports/production/production-consumption-tab"
+import { ProductionWasteTab } from "@/components/domain/reports/production/production-waste-tab"
+import { ProductionOrdersTab } from "@/components/domain/reports/production/production-orders-tab"
 import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -30,9 +36,51 @@ import { useReport, type ProductionReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 
+const TAB_IDS = ["dashboard", "productos", "consumos", "mermas", "ordenes"] as const
+
 export default function ProductionReportPage() {
-  const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
+  const searchParams = useSearchParams()
+  const requested = searchParams.get("tab")
+  const initialTab =
+    requested && (TAB_IDS as readonly string[]).includes(requested) ? requested : "dashboard"
+
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <BackLink />
+          <h1 className="text-2xl font-semibold">Producción</h1>
+          <p className="text-sm text-muted-foreground">
+            Qué se produjo, cuánto insumo se consumió, cuánto se perdió y con qué rendimiento.
+          </p>
+        </div>
+        <DateRangePicker value={range} onChange={setRange} />
+      </header>
+
+      {/* F1 de context/76: todas las pestañas salen de vistas que el backend
+          ya tenía o de dato que ya se guarda. Desvío contra receta, merma de
+          insumos y responsables necesitan F0 (empezar a guardar el dato). */}
+      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
+        <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="productos">Productos</TabsTrigger>
+          <TabsTrigger value="consumos">Consumos</TabsTrigger>
+          <TabsTrigger value="mermas">Mermas</TabsTrigger>
+          <TabsTrigger value="ordenes">Órdenes</TabsTrigger>
+        </TabsList>
+        <TabsContent value="dashboard" className="m-0"><ProductionDashboardTab range={range} /></TabsContent>
+        <TabsContent value="productos" className="m-0"><ProductsTab range={range} /></TabsContent>
+        <TabsContent value="consumos" className="m-0"><ProductionConsumptionTab range={range} /></TabsContent>
+        <TabsContent value="mermas" className="m-0"><ProductionWasteTab range={range} /></TabsContent>
+        <TabsContent value="ordenes" className="m-0"><ProductionOrdersTab range={range} /></TabsContent>
+      </Tabs>
+    </div>
+  )
+}
+
+function ProductsTab({ range }: { range: DateRangeValue }) {
+  const { data: bootstrap } = useBootstrap()
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: { view: "general" } }),
     [range],
@@ -121,16 +169,6 @@ export default function ProductionReportPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <BackLink />
-          <h1 className="text-2xl font-semibold">Reporte de Producción</h1>
-          <p className="text-sm text-muted-foreground">
-            Producción de ítems por período — unidades producidas, costo y utilidad.
-          </p>
-        </div>
-        <DateRangePicker value={range} onChange={setRange} />
-      </header>
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
