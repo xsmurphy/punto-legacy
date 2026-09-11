@@ -48,7 +48,7 @@ const GROUPS: ReportGroup[] = [
   },
   {
     title: "Finanzas y caja",
-    description: "La plata: entradas, salidas y saldos.",
+    description: "Entradas, salidas y saldos del negocio.",
     items: [
       // El corte por categoría / centro de costo / cuenta vivía SOLO dentro
       // del módulo, así que desde acá —que es donde se lo busca— parecía no
