@@ -102,4 +102,72 @@ interface EncomSource
 
     /** @return array<int,array> Medios de pago configurados por el comercio. */
     public function paymentMethods(): array;
+
+    // ═══════════════════════════════════════════════════════════════════
+    // HISTÓRICO (F2) — lo único que NO sale de `/fetchs`
+    // ═══════════════════════════════════════════════════════════════════
+    //
+    // `/fetchs` es el bootstrap de una caja, no un reporte: no expone el
+    // pasado por ningún `load`. El histórico sale de las pantallas de reporte
+    // del panel, con la misma sesión.
+    //
+    // Estos métodos devuelven las filas con las columnas YA RESUELTAS POR
+    // ENCABEZADO —o sea, claves con el significado del legacy, no posiciones—
+    // porque "qué columna es el total" es una pregunta sobre la FUENTE. El
+    // mapeo de ese significado al modelo de Punto sigue siendo del importador.
+
+    /**
+     * Cabeceras de las ventas de un rango.
+     *
+     * @param string $from 'YYYY-MM-DD HH:MM:SS'
+     * @param string $to   'YYYY-MM-DD HH:MM:SS'
+     * @return array<int,array{ID:string,docNumber:string,authNo:string,date:string,
+     *         dueDate:string,customer:string,customerTin:string,user:string,
+     *         outlet:string,register:string,paymentMethod:string,note:string,
+     *         docType:string,type:string,discount:?float,tax:?float,total:?float}>
+     */
+    public function salesHistory(string $from, string $to): array;
+
+    /**
+     * Líneas de UNA venta. Es una request POR VENTA (el legacy no tiene un
+     * endpoint de líneas por rango, a diferencia de las compras), así que el
+     * importador la llama paceada y por mes.
+     *
+     * `legacyItemId` viene vacío cuando el form no lo expone (lo normal en el
+     * deploy relevado): ahí el artículo se resuelve por nombre contra el
+     * catálogo ya migrado, que es el mismo criterio con el que el migrador
+     * cruza los costos.
+     *
+     * @return array<int,array{ID:string,legacyItemId:string,itemName:string,
+     *         qty:?float,price:?float,tax:?float,total:?float,user:string}>
+     */
+    public function saleLines(string $legacyId): array;
+
+    /**
+     * Cabeceras de las compras de un rango.
+     *
+     * @return array<int,array{ID:string,docNumber:string,authNo:string,date:string,
+     *         dueDate:string,supplier:string,outlet:string,user:string,
+     *         type:string,tax:?float,total:?float}>
+     */
+    public function purchasesHistory(string $from, string $to): array;
+
+    /**
+     * Líneas de TODAS las compras de un rango, en UNA request.
+     *
+     * Se juntan con su cabecera por número de documento — el listado de
+     * detalle del legacy no trae el id de la compra, solo el `#Documento`.
+     *
+     * @return array<int,array{docNumber:string,supplier:string,outlet:string,
+     *         itemName:string,qty:?float,price:?float,tax:?float,total:?float}>
+     */
+    public function purchaseLines(string $from, string $to): array;
+
+    /**
+     * Movimientos de caja (extracciones e ingresos) de un rango.
+     *
+     * @return array<int,array{ID:string,date:string,outlet:string,register:string,
+     *         user:string,note:string,type:string,total:?float}>
+     */
+    public function expensesHistory(string $from, string $to): array;
 }

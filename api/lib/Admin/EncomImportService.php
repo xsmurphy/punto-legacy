@@ -98,7 +98,16 @@ final class EncomImportService
         //     movimiento por (artículo, sucursal): necesita el mapa de
         //     artículos que llena `catalog` Y el de sucursales que llena
         //     `config`.
-        $order = ['catalog', 'customers', 'config', 'users', 'payments', 'stock'];
+        //   · Los tres de HISTÓRICO van al FINAL, después de `stock`: un
+        //     asiento histórico referencia artículos, clientes, usuarios y
+        //     sucursales, y todos esos mapas los llenan los dominios de
+        //     arriba. Entre ellos el orden es indistinto —no se referencian—
+        //     pero las ventas van primero porque son las que el operador
+        //     mira.
+        $order = [
+            'catalog', 'customers', 'config', 'users', 'payments', 'stock',
+            'sales_history', 'purchases_history', 'expenses_history',
+        ];
 
         foreach ($order as $domain) {
             if (!in_array($domain, $domains, true)) {
@@ -113,6 +122,8 @@ final class EncomImportService
                     'users'     => $this->users(),
                     'payments'  => $this->payments(),
                     'stock'     => $this->stockOpening(),
+                    'sales_history', 'purchases_history', 'expenses_history'
+                                => $this->history($domain, $options),
                 };
             } catch (\Throwable $e) {
                 $this->fail($domain, $e->getMessage());
@@ -124,6 +135,56 @@ final class EncomImportService
             'errors'   => $this->errors,
             'log'      => $this->log,
         ];
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // HISTÓRICO — ventas, compras y movimientos de caja (F2)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Delega en `EncomHistoryImporter`, que es donde vive el ÚNICO camino de
+     * escritura del proyecto que no pasa por los servicios de negocio.
+     *
+     * Está en una clase aparte a propósito: el resto de este importador
+     * cumple el D4 ("por los servicios reales") y el histórico es su
+     * excepción explícita y acotada. Mezclarlos en el mismo archivo haría que
+     * la excepción se lea como la regla — y el día que alguien copie de acá
+     * para importar otra cosa, lo que tiene que encontrar es el docblock que
+     * explica por qué una venta histórica NO puede pasar por
+     * `SaleService::save()`.
+     */
+    private function history(string $domain, array $options): void
+    {
+        require_once __DIR__ . '/EncomHistoryImporter.php';
+        require_once dirname(__DIR__) . '/Support/TenantClock.php';
+
+        // La zona del TENANT, no la de la plataforma: las fechas del legacy
+        // vienen en hora local del comercio y se guardan como texto que la
+        // sesión de PG interpreta. Sin esto, una venta de las 23:30 del 31 se
+        // asienta en otro mes —y por lo tanto en otra partición y en otro
+        // rollup— que el día en que el comercio la cobró.
+        try {
+            \Punto\Api\Support\TenantClock::apply($this->companyId);
+        } catch (\Throwable $e) {
+            $this->note('No se pudo fijar la zona horaria del comercio: las fechas del histórico '
+                . 'pueden correrse de día en los bordes. (' . $e->getMessage() . ')');
+        }
+
+        $importer = new EncomHistoryImporter($this->companyId, $this->source, $this->jobId);
+
+        $this->progress[$domain] = match ($domain) {
+            'sales_history'     => $importer->sales($options),
+            'purchases_history' => $importer->purchases($options),
+            'expenses_history'  => $importer->expenses($options),
+            default             => ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0],
+        };
+
+        foreach ($importer->log() as $entrada) {
+            $this->log[] = $entrada;
+        }
+        foreach ($importer->errors() as $error) {
+            $this->errors[] = $error;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
