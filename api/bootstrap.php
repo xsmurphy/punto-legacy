@@ -49,35 +49,15 @@ require_once __DIR__ . '/includes/realtime.php';
 require_once __DIR__ . '/includes/rollup.php';
 require_once __DIR__ . '/lib/response.php';
 
-// Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace `Punto\Api\…`.
-// Mapea `Punto\Api\Sales\SaleService` → `api/lib/Sales/SaleService.php`.
-// El código legacy sin namespace (api/lib/services/*) sigue cargándose con
-// `require_once` manual desde los endpoints — coexisten. Ver convención §22.9.
-spl_autoload_register(static function (string $class): void {
-    $prefix = 'Punto\\Api\\';
-    if (!str_starts_with($class, $prefix)) {
-        return;
-    }
-    $relative = str_replace('\\', '/', substr($class, strlen($prefix)));
-    $path = __DIR__ . '/lib/' . $relative . '.php';
-    if (is_file($path)) {
-        require_once $path;
-        return;
-    }
-    // Fallback de case: el dir físico de algunos módulos es lowercase (ej.
-    // `lib/services/` con namespace `Punto\Api\Services`). En macOS (FS
-    // case-insensitive) el path de arriba matchea igual, pero en Linux prod
-    // (case-sensitive) falla → "Class not found". Reintentamos con el primer
-    // segmento del path en minúscula para resolver ese mismatch sin renombrar
-    // el directorio (que rompería los require_once existentes en lowercase).
-    $lower = preg_replace_callback('#^[^/]+#', static fn ($m) => strtolower($m[0]), $relative);
-    if ($lower !== $relative) {
-        $pathLower = __DIR__ . '/lib/' . $lower . '.php';
-        if (is_file($pathLower)) {
-            require_once $pathLower;
-        }
-    }
-});
+// Autoloader mínimo PSR-4 para código nuevo en `api/lib/` con namespace
+// `Punto\Api\…`. El código legacy sin namespace (api/lib/services/*) sigue
+// cargándose con `require_once` manual desde los endpoints — coexisten. Ver
+// convención §22.9.
+//
+// Vive en `api/autoload.php` desde 2026-09-11 y ya no acá: el realm `admin` no
+// pasa por este bootstrap y necesita el mismo autoloader. El porqué completo
+// está en el docblock de ese archivo.
+require_once __DIR__ . '/autoload.php';
 
 // Key del rate limiter global (lo aplica head.php). ClientIp resuelve la IP
 // REAL del cliente: detrás de Traefik, REMOTE_ADDR es siempre la IP del proxy

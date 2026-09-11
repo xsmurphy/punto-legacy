@@ -60,6 +60,12 @@ if (!defined('ADODB_FETCH_NUM'))     define('ADODB_FETCH_NUM',     1);
 if (!defined('ADODB_FETCH_ASSOC'))   define('ADODB_FETCH_ASSOC',   2);
 if (!defined('ADODB_FETCH_BOTH'))    define('ADODB_FETCH_BOTH',    3);
 
+// Autoloader PSR-4 de `Punto\Api\…`. Va acá y no en `bootstrap.php` porque por
+// este archivo pasan los DOS realms (tenant y admin), y el admin también
+// necesita resolver clases de `api/lib/` — enumerar su cadena transitiva a
+// mano ya causó "Class not found" en producción. Ver `api/autoload.php`.
+require_once __DIR__ . '/../autoload.php';
+
 require_once __DIR__ . '/lib/DB.php';
 
 $db       = new DB();
