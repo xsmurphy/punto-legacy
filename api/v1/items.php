@@ -954,7 +954,12 @@ switch ($method) {
             // categoría (ej. "materia prima") porque el WHERE solo miraba
             // itemName/itemSKU. El countSql de abajo necesita el mismo JOIN
             // porque ahora referencia `cat.` en el WHERE.
-            $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ? OR cat.taxonomyName ILIKE ?)';
+            // `barcode` (mig 220) entra al mismo OR: el código de barras es lo
+            // que el operador tiene A MANO cuando el artículo está delante
+            // suyo, así que buscarlo por ahí tiene que encontrarlo igual que
+            // por nombre o SKU — si no, el campo solo sirve escaneando.
+            $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ? OR barcode ILIKE ? OR cat.taxonomyName ILIKE ?)';
+            $params[] = $pattern;
             $params[] = $pattern;
             $params[] = $pattern;
             $params[] = $pattern;
@@ -972,7 +977,7 @@ switch ($method) {
 
         // Prefijar el WHERE con el alias `i.` para que pegue en el JOIN.
         $whereSql = preg_replace(
-            '/\b(companyId|itemStatus|itemName|itemSKU|itemKind|itemType|itemParentId|variantParentId)\b/',
+            '/\b(companyId|itemStatus|itemName|itemSKU|barcode|itemKind|itemType|itemParentId|variantParentId)\b/',
             'i.$1',
             implode(' AND ', $where)
         );
