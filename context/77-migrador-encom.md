@@ -45,12 +45,13 @@ php api/scripts/migration_worker.php <jobId> <companyId>
 | Schema (cola + mapeo) | `api/database/migrations/postgres/218_migracion_encom.sql` |
 | Contrato de la fuente | `api/lib/Admin/EncomSource.php` |
 | Cliente HTTP del legacy | `api/lib/Admin/EncomClient.php` |
+| Parsers (CSV / tabla HTML / form) | `api/lib/Admin/EncomParse.php` |
 | Ciclo de vida del job + drain | `api/lib/Admin/EncomMigrationService.php` |
 | Import por dominio | `api/lib/Admin/EncomImportService.php` |
 | Endpoint realm admin | `api/v1/admin/migrations.php` |
 | Worker | `api/scripts/migration_worker.php` |
 | UI | `frontend/app/(admin)/admin/migrations/page.tsx` + `components/admin/migration-*.tsx` |
-| Arnés | `api/tests/run_encom_migration_test.sh` (28 checks) |
+| Arnés | `api/tests/run_encom_migration_test.sh` (45 checks) |
 
 ### 3.1 Por qué cola + proceso aparte (D3), con la razón corregida
 
@@ -69,49 +70,105 @@ El worker NO pasa por `data.php`: define las constantes a mano (patrón de los
 arneses de `api/tests/`). `data.php` además exige outlet/register/user activos,
 que una empresa recién creada —el caso normal de un destino— no tiene.
 
-## 4. Mapa del legacy — CORRECCIONES verificadas
+## 4. El sistema VIVO no tiene `/API` ni `/bff`
 
-El mapa con el que arrancó la tarea tenía cuatro errores que cambian el diseño.
-Todo esto se leyó del código del snapshot legacy, no se asumió:
+> **Esto invalida el mapa con el que arrancó la tarea.** Verificado contra
+> `panel.encom.com.py` con una sesión real el 2026-09-11: **el deploy vivo es
+> MÁS VIEJO que el código del snapshot.** Cualquier plan que asuma la
+> superficie JSON está mirando código que no está desplegado.
 
-1. **`get_registers.php` NO EXISTE.** Las cajas salen anidadas en
-   `API/get_company.php` (`outlets[].registers[]`), que es además la única
-   fuente que las trae **con su sucursal**. La otra opción,
-   `a_registers.php?list=true`, devuelve **HTML** y corre acotado a la
-   **sucursal activa** de la sesión, sin endpoint para cambiarla: habría
-   migrado las cajas de una sola sucursal y sin saber de cuál.
-2. **El punto de expedición YA viene como `EEE-PPP`** en
-   `registerInvoicePrefix` — el propio legacy hace
-   `explode("-", registerInvoicePrefix)` para mandar establecimiento y punto a
-   la SET (`API/send_fe_invoices.php:54-59`). El campo `sufix` es OTRA cosa y
-   **no** entra en el punto de expedición.
-3. **`get_tags.php` no usa envelope** `{ok,data}`: devuelve un objeto indexado
-   por id, e **inyecta por código** un tag que no existe en la tabla (id
-   `166227`, "INTERNO"). Se filtra: migrarlo crearía una etiqueta que el
-   cliente nunca creó.
-4. **Solo `get_items.php` pagina.** Categorías (LIMIT 500), clientes (LIMIT
-   1000), marcas y bancos (LIMIT 100) tienen el tope cableado en la SQL e
-   **ignoran `offset`**. Pedir una segunda página devolvería la primera para
-   siempre.
-
-Además: `get_customers.php` **no acepta** el parámetro `type` (está cableado a
-`type = 1`), y la fuente del nombre del comercio en Punto es
-`company.config->>'settingName'`, no una columna.
-
-### 4.1 Shapes que se consumen
-
-| Fuente | Campos usados |
+| Superficie | Sistema vivo |
 |---|---|
-| `get_categories.php` | `ID`, `name`, `pos` |
-| `get_brands.php` | `ID`, `name` |
-| `get_tags.php` | objeto `{id: {name}}` |
-| `get_items.php` | `ID`, `name`, `sku`, `price`, `cost`*, `discount`, `categoryID`, `brandID`, `status`, `type`, `UOM`, `description` |
-| `get_customers.php` | `id`/`UID`, `name`, `tin`, `CI`, `phone`, `address`, `email`, `note` |
-| `get_company.php` | `outlets[]`: `ID`, `name`, `address`, `phone`, `email`, `billingName`, `tin`, `description`, `lat`, `lng` |
-| `get_company.php` | `registers[]`: `ID`, `name`, `invoiceAuth`, `invoiceAuthExp`, `prefix`, `sufix`, `invoiceNo`, `docsZeros` |
+| `/bff/*.php` | **404**, no existe |
+| `/API/get_*.php` | **`{"error":"Acceso denegado"}`** incluso con sesión de panel válida (usa el auth viejo por api_key, que no tenemos) |
+| `a_*.php?action=…` con cookie **PHPSESSID** | **Funciona** — es la única superficie disponible |
 
-\* `cost` y `stock` son claves **condicionales**: solo vienen si el artículo
-rastrea inventario. `null` ≠ 0.
+O sea: el export sale de las mismas PANTALLAS que ve el cliente. De ahí que el
+cliente parsee CSV y HTML en vez de consumir JSON; no es una preferencia.
+
+**La prueba más clara de la divergencia** está en el CSV de contactos: el vivo
+devuelve 10 columnas **con** `TELEFONO 2`, y el snapshot tiene 9 porque su
+"Migración 25" eliminó esa columna. Por eso `EncomParse::csvRows()` indexa
+**por nombre de columna, nunca por posición** — un parser posicional lee el
+email en la columna del teléfono en una de las dos versiones y no se entera.
+
+Y el encabezado del documento fiscal es la constante `TIN_NAME`, que sale de
+`settingTIN` del comercio: dice "RUC" en Paraguay y otra cosa en otro país.
+Se resuelve por alias y, si ninguno matchea, por su posición conocida.
+
+### 4.1 Fuente por dominio
+
+| Dominio | Fuente | Forma |
+|---|---|---|
+| Clientes | `a_contacts?action=download` | CSV (coma, comillas, saltos `\r`) |
+| Artículos | `a_items?action=showTable&format=json` | JSON; **fallback** a la tabla HTML |
+| Categorías / marcas | derivadas de los artículos | el export los trae por NOMBRE |
+| Sucursales | `a_outlets?showTable=true` + `?action=edit&id=` | `{"table": "<html>"}` + form |
+| Cajas | `a_registers?list=true` + `?action=edit&id=` | HTML + form |
+| Empresa | `a_settings` (página entera) | form HTML |
+| Ventas (F2) | `a_report_transactions?action=detailTable` + `?action=edit&id=` | HTML |
+
+Notas que gobiernan el diseño:
+
+- **El valor crudo NO es el texto visible.** Viaja en `data-order` (tablas de
+  contactos/transacciones) o en `data-sort` (tabla de artículos); el texto
+  está formateado para mirar (`1.250.000`, `12 ene`). El parser prueba
+  `data-order` → `data-sort` → `data-filter` → texto, en ese orden.
+- **El id de la fila tampoco está siempre en el mismo atributo**: cajas,
+  sucursales y transacciones usan `data-id`, pero la tabla de ARTÍCULOS usa
+  `id` a secas. Mirar solo `data-id` saltearía en silencio todo el catálogo.
+- **`a_contacts?action=download` NO filtra por tipo**: trae clientes,
+  proveedores y el personal del comercio en el mismo CSV. Los separa la
+  columna `ROL` (`Cliente` / `Proveedor` / nombre del rol). F1 importa solo
+  `Cliente`.
+- **El CSV de contactos no trae id**, así que la idempotencia usa clave
+  natural: el documento fiscal si está, si no el nombre normalizado
+  (`EncomImportService::customerKey()`). Dos clientes homónimos sin documento
+  se fusionan — costo conocido de no tener id, y el lado seguro.
+- **`a_items?action=exportCSV` se descartó**: exige `ids` (no tiene "todos") y
+  su header declara 18 columnas mientras las filas traen 7 claves con otros
+  nombres. Está desalineado en el propio código.
+
+### 4.2 Las cajas: el switch de sucursal `?o=`
+
+`a_registers?list=true` corre `... WHERE <roc>`, donde `<roc>` es `getROC(1)` =
+"empresa + la sucursal **ACTIVA de la sesión**", y ese archivo **no lee ningún
+parámetro de sucursal del request**. Por sí solo solo ve una sucursal.
+
+La salida es un switch **global** que procesa `includes/functions.php` en
+cualquier página del panel: **`?o=<outletId>`** escribe la sucursal activa en
+la sesión. Dos detalles obligan a hacerlo en DOS requests:
+
+1. el switch responde `header('location: …')` **sin el query string**, así que
+   `?o=X&list=true` perdería el `list`;
+2. la constante `OUTLET_ID` se define **antes** de que el switch corra, así que
+   el cambio recién se ve en el request **siguiente**.
+
+Entonces, por cada sucursal: un GET que cambia la sucursal activa (se ignora el
+cuerpo, y contesta **302 a propósito** — el cliente lo tolera solo en esa
+llamada) y otro que pide el listado. `a_outlets?showTable=true` sí trae TODAS
+las sucursales (filtra solo por empresa), así que es el punto de entrada.
+
+El listado de cajas no trae el vencimiento del timbrado ni la numeración
+máxima: eso solo está en `?action=edit&id=`, un request más por caja.
+
+### 4.3 Fragilidad asumida, y qué la contiene
+
+Esto es scraping de pantallas: si el legacy cambia el orden de una columna o
+el `name` de un input, el export se rompe. Lo que lo contiene:
+
+- **Los `name` de los inputs son estables** y es de ahí que salen los datos
+  FISCALES (timbrado, punto, número, dígitos, vencimiento) — no de posiciones.
+  `EncomParse::formValues()` indexa por `name`.
+- **El CSV se indexa por nombre de columna.**
+- Lo único posicional que queda es el orden de columnas de las dos tablas
+  (cajas y artículos), y está cubierto por el arnés con fragmentos copiados
+  del sistema vivo.
+- **Nunca se interpreta un id**: se devuelve opaco tal como vino (`data-id` →
+  `?o=` / `?id=`). En el snapshot `enc()`/`dec()` son no-ops, pero en el deploy
+  viejo podrían no serlo, y así da igual.
+- Un choque de datos FISCALES no se resuelve adivinando: aborta el dominio
+  (§5.1).
 
 ## 5. La numeración fiscal (D5) — el corazón
 
@@ -187,43 +244,86 @@ La idempotencia protege el **re-correr**, no el correr en paralelo.
 
 ## 8. Qué queda para F2 — NO implementado
 
-- **Ventas históricas.** Fuera de alcance explícito de F1. Lo que hay que
-  resolver antes de construirlo: una venta importada NO puede pasar por
-  `SaleService::save()` (asignaría numeración nueva y movería stock y caja);
-  tiene que entrar como documento ya emitido, con su número congelado, y sin
-  tocar `document_sequence` — que es justo lo que el import de cajas deja
-  posicionado. Tampoco puede reabrir un período cerrado (`context/48`).
+- **Ventas históricas.** Fuera de alcance explícito de F1. La SUPERFICIE ya
+  quedó relevada y con cliente listo —`EncomClient::salesRaw($from, $to)` sobre
+  `a_report_transactions?action=detailTable` (valores crudos en `data-order`,
+  id de la venta en `data-id`) y `saleDetailRaw($id)` sobre `?action=edit&id=`,
+  que es el form con los ÍTEMS de esa venta— pero **ningún dominio de F1 los
+  llama**. Lo que falta decidir antes de construirlo: una venta importada NO
+  puede pasar por `SaleService::save()` (asignaría numeración nueva y movería
+  stock y caja); tiene que entrar como documento ya emitido, con su número
+  congelado, y sin tocar `document_sequence` — que es justo lo que el import de
+  cajas deja posicionado. Tampoco puede reabrir un período cerrado
+  (`context/48`).
+- **Etiquetas.** La superficie viva NO las expone por ninguna vía: la tabla de
+  artículos no tiene columna y el modo JSON no trae el campo. `tags()` devuelve
+  vacío a propósito — inventarlas a partir de otra cosa sería peor que no
+  migrarlas.
 - **Stock inicial.** Deliberadamente fuera: un saldo es un movimiento del
   ledger con costo y sucursal (`context/52`), y el legacy solo expone un número
   suelto. Se carga con un conteo en la sucursal.
-- **Usuarios y staff** (D5 los excluye de F1). `get_users.php` tiene además dos
+- **Proveedores.** Vienen en el MISMO CSV que los clientes (columna
+  `ROL = Proveedor`), así que sumarlos es cambiar un filtro. No se hizo porque
+  D5 acota F1 a clientes y un proveedor arrastra compras y cuentas por pagar.
+- **Usuarios y staff** (D5 los excluye de F1). También vienen en ese CSV, con
+  el nombre del rol en `ROL`. Ojo: `get_users.php` del snapshot tiene dos
   claves `TIN`/`tin` con valores distintos (una lee `lockpass`) — mapear eso a
   ciegas es cómo se importa una contraseña en el campo del RUC.
-- **Compras, proveedores, cuentas/medios de pago.** `get_banks.php` ya se
-  expone en `EncomSource` pero no se importa: el plan de cuentas de Punto no es
-  el del legacy y el mapeo no está decidido.
-- **Configuración de la empresa** (moneda, decimales, `taxName`). Se exporta
-  (`settings()`) pero no se escribe: pisar la config de una empresa que ya
-  operó es destructivo y el owner no lo pidió.
+- **Medios de pago / cuentas.** `banks()` devuelve vacío: la superficie viva no
+  los expone y el plan de cuentas de Punto no es el del legacy.
+- **Configuración de la empresa.** Se exporta (`settings()` lee el form de
+  `a_settings`) pero NO se escribe: pisar la config de una empresa que ya operó
+  es destructivo y el owner no lo pidió.
 
-## 9. Lo que hay que hacer antes de mergear
+## 9. Supuestos que quedan, y qué se verificó
+
+**Verificado contra el sistema vivo** (coordinador, 2026-09-11): que `/API` y
+`/bff` no sirven, que el login por `POST /login?login=true` devuelve `"true"` y
+que PHPSESSID alcanza, el header exacto del CSV de contactos, y que
+`generalTable`/`detailTable` devuelven `{"table": …}` con los valores crudos en
+`data-order`.
+
+**Sigue asumido del snapshot, a confirmar en la primera corrida real:**
+
+1. **Que el orden de columnas de las dos tablas sea el del snapshot** — la de
+   cajas (nombre, creado, timbrado, prefijo, número, sufijo, estado) y la de
+   artículos (20 columnas). Es lo único posicional que queda. Mitigación: de la
+   caja, los datos FISCALES se releen del form por `name`, así que un cambio de
+   orden en la tabla no corrompe el timbrado.
+2. **Que los `name` de los inputs del form de caja sean los del snapshot**
+   (`auth`, `prefix`, `sufix`, `invoice`, `leadingZero`, `expiration`,
+   `registerInvoiceNoMax`). Si cambiaron, el vencimiento y el número se leen
+   del listado igual, pero con menos precisión.
+3. **Que `?o=<outletId>` siga cambiando la sucursal activa** y que el listado de
+   cajas siga acotado por ella. Si el deploy viejo NO tuviera ese switch, se
+   migrarían solo las cajas de una sucursal — se notaría en el conteo.
+4. **Que `a_items?action=showTable` acepte `format=json`.** Probablemente NO
+   (es más nuevo); por eso hay fallback a la tabla HTML, y el arnés prueba los
+   dos caminos.
+5. **Que `registerInvoiceNumber` sea el ÚLTIMO número emitido** (de ahí el +1).
+   Inferido del comentario de la mig 117, no del código legacy. **Es el
+   supuesto más caro de los cinco**: si fuera el PRÓXIMO, cada caja migrada
+   saltearía un número. Se confirma mirando UNA caja real: comparar el número
+   del listado contra la última factura emitida de esa caja.
+
+## 10. Lo que hay que hacer antes de mergear
 
 1. **Cargar `ENCOM_MIGRATION_URL`** en Coolify (backend). Sin eso el endpoint
    responde 503 y la UI muestra el aviso con el botón bloqueado. No se cablea
    en código (regla: ningún dominio vive en el código).
-2. **Validar los shapes contra el sistema vivo.** El export se leyó del código
-   del snapshot, no de una respuesta real. Lo que conviene confirmar con una
-   corrida contra un cliente de prueba está en §4 y en el reporte de la
-   sesión — en especial que `get_company.php` devuelva `registers[]` poblado
-   con `invoiceAuth`/`prefix`/`invoiceNo` (el snapshot los lee de `SELECT *`
-   sin `_flattenJsonb`, y el mapa de schema del propio legacy dice que esos
-   campos fueron demoted al JSONB `data` en su "Migración 26").
+2. **Una corrida real contra un cliente de prueba**, mirando los cinco puntos
+   de §9 — sobre todo el 5, que es fiscal.
 
-## 10. Arquitecturas rechazadas — no reintroducir
+
+## 11. Arquitecturas rechazadas — no reintroducir
 
 | Arquitectura | Por qué se rechazó |
 |---|---|
-| **Parsear `a_registers.php?list=true`** para leer las cajas | Devuelve HTML y está acotado a la sucursal ACTIVA de la sesión, sin forma de cambiarla. Migraría las cajas de una sola sucursal, sin saber cuál, y leyendo un TIMBRADO de una celda `<td>`. `get_company.php` da lo mismo en JSON y con la sucursal. |
+| **Usar `/API/get_*.php` o `/bff/*.php`** (el mapa original) | NO EXISTEN en el deploy vivo: 404 y "Acceso denegado". Es código del snapshot que no está desplegado. Ver §4. |
+| **`get_company.php` como fuente de sucursales y cajas** | Era la fuente elegida en la primera versión de este plan, y está en el grupo `/API` de la fila de arriba: el vivo la rechaza. Se reemplazó por `a_outlets?showTable` + `a_registers?list` con el switch `?o=`. |
+| **Parsear el número de factura del TEXTO de la tabla** | El texto está formateado para mirar (`1.250.000`, `12 ene`). El valor crudo viaja en `data-order`/`data-sort`. Parsear el texto obliga a deshacer separadores de miles que dependen de la config del comercio. |
+| **Indexar el CSV de contactos por POSICIÓN** | El vivo tiene 10 columnas y el snapshot 9 (`TELEFONO 2`), y el header del documento fiscal es `TIN_NAME`, que cambia por país. Posicional lee el email en la columna del teléfono en una de las dos versiones. |
+| **`a_items?action=exportCSV`** | Exige `ids` (no tiene "todos") y su header declara 18 columnas mientras las filas traen 7 claves con otros nombres: está desalineado en el propio legacy. |
 | **Componer el punto de expedición como `prefix + "-" + sufix`** | `registerInvoicePrefix` YA es `EEE-PPP`; el legacy le hace `explode("-")` para SIFEN. `sufix` es otro campo. Componerlo generaría un punto de expedición inventado sobre un dato fiscal. |
 | **Importar las cajas "hasta donde se pueda"** ante un choque de punto de expedición | Deja al comercio con la mitad de sus cajas fiscales y sin señal de cuáles faltan. D5 pide fallo duro del dominio. |
 | **Guardar la password del cliente** para poder reintentar el job | D2. El reintento se resuelve creando el job de nuevo (el login son 3 campos); guardar la credencial de un tercero para ahorrar eso no se paga. |

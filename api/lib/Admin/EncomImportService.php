@@ -146,11 +146,13 @@ final class EncomImportService
             $kind  = $this->kindFor($row);
             $flags = \Punto\Api\Items\ItemImporter::legacyFlagsForKind($kind);
 
-            // Categoría y marca se resuelven por el MAPA, no por nombre: el
-            // legacy manda el id y ese id ya se importó arriba. Buscar por
-            // nombre habría unificado dos categorías homónimas distintas.
-            $categoryId = $this->mapOf('category', $row['categoryID'] ?? null);
-            $brandId    = $this->mapOf('brand', $row['brandID'] ?? null);
+            // Categoría y marca se resuelven por el MAPA, cuya clave es el
+            // NOMBRE: el export de artículos del legacy trae la categoría y la
+            // marca por nombre, no por id (tanto en su modo JSON como en la
+            // tabla HTML). No hay id que usar del otro lado — por eso
+            // `categories()`/`brands()` derivan de estos mismos nombres.
+            $categoryId = $this->mapOf('category', $row['category'] ?? null);
+            $brandId    = $this->mapOf('brand', $row['brand'] ?? null);
 
             // El alta de un artículo son DOS pasos (`createBlank()` + `update()`)
             // y sin transacción no son atómicos: si el update falla, queda un
@@ -213,8 +215,12 @@ final class EncomImportService
             'itemCost'           => $this->numOrNull($row['cost'] ?? null),
             'itemPrice'          => $this->numOrNull($row['price'] ?? null),
             'itemDiscount'       => $this->numOrZero($row['discount'] ?? null),
-            'itemUOM'            => trim((string) ($row['UOM'] ?? '')),
-            'itemStatus'         => $this->isActive($row['status'] ?? null) ? 1 : 0,
+            'itemUOM'            => trim((string) ($row['uom'] ?? '')),
+            // El export solo lista los artículos ACTIVOS (el legacy filtra
+            // `itemStatus = 1` salvo que se le pida `archived`), así que todo
+            // lo que llega acá está activo. No se deriva de un campo que el
+            // export no manda.
+            'itemStatus'         => 1,
             'itemTaxIncluded'    => 1,
             // NULL, no '': son columnas `uuid` y Postgres rechaza la cadena
             // vacía con "invalid input syntax for type uuid". Un artículo sin
@@ -250,25 +256,64 @@ final class EncomImportService
         $contacts = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 
         $this->each('customer', $this->source->customers(), function (array $row) use ($contacts): ?string {
-            $name = trim((string) ($row['name'] ?? ''));
-            if ($name === '') {
+            // El CSV del legacy SÍ separa razón social de nombre de persona:
+            // "RAZÓN SOCIAL" y "NOMBRE Y APELLIDO" son columnas distintas, y
+            // `ContactService` tiene un campo para cada una. Alcanza con que
+            // venga una de las dos.
+            $fiscalName = trim((string) ($row['fiscalName'] ?? ''));
+            $personName = trim((string) ($row['name'] ?? ''));
+            if ($fiscalName === '' && $personName === '') {
                 return null;
             }
 
-            // El legacy no separa razón social de nombre de persona: manda un
-            // solo `name`. Va como `fiscalName` porque es el campo con el que
-            // se factura, que es para lo que el comercio usa a este contacto.
-            return $contacts->create($this->companyId, [
-                'fiscalName' => $name,
-                'tin'        => trim((string) ($row['tin'] ?? '')),
-                'ci'         => trim((string) ($row['CI'] ?? '')),
-                'phone'      => trim((string) ($row['phone'] ?? '')),
-                'email'      => trim((string) ($row['email'] ?? '')),
-                'address'    => trim((string) ($row['address'] ?? '')),
-                'note'       => trim((string) ($row['note'] ?? '')),
-                'type'       => \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER,
-            ]);
-        });
+            $in = [
+                'tin'     => trim((string) ($row['tin'] ?? '')),
+                'phone'   => trim((string) ($row['phone'] ?? '')),
+                'email'   => trim((string) ($row['email'] ?? '')),
+                'address' => trim((string) ($row['address'] ?? '')),
+                'note'    => trim((string) ($row['note'] ?? '')),
+                'type'    => \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER,
+            ];
+            if ($fiscalName !== '') {
+                $in['fiscalName'] = $fiscalName;
+            }
+            if ($personName !== '') {
+                $in['name'] = $personName;
+            }
+
+            $address2 = trim((string) ($row['address2'] ?? ''));
+            if ($address2 !== '') {
+                $in['address2'] = $address2;
+            }
+
+            return $contacts->create($this->companyId, $in);
+        }, [$this, 'customerKey']);
+    }
+
+    /**
+     * Clave natural de un cliente, para `migration_map`.
+     *
+     * El CSV de `a_contacts?action=download` NO trae el id del contacto — es
+     * un export pensado para abrir en una planilla, no para sincronizar. Sin
+     * clave no hay idempotencia: re-correr el job duplicaría toda la cartera.
+     *
+     * Se usa el documento fiscal cuando está (es el identificador real del
+     * cliente) y, si no, el nombre normalizado. Dos clientes distintos con el
+     * mismo nombre y sin documento se fusionan en uno — es el costo conocido
+     * de no tener id, y el lado seguro: `ContactService` igual rechaza
+     * duplicados de documento y teléfono.
+     */
+    public function customerKey(array $row): ?string
+    {
+        $tin = preg_replace('/[^0-9A-Za-z]/', '', (string) ($row['tin'] ?? '')) ?? '';
+        if ($tin !== '') {
+            return 'tin:' . strtoupper($tin);
+        }
+
+        $name = trim((string) ($row['fiscalName'] ?? '')) ?: trim((string) ($row['name'] ?? ''));
+        $name = mb_strtolower(preg_replace('/\s+/u', ' ', $name) ?? $name, 'UTF-8');
+
+        return $name === '' ? null : 'name:' . $name;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -572,7 +617,7 @@ final class EncomImportService
      * importable (sin nombre, por ejemplo). Lo que lance se cuenta como
      * fallo de ESA fila y no frena al resto.
      */
-    private function each(string $domain, array $rows, callable $create): void
+    private function each(string $domain, array $rows, callable $create, ?callable $keyOf = null): void
     {
         $counts = ['total' => count($rows), 'imported' => 0, 'skipped' => 0, 'failed' => 0];
 
@@ -582,7 +627,9 @@ final class EncomImportService
                 continue;
             }
 
-            $legacyId = $this->legacyIdOf($row);
+            // `$keyOf` es para los dominios cuyo export NO trae id y hay que
+            // derivar una clave natural (clientes, ver `customerKey()`).
+            $legacyId = $keyOf !== null ? $keyOf($row) : $this->legacyIdOf($row);
             if ($legacyId === null) {
                 $counts['failed']++;
                 $this->fail($domain, 'Una fila de ' . $domain . ' vino sin identificador del legacy.');
@@ -660,22 +707,13 @@ final class EncomImportService
         $type = strtolower(trim((string) ($row['type'] ?? '')));
 
         return match ($type) {
-            'service', 'servicio'      => 'servicio',
-            'combo', 'comboaddons'     => 'combo_fijo',
-            'discount', 'descuento'    => 'descuento',
-            'giftcard', 'gift card'    => 'giftcard',
-            'production', 'produccion' => 'produccion_previa',
-            default                    => 'producto',
+            'service', 'servicio'         => 'servicio',
+            'combo', 'precombo', 'comboaddons' => 'combo_fijo',
+            'discount', 'descuento'       => 'descuento',
+            'giftcard', 'gift card'       => 'giftcard',
+            'production', 'produccion'    => 'produccion_previa',
+            default                       => 'producto',
         };
-    }
-
-    private function isActive(mixed $status): bool
-    {
-        if (is_string($status)) {
-            $s = strtolower(trim($status));
-            return $s !== 'disabled' && $s !== '0' && $s !== 'false';
-        }
-        return (bool) $status;
     }
 
     private function digits(mixed $v): string

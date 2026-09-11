@@ -4,83 +4,67 @@ declare(strict_types=1);
 namespace Punto\Api\Admin;
 
 require_once __DIR__ . '/EncomSource.php';
+require_once __DIR__ . '/EncomParse.php';
 require_once __DIR__ . '/EncomMigrationException.php';
 
 /**
  * Cliente HTTP del panel legacy, para el migrador (context/77).
  *
- * ── La password no se persiste (D2) ─────────────────────────────────────
- * `login()` es el ÚNICO punto del sistema que ve la password del cliente, y
- * corre dentro de la request de /admin: se usa para obtener las cookies y se
- * descarta con la request. Lo que queda guardado en `migration_job` son las
- * cookies, que el worker vuelve a montar con `fromCookies()`.
+ * ── Contra qué habla, y por qué NO contra la API ────────────────────────
+ * El deploy VIVO es más viejo que el código del snapshot y no tiene la
+ * superficie JSON (verificado contra el sistema real 2026-09-11):
  *
- * Por eso el constructor es privado y solo hay dos formas de construir un
- * cliente: haciendo login (endpoint) o con cookies ya obtenidas (worker). No
- * existe ninguna en la que la password llegue al worker.
+ *   · `/bff/*.php`      → 404.
+ *   · `/API/get_*.php`  → `{"error":"Acceso denegado"}` incluso con una
+ *                         sesión de panel válida (usa el auth viejo por
+ *                         api_key, que no tenemos).
+ *
+ * Lo que SÍ responde es la superficie de PÁGINAS, `a_*.php?action=…`, con la
+ * cookie **PHPSESSID**. O sea: el export sale de las mismas pantallas que ve
+ * el cliente. De ahí que esta clase parsee CSV y HTML en vez de consumir
+ * JSON — no es una preferencia, es lo único que existe del otro lado.
+ *
+ * El parseo vive en `EncomParse`, que se prueba con fragmentos copiados
+ * textualmente del sistema vivo; acá queda solo el transporte.
+ *
+ * ── La password no se persiste (D2) ─────────────────────────────────────
+ * `login()` es el único punto que la ve, y corre dentro de la request de
+ * /admin. Lo que se guarda en `migration_job` son las cookies, que el worker
+ * remonta con `fromCookies()`. Por eso el constructor es privado: no hay
+ * forma de construir un cliente en la que la password llegue al worker.
  *
  * ── Pacing ──────────────────────────────────────────────────────────────
- * El legacy limita a 60 req/min. El cliente espacía CADA llamada al menos
- * `MIN_INTERVAL_US`, esperando solo lo que falte desde la anterior: si el
- * import gastó 900 ms procesando, duerme los 200 que faltan.
- *
- * ── Reintento ───────────────────────────────────────────────────────────
- * UNA vez, y solo ante fallo TRANSITORIO (red, timeout, 429, 5xx). Un
- * 401/403/302 es la sesión caída: reintentar no la arregla y solo retrasa el
- * error real.
- *
- * ── OJO: qué devuelve REALMENTE el legacy ───────────────────────────────
- * El mapa del brief decía que todo salía por `/API/*.php` con envelope
- * `{ok,data}`. Verificado contra el código legacy, NO es así, y estas tres
- * diferencias son las que gobiernan el diseño de esta clase:
- *
- *   1. **`get_registers.php` NO EXISTE.** Las cajas salen anidadas dentro de
- *      `get_company.php` (`outlets[].registers[]`), que además es la única
- *      fuente que las trae CON su sucursal y sin depender de cuál esté
- *      activa en la sesión. Ver `registers()`.
- *   2. **`get_tags.php` no usa envelope** y devuelve un OBJETO indexado por
- *      id (no una lista), con un tag fijo inyectado por código.
- *   3. **Solo `get_items.php` pagina.** Categorías (LIMIT 500), clientes
- *      (LIMIT 1000), marcas y bancos (LIMIT 100) tienen el tope cableado en
- *      la SQL e IGNORAN `offset`. Pedirles una segunda página devolvería la
- *      misma primera para siempre.
- *   4. **El punto de expedición YA viene como `EEE-PPP`** en
- *      `registerInvoicePrefix` — el propio legacy hace
- *      `explode("-", registerInvoicePrefix)` para mandarle
- *      establecimiento/puntoExpedicion a la SET
- *      (`API/send_fe_invoices.php`). El campo `sufix` es OTRA cosa y no
- *      entra en el punto de expedición.
+ * 60 req/min del otro lado. Se espacia CADA llamada, esperando solo lo que
+ * falte desde la anterior. Importa más que antes: este export hace una
+ * request POR SUCURSAL y otra POR CAJA.
  */
-final class EncomClient implements EncomSource
+class EncomClient implements EncomSource
 {
     private const CONNECT_TIMEOUT = 10;
     private const TOTAL_TIMEOUT   = 60;
 
-    /** 60 req/min = 1 req/s, con margen: el legacy cuenta por ventana fija. */
+    /** 60 req/min = 1 req/s, con margen (el legacy cuenta por ventana fija). */
     private const MIN_INTERVAL_US = 1_100_000;
 
-    /** Espera antes del reintento de un fallo transitorio. */
     private const RETRY_SLEEP_US = 3_000_000;
 
-    /**
-     * Página de `get_items.php`. 500 y no 1000 a propósito: el legacy IGNORA
-     * el `limit` cuando es `>= 1000` y lo baja a 1000 por su cuenta, así que
-     * pedir 1000 deja la última página indistinguible de una página llena.
-     */
-    private const PAGE_SIZE = 500;
-
-    /** Corta el bucle si el legacy ignora el offset y repite la página. */
-    private const MAX_PAGES = 200;
+    /** Tope de sucursales/cajas a recorrer. Corta un listado absurdo. */
+    private const MAX_ENTITIES = 300;
 
     private float $lastCallAt = 0.0;
-
-    /** Respuesta memoizada de `get_company.php` (sucursales + cajas). */
-    private ?array $companyCache = null;
 
     /** @var array<string,string> */
     private array $cookies;
 
-    private function __construct(
+    /** Memo del export de artículos: `categories()`/`brands()` derivan de él. */
+    private ?array $itemsCache = null;
+
+    /**
+     * `protected`, no público: las dos formas legítimas de obtener un cliente
+     * son `login()` (endpoint, ve la password) y `fromCookies()` (worker, no
+     * la ve). El arnés lo usa desde su subclase de fixtures.
+     */
+    protected function __construct(
         private readonly string $baseUrl,
         array $cookies,
     ) {
@@ -88,12 +72,17 @@ final class EncomClient implements EncomSource
     }
 
     /**
-     * Autentica contra el legacy y devuelve un cliente con las cookies vivas.
+     * Autentica y devuelve un cliente con la sesión viva.
      *
      * El legacy contesta 200 con el texto plano "true" en éxito — no un JSON
-     * ni un 302. Por eso el éxito se decide por el cuerpo Y por haber
-     * recibido `_jwt_panel`: un 200 con "false" es un login fallido y de otra
+     * ni un 302. El éxito se decide por el cuerpo Y por haber recibido la
+     * cookie de sesión: un 200 con "false" es un login fallido y de otra
      * forma pasaría por bueno.
+     *
+     * La cookie que importa es **PHPSESSID**: es la que autoriza la
+     * superficie `a_*.php`. `_jwt_panel` puede venir o no según la versión
+     * desplegada y ya no se exige — exigirla rompía el login contra el
+     * deploy viejo, que es justamente el que hay que migrar.
      */
     public static function login(string $baseUrl, string $phone, string $iso, string $password): self
     {
@@ -115,7 +104,8 @@ final class EncomClient implements EncomSource
                 'iso'      => $iso !== '' ? $iso : 'PY',
                 'password' => $password,
             ]),
-            'application/x-www-form-urlencoded'
+            'application/x-www-form-urlencoded',
+            true
         );
 
         if ($res['error'] !== '') {
@@ -124,7 +114,7 @@ final class EncomClient implements EncomSource
 
         $body = strtolower(trim((string) $res['body']));
 
-        if ($res['status'] !== 200 || $body !== 'true' || !isset($client->cookies['_jwt_panel'])) {
+        if ($body !== 'true' || !isset($client->cookies['PHPSESSID'])) {
             throw new EncomMigrationException(
                 'El panel legacy rechazó las credenciales. Verificá el teléfono (con código de país) y la contraseña.',
                 401
@@ -134,11 +124,7 @@ final class EncomClient implements EncomSource
         return $client;
     }
 
-    /**
-     * Cliente para un job ya creado: las cookies salen de `migration_job`.
-     *
-     * @param array<string,string> $cookies
-     */
+    /** @param array<string,string> $cookies */
     public static function fromCookies(string $baseUrl, array $cookies): self
     {
         $clean = [];
@@ -147,7 +133,7 @@ final class EncomClient implements EncomSource
                 $clean[$k] = $v;
             }
         }
-        if (!isset($clean['_jwt_panel'])) {
+        if (!isset($clean['PHPSESSID'])) {
             throw new EncomMigrationException(
                 'El job no tiene la sesión del legacy (caducó o ya se consumió). Creá el job de nuevo.',
                 422
@@ -156,7 +142,6 @@ final class EncomClient implements EncomSource
         return new self(rtrim(trim($baseUrl), '/'), $clean);
     }
 
-    /** Cookies vivas. Solo las lee el endpoint que crea el job. */
     public function cookies(): array
     {
         return $this->cookies;
@@ -166,133 +151,379 @@ final class EncomClient implements EncomSource
     // EncomSource
     // ═══════════════════════════════════════════════════════════════════
 
+    /**
+     * Configuración de la empresa.
+     *
+     * NO hay ningún `action=` que la devuelva en JSON: hay que pedir
+     * `a_settings` entero y leer los `value` de sus inputs por `name`. Es la
+     * página más pesada de las tres, pero el mapeo name→campo es estable.
+     */
     public function settings(): array
     {
-        $data = $this->json('POST', '/API/get_settings.php', []);
-        if (!is_array($data)) {
-            return [];
-        }
-        // `get_settings` devuelve UN objeto. Sin fila `company` el legacy
-        // devuelve `[]`, que en PHP es indistinguible de un objeto vacío.
-        return array_is_list($data) ? (is_array($data[0] ?? null) ? $data[0] : []) : $data;
+        $form = EncomParse::formValues($this->get('/a_settings'));
+
+        return [
+            'billingName' => $form['billingName'] ?? '',
+            'tin'         => $form['ruc'] ?? '',
+            'address'     => $form['address'] ?? '',
+            'email'       => $form['email'] ?? '',
+            'phone'       => $form['phone'] ?? '',
+            'city'        => $form['city'] ?? '',
+            'country'     => $form['country'] ?? '',
+            'currency'    => $form['currency'] ?? '',
+            'taxName'     => $form['taxName'] ?? '',
+            'timeZone'    => $form['timeZone'] ?? '',
+            'tinName'     => $form['tin'] ?? '',
+        ];
     }
 
     /**
-     * Sucursales — salen de `get_company.php`, NO de `bff/outlets.php`.
+     * Sucursales. `a_outlets?showTable=true` devuelve `{"table": "<html>"}` y
+     * —clave— filtra SOLO por empresa: trae todas, sin importar cuál esté
+     * activa en la sesión.
      *
-     * `bff/outlets.php` es un proxy a la "shared API" (otro servicio, fuera
-     * del snapshot legacy): su shape no es verificable y encima depende de un
-     * despliegue distinto. `get_company.php` está en el propio legacy, tiene
-     * shape leído del código, y trae las sucursales CON SUS CAJAS adentro.
+     * El listado trae poco (nombre, razón social, RUC, teléfono, dirección),
+     * así que por cada sucursal se pide además su `action=edit`, que es el
+     * form completo. Es una request más por sucursal, y son pocas.
      */
     public function outlets(): array
     {
-        return $this->rows($this->company()['outlets'] ?? []);
+        $html = EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true']));
+        $rows = EncomParse::htmlRows($html);
+
+        $out = [];
+        foreach (array_slice($rows, 0, self::MAX_ENTITIES) as $row) {
+            $cells = $row['cells'];
+
+            $outlet = [
+                'ID'          => $row['id'],
+                'name'        => $cells[0] ?? '',
+                'billingName' => $cells[1] ?? '',
+                'tin'         => $cells[2] ?? '',
+                'phone'       => $cells[3] ?? '',
+                'address'     => $cells[4] ?? '',
+            ];
+
+            // El form trae lo que la tabla no: email, descripción, lat/lng.
+            $form = EncomParse::formValues($this->get('/a_outlets', ['action' => 'edit', 'id' => $row['id']]));
+            if ($form !== []) {
+                $outlet['name']        = $form['name'] ?: $outlet['name'];
+                $outlet['address']     = $form['address'] ?? $outlet['address'];
+                $outlet['phone']       = $form['phone'] ?? $outlet['phone'];
+                $outlet['email']       = $form['email'] ?? '';
+                $outlet['billingName'] = $form['billingName'] ?? $outlet['billingName'];
+                $outlet['tin']         = $form['ruc'] ?? $outlet['tin'];
+                $outlet['description'] = $form['description'] ?? '';
+
+                // `latLng` viaja como "lat,lng" en un solo campo.
+                $latLng = trim((string) ($form['latLng'] ?? ''));
+                if (str_contains($latLng, ',')) {
+                    [$lat, $lng] = array_map('trim', explode(',', $latLng, 2));
+                    $outlet['lat'] = $lat;
+                    $outlet['lng'] = $lng;
+                }
+            }
+
+            $out[] = $outlet;
+        }
+
+        return $out;
     }
 
     /**
-     * Cajas, con la sucursal a la que pertenecen.
+     * Cajas con su numeración fiscal, de TODAS las sucursales.
      *
-     * Sale del mismo `get_company.php` que las sucursales — que las anida en
-     * `outlets[].registers[]` y recorre TODAS las sucursales activas, no solo
-     * la de la sesión.
+     * ── El problema y cómo se resuelve ───────────────────────────────────
+     * `a_registers?list=true` corre `... WHERE <roc>`, donde `<roc>` es
+     * `getROC(1)` = "empresa + la sucursal ACTIVA de la sesión", y ese archivo
+     * NO lee ningún parámetro de sucursal del request. O sea: por sí solo
+     * solo puede ver las cajas de una sucursal.
      *
-     * Eso es lo que descarta la otra fuente posible, `a_registers.php?list=true`:
-     * devuelve HTML (habría que parsear una tabla para leer un TIMBRADO) y
-     * corre `SELECT ... <roc>`, o sea acotado a la sucursal ACTIVA de la
-     * sesión, sin forma de cambiarla. Habría migrado las cajas de una sola
-     * sucursal y sin saber de cuál.
+     * La salida es un switch GLOBAL que procesa `includes/functions.php` en
+     * CUALQUIER página del panel: `?o=<outletId>` escribe la sucursal activa
+     * en la sesión. Dos detalles que obligan a hacerlo en dos requests:
      *
-     * Se aplana a lista y cada fila se queda con su `outletLegacyId`: el
-     * importador NO puede adivinar la sucursal de una caja (memoria
-     * "prohibido inventar la dimensión faltante") y acá no hace falta.
+     *   1. el switch responde con `header('location: …')` **sin el query
+     *      string**, así que `?o=X&list=true` perdería el `list`;
+     *   2. la constante `OUTLET_ID` se define ANTES de que el switch corra,
+     *      así que el cambio recién se ve en el request SIGUIENTE.
+     *
+     * Por eso: por cada sucursal, un request que cambia la sucursal activa
+     * (se ignora el cuerpo) y otro que pide el listado.
+     *
+     * El listado tampoco trae el vencimiento del timbrado ni la numeración
+     * máxima, así que por cada caja se pide su `action=edit`.
      */
     public function registers(): array
     {
         $out = [];
-        foreach ($this->rows($this->company()['outlets'] ?? []) as $outlet) {
-            $outletId = (string) ($outlet['ID'] ?? '');
-            foreach ($this->rows($outlet['registers'] ?? []) as $register) {
-                $register['outletLegacyId'] = $outletId;
-                $out[] = $register;
+
+        foreach ($this->outletIds() as $outletId) {
+            // (1) Fijar la sucursal activa. Responde 302 a propósito —
+            // `allowRedirect` evita que se lea como "sesión caída".
+            $this->get('/a_registers', ['o' => $outletId], true);
+
+            // (2) Ahora sí, las cajas de ESA sucursal.
+            $rows = EncomParse::htmlRows($this->get('/a_registers', ['list' => 'true']));
+
+            foreach (array_slice($rows, 0, self::MAX_ENTITIES) as $row) {
+                $cells = $row['cells'];
+
+                // El número de la tabla viene YA pasado por `leadingZeros()`,
+                // así que esa misma cadena da el correlativo y el ancho. Igual
+                // se prefiere el del form, que es el valor sin formatear.
+                $paddedNo = preg_replace('/\D/', '', (string) ($cells[4] ?? '')) ?? '';
+
+                $reg = [
+                    'ID'             => $row['id'],
+                    'outletLegacyId' => $outletId,
+                    'name'           => $cells[0] ?? '',
+                    'invoiceAuth'    => preg_replace('/\D/', '', (string) ($cells[2] ?? '')) ?? '',
+                    'prefix'         => trim((string) ($cells[3] ?? '')),
+                    'sufix'          => trim((string) ($cells[5] ?? '')),
+                    'invoiceNo'      => $paddedNo === '' ? 0 : (int) $paddedNo,
+                    'docsZeros'      => $paddedNo === '' ? null : strlen($paddedNo),
+                ];
+
+                $form = EncomParse::formValues(
+                    $this->get('/a_registers', ['action' => 'edit', 'id' => $row['id']])
+                );
+                if ($form !== []) {
+                    $reg['name']        = $form['name'] ?: $reg['name'];
+                    $reg['invoiceAuth'] = preg_replace('/\D/', '', (string) ($form['auth'] ?? '')) ?: $reg['invoiceAuth'];
+                    $reg['prefix']      = trim((string) ($form['prefix'] ?? '')) ?: $reg['prefix'];
+                    $reg['sufix']       = trim((string) ($form['sufix'] ?? ''));
+                    // Estos DOS solo existen en el form; la tabla no los trae.
+                    $reg['invoiceAuthExp'] = trim((string) ($form['expiration'] ?? ''));
+                    $reg['invoiceNoMax']   = trim((string) ($form['registerInvoiceNoMax'] ?? ''));
+
+                    if (isset($form['invoice']) && trim((string) $form['invoice']) !== '') {
+                        $reg['invoiceNo'] = (int) preg_replace('/\D/', '', (string) $form['invoice']);
+                    }
+                    if (isset($form['leadingZero']) && trim((string) $form['leadingZero']) !== '') {
+                        $reg['docsZeros'] = (int) $form['leadingZero'];
+                    }
+                }
+
+                $out[] = $reg;
             }
         }
+
         return $out;
     }
 
     /**
-     * `get_company.php`, memoizado: sucursales y cajas salen de la MISMA
-     * respuesta y pedirla dos veces gastaría dos slots del límite de 60/min
-     * para recibir lo mismo.
+     * Artículos.
+     *
+     * Se pide `format=json` primero: el snapshot tiene un modo que devuelve
+     * los valores crudos y evita parsear nada. El deploy vivo es más viejo y
+     * puede ignorarlo y contestar la tabla igual, así que hay fallback al
+     * HTML. Los dos caminos producen el MISMO shape hacia arriba.
      */
-    private function company(): array
-    {
-        if ($this->companyCache === null) {
-            $data = $this->json('POST', '/API/get_company.php', []);
-            $this->companyCache = is_array($data) ? $data : [];
-        }
-        return $this->companyCache;
-    }
-
     public function items(): array
     {
-        return $this->paged('/API/get_items.php', ['archived' => 0, 'children' => 'all']);
-    }
+        if ($this->itemsCache !== null) {
+            return $this->itemsCache;
+        }
 
-    /** Sin paginación: el legacy cablea `LIMIT 500`. */
-    public function categories(): array
-    {
-        return $this->rows($this->json('POST', '/API/get_categories.php', []));
-    }
+        $body = $this->get('/a_items', ['action' => 'showTable', 'format' => 'json']);
 
-    /** Sin paginación: el legacy no pone LIMIT explícito y no acepta offset. */
-    public function brands(): array
-    {
-        return $this->rows($this->json('POST', '/API/get_brands.php', []));
+        $json = json_decode($body, true);
+        if (is_array($json) && is_array($json['data']['items'] ?? null)) {
+            $rows = [];
+            foreach ($json['data']['items'] as $it) {
+                if (!is_array($it)) {
+                    continue;
+                }
+                $rows[] = [
+                    'ID'          => (string) ($it['itemId'] ?? ''),
+                    'name'        => (string) ($it['name'] ?? ''),
+                    'sku'         => (string) ($it['sku'] ?? ''),
+                    'uom'         => (string) ($it['uom'] ?? ''),
+                    'brand'       => (string) ($it['brand'] ?? ''),
+                    'category'    => (string) ($it['category'] ?? ''),
+                    'cost'        => $it['cogs'] ?? null,
+                    'price'       => $it['priceStored'] ?? ($it['price'] ?? null),
+                    'discount'    => $it['discount'] ?? 0,
+                    'type'        => (string) ($it['type'] ?? ''),
+                    'canSell'     => $it['canSell'] ?? 1,
+                    'trackStock'  => $it['trackInventory'] ?? 1,
+                ];
+            }
+            return $this->itemsCache = $rows;
+        }
+
+        // Fallback: la tabla HTML. Orden de columnas fijado por el legacy —
+        // 0 imagen · 1 nombre · 2 tipo · 3 fecha · 4 UOM · 5 SKU · 6 marca ·
+        // 7 categoría · 8 sucursal · 9 sesiones · 10 duración · 11 merma ·
+        // 12 comisión · 13 descuento · 14 costo · 15 precio · 16 valor ·
+        // 17 impuesto · 18 stock · 19 online.
+        $rows = EncomParse::htmlRows(EncomParse::tableHtml($body));
+
+        $out = [];
+        foreach ($rows as $row) {
+            $c = $row['cells'];
+            $out[] = [
+                'ID'         => $row['id'],
+                'name'       => $c[1] ?? '',
+                'sku'        => ($c[5] ?? '') === '-' ? '' : ($c[5] ?? ''),
+                'uom'        => ($c[4] ?? '') === '-' ? '' : ($c[4] ?? ''),
+                'brand'      => $c[6] ?? '',
+                'category'   => $c[7] ?? '',
+                'discount'   => $c[13] ?? 0,
+                'cost'       => $c[14] ?? null,
+                'price'      => $c[15] ?? null,
+                'type'       => $c[2] ?? '',
+                'canSell'    => 1,
+                'trackStock' => 1,
+            ];
+        }
+
+        return $this->itemsCache = $out;
     }
 
     /**
-     * Etiquetas — sin envelope y como OBJETO `{id: {name}}`, no lista.
+     * Categorías — DERIVADAS de los artículos, no de un endpoint propio.
      *
-     * El legacy inyecta además un tag fijo por código (id 166227, "INTERNO")
-     * que no sale de la tabla. Se filtra: migrarlo crearía en Punto una
-     * etiqueta que el cliente nunca creó.
+     * El export de artículos trae la categoría por NOMBRE, no por id (tanto
+     * en JSON como en HTML), así que un listado de categorías con ids no
+     * serviría para vincular: habría que casar por nombre igual. Se deriva el
+     * conjunto de nombres distintos y el nombre ES la clave natural.
+     */
+    public function categories(): array
+    {
+        return $this->distinctNames('category');
+    }
+
+    /** Marcas — derivadas de los artículos, misma razón que las categorías. */
+    public function brands(): array
+    {
+        return $this->distinctNames('brand');
+    }
+
+    /**
+     * Etiquetas — NO se migran en F1.
+     *
+     * La superficie viva no expone las etiquetas de un artículo por ninguna
+     * de las dos vías (la tabla no tiene columna y el JSON no trae el campo).
+     * Devolver vacío es honesto; inventar etiquetas a partir de otra cosa,
+     * no. Queda anotado en context/77 §8.
      */
     public function tags(): array
     {
-        $data = $this->json('GET', '/API/get_tags.php', [], false);
-        if (!is_array($data)) {
-            return [];
-        }
+        return [];
+    }
+
+    /**
+     * Clientes, del CSV de `a_contacts?action=download`.
+     *
+     * El CSV NO trae id, así que el mapa de idempotencia usa una clave
+     * natural (documento, o el nombre normalizado) — ver
+     * `EncomImportService::customerKey()`.
+     *
+     * La columna ROL separa Cliente / Proveedor / nombre-de-rol (el personal
+     * del comercio). Acá se filtra a Cliente: proveedores y usuarios quedan
+     * fuera de F1 por D5.
+     */
+    public function customers(): array
+    {
+        $rows = EncomParse::csvRows($this->get('/a_contacts', ['action' => 'download']));
 
         $out = [];
-        foreach ($data as $id => $row) {
-            $id = (string) $id;
-            if ($id === self::HARDCODED_TAG_ID) {
+        foreach ($rows as $row) {
+            if (strcasecmp(trim((string) ($row['ROL'] ?? '')), 'Cliente') !== 0) {
                 continue;
             }
-            $name = is_array($row) ? (string) ($row['name'] ?? '') : (is_string($row) ? $row : '');
-            if ($name === '') {
-                continue;
-            }
-            $out[] = ['ID' => $id, 'name' => $name];
+
+            $fiscalName = trim((string) ($row['RAZON SOCIAL'] ?? ''));
+            $personName = trim((string) ($row['NOMBRE Y APELLIDO'] ?? ''));
+
+            $out[] = [
+                'fiscalName' => $fiscalName,
+                'name'       => $personName,
+                'tin'        => EncomParse::tinOf($row),
+                'phone'      => trim((string) ($row['TELEFONO'] ?? '')),
+                'email'      => trim((string) ($row['EMAIL'] ?? '')),
+                'address'    => trim((string) ($row['DIRECCION'] ?? '')),
+                'address2'   => trim((string) ($row['DIRECCION 2'] ?? '')),
+                'note'       => trim((string) ($row['NOTA'] ?? '')),
+            ];
         }
+
         return $out;
     }
 
-    /** El tag que `getAllTags()` agrega por código, no por dato del cliente. */
-    private const HARDCODED_TAG_ID = '166227';
-
-    /** Sin paginación: el legacy cablea `type = 1` y `LIMIT 1000`. */
-    public function customers(): array
-    {
-        return $this->rows($this->json('POST', '/API/get_customers.php', []));
-    }
-
-    /** Sin paginación: el legacy cablea `LIMIT 100`. */
+    /** Medios de pago — sin fuente en la superficie viva. Ver context/77 §8. */
     public function banks(): array
     {
-        return $this->rows($this->json('POST', '/API/get_banks.php', []));
+        return [];
+    }
+
+    /**
+     * Ventas de un rango — PREPARADO PARA F2, no se usa en F1.
+     *
+     * `a_report_transactions?action=detailTable` devuelve la tabla con los
+     * valores crudos en `data-order` y el id de la venta en `data-id`. El
+     * detalle con los ítems de una venta es `?action=edit&id=<id>`, que
+     * devuelve el form — lo que F2 va a necesitar.
+     *
+     * Queda acá para que F2 no tenga que redescubrir la superficie, pero
+     * NINGÚN dominio de F1 lo llama: importar una venta histórica necesita
+     * decisiones que no están tomadas (context/77 §8).
+     *
+     * @return array<int,array{id:string,cells:array<int,string>}>
+     */
+    public function salesRaw(string $from, string $to): array
+    {
+        return EncomParse::htmlRows(EncomParse::tableHtml($this->get('/a_report_transactions', [
+            'action' => 'detailTable',
+            'from'   => $from,
+            'to'     => $to,
+            'cusId'  => '',
+        ])));
+    }
+
+    /** Detalle de UNA venta (form con sus ítems). Preparado para F2. */
+    public function saleDetailRaw(string $legacyId): string
+    {
+        return $this->get('/a_report_transactions', ['action' => 'edit', 'id' => $legacyId]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // Internos
+    // ═══════════════════════════════════════════════════════════════════
+
+    /** Ids de sucursal, para recorrerlas cambiando la sucursal activa. */
+    private function outletIds(): array
+    {
+        $html = EncomParse::tableHtml($this->get('/a_outlets', ['showTable' => 'true']));
+
+        $ids = [];
+        foreach (array_slice(EncomParse::htmlRows($html), 0, self::MAX_ENTITIES) as $row) {
+            $ids[] = $row['id'];
+        }
+        return $ids;
+    }
+
+    /** Nombres distintos de un campo de los artículos, como filas `{ID,name}`. */
+    private function distinctNames(string $field): array
+    {
+        $seen = [];
+        foreach ($this->items() as $item) {
+            $name = trim((string) ($item[$field] ?? ''));
+            // El legacy pinta "-" cuando el artículo no tiene marca/categoría.
+            if ($name === '' || $name === '-') {
+                continue;
+            }
+            $seen[mb_strtolower($name, 'UTF-8')] = $name;
+        }
+
+        $out = [];
+        foreach ($seen as $name) {
+            // El nombre ES el id: no hay otro identificador del otro lado.
+            $out[] = ['ID' => $name, 'name' => $name];
+        }
+        return $out;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -300,94 +531,27 @@ final class EncomClient implements EncomSource
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Recorre un endpoint paginado hasta que devuelve menos de una página.
+     * GET con pacing y UN reintento transitorio.
      *
-     * El corte por `MAX_PAGES` no es decorativo: si el legacy ignora el
-     * `offset` cada página devuelve lo mismo y el bucle no termina nunca —
-     * con pacing de 1 req/s, un worker colgado por horas.
-     */
-    private function paged(string $path, array $baseParams): array
-    {
-        $out    = [];
-        $offset = 0;
-
-        for ($page = 0; $page < self::MAX_PAGES; $page++) {
-            $rows = $this->rows($this->json('POST', $path, $baseParams + [
-                'offset' => $offset,
-                'limit'  => self::PAGE_SIZE,
-            ]));
-
-            $out = array_merge($out, $rows);
-
-            if (count($rows) < self::PAGE_SIZE) {
-                return $out;
-            }
-            $offset += self::PAGE_SIZE;
-        }
-
-        throw new EncomMigrationException(
-            'El legacy devolvió más de ' . (self::MAX_PAGES * self::PAGE_SIZE) . ' filas en ' . $path .
-            ': se corta por seguridad (posible paginación ignorada).',
-            502
-        );
-    }
-
-    /** Se queda solo con las filas que son arrays. */
-    private function rows(mixed $data): array
-    {
-        if (!is_array($data)) {
-            return [];
-        }
-        $rows = [];
-        foreach ($data as $row) {
-            if (is_array($row)) {
-                $rows[] = $row;
-            }
-        }
-        return $rows;
-    }
-
-    /**
-     * Request JSON con pacing y un reintento transitorio.
+     * `$allowRedirect` existe para el switch de sucursal, que contesta 302 a
+     * propósito. En cualquier otra llamada un 302 ES la sesión caída (el
+     * legacy redirige al login) y se traduce a un error accionable.
      *
-     * @param bool $envelope false para los endpoints legacy que devuelven el
-     *                       JSON crudo, sin `{ok,data}` (get_tags.php).
-     * @return mixed El contenido de `data`, o el JSON entero si no hay envelope.
+     * ── `protected` a propósito: es LA costura del diseño ────────────────
+     * Todo lo de arriba —qué `action` se pide, el orden de las columnas de
+     * cada tabla, el recorrido de sucursales— es la parte que se puede
+     * equivocar, y no se puede probar contra el legacy real. Con este único
+     * método sobreescribible, el arnés sirve los payloads CRUDOS que devuelve
+     * el sistema vivo y ejercita el mapeo de verdad, no una copia paralela
+     * que se desincroniza. Es el motivo por el que la clase no es `final`.
      */
-    private function json(string $method, string $path, array $params, bool $envelope = true): mixed
-    {
-        $res = $this->attempt($method, $path, $params);
-
-        $json = json_decode((string) $res, true);
-        if (!is_array($json)) {
-            throw new EncomMigrationException('El legacy devolvió una respuesta que no es JSON en ' . $path . '.', 502);
-        }
-
-        if (!$envelope) {
-            return $json;
-        }
-
-        if (array_key_exists('ok', $json) && !$json['ok']) {
-            $err = $json['error'] ?? null;
-            $msg = is_array($err) ? (string) ($err['message'] ?? 'sin detalle') : (is_string($err) ? $err : 'sin detalle');
-            throw new EncomMigrationException('El legacy rechazó ' . $path . ': ' . $msg, 502);
-        }
-
-        return array_key_exists('data', $json) ? $json['data'] : $json;
-    }
-
-    /**
-     * Ejecuta la request respetando el pacing, con UN reintento transitorio.
-     * Devuelve el cuerpo; lanza con un mensaje accionable si no se pudo.
-     */
-    private function attempt(string $method, string $path, array $params): string
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
     {
         for ($try = 0; ; $try++) {
             $this->pace();
 
-            $res = $method === 'GET'
-                ? $this->raw('GET', $path . ($params !== [] ? (str_contains($path, '?') ? '&' : '?') . http_build_query($params) : ''), null, null)
-                : $this->raw('POST', $path, http_build_query($params), 'application/x-www-form-urlencoded');
+            $qs  = $params !== [] ? (str_contains($path, '?') ? '&' : '?') . http_build_query($params) : '';
+            $res = $this->raw('GET', $path . $qs, null, null, $allowRedirect);
 
             $transient = $res['error'] !== '' || $res['status'] === 429 || $res['status'] >= 500;
 
@@ -402,12 +566,12 @@ final class EncomClient implements EncomSource
 
             if ($res['status'] === 401 || $res['status'] === 403) {
                 throw new EncomMigrationException(
-                    'La sesión del panel legacy caducó (dura 24 h). Creá el job de nuevo para volver a autenticarte.',
+                    'La sesión del panel legacy caducó. Creá el job de nuevo para volver a autenticarte.',
                     401
                 );
             }
 
-            if ($res['status'] < 200 || $res['status'] >= 300) {
+            if ($res['status'] < 200 || $res['status'] >= 400) {
                 throw new EncomMigrationException('El legacy respondió ' . $res['status'] . ' en ' . $path . '.', 502);
             }
 
@@ -415,7 +579,6 @@ final class EncomClient implements EncomSource
         }
     }
 
-    /** Espera lo que falte para respetar el límite de 60 req/min. */
     private function pace(): void
     {
         if ($this->lastCallAt > 0.0) {
@@ -430,18 +593,23 @@ final class EncomClient implements EncomSource
     /**
      * curl crudo. Acumula las cookies que el legacy devuelve y reenvía las
      * que ya tiene. No se usa `CURLOPT_COOKIEJAR`: eso escribiría la sesión
-     * viva del cliente a un archivo en el disco del servidor.
+     * viva de un cliente a un archivo en el disco del servidor.
      *
      * @return array{status:int,body:?string,error:string}
      */
-    private function raw(string $method, string $path, ?string $body, ?string $contentType): array
-    {
+    private function raw(
+        string $method,
+        string $path,
+        ?string $body,
+        ?string $contentType,
+        bool $allowRedirect = false,
+    ): array {
         $ch = curl_init($this->baseUrl . $path);
         if ($ch === false) {
             return ['status' => 0, 'body' => null, 'error' => 'no se pudo inicializar curl'];
         }
 
-        $headers = ['Accept: application/json, text/html'];
+        $headers = ['Accept: text/html, application/json, text/csv'];
         if ($contentType !== null) {
             $headers[] = 'Content-Type: ' . $contentType;
         }
@@ -459,11 +627,9 @@ final class EncomClient implements EncomSource
             CURLOPT_HTTPHEADER     => $headers,
             CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
             CURLOPT_TIMEOUT        => self::TOTAL_TIMEOUT,
-            // Sin seguir redirects: el legacy manda 302 al login cuando la
-            // sesión se cayó. Siguiéndolo se recibiría un 200 con el HTML del
-            // login, que el parser leería como "respuesta que no es JSON" —
-            // un error que no dice nada. Sin seguirlo, el 302 se ve como lo
-            // que es y se traduce a "la sesión caducó".
+            // Nunca se siguen los redirects: seguir el del login devolvería un
+            // 200 con el HTML del login, que el parser leería como una tabla
+            // vacía — "cero cajas" en vez de "la sesión se cayó".
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_HEADERFUNCTION => function ($ch, string $header): int {
                 $this->captureCookie($header);
@@ -480,7 +646,7 @@ final class EncomClient implements EncomSource
         $err     = curl_error($ch);
         curl_close($ch);
 
-        if ($status === 301 || $status === 302) {
+        if (($status === 301 || $status === 302) && !$allowRedirect) {
             return ['status' => 401, 'body' => null, 'error' => ''];
         }
 
@@ -491,7 +657,6 @@ final class EncomClient implements EncomSource
         ];
     }
 
-    /** Guarda las cookies de `Set-Cookie` (solo nombre=valor, sin atributos). */
     private function captureCookie(string $header): void
     {
         if (stripos($header, 'Set-Cookie:') !== 0) {
