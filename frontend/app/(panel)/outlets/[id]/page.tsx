@@ -71,7 +71,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import {
-  useCreateOutlet,
   useDeleteOutlet,
   useOutlet,
   useUpdateOutlet,
@@ -130,27 +129,26 @@ export default function OutletEditPage() {
 function OutletEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
-  // Modo create: el route param es la string literal "new" (Next dynamic
-  // routes matchean cualquier string al [id]; usamos esa convención
-  // para no duplicar el form en /outlets/new). Skip de useOutlet en este
-  // caso — no hay nada que fetchear.
-  const isNew = id === "new"
   const router = useRouter()
   const searchParams = useSearchParams()
+
+  // Esta página es SOLO edición. El modo "new" (el route param literal
+  // `new`, que Next matchea contra `[id]`) murió con el paywall del alta:
+  // desde 2026-09-11 el comercio no crea sucursales, las PIDE — el alta la
+  // habilita Punto al aprobar la solicitud (mig 219, `/v1/outlet-requests`).
+  // Se redirige en vez de 404ear porque el link viejo puede estar guardado.
+  const isNew = id === "new"
+  React.useEffect(() => {
+    if (isNew) router.replace("/outlets")
+  }, [isNew, router])
+
   const { data, isLoading, error } = useOutlet(isNew ? undefined : id)
-  const create = useCreateOutlet()
   const update = useUpdateOutlet()
   const remove = useDeleteOutlet()
   const { data: priceLists } = usePriceLists()
 
   useAgentPageSnapshot(
-    isNew
-      ? {
-          route: "/outlets/new",
-          routeLabel: "Creando sucursal nueva",
-          summary: {},
-        }
-      : data
+    data
       ? {
           route: `/outlets/${id}`,
           routeLabel: `Editando sucursal: ${data.name}`,
@@ -162,7 +160,7 @@ function OutletEditPageInner() {
           },
         }
       : null,
-    [id, isNew, data?.name, data?.status, data?.address],
+    [id, data?.name, data?.status, data?.address],
   )
 
   const form = useForm<OutletFormValues>({
@@ -200,7 +198,7 @@ function OutletEditPageInner() {
 
   // Reset form cuando llegan los datos del backend (sólo en edit).
   React.useEffect(() => {
-    if (isNew || !data) return
+    if (!data) return
     form.reset({
       name: data.name ?? "",
       address: data.address ?? "",
@@ -219,20 +217,14 @@ function OutletEditPageInner() {
       taxIncluded: data.taxIncluded ?? false,
       priceListId: data.priceListId ?? null,
     })
-  }, [data, form, isNew])
+  }, [data, form])
 
   const onSubmit = async (values: OutletFormValues) => {
     try {
-      if (isNew) {
-        const { id: newId } = await create.mutateAsync(values)
-        toast.success("Sucursal creada")
-        router.push(`/outlets/${newId}`)
-      } else {
-        await update.mutateAsync({ id, values })
-        toast.success("Sucursal actualizada")
-      }
+      await update.mutateAsync({ id, values })
+      toast.success("Sucursal actualizada")
     } catch (e) {
-      toast.error(isNew ? "No se pudo crear" : "No se pudo guardar", {
+      toast.error("No se pudo guardar", {
         description: e instanceof Error ? e.message : undefined,
       })
     }
@@ -271,9 +263,7 @@ function OutletEditPageInner() {
             <BackLink />
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold">
-                {isNew ? (
-                  "Nueva sucursal"
-                ) : isLoading ? (
+                {isLoading ? (
                   <Skeleton className="h-7 w-48" />
                 ) : (
                   data?.name || "Sucursal"
@@ -282,7 +272,6 @@ function OutletEditPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {!isNew && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
@@ -307,16 +296,10 @@ function OutletEditPageInner() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            )}
 
-            <Button
-              type="submit"
-              disabled={(isNew ? create.isPending : update.isPending) || (isLoading && !isNew)}
-            >
-              {(isNew ? create.isPending : update.isPending) && (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              )}
-              {isNew ? "Crear sucursal" : "Guardar"}
+            <Button type="submit" disabled={update.isPending || isLoading}>
+              {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Guardar
             </Button>
           </div>
         </header>
@@ -330,11 +313,11 @@ function OutletEditPageInner() {
                 Sucursal
                 {tabsWithErrors.has("general") && <TabErrorDot />}
               </TabsTrigger>
-              <TabsTrigger value="depositos" className="gap-1.5" disabled={isNew}>
+              <TabsTrigger value="depositos" className="gap-1.5">
                 <Boxes className="size-3.5" />
                 Depósitos
               </TabsTrigger>
-              <TabsTrigger value="cajas" className="gap-1.5" disabled={isNew}>
+              <TabsTrigger value="cajas" className="gap-1.5">
                 <Calculator className="size-3.5" />
                 Cajas
               </TabsTrigger>
@@ -353,11 +336,11 @@ function OutletEditPageInner() {
           </TabsContent>
 
           <TabsContent value="depositos" className="mt-6">
-            {!isNew && <LocationsSection outletId={id} />}
+            <LocationsSection outletId={id} />
           </TabsContent>
 
           <TabsContent value="cajas" className="mt-6">
-            {!isNew && <RegistersTab outletId={id} />}
+            <RegistersTab outletId={id} />
           </TabsContent>
         </Tabs>
       </form>

@@ -126,33 +126,23 @@ if ($method === 'POST') {
     ];
 
     if ($action === 'create') {
-        if ($nameProvided) {
-            // Cliente nuevo (frontend form): validamos requireds.
-            if ($name === '') {
-                apiError('El nombre es requerido', 422);
-            }
-            $newFields = $fields;
-        } else {
-            // Cliente legacy (panel/a_outlets.js): crea blank y edita después.
-            $newFields = null;
-        }
-        try {
-            $newId = $svc->create(COMPANY_ID, $newFields);
-        } catch (\RuntimeException $e) {
-            // El service ahora lanza RuntimeException con el ErrorMsg() del
-            // driver — mucho más útil que el 500 silente de antes. El BFF lo
-            // loguea server-side y el front lo muestra en el toast.
-            apiError($e->getMessage(), 500);
-        }
-        if ($newId === null) {
-            apiError('No se pudo crear la sucursal', 500);
-        }
-        // El alta encadena una caja inicial (`OutletsService::create`), así que
-        // se avisa por las dos entidades: la lista de cajas del panel también
-        // quedó vieja.
-        realtimePublish('outlet', 'create', (string) $newId);
-        realtimePublish('register', 'create', null);
-        apiOk(['id' => $newId]);
+        // ── El comercio NO crea sucursales: las PIDE ────────────────────
+        //
+        // Cada sucursal se factura al precio del plan del tenant por mes
+        // (owner, 2026-09-11), así que el alta es un hecho comercial que
+        // aprueba Punto. El camino es `POST /v1/outlet-requests` → cola de
+        // /admin → `OutletRequestService::resolve()`, que es quien llama al
+        // creador real con `ORIGIN_REQUEST_APPROVAL`.
+        //
+        // Este 403 no es la única defensa: el gate de verdad está en
+        // `OutletsService::create()`, el único creador. Acá se responde
+        // temprano y con el texto que el panel le muestra al usuario, en vez
+        // de dejar que salga una `DomainException` como error genérico.
+        apiError(
+            'El alta de sucursales se pide desde "Crear sucursal" en el selector de '
+            . 'sucursales: cada sucursal se factura al precio de tu plan y la habilita Punto.',
+            403
+        );
     }
 
     // action === 'update'

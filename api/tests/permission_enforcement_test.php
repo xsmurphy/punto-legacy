@@ -331,6 +331,13 @@ $CASOS = [
     ['settings.device.pair',     'device_invitations GET list', 'v1/device_invitations.php', 'GET',    'resource=list',                 []],
     ['settings.device.pair',     'device_invitations approve',  'v1/device_invitations.php', 'POST',   '',                              ['action' => 'approve']],
 
+    // Solicitud de alta de SUCURSAL (mig 219). Misma clave que gatea el alta
+    // y la edición de sucursales en `/v1/outlets.php`: pedir una sucursal es
+    // administrar sucursales. El GET también va gateado — devuelve el precio
+    // del plan del tenant, que es dato de facturación.
+    ['settings.outlet.manage',   'outlet-requests GET estado',  'v1/outlet-requests.php',    'GET',    '',                              []],
+    ['settings.outlet.manage',   'outlet-requests POST pedido', 'v1/outlet-requests.php',    'POST',   '',                              ['name' => '']],
+
     ['billing.view',             'billing GET resumen',         'v1/billing.php',            'GET',    '',                              []],
     ['billing.manage',           'billing POST checkout',       'v1/billing.php',            'POST',   '',                              ['action' => 'checkout']],
 

@@ -23,6 +23,12 @@
  *   POST ?id=<uuid>&action=setAddons       body {extraUsers?, extraRegisters?, extraItems?}
  *   POST ?id=<uuid>&action=resolveRequest  body {requestId, approve, resolvedBy?}
  *
+ * Solicitudes de alta de SUCURSAL (mig 219, paywall por sucursal):
+ *   GET  ?outletRequests=1[&status=pending|approved|rejected][&id=<uuid>]
+ *   POST ?action=resolveOutletRequest      body {requestId, approve, reason?}
+ *        → aprobar CREA la sucursal por OutletsService::create(); rechazar
+ *          exige motivo. owner-only: mueve la facturación del tenant.
+ *
  * F3.5 — entrar como empresa (impersonar):
  *   POST ?id=<uuid>&action=enter → sesión de panel del propietario; devuelve
  *                                   {token} para que el BFF lo cookie-ice
@@ -77,6 +83,22 @@ if ($method === 'GET') {
     if (!empty($_GET['requests'])) {
         $status = trim((string) ($_GET['status'] ?? 'pending'));
         apiOk($svc->listRequests($status));
+    }
+
+    // Solicitudes de alta de SUCURSAL (mig 219). Cola propia, misma forma que
+    // la de planes. Con `?id=` se acota a una empresa (ficha del tenant); sin
+    // `?id=` es la cola global.
+    if (!empty($_GET['outletRequests'])) {
+        require_once __DIR__ . '/../../lib/Outlets/OutletRequestService.php';
+        $status    = trim((string) ($_GET['status'] ?? 'pending'));
+        $companyId = trim((string) ($_GET['id'] ?? ''));
+        if ($companyId !== '' && !preg_match($uuidRe, $companyId)) {
+            apiError('id inválido', 400);
+        }
+        apiOk([
+            'rows' => (new \Punto\Api\Outlets\OutletRequestService())
+                ->listForAdmin($status, $companyId !== '' ? $companyId : null),
+        ]);
     }
 
     $id = trim((string) ($_GET['id'] ?? ''));
@@ -313,6 +335,42 @@ if ($method === 'POST') {
             'requestId' => $requestId,
             'approve'   => $approve,
             'status'    => $result['status'] ?? null,
+        ]);
+        apiOk($result);
+    }
+
+    // Resolver solicitud de alta de SUCURSAL (mig 219).
+    //
+    // owner-only igual que el cambio de plan y por la misma razón: aprobar una
+    // sucursal SUBE la facturación mensual del tenant (una sucursal se cobra al
+    // precio del plan). Es una decisión comercial, no soporte.
+    if ($action === 'resolveOutletRequest') {
+        adminRequireRole('owner');
+        require_once __DIR__ . '/../../lib/Outlets/OutletRequestService.php';
+
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $requestId  = trim((string) ($input['requestId'] ?? ''));
+        $approve    = (bool) ($input['approve'] ?? false);
+        $reason     = isset($input['reason']) ? (string) $input['reason'] : null;
+        $resolvedBy = trim((string) (ADMIN_AUTHED_EMAIL ?: ADMIN_AUTHED_ID ?: 'admin'));
+        if ($requestId === '') {
+            apiError('requestId es requerido', 422);
+        }
+
+        $result = (new \Punto\Api\Outlets\OutletRequestService())
+            ->resolve($requestId, $approve, $reason, $resolvedBy);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        adminAudit('resolveOutletRequest', 'outletRequest', $requestId, null, [
+            'approve'  => $approve,
+            'status'   => $result['status'] ?? null,
+            'outletId' => $result['outletId'] ?? null,
+            'reason'   => $reason,
         ]);
         apiOk($result);
     }

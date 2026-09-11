@@ -52,6 +52,11 @@ require_once __DIR__ . '/_harness.php';
  *      la existencia de filas. Sin esto, la sucursal con todas las cajas dadas
  *      de baja quedaba en 409 perpetuo, sin forma de limpiarla.
  *
+ * Los `create()` de este arnés pasan `ORIGIN_SUPPORT` desde 2026-09-11: el
+ * alta de sucursal tiene paywall (mig 219) y el creador falla cerrado sin un
+ * origen autorizado. Lo que se prueba acá es la CADENA, no el paywall — ese
+ * tiene su propio arnés (`outlet_request_test.php`, caso J).
+ *
  * `Auth\SignupService` no se ejercita acá (necesita el request completo del
  * alta: teléfono, roles, ítems demo, país). Su cadena queda cubierta por el
  * escaneo A en cualquier base donde haya corrido un signup.
@@ -228,7 +233,7 @@ function cadenaDe(string $outletId): array
 echo "\n=== B. OutletsService::create() con payload ===\n\n";
 
 $svc      = new OutletsService();
-$outletB  = $svc->create($companyId, ['name' => 'Arnés Cadena B ' . bin2hex(random_bytes(3))]);
+$outletB  = $svc->create($companyId, ['name' => 'Arnés Cadena B ' . bin2hex(random_bytes(3))], OutletsService::ORIGIN_SUPPORT);
 if ($outletB) { $creados[] = (string) $outletB; }
 
 check('B: create() devolvió un outletId', is_string($outletB) && $outletB !== '', true, $failures, $checks);
@@ -251,7 +256,7 @@ if ($outletB) {
 
 echo "\n=== C. Camino legacy: sucursal blank (fields = null) ===\n\n";
 
-$outletC = $svc->create($companyId, null);
+$outletC = $svc->create($companyId, null, OutletsService::ORIGIN_SUPPORT);
 if ($outletC) { $creados[] = (string) $outletC; }
 
 check('C: create(null) devolvió un outletId', is_string($outletC) && $outletC !== '', true, $failures, $checks);
@@ -405,7 +410,7 @@ if ($outletC) {
 
 echo "\n=== G. La caja ya inactiva se puede borrar ===\n\n";
 
-$outletG = $svc->create($companyId, ['name' => 'Arnés Cadena G ' . bin2hex(random_bytes(3))]);
+$outletG = $svc->create($companyId, ['name' => 'Arnés Cadena G ' . bin2hex(random_bytes(3))], OutletsService::ORIGIN_SUPPORT);
 if ($outletG) { $creados[] = (string) $outletG; }
 
 check('G: se creó la sucursal del caso', is_string($outletG) && $outletG !== '', true, $failures, $checks);
@@ -457,7 +462,7 @@ echo "\n=== H. Punto de expedición único por timbrado, también en el alta ===
 
 require_once dirname(__DIR__) . '/lib/services/RegisterAdminService.php';
 
-$outletH = $svc->create($companyId, ['name' => 'Arnés Timbrado H ' . bin2hex(random_bytes(3))]);
+$outletH = $svc->create($companyId, ['name' => 'Arnés Timbrado H ' . bin2hex(random_bytes(3))], OutletsService::ORIGIN_SUPPORT);
 if ($outletH) { $creados[] = (string) $outletH; }
 
 if ($outletH) {

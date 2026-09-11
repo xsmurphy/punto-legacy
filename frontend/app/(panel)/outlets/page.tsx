@@ -17,8 +17,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { useOutlets } from "@/hooks/use-outlets"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { usePermission } from "@/hooks/use-permissions"
+import { useOutletRequestStatus } from "@/hooks/use-outlet-request"
+import { OutletRequestDialog } from "@/components/outlets/outlet-request-dialog"
+import { formatDate } from "@/lib/format-date"
 import { resolveDateLocale } from "@/lib/tenant-locale"
 import type { OutletListItem } from "@/lib/types/outlet"
 import { formatPhone } from "@/lib/phone"
@@ -30,6 +39,13 @@ export default function OutletsPage() {
   const { data, isLoading, error } = useOutlets()
   const { data: bootstrap } = useBootstrap()
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
+
+  // Alta con paywall: el botón pide una sucursal, no la crea. Misma clave de
+  // permiso que gatea el alta en el backend (`/v1/outlets.php`).
+  const canManageOutlets = usePermission("settings.outlet.manage")
+  const { data: requestStatus } = useOutletRequestStatus(canManageOutlets)
+  const pending = requestStatus?.pending ?? null
+  const [requestOpen, setRequestOpen] = React.useState(false)
 
   // Filtrado custom por estado (lo aplicamos antes de pasar a DataTable).
   // El search global del DataTable cubre nombre/dirección/teléfono/ruc.
@@ -156,13 +172,39 @@ export default function OutletsPage() {
             Puntos de venta con su propia caja e inventario.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/outlets/new">
-            <Plus className="size-4" />
-            Nueva sucursal
-          </Link>
-        </Button>
+        {/* El alta de sucursal tiene PAYWALL: se pide y Punto la aprueba (cada
+            sucursal se factura al precio del plan). Este botón abre el MISMO
+            diálogo que la entrada del switcher — dos formularios de alta en
+            paralelo volverían el paywall decorativo.
+            Impedimento = control deshabilitado con el motivo, no una banda
+            (memoria `feedback_pos_alerts_on_the_action_not_banners`). */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* `span` porque un botón deshabilitado no emite eventos de hover
+                y el tooltip nunca aparecería. */}
+            <span className="inline-flex">
+              <Button
+                onClick={() => setRequestOpen(true)}
+                disabled={!canManageOutlets || pending !== null}
+              >
+                <Plus className="size-4" />
+                Nueva sucursal
+              </Button>
+            </span>
+          </TooltipTrigger>
+          {(!canManageOutlets || pending !== null) && (
+            <TooltipContent>
+              {!canManageOutlets
+                ? "Necesitás permiso de administración de sucursales"
+                : `Ya pediste una sucursal${
+                    pending?.createdAt ? ` el ${formatDate(pending.createdAt)}` : ""
+                  }. Te avisamos cuando se resuelva.`}
+            </TooltipContent>
+          )}
+        </Tooltip>
       </header>
+
+      <OutletRequestDialog open={requestOpen} onOpenChange={setRequestOpen} />
 
       {error && (
         <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
