@@ -193,6 +193,16 @@ define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? '');
 // el catálogo por país. Un default 'PY' acá afirmaría que el padrón
 // configurado es el paraguayo sin que nadie lo haya dicho.
 define('TAXPAYER_LOOKUP_COUNTRY', strtoupper(trim((string) ($_ENV['TAXPAYER_LOOKUP_COUNTRY'] ?? ''))));
+// ENCOM_MIGRATION_URL: base del panel legacy desde el que el migrador
+// (context/77) exporta los datos de un cliente. Se lee del entorno y NO se
+// cablea acá: es un dominio, y la regla del proyecto es que ningún dominio
+// vive en el código.
+//
+// Vacía → el endpoint de /admin responde 503 con el motivo. Fail-closed a
+// propósito: sin base configurada, el login al legacy apuntaría a una URL
+// vacía y el operador vería un error de red genérico en vez de "falta
+// configurar la variable".
+define('ENCOM_MIGRATION_URL', rtrim(trim((string) ($_ENV['ENCOM_MIGRATION_URL'] ?? '')), '/'));
 
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);

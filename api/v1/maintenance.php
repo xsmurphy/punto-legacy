@@ -136,7 +136,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain', 'invoice-auth-notices', 'geo-catalog-sync'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle', 'notification-drain', 'invoice-auth-notices', 'geo-catalog-sync', 'migration-drain'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -208,6 +208,24 @@ function maintenanceRunJob(string $job): array
             // sin nadie que los vuelva a intentar.
             require_once __DIR__ . '/../lib/Purchases/PurchaseDraftService.php';
             return (new \Punto\Api\Purchases\PurchaseDraftService())->requeueStale();
+
+        case 'migration-drain':
+            // Migrador ENCOM → Punto (context/77, D3). A diferencia del resto
+            // de los jobs de este archivo, este NO hace el trabajo: toma el
+            // siguiente job de `migration_job` y lanza
+            // `api/scripts/migration_worker.php` en un PROCESO APARTE.
+            //
+            // Dos motivos, los dos en el docblock del worker: el contexto de
+            // tenant (`COMPANY_ID`) se fija una vez por proceso con `define()`,
+            // y el export contra el legacy va paceado a 60 req/min — minutos
+            // de pared que ninguna request de PHP-FPM puede sostener.
+            //
+            // También reencola acá los jobs que quedaron `running` sin worker
+            // vivo (mismo patrón que `ocr-requeue`): sin eso, un deploy a
+            // mitad de una migración deja al comercio sin poder lanzar otra,
+            // por el índice de "un solo job vivo por empresa".
+            require_once __DIR__ . '/../lib/Admin/EncomMigrationService.php';
+            return (new \Punto\Api\Admin\EncomMigrationService())->drain();
 
         case 'plan-lifecycle':
             // P2 de context/34-admin-saas-plan.md §F7. DIARIO, no mensual:
