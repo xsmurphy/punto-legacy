@@ -207,6 +207,20 @@ cuando el ingrediente ya existe, así que re-correr sin esa marca convertiría 1
 unidad de harina en 2, y en 3. Son dos hechos distintos —"el artículo existe" y
 "el artículo ya está compuesto"— y necesitan dos filas.
 
+**Y tiene DOS NIVELES**, por corrección de stock. Cada componente escrito deja
+su propia marca (`padre:hijo`); el PADRE se marca **solo cuando no quedó ningún
+componente sin resolver**. Una receta a medias —un combo cuyo componente no
+existe todavía en el catálogo migrado— **no se marca**, así que la corrida
+siguiente vuelve a entrar y la TERMINA en cuanto soporte crea el ítem que
+faltaba; los componentes ya escritos los saltea su propia marca, sin volver a
+sumarse.
+
+Marcar al padre a medias lo congelaría para siempre: la corrida siguiente lo
+saltearía por idempotente y `explodeRecipe` descontaría de menos en CADA venta,
+en silencio. Es el P1 que encontró el `code-reviewer` sobre esta branch;
+cubierto por el caso M del arnés (2 componentes, 1 resuelve: no se marca, y una
+segunda corrida lo completa sin duplicar el primero).
+
 `remember()` usa `ON CONFLICT DO NOTHING`: si la clave ya existe, el id válido
 es el **primero** — es al que pueden estar apuntando los ítems ya importados.
 

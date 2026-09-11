@@ -295,6 +295,19 @@ final class EncomImportService
      * agregado. Así que esos componentes NO se escriben y el artículo queda
      * anotado en la bitácora del job con su nombre y su kind del legacy, para
      * que soporte lo arme a mano. Lo mismo para el combo dinámico entero.
+     *
+     * ── Recetas a medias: se completan, no se congelan ───────────────────
+     * La idempotencia tiene DOS niveles a propósito. Cada componente escrito
+     * deja su propia marca (`padre:hijo`), y el PADRE solo se marca cuando no
+     * quedó ningún componente sin resolver.
+     *
+     * El motivo es corrección de stock: si una receta con un componente
+     * faltante se marcara como compuesta, la corrida siguiente —ya con el ítem
+     * creado por soporte— la saltearía por idempotente y la receta quedaría
+     * incompleta para siempre, con `explodeRecipe` descontando de menos en cada
+     * venta y sin una sola señal. Con la marca por componente, reintentar
+     * COMPLETA lo que falta sin volver a sumar lo que ya estaba (`add()` suma
+     * la cantidad cuando el ingrediente ya existe).
      */
     private function compose(): void
     {
@@ -359,6 +372,7 @@ final class EncomImportService
             }
 
             $escritos    = 0;
+            $yaEstaban   = 0;
             $selectables = 0;
             $faltantes   = [];
 
@@ -374,9 +388,24 @@ final class EncomImportService
                 }
 
                 $childLegacy = trim((string) ($part['id'] ?? ''));
-                $childId     = $this->mapOf('item', $childLegacy);
+                if ($childLegacy === '') {
+                    $faltantes[] = '(sin id)';
+                    continue;
+                }
+
+                // Marca POR COMPONENTE. Es lo que permite COMPLETAR una receta
+                // que quedó a medias sin volver a sumar lo que ya se escribió:
+                // `add()` SUMA la cantidad si el ingrediente ya está, así que
+                // reintentar el combo entero convertiría 1 unidad en 2.
+                $partKey = $this->compoundKey($legacyId, $childLegacy);
+                if (EncomMigrationService::mapped($this->companyId, 'compound', $partKey) !== null) {
+                    $yaEstaban++;
+                    continue;
+                }
+
+                $childId = $this->mapOf('item', $childLegacy);
                 if ($childId === '') {
-                    $faltantes[] = $childLegacy !== '' ? $childLegacy : '(sin id)';
+                    $faltantes[] = $childLegacy;
                     continue;
                 }
 
@@ -388,11 +417,12 @@ final class EncomImportService
 
                 try {
                     $compounds->add($parentId, $this->companyId, $childId, $units);
+                    EncomMigrationService::remember($this->companyId, 'compound', $partKey, $childId, $this->jobId);
                     $escritos++;
                 } catch (\Throwable $e) {
                     // Un ciclo o un componente de otro tenant: lo rechaza el
                     // servicio, que es justamente para lo que se lo usa.
-                    $faltantes[] = ($childLegacy !== '' ? $childLegacy : '(sin id)') . ': ' . $e->getMessage();
+                    $faltantes[] = $childLegacy . ': ' . $e->getMessage();
                 }
             }
 
@@ -404,7 +434,16 @@ final class EncomImportService
                     . 'hay que armarlos como grupo de opciones en la ficha del artículo.';
             }
 
-            if ($escritos > 0) {
+            if ($faltantes !== []) {
+                // ── La receta INCOMPLETA no se marca como compuesta ───────
+                // Marcarla la congelaría a medias para siempre: la corrida
+                // siguiente la saltearía por idempotente, y `explodeRecipe`
+                // descontaría de menos en CADA venta, en silencio. Sin la
+                // marca del padre, el próximo intento vuelve a entrar acá —
+                // los componentes ya escritos los saltea su propia marca— y
+                // termina la receta en cuanto soporte cree el que faltaba.
+                $counts['failed']++;
+            } elseif ($escritos > 0 || $yaEstaban > 0) {
                 EncomMigrationService::remember($this->companyId, 'compound', $legacyId, $parentId, $this->jobId);
                 $counts['imported']++;
             } else {
@@ -1288,6 +1327,21 @@ final class EncomImportService
         }
 
         return 'producto';
+    }
+
+    /**
+     * Clave de UN componente de una receta en `migration_map`.
+     *
+     * `padre:hijo`, ambos ids del legacy. `migration_map.legacyid` es
+     * `varchar(64)`: los ids del legacy son hashids cortos, pero si el par se
+     * pasara de largo el INSERT fallaría y ese componente quedaría sin marcar
+     * (y se volvería a sumar en cada corrida). El hash cubre ese borde sin
+     * cambiar el caso normal, que sigue siendo legible al depurar.
+     */
+    private function compoundKey(string $parentLegacyId, string $childLegacyId): string
+    {
+        $key = $parentLegacyId . ':' . $childLegacyId;
+        return strlen($key) <= 64 ? $key : 'h:' . sha1($key);
     }
 
     private function digits(mixed $v): string

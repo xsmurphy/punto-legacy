@@ -347,8 +347,8 @@ try {
 
     $items = $client->items();
     check(
-        'X1 · se leen los 8 artículos con su kind del legacy',
-        count($items) === 8 && ($items[0]['name'] ?? '') === 'Café Espresso',
+        'X1 · se leen los 9 artículos con su kind del legacy',
+        count($items) === 9 && ($items[0]['name'] ?? '') === 'Café Espresso',
         'items = ' . json_encode(array_column($items, 'name'), JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
@@ -449,8 +449,8 @@ try {
     );
 
     check(
-        'A3 · artículos importados (8)',
-        ($p1['item']['imported'] ?? 0) === 8,
+        'A3 · artículos importados (9)',
+        ($p1['item']['imported'] ?? 0) === 9,
         'progress.item = ' . json_encode($p1['item'] ?? null),
         $failures, $checks
     );
@@ -473,8 +473,8 @@ try {
 
     $itemsInDb = countOf('item', $companyId);
     check(
-        'A6 · los artículos están en la base (8)',
-        $itemsInDb === 8,
+        'A6 · los artículos están en la base (9)',
+        $itemsInDb === 9,
         "item count = $itemsInDb",
         $failures, $checks
     );
@@ -504,18 +504,18 @@ try {
     // R. COMBOS Y RECETAS — la novedad de /fetchs
     // ══════════════════════════════════════════════════════════════════
     check(
-        'R1 · se compusieron 2 artículos (el combo fijo y la receta), 2 quedaron sin componer',
-        ($p1['compound']['total'] ?? 0) === 4
+        'R1 · se compusieron 2 artículos (el combo fijo y la receta), 3 quedaron sin componer',
+        ($p1['compound']['total'] ?? 0) === 5
             && ($p1['compound']['imported'] ?? 0) === 2
-            && ($p1['compound']['failed'] ?? 0) === 2,
+            && ($p1['compound']['failed'] ?? 0) === 3,
         'progress.compound = ' . json_encode($p1['compound'] ?? null),
         $failures, $checks
     );
 
     $compoundRows = (int) scalar('SELECT count(*) FROM item_compound WHERE companyId = ?', [$companyId]);
     check(
-        'R2 · quedaron 3 filas de receta (2 del combo + 1 de la producción directa)',
-        $compoundRows === 3,
+        'R2 · quedaron 4 filas de receta (2 del combo + 1 de producción + 1 del mixto a medias)',
+        $compoundRows === 4,
         "item_compound = $compoundRows",
         $failures, $checks
     );
@@ -844,7 +844,7 @@ try {
 
     check(
         'B1 · la segunda corrida no importa artículos ni clientes nuevos',
-        ($p2['item']['imported'] ?? -1) === 0 && ($p2['item']['skipped'] ?? 0) === 8
+        ($p2['item']['imported'] ?? -1) === 0 && ($p2['item']['skipped'] ?? 0) === 9
             && ($p2['customer']['imported'] ?? -1) === 0 && ($p2['customer']['skipped'] ?? 0) === 2,
         'progress = ' . json_encode([$p2['item'] ?? null, $p2['customer'] ?? null]),
         $failures, $checks
@@ -913,6 +913,89 @@ try {
             $failures, $checks
         );
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // M. La receta a medias se COMPLETA, no queda congelada
+    // ══════════════════════════════════════════════════════════════════
+    // "Combo Mixto" tiene dos componentes fijos: uno resuelve (itm-2) y el otro
+    // no existe en el catálogo migrado (itm-777). Marcar al padre como
+    // compuesto igual lo congelaría: la corrida siguiente lo saltearía por
+    // idempotente y la receta quedaría incompleta PARA SIEMPRE, con
+    // `explodeRecipe` descontando de menos en cada venta y en silencio.
+    $mixto = EncomMigrationService::mapped($companyId, 'item', 'itm-9');
+
+    check(
+        'M1 · la receta con un componente sin resolver NO queda marcada como compuesta',
+        EncomMigrationService::mapped($companyId, 'compound', 'itm-9') === null,
+        'quedó marcada: la próxima corrida la saltearía y nunca se completaría',
+        $failures, $checks
+    );
+
+    check(
+        'M2 · el componente que SÍ resolvió quedó marcado por su cuenta',
+        EncomMigrationService::mapped($companyId, 'compound', 'itm-9:itm-2') !== null,
+        'sin marca por componente, reintentar volvería a SUMAR la cantidad',
+        $failures, $checks
+    );
+
+    $filasMixto = $mixto === null ? -1 : (int) scalar(
+        'SELECT count(*) FROM item_compound WHERE parentItemId = ?',
+        [$mixto]
+    );
+    check(
+        'M3 · por ahora la receta tiene UN solo componente',
+        $filasMixto === 1,
+        "item_compound del mixto = $filasMixto",
+        $failures, $checks
+    );
+
+    // Soporte crea a mano el artículo que faltaba y queda mapeado. La corrida
+    // siguiente tiene que TERMINAR la receta.
+    $harina = EncomMigrationService::mapped($companyId, 'item', 'itm-6');
+    if ($harina !== null) {
+        EncomMigrationService::remember($companyId, 'item', 'itm-777', $harina, null);
+    }
+
+    $run3 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))->run(['catalog']);
+
+    check(
+        'M4 · la corrida siguiente COMPLETA la receta que había quedado a medias',
+        ($run3['progress']['compound']['imported'] ?? 0) === 1,
+        'progress.compound = ' . json_encode($run3['progress']['compound'] ?? null),
+        $failures, $checks
+    );
+
+    check(
+        'M5 · recién ahora queda marcada como compuesta',
+        EncomMigrationService::mapped($companyId, 'compound', 'itm-9') !== null,
+        'sigue sin marcar',
+        $failures, $checks
+    );
+
+    $filasMixto2 = $mixto === null ? -1 : (int) scalar(
+        'SELECT count(*) FROM item_compound WHERE parentItemId = ?',
+        [$mixto]
+    );
+    check(
+        'M6 · la receta quedó con sus DOS componentes',
+        $filasMixto2 === 2,
+        "item_compound del mixto = $filasMixto2",
+        $failures, $checks
+    );
+
+    // Lo que protege la marca por componente: `ItemCompoundService::add()` SUMA
+    // cuando el ingrediente ya está, así que completar la receta no puede
+    // volver a contar el que ya se había escrito.
+    $qtyMixto = ($mixto === null || $medialuna === null) ? null : scalar(
+        'SELECT quantity FROM item_compound WHERE parentItemId = ? AND childItemId = ?',
+        [$mixto, $medialuna]
+    );
+    check(
+        'M7 · el componente que ya estaba sigue en 1, no en 2 (completar no duplica)',
+        $qtyMixto !== null && abs((float) $qtyMixto - 1.0) < 0.0001,
+        'quantity = ' . var_export($qtyMixto, true),
+        $failures, $checks
+    );
 
     // ══════════════════════════════════════════════════════════════════
     // E. Rechazo por punto de expedición duplicado (D5)

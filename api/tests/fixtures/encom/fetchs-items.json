@@ -129,5 +129,21 @@
     "sku": "",
     "compound": "[{\"id\":\"itm-999\",\"units\":\"1.000\",\"select\":\"0\"}]",
     "brand": "-"
+  },
+  {
+    "itemId": "itm-9",
+    "name": "Combo Mixto",
+    "price": 30000,
+    "index": 9,
+    "type": "combo",
+    "kind": "combo",
+    "tax": "10",
+    "trackInventory": 0,
+    "inventory": [],
+    "category": "Combos",
+    "categoryId": "cat-300",
+    "sku": "",
+    "compound": "[{\"id\":\"itm-2\",\"units\":\"1.000\",\"select\":\"0\"},{\"id\":\"itm-777\",\"units\":\"1.000\",\"select\":\"0\"}]",
+    "brand": "-"
   }
 ]
