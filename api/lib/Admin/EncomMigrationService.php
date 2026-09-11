@@ -48,8 +48,30 @@ final class EncomMigrationService
      * llena `config`), porque un saldo es un movimiento del ledger por (ítem,
      * sucursal). Meterlo dentro de `catalog` lo dejaría corriendo antes de que
      * las sucursales existieran.
+     *
+     * ── Los tres dominios de HISTÓRICO (F2) ─────────────────────────────
+     * `sales_history`, `purchases_history` y `expenses_history` son TRES y no
+     * uno solo por tres razones, no por gusto de separar:
+     *
+     *   1. **Salen de endpoints distintos del legacy** y con formas distintas
+     *      (las ventas necesitan una request POR VENTA para sus líneas; las
+     *      compras traen todas las líneas del rango en una).
+     *   2. **Escriben cosas distintas**: una venta y una compra son filas de
+     *      `transaction` con tipos opuestos, pero un movimiento de caja no es
+     *      una transacción en absoluto — va a `expenses`.
+     *   3. **El operador tiene que poder pedir uno sin los otros.** Un
+     *      comercio que solo quiere sus ventas para los reportes no debería
+     *      tener que traerse las compras, y si un dominio falla los otros
+     *      deben poder entrar igual.
+     *
+     * Van DESPUÉS de todo lo demás: un asiento histórico referencia artículos,
+     * clientes, usuarios y sucursales, y todos esos mapas los llenan los
+     * dominios anteriores.
      */
-    public const DOMAINS = ['catalog', 'customers', 'config', 'users', 'payments', 'stock'];
+    public const DOMAINS = [
+        'catalog', 'customers', 'config', 'users', 'payments', 'stock',
+        'sales_history', 'purchases_history', 'expenses_history',
+    ];
 
     /** Tope de reintentos del drain antes de dar el job por perdido. */
     public const MAX_ATTEMPTS = 3;
@@ -71,7 +93,8 @@ final class EncomMigrationService
         array $creds,
         array $domains,
         ?string $registerOutletId,
-        ?string $createdBy
+        ?string $createdBy,
+        array $extra = []
     ): array {
         global $db;
 
@@ -147,7 +170,17 @@ final class EncomMigrationService
         // La sucursal destino de las CAJAS. Ver `EncomImportService::config()`:
         // el legacy solo expone las cajas de su sucursal activa y no dice
         // cuál es, así que la elige el operador o el dominio se saltea.
-        $options = ['registerOutletId' => $registerOutletId ?: null];
+        //
+        // `historyFrom`/`historyTo` acotan el HISTÓRICO. El rango es del
+        // operador y no se deduce: el legacy no dice desde cuándo tiene datos,
+        // y traer "todo" sobre un comercio viejo son decenas de miles de
+        // requests —una por venta— además de años de particiones. Sin rango
+        // elegido, el importador toma los últimos 12 meses.
+        $options = [
+            'registerOutletId' => $registerOutletId ?: null,
+            'historyFrom'      => self::fechaOpcional($extra['historyFrom'] ?? null),
+            'historyTo'        => self::fechaOpcional($extra['historyTo'] ?? null),
+        ];
 
         $row = self::row(
             'INSERT INTO migration_job (companyid, source, status, domains, credentials, progress, createdby)
@@ -554,6 +587,21 @@ final class EncomMigrationService
      * string; `jsonField()` ya tolera las dos formas, y el worker decodifica
      * con su propio helper.
      */
+    /**
+     * 'YYYY-MM-DD' o null.
+     *
+     * Lo que no tiene esa forma se descarta en vez de "interpretarse": una
+     * fecha mal leída acá se convierte en el rango del histórico, y un rango
+     * equivocado significa meses importados de menos (silencioso) o años de
+     * particiones vacías (ruidoso). El importador ya tiene un default sensato
+     * para cuando no hay fecha; no necesita una adivinada.
+     */
+    private static function fechaOpcional(mixed $v): ?string
+    {
+        $s = trim((string) ($v ?? ''));
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $s) === 1 ? $s : null;
+    }
+
     private static function row(string $sql, array $params = []): ?array
     {
         global $db;

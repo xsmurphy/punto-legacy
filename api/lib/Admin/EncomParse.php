@@ -159,6 +159,38 @@ final class EncomParse
         return null;
     }
 
+    /**
+     * Índice de la columna cuyo encabezado es EXACTAMENTE uno de `$names`.
+     *
+     * ── Por qué no alcanza `columnIndex()` ───────────────────────────────
+     * El match por substring devuelve la PRIMERA columna que contenga la
+     * palabra, y en el listado de ventas del legacy eso elige mal dos veces:
+     *
+     *   · `Tipo Documento` (col 15) viene ANTES que `Tipo` (col 16), así que
+     *     buscar "TIPO" devuelve el tipo de documento.
+     *   · `Total Gravado` (col 20) viene ANTES que `Total` (col 21), así que
+     *     buscar "TOTAL" devuelve el gravado en vez del total de la venta.
+     *
+     * Las dos equivocaciones son silenciosas y caras: la primera importaría
+     * cada venta con el tipo equivocado, la segunda con un monto que no es el
+     * que el comercio cobró. Por eso las columnas ambiguas se resuelven por
+     * igualdad exacta y solo se cae al substring cuando no hay ninguna igual.
+     *
+     * @param array<int,string> $headers
+     * @param array<int,string> $names ya en mayúsculas y sin acentos
+     */
+    public static function columnIndexExact(array $headers, array $names): ?int
+    {
+        foreach ($names as $name) {
+            foreach ($headers as $i => $h) {
+                if ($h === $name) {
+                    return $i;
+                }
+            }
+        }
+        return null;
+    }
+
     /** Normaliza un encabezado: mayúsculas, sin acentos, sin espacios de más. */
     private static function canon(string $h): string
     {

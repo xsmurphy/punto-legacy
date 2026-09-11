@@ -853,7 +853,7 @@ class EncomClient implements EncomSource
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Ventas de un rango — PREPARADO PARA F2, no se usa en F1.
+     * Ventas de un rango — HTML crudo del panel.
      *
      * `/fetchs` NO expone el histórico por ningún `load`: es el bootstrap de
      * una caja, no un reporte. Por eso este dominio —y SOLO este— sigue
@@ -867,18 +867,347 @@ class EncomClient implements EncomSource
      */
     public function salesRaw(string $from, string $to): array
     {
-        return EncomParse::htmlRows(EncomParse::tableHtml($this->get('/a_report_transactions', [
+        return EncomParse::htmlRows(EncomParse::tableHtml($this->salesTableHtml($from, $to)));
+    }
+
+    /** Detalle de UNA venta (form con sus ítems). */
+    public function saleDetailRaw(string $legacyId): string
+    {
+        return $this->get('/a_report_transactions', ['action' => 'edit', 'id' => $legacyId, 'js' => 'true']);
+    }
+
+    /**
+     * Cabeceras de las ventas de un rango, con las columnas resueltas por
+     * ENCABEZADO.
+     *
+     * Nunca por índice fijo: es la lección más cara de la F1 (el listado vivo
+     * de cajas tenía una columna que el snapshot no tenía y, leído por
+     * posición, el nombre de la sucursal se leía como TIMBRADO). Y acá hay dos
+     * pares ambiguos —`Tipo Documento`/`Tipo` y `Total Gravado`/`Total`, en
+     * los que el título más largo va PRIMERO— que se resuelven por igualdad
+     * exacta (`columnIndexExact`), porque el match por substring elegiría en
+     * los dos casos la columna equivocada sin decir nada.
+     */
+    public function salesHistory(string $from, string $to): array
+    {
+        $html    = EncomParse::tableHtml($this->salesTableHtml($from, $to));
+        $headers = EncomParse::htmlHeaders($html);
+
+        $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
+        $cAuth     = EncomParse::columnIndex($headers, ['AUTORIZACION', 'TIMBRADO']);
+        $cDate     = EncomParse::columnIndexExact($headers, ['FECHA']) ?? EncomParse::columnIndex($headers, ['FECHA']);
+        $cTime     = EncomParse::columnIndexExact($headers, ['HORA']);
+        $cDue      = EncomParse::columnIndex($headers, ['VENCIMIENTO']);
+        $cCustomer = EncomParse::columnIndex($headers, ['CLIENTE']);
+        $cTin      = EncomParse::columnIndex($headers, ['RUC', 'TIN', 'NIT', 'CEDULA', 'CI']);
+        $cUser     = EncomParse::columnIndex($headers, ['USUARIO', 'VENDEDOR']);
+        $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
+        $cRegister = EncomParse::columnIndexExact($headers, ['CAJA']);
+        $cPayment  = EncomParse::columnIndex($headers, ['M.DE PAGO', 'PAGO']);
+        $cNote     = EncomParse::columnIndex($headers, ['NOTA']);
+        $cDocType  = EncomParse::columnIndexExact($headers, ['TIPO DOCUMENTO']);
+        $cType     = EncomParse::columnIndexExact($headers, ['TIPO']);
+        $cDiscount = EncomParse::columnIndex($headers, ['DESCUENTO']);
+        $cTax      = EncomParse::columnIndexExact($headers, ['IVA']) ?? EncomParse::columnIndex($headers, ['IVA', 'IMPUESTO']);
+        $cTotal    = EncomParse::columnIndexExact($headers, ['TOTAL']);
+
+        // Sin la fecha o sin el total no hay asiento contable posible, y
+        // adivinar la posición de un MONTO es exactamente lo que no se hace.
+        if ($cDate === null || $cTotal === null) {
+            throw new EncomMigrationException(
+                'El listado de ventas del sistema legacy no tiene las columnas de fecha y total donde se '
+                . 'esperaban: no se puede importar el histórico sin leerlas mal.',
+                502
+            );
+        }
+
+        $out = [];
+        foreach (EncomParse::htmlRows($html) as $row) {
+            $cells = $row['cells'];
+
+            $fecha = trim((string) ($cells[$cDate] ?? ''));
+            if ($cTime !== null) {
+                $hora = trim((string) ($cells[$cTime] ?? ''));
+                // `data-order` de la fecha suele traer ya el timestamp
+                // completo; la hora se pega solo si falta.
+                if ($hora !== '' && strlen($fecha) <= 10) {
+                    $fecha = $fecha . ' ' . $hora;
+                }
+            }
+
+            $out[] = [
+                'ID'            => $row['id'],
+                'docNumber'     => $cDoc !== null ? trim((string) ($cells[$cDoc] ?? '')) : '',
+                'authNo'        => $cAuth !== null ? trim((string) ($cells[$cAuth] ?? '')) : '',
+                'date'          => $fecha,
+                'dueDate'       => $cDue !== null ? trim((string) ($cells[$cDue] ?? '')) : '',
+                'customer'      => $cCustomer !== null ? trim((string) ($cells[$cCustomer] ?? '')) : '',
+                'customerTin'   => $cTin !== null ? trim((string) ($cells[$cTin] ?? '')) : '',
+                'user'          => $cUser !== null ? trim((string) ($cells[$cUser] ?? '')) : '',
+                'outlet'        => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
+                'register'      => $cRegister !== null ? trim((string) ($cells[$cRegister] ?? '')) : '',
+                'paymentMethod' => $cPayment !== null ? trim((string) ($cells[$cPayment] ?? '')) : '',
+                'note'          => $cNote !== null ? trim((string) ($cells[$cNote] ?? '')) : '',
+                'docType'       => $cDocType !== null ? trim((string) ($cells[$cDocType] ?? '')) : '',
+                'type'          => $cType !== null ? trim((string) ($cells[$cType] ?? '')) : '',
+                'discount'      => $cDiscount !== null ? self::numCell($cells[$cDiscount] ?? null) : null,
+                'tax'           => $cTax !== null ? self::numCell($cells[$cTax] ?? null) : null,
+                'total'         => self::numCell($cells[$cTotal] ?? null),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Líneas de UNA venta, leídas del form de edición.
+     *
+     * ── Por qué del FORM y no de la tabla ────────────────────────────────
+     * Las cantidades y los precios viajan en inputs (`itemQty[<id>]`,
+     * `itemPrice[<id>]`), que se leen por su atributo `name`: si el legacy
+     * mueve una columna de lugar, el `name` sigue siendo el mismo. La tabla
+     * visible, en cambio, es posicional.
+     *
+     * ── El supuesto que queda, declarado ─────────────────────────────────
+     * El NOMBRE del artículo no está en un input: está en una celda. Se lo
+     * empareja con su línea POR ORDEN de aparición (los `name` del form y las
+     * filas de la tabla salen los dos en orden de documento). Si el legacy
+     * llegara a desordenar uno de los dos, el nombre saldría corrido — por eso
+     * el importador nunca descarta una línea en silencio: la que no resuelve
+     * contra el catálogo queda nombrada en la bitácora.
+     */
+    public function saleLines(string $legacyId): array
+    {
+        $html   = $this->saleDetailRaw($legacyId);
+        $values = EncomParse::formValues($html);
+
+        // Ids de línea en orden de documento, tomados de las cantidades.
+        $ids = [];
+        foreach (array_keys($values) as $name) {
+            if (preg_match('/^itemQty\[([^\]]+)\]$/', (string) $name, $m) === 1) {
+                $ids[] = $m[1];
+            }
+        }
+
+        if ($ids === []) {
+            return [];
+        }
+
+        // Nombres visibles, en el mismo orden. La columna se resuelve por
+        // encabezado; si la tabla no se puede leer, las líneas salen sin
+        // nombre y el importador las manda a la bitácora en vez de inventar.
+        $tabla    = EncomParse::tableHtml($html);
+        $headers  = EncomParse::htmlHeaders($tabla);
+        $cName    = EncomParse::columnIndex($headers, ['ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
+        $cUser    = EncomParse::columnIndex($headers, ['USUARIO', 'VENDEDOR']);
+        $filas    = EncomParse::htmlRows($tabla);
+
+        $out = [];
+        foreach ($ids as $i => $id) {
+            $celdas = $filas[$i]['cells'] ?? [];
+
+            $qty   = self::numCell($values['itemQty[' . $id . ']'] ?? null);
+            $price = self::numCell($values['itemPrice[' . $id . ']'] ?? null);
+
+            $out[] = [
+                'ID'           => (string) $id,
+                // Algunos deploys exponen el artículo en un input propio. Si
+                // está, es mejor que el nombre: es el id del legacy.
+                'legacyItemId' => trim((string) (
+                    $values['itemId[' . $id . ']']
+                    ?? $values['itemID[' . $id . ']']
+                    ?? ''
+                )),
+                'itemName'     => $cName !== null ? trim((string) ($celdas[$cName] ?? '')) : '',
+                'qty'          => $qty,
+                'price'        => $price,
+                'tax'          => self::numCell($values['itemTax[' . $id . ']'] ?? null),
+                'total'        => ($qty !== null && $price !== null) ? round($qty * $price, 4) : null,
+                'user'         => $cUser !== null ? trim((string) ($celdas[$cUser] ?? '')) : '',
+            ];
+        }
+
+        return $out;
+    }
+
+    /** Cabeceras de las compras de un rango. Columnas por ENCABEZADO. */
+    public function purchasesHistory(string $from, string $to): array
+    {
+        $html = EncomParse::tableHtml($this->get('/a_report_purchases', [
+            'action' => 'general',
+            'from'   => $from,
+            'to'     => $to,
+        ]));
+
+        $headers = EncomParse::htmlHeaders($html);
+
+        $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
+        $cAuth     = EncomParse::columnIndex($headers, ['TIMBRADO', 'AUTORIZACION']);
+        $cDate     = EncomParse::columnIndexExact($headers, ['FECHA']) ?? EncomParse::columnIndex($headers, ['FECHA']);
+        $cDue      = EncomParse::columnIndex($headers, ['VENCIMIENTO']);
+        $cSupplier = EncomParse::columnIndex($headers, ['PROVEEDOR']);
+        $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
+        $cUser     = EncomParse::columnIndex($headers, ['USUARIO']);
+        $cType     = EncomParse::columnIndexExact($headers, ['TIPO']);
+        $cTax      = EncomParse::columnIndexExact($headers, ['IVA']) ?? EncomParse::columnIndex($headers, ['IVA', 'IMPUESTO']);
+        $cTotal    = EncomParse::columnIndexExact($headers, ['TOTAL']);
+
+        if ($cDate === null || $cTotal === null) {
+            throw new EncomMigrationException(
+                'El listado de compras del sistema legacy no tiene las columnas de fecha y total donde se '
+                . 'esperaban: no se puede importar el histórico sin leerlas mal.',
+                502
+            );
+        }
+
+        $out = [];
+        foreach (EncomParse::htmlRows($html) as $row) {
+            $cells = $row['cells'];
+            $out[] = [
+                'ID'        => $row['id'],
+                'docNumber' => $cDoc !== null ? trim((string) ($cells[$cDoc] ?? '')) : '',
+                'authNo'    => $cAuth !== null ? trim((string) ($cells[$cAuth] ?? '')) : '',
+                'date'      => trim((string) ($cells[$cDate] ?? '')),
+                'dueDate'   => $cDue !== null ? trim((string) ($cells[$cDue] ?? '')) : '',
+                'supplier'  => $cSupplier !== null ? trim((string) ($cells[$cSupplier] ?? '')) : '',
+                'outlet'    => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
+                'user'      => $cUser !== null ? trim((string) ($cells[$cUser] ?? '')) : '',
+                'type'      => $cType !== null ? trim((string) ($cells[$cType] ?? '')) : '',
+                'tax'       => $cTax !== null ? self::numCell($cells[$cTax] ?? null) : null,
+                'total'     => self::numCell($cells[$cTotal] ?? null),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Líneas de TODAS las compras del rango, en UNA request.
+     *
+     * A diferencia de las ventas, el legacy sí tiene un detalle por rango. Se
+     * juntan con su cabecera por `#Documento`: el listado de detalle no trae
+     * el id de la compra.
+     */
+    public function purchaseLines(string $from, string $to): array
+    {
+        $html = EncomParse::tableHtml($this->get('/a_report_purchases', [
+            'action' => 'detailTable',
+            'from'   => $from,
+            'to'     => $to,
+        ]));
+
+        $headers = EncomParse::htmlHeaders($html);
+
+        $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
+        $cSupplier = EncomParse::columnIndex($headers, ['PROVEEDOR']);
+        $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
+        $cItem     = EncomParse::columnIndex($headers, ['ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
+        $cQty      = EncomParse::columnIndex($headers, ['CANT']);
+        $cPrice    = EncomParse::columnIndex($headers, ['PRECIO', 'COSTO']);
+        $cTax      = EncomParse::columnIndexExact($headers, ['IVA']) ?? EncomParse::columnIndex($headers, ['IVA', 'IMPUESTO']);
+        $cTotal    = EncomParse::columnIndexExact($headers, ['TOTAL']);
+
+        if ($cDoc === null || $cItem === null) {
+            // Sin documento no hay a qué compra pegar la línea, y sin artículo
+            // no hay línea. Se importan las cabeceras solas (el total de la
+            // compra es correcto igual) y el importador lo anota.
+            return [];
+        }
+
+        $out = [];
+        foreach (EncomParse::htmlRows($html) as $row) {
+            $cells = $row['cells'];
+            $out[] = [
+                'docNumber' => trim((string) ($cells[$cDoc] ?? '')),
+                'supplier'  => $cSupplier !== null ? trim((string) ($cells[$cSupplier] ?? '')) : '',
+                'outlet'    => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
+                'itemName'  => trim((string) ($cells[$cItem] ?? '')),
+                'qty'       => $cQty !== null ? self::numCell($cells[$cQty] ?? null) : null,
+                'price'     => $cPrice !== null ? self::numCell($cells[$cPrice] ?? null) : null,
+                'tax'       => $cTax !== null ? self::numCell($cells[$cTax] ?? null) : null,
+                'total'     => $cTotal !== null ? self::numCell($cells[$cTotal] ?? null) : null,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Movimientos de caja de un rango.
+     *
+     * ⚠ El `action` correcto es `generalTable`. Con `general`, `detailTable`,
+     * `showTable` o `table` el archivo IGNORA el parámetro y devuelve la
+     * PÁGINA HTML ENTERA (los cuatro dan exactamente los mismos 15312 bytes),
+     * que parsea a cero filas sin ningún error — o sea "el comercio no tuvo
+     * gastos" en vez de "pedí mal". Verificado en vivo el 2026-09-11.
+     */
+    public function expensesHistory(string $from, string $to): array
+    {
+        $html = EncomParse::tableHtml($this->get('/a_report_expenses', [
+            'action' => 'generalTable',
+            'from'   => $from,
+            'to'     => $to,
+        ]));
+
+        $headers = EncomParse::htmlHeaders($html);
+
+        $cDate     = EncomParse::columnIndexExact($headers, ['FECHA']) ?? EncomParse::columnIndex($headers, ['FECHA']);
+        $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
+        $cRegister = EncomParse::columnIndexExact($headers, ['CAJA']);
+        $cUser     = EncomParse::columnIndex($headers, ['USUARIO']);
+        $cNote     = EncomParse::columnIndex($headers, ['NOTA', 'DESCRIPCION', 'CONCEPTO']);
+        $cType     = EncomParse::columnIndexExact($headers, ['TIPO']);
+        $cTotal    = EncomParse::columnIndexExact($headers, ['TOTAL']) ?? EncomParse::columnIndex($headers, ['MONTO', 'IMPORTE']);
+
+        if ($cDate === null || $cTotal === null) {
+            throw new EncomMigrationException(
+                'El listado de movimientos de caja del sistema legacy no tiene las columnas de fecha y '
+                . 'monto donde se esperaban: no se puede importar el histórico sin leerlas mal.',
+                502
+            );
+        }
+
+        $out = [];
+        foreach (EncomParse::htmlRows($html) as $row) {
+            $cells = $row['cells'];
+            $out[] = [
+                'ID'       => $row['id'],
+                'date'     => trim((string) ($cells[$cDate] ?? '')),
+                'outlet'   => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
+                'register' => $cRegister !== null ? trim((string) ($cells[$cRegister] ?? '')) : '',
+                'user'     => $cUser !== null ? trim((string) ($cells[$cUser] ?? '')) : '',
+                'note'     => $cNote !== null ? trim((string) ($cells[$cNote] ?? '')) : '',
+                'type'     => $cType !== null ? trim((string) ($cells[$cType] ?? '')) : '',
+                'total'    => self::numCell($cells[$cTotal] ?? null),
+            ];
+        }
+
+        return $out;
+    }
+
+    /** El HTML del listado de ventas. Separado porque lo usan dos lectores. */
+    private function salesTableHtml(string $from, string $to): string
+    {
+        return $this->get('/a_report_transactions', [
             'action' => 'detailTable',
             'from'   => $from,
             'to'     => $to,
             'cusId'  => '',
-        ])));
+        ]);
     }
 
-    /** Detalle de UNA venta (form con sus ítems). Preparado para F2. */
-    public function saleDetailRaw(string $legacyId): string
+    /**
+     * Valor numérico de una celda o de un input.
+     *
+     * `null` cuando no es numérico, NUNCA 0: en un asiento contable un 0
+     * inventado es un monto falso que nadie vuelve a mirar. Los valores crudos
+     * del legacy vienen sin formatear (`data-order`), así que no se deshacen
+     * separadores de miles acá — un monto mal parseado es peor que ninguno.
+     */
+    private static function numCell(mixed $v): ?float
     {
-        return $this->get('/a_report_transactions', ['action' => 'edit', 'id' => $legacyId]);
+        $s = trim((string) ($v ?? ''));
+        return is_numeric($s) ? (float) $s : null;
     }
 
     // ═══════════════════════════════════════════════════════════════════

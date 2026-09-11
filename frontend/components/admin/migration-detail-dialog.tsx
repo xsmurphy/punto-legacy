@@ -53,6 +53,12 @@ const DOMAIN_LABEL: Record<string, string> = {
   register: "Cajas",
   user: "Usuarios",
   payment: "Medios de pago",
+  // Histórico (F2). `failed` acá cuenta los documentos que NO se asentaron
+  // —casi siempre por una referencia sin migrar (sucursal, usuario)— y la
+  // bitácora dice cuál falta en cada caso.
+  sales_history: "Ventas históricas",
+  purchases_history: "Compras históricas",
+  expenses_history: "Movimientos de caja históricos",
   job: "Migración",
 }
 

@@ -1300,6 +1300,9 @@ export interface AdminMigrationInput {
   password: string
   domains: string[]
   registerOutletId?: string
+  /** Rango del histórico, AAAA-MM-DD. Sin esto el backend toma 12 meses. */
+  historyFrom?: string
+  historyTo?: string
   [k: string]: unknown
 }
 

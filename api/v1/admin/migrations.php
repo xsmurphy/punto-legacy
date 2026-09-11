@@ -100,6 +100,22 @@ try {
             apiError('Falta la contraseña del cliente en el sistema legacy.', 422);
         }
 
+        // Rango del HISTÓRICO. Se valida acá —con el operador mirando— y no
+        // adentro del worker: una fecha mal tipeada media hora después es un
+        // job fallado que hay que volver a crear con la contraseña del cliente.
+        $historyFrom = trim((string) ($_POST['historyFrom'] ?? ''));
+        $historyTo   = trim((string) ($_POST['historyTo'] ?? ''));
+
+        foreach (['desde' => $historyFrom, 'hasta' => $historyTo] as $cual => $valor) {
+            if ($valor !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $valor) !== 1) {
+                apiError('La fecha "' . $cual . '" del histórico tiene que ser AAAA-MM-DD.', 422);
+            }
+        }
+
+        if ($historyFrom !== '' && $historyTo !== '' && $historyFrom > $historyTo) {
+            apiError('El "desde" del histórico es posterior al "hasta".', 422);
+        }
+
         $res = $svc->create(
             $companyId,
             [
@@ -108,7 +124,8 @@ try {
             ],
             $domains,
             $registerOutletId !== '' ? $registerOutletId : null,
-            defined('ADMIN_AUTHED_ID') ? (string) ADMIN_AUTHED_ID : null
+            defined('ADMIN_AUTHED_ID') ? (string) ADMIN_AUTHED_ID : null,
+            ['historyFrom' => $historyFrom, 'historyTo' => $historyTo]
         );
 
         // La password NO entra en el meta de auditoría. Queda quién lanzó la
