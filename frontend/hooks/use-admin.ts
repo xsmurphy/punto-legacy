@@ -1295,8 +1295,8 @@ export function useAdminMigration(jobId: string) {
  */
 export interface AdminMigrationInput {
   companyId: string
-  phone: string
-  iso: string
+  /** Email o celular con el que el cliente entra al panel legacy, tal cual. */
+  identifier: string
   password: string
   domains: string[]
   registerOutletId?: string

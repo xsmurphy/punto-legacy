@@ -44,7 +44,11 @@ final class EncomMigrationService
      * Crea el job: hace el login al legacy EN EL MOMENTO (D2) y guarda solo
      * las cookies. Si el login falla, el job NO se crea.
      *
-     * @param array{phone:string,iso:string,password:string} $creds
+     * `identifier` es lo que el cliente tipea en el campo de usuario del panel
+     * legacy: su email o su celular, indistinto. Viaja tal cual — quien
+     * resuelve cuál de los dos es, es el legacy (ver `EncomClient::login()`).
+     *
+     * @param array{identifier:string,password:string} $creds
      * @param array<int,string> $domains
      * @return array{jobId:string}
      */
@@ -101,12 +105,15 @@ final class EncomMigrationService
         }
 
         // ── D2: el login ocurre ACÁ y la password muere con esta request ──
-        $client = EncomClient::login(
-            $baseUrl,
-            trim((string) ($creds['phone'] ?? '')),
-            strtoupper(trim((string) ($creds['iso'] ?? 'PY'))),
-            (string) ($creds['password'] ?? '')
-        );
+        $identifier = trim((string) ($creds['identifier'] ?? ''));
+        if ($identifier === '') {
+            throw new EncomMigrationException(
+                'Falta el usuario del cliente en el sistema legacy (email o celular).',
+                422
+            );
+        }
+
+        $client = EncomClient::login($baseUrl, $identifier, (string) ($creds['password'] ?? ''));
 
         // Solo las cookies llegan a la base. `$creds['password']` no se toca
         // nunca más y no aparece en ningún log.

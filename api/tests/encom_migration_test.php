@@ -27,6 +27,8 @@ declare(strict_types=1);
  *   G. PARSERS sobre los shapes exactos del sistema vivo.
  *   H. El export recorre TODAS las sucursales (switch `?o=`) y filtra por ROL.
  *   I. Fallback de artículos a la tabla HTML cuando no hay `format=json`.
+ *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`) y el
+ *      identificador sin normalizar.
  */
 
 require_once __DIR__ . '/_harness.php';
@@ -171,6 +173,22 @@ final class BrokenFormEncomClient extends EncomClient
     }
 }
 
+/**
+ * Sonda del cuerpo del LOGIN.
+ *
+ * El login no se puede ejercitar entero sin red, pero lo que se rompió —y de
+ * forma invisible desde este lado, porque el legacy contesta 200 igual— fueron
+ * los `name` del form: se mandaba `phone`/`iso`, que el deploy VIVO no tiene.
+ * Esta sonda fija los campos reales contra el sistema que hay que migrar.
+ */
+final class LoginBodyProbe extends EncomClient
+{
+    public static function body(string $identifier, string $password): string
+    {
+        return parent::loginBody($identifier, $password);
+    }
+}
+
 /** Variante del caso E: dos cajas con el mismo (timbrado, punto). */
 final class ClashingEncomClient extends EncomClient
 {
@@ -276,6 +294,30 @@ cleanup($companyId);
 cleanup($companyB);
 
 try {
+    // ══════════════════════════════════════════════════════════════════
+    // L. LOGIN — los campos del form del deploy VIVO
+    // ══════════════════════════════════════════════════════════════════
+    parse_str(LoginBodyProbe::body('cliente@example.com', 'secreta 1'), $loginFields);
+
+    check(
+        'L1 · el login manda email+password, NUNCA phone/iso',
+        array_keys($loginFields) === ['email', 'password']
+            && ($loginFields['password'] ?? '') === 'secreta 1',
+        'campos = ' . json_encode($loginFields, JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // Lo mismo que el cliente tipea en ESE campo cuando entra con el celular:
+    // el legacy resuelve email-o-teléfono, así que no se normaliza nada.
+    parse_str(LoginBodyProbe::body('0981 123456', 'x'), $phoneFields);
+
+    check(
+        'L2 · el identificador viaja TAL CUAL (un celular no se pasa a E.164)',
+        ($phoneFields['email'] ?? '') === '0981 123456',
+        'email = ' . var_export($phoneFields['email'] ?? null, true),
+        $failures, $checks
+    );
+
     // ══════════════════════════════════════════════════════════════════
     // G. Parsers sobre los shapes EXACTOS del sistema vivo
     // ══════════════════════════════════════════════════════════════════

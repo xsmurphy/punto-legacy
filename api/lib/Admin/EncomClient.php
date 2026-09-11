@@ -83,8 +83,18 @@ class EncomClient implements EncomSource
      * superficie `a_*.php`. `_jwt_panel` puede venir o no según la versión
      * desplegada y ya no se exige — exigirla rompía el login contra el
      * deploy viejo, que es justamente el que hay que migrar.
+     *
+     * ── Un solo campo: `email` ──────────────────────────────────────────
+     * Verificado contra el sistema VIVO (2026-09-11): el form del login
+     * deployado tiene `name="email"` y `name="password"`, y NINGÚN
+     * `phone`/`iso` — eso es de una versión de código más nueva que la que
+     * corre. En ese campo el cliente tipea su email O su teléfono, y el
+     * backend legacy resuelve cuál es. Por eso acá el identificador viaja
+     * TAL CUAL lo tipeó el operador: normalizarlo a E.164 le cambiaría el
+     * valor a quien entra con email y también a quien entra con el teléfono
+     * como lo tiene guardado el legacy.
      */
-    public static function login(string $baseUrl, string $phone, string $iso, string $password): self
+    public static function login(string $baseUrl, string $identifier, string $password): self
     {
         $baseUrl = rtrim(trim($baseUrl), '/');
         if ($baseUrl === '') {
@@ -99,11 +109,7 @@ class EncomClient implements EncomSource
         $res = $client->raw(
             'POST',
             '/login?login=true',
-            http_build_query([
-                'phone'    => $phone,
-                'iso'      => $iso !== '' ? $iso : 'PY',
-                'password' => $password,
-            ]),
+            static::loginBody($identifier, $password),
             'application/x-www-form-urlencoded',
             true
         );
@@ -116,12 +122,30 @@ class EncomClient implements EncomSource
 
         if ($body !== 'true' || !isset($client->cookies['PHPSESSID'])) {
             throw new EncomMigrationException(
-                'El panel legacy rechazó las credenciales. Verificá el teléfono (con código de país) y la contraseña.',
+                'El panel legacy rechazó las credenciales. Verificá el usuario (el email o el celular con el '
+                . 'que el cliente entra al panel legacy) y la contraseña.',
                 401
             );
         }
 
         return $client;
+    }
+
+    /**
+     * Cuerpo del POST de login.
+     *
+     * Está separado —y `protected`— por una sola razón: los `name` del form
+     * legacy son justamente lo que se puede equivocar (mandábamos
+     * `phone`/`iso`, que esa versión del deploy no tiene, y el login fallaba
+     * sin explicación posible desde este lado). Acá el arnés los verifica sin
+     * red, igual que `get()` es la costura del export.
+     */
+    protected static function loginBody(string $identifier, string $password): string
+    {
+        return http_build_query([
+            'email'    => $identifier,
+            'password' => $password,
+        ]);
     }
 
     /** @param array<string,string> $cookies */
