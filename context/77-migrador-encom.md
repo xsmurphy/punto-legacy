@@ -685,13 +685,64 @@ septiembre y Postgres rechazaba la partición por solaparse. Lo encontró el
 arnés, no el diseño. El mes de una partición es una decisión de
 ALMACENAMIENTO: tiene que dar el mismo resultado corra quien corra.
 
-> **Chequeo previo al deploy** (levantado por el `code-reviewer`): esto asume
-> que las particiones que YA existen en producción tienen sus límites en UTC.
-> Se verificó así en una base migrada de cero (`FROM '2026-09-01 00:00:00+00'`),
-> que es como las creó la mig 156, pero **no** contra la base de producción. Si
-> alguna partición viva tuviera límites en otra zona, el próximo mes que cree
-> el cron podría chocar por solapamiento. Confirmar con:
-> `SELECT relname, pg_get_expr(relpartbound, oid) FROM pg_class WHERE relname LIKE 'transaction_y%'`.
+**Que las particiones vivas ya estén en UTC NO es un supuesto: está
+verificado contra PRODUCCIÓN el 2026-09-11.** El `code-reviewer` lo levantó
+como riesgo —si alguna partición existente tuviera límites en otra zona, el
+próximo mes chocaría por solapamiento— y se midió:
+
+1. Todas las particiones de `transaction` **y** de `itemsold` están ancladas
+   en UTC: `FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01
+   00:00:00+00')`, y así el resto.
+2. La query de deriva devolvió **0 filas**: no hay una sola partición con
+   límites fuera de UTC.
+3. `transaction_default` e `itemsold_default` tienen **0 filas** cada una.
+
+La query queda escrita para que cualquiera la re-ejecute en otro ambiente
+**antes de deployar** — el hecho da bien hoy y en esta base, pero la próxima
+persona no tiene por qué creernos:
+
+```sql
+-- OJO: `pg_get_expr` RENDERIZA los límites en la zona de la SESIÓN. Sin esta
+-- línea, una partición perfectamente anclada en UTC se ve como '-04' y la
+-- query de abajo da un FALSO POSITIVO de deriva.
+SET TIME ZONE 'UTC';
+
+-- Particiones con límites que NO están en UTC (excluyendo la DEFAULT).
+-- Esperado: 0 filas. Si devuelve algo, NO deployar: ese mes va a chocar.
+SELECT p.relname AS tabla,
+       c.relname AS particion,
+       pg_get_expr(c.relpartbound, c.oid) AS bound
+  FROM pg_class p
+  JOIN pg_inherits i ON i.inhparent = p.oid
+  JOIN pg_class c    ON c.oid = i.inhrelid
+ WHERE p.relname IN ('transaction', 'itemsold')
+   AND pg_get_expr(c.relpartbound, c.oid) <> 'DEFAULT'
+   AND pg_get_expr(c.relpartbound, c.oid) NOT LIKE '%+00%';
+
+-- Y cuántas filas hay en las DEFAULT (ver §17.3.1: cambia el costo operativo).
+SELECT count(*) FROM transaction_default;
+SELECT count(*) FROM itemsold_default;
+```
+
+### 17.3.1 Cuándo un import histórico pide ventana de mantenimiento
+
+Depende de **una sola cosa: si la partición DEFAULT tiene filas.**
+
+**Con la DEFAULT vacía** —el caso de producción hoy, medido arriba— crear un
+mes es barato: no hay nada que mover, así que el `DETACH`/`ATTACH` ni siquiera
+se dispara. Y el importador asegura las particiones **antes** de insertar, así
+que tampoco se llega a llenar. Se puede correr contra un tenant vivo.
+
+**Con filas en la DEFAULT** es otra operación. Para declarar el mes hay que
+desprender la DEFAULT, mover las filas y volver a pegarla, y eso toma
+**ACCESS EXCLUSIVE sobre `transaction` hasta el COMMIT**. Mientras dure, las
+ventas concurrentes **no fallan: ENCOLAN** — que desde la caja se ve como el
+POS colgado. El `lock_timeout` de 5s protege del caso inverso (que el POS
+bloquee al job), no de este.
+
+O sea: **correr un import histórico contra un tenant vivo con filas en la
+DEFAULT es una operación de ventana de mantenimiento**, no un job más. Antes
+de lanzarlo, la segunda query de arriba dice en cuál de los dos mundos estás.
 
 ### 17.4 Cierre de período
 
