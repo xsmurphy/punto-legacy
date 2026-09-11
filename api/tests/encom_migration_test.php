@@ -18,6 +18,10 @@ declare(strict_types=1);
  * Casos:
  *   S. ALCANCE — companyId/outletId salen del `?i=` en base64, por el redirect
  *      y por el fallback del home; si no sale por ninguna vía, LANZA.
+ *   N. HOSTS — `/fetchs` va contra la app del POS y el costo contra el panel
+ *      (son dos dominios distintos); sin el host del POS no se pide NADA.
+ *   G. PREREQUISITO — sin sucursales migradas, el histórico aborta con UN
+ *      error que nombra la causa, no con uno por venta.
  *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`).
  *   X. EXPORT — el mapeo de cada dominio de `/fetchs`.
  *   A. Import completo — conteos por dominio y entidades realmente creadas.
@@ -42,6 +46,10 @@ $companyB  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d3344';
 $companyC  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d5566';
 // Empresa con un período contable CERRADO, para el caso H17/H18.
 $companyD  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d7788';
+// Empresa contra la que corre un cliente SIN el host del POS (caso N4).
+$companyE  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d99aa';
+// Empresa SIN sucursales, para el prerequisito del histórico (caso Q).
+$companyF  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6dbbcc';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -242,6 +250,41 @@ final class ScopeProbeClient extends EncomClient
 }
 
 /**
+ * Sonda del HOST: contra QUÉ dirección sale cada request.
+ *
+ * Es la costura del incidente del 2026-09-11. El legacy son DOS aplicaciones
+ * con dominios distintos —el panel (login, reportes, costos) y el POS, que es
+ * donde vive `/fetchs`— y el cliente las trataba como una sola: todo salía
+ * contra el panel, que contesta 404 a `/fetchs`.
+ *
+ * El fixture pone los dos hosts DISTINTOS a propósito: con una sola base (el
+ * caso que el arnés anterior simulaba) el bug era invisible.
+ */
+final class HostProbeClient extends EncomClient
+{
+    /** @var array<int,string> URLs absolutas pedidas, en orden. */
+    public array $urls = [];
+
+    public function __construct(string $posUrl = 'https://app.encom.test')
+    {
+        parent::__construct('https://panel.encom.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm', $posUrl);
+    }
+
+    protected function send(
+        string $method,
+        string $url,
+        ?string $body,
+        ?string $contentType,
+        bool $allowRedirect
+    ): string {
+        $this->urls[] = $url;
+
+        // `/fetchs` contesta JSON; las pantallas del panel, HTML.
+        return str_contains($url, '/fetchs') ? '[]' : '<table></table>';
+    }
+}
+
+/**
  * Sonda del cuerpo del LOGIN.
  *
  * El login no se puede ejercitar entero sin red, pero lo que se rompió —y de
@@ -335,6 +378,8 @@ $fixtures = __DIR__ . '/fixtures/encom';
 cleanup($companyId);
 cleanup($companyB);
 cleanup($companyC);
+cleanup($companyE);
+cleanup($companyF);
 
 try {
     // ══════════════════════════════════════════════════════════════════
@@ -347,7 +392,12 @@ try {
 
     check(
         'S1 · el alcance sale del ?i= del redirect de pos-redirect (base64 → "companyId,outletId")',
-        $porRedirect === ['companyId' => 'PnXa', 'outletId' => 'KLzV'],
+        $porRedirect === [
+            'companyId' => 'PnXa',
+            'outletId'  => 'KLzV',
+            // El host del POS sale de la MISMA URL: es el origen del redirect.
+            'posUrl'    => 'https://app.encom.com.py',
+        ],
         'scope = ' . json_encode($porRedirect),
         $failures, $checks
     );
@@ -361,7 +411,11 @@ try {
 
     check(
         'S2 · sin pos-redirect, el alcance sale del href del botón "Caja" del panel',
-        $porHome === ['companyId' => 'PnXa', 'outletId' => 'KLzV'],
+        $porHome === [
+            'companyId' => 'PnXa',
+            'outletId'  => 'KLzV',
+            'posUrl'    => 'https://app.encom.com.py',
+        ],
         'scope = ' . json_encode($porHome),
         $failures, $checks
     );
@@ -377,6 +431,81 @@ try {
         'S3 · si NINGUNA vía da el alcance, LANZA (no exporta el comercio equivocado)',
         $scopeErr !== '' && str_contains($scopeErr, 'comercio'),
         'mensaje = ' . var_export($scopeErr, true),
+        $failures, $checks
+    );
+
+    // Un deploy que sirviera el enlace RELATIVO da el par pero NO el host del
+    // POS. Antes eso pasaba desapercibido y todo `/fetchs` salía contra el
+    // panel (404); ahora corta acá, con el operador mirando.
+    $sinOrigen = '';
+    try {
+        (new ScopeProbeClient(null, '<a id="mnPOSBtn" href="/?i=' . $iParam . '">Caja</a>'))->resolveNow();
+    } catch (\Throwable $e) {
+        $sinOrigen = $e->getMessage();
+    }
+
+    check(
+        'S4 · con el alcance pero sin URL absoluta, LANZA nombrando el POS (no se cae al panel)',
+        $sinOrigen !== '' && str_contains($sinOrigen, 'POS'),
+        'mensaje = ' . var_export($sinOrigen, true),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // N. HOSTS — /fetchs vive en el POS, el panel es OTRA aplicación
+    // ══════════════════════════════════════════════════════════════════
+    // El incidente del 2026-09-11: `post('/fetchs...')` resolvía contra
+    // `ENCOM_MIGRATION_URL` (el panel), que responde 404. Los dos hosts del
+    // fixture son DISTINTOS a propósito — con uno solo el bug es invisible.
+    $host = new HostProbeClient();
+    $host->outlets();
+
+    check(
+        'N1 · /fetchs se pide contra el host del POS, NUNCA contra el del panel',
+        count($host->urls) === 1
+            && str_starts_with($host->urls[0], 'https://app.encom.test/fetchs?load=outlets')
+            && !str_contains($host->urls[0], 'panel.encom.test'),
+        'urls = ' . json_encode($host->urls),
+        $failures, $checks
+    );
+
+    $hostPanel = new HostProbeClient();
+    $hostPanel->itemCosts();
+
+    check(
+        'N2 · el costo sigue saliendo del PANEL: son dos bases distintas y las dos siguen vivas',
+        count($hostPanel->urls) === 1
+            && str_starts_with($hostPanel->urls[0], 'https://panel.encom.test/a_items'),
+        'urls = ' . json_encode($hostPanel->urls),
+        $failures, $checks
+    );
+
+    $sinHost = new HostProbeClient('');
+    $errHost = '';
+    try {
+        $sinHost->outlets();
+    } catch (\Throwable $e) {
+        $errHost = $e->getMessage();
+    }
+
+    check(
+        'N3 · sin el host del POS no se pide NADA (fail-closed, no hay respaldo contra el panel)',
+        $errHost !== '' && str_contains($errHost, 'POS') && $sinHost->urls === [],
+        'error = ' . var_export($errHost, true) . ' · urls = ' . json_encode($sinHost->urls),
+        $failures, $checks
+    );
+
+    seedCompany($companyE, 'Sin Host SA');
+
+    $runSinHost = (new EncomImportService($companyE, new HostProbeClient(''), null))
+        ->run(['catalog', 'config']);
+
+    check(
+        'N4 · el job falla con la causa y no escribe una sola fila (ni artículos ni sucursales)',
+        str_contains(json_encode($runSinHost['errors'], JSON_UNESCAPED_UNICODE), 'POS')
+            && countOf('item', $companyE) === 0
+            && countOf('outlet', $companyE) === 0,
+        'errors = ' . json_encode($runSinHost['errors'], JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 
@@ -1595,6 +1724,17 @@ try {
     // fecha en un período cerrado entra sin que nada lo frene. O sea que si el
     // importador no chequea, una migración reescribe un mes ya conciliado.
     seedCompany($companyD, 'Comercio Con Período Cerrado SA');
+
+    // La sucursal existe para que este caso AÍSLE su condición: sin ninguna, lo
+    // que corta el dominio es el prerequisito (caso Q) y H17 pasaría por el
+    // motivo equivocado — verde diciendo "no se asentó nada", pero por falta de
+    // sucursales y no por el período cerrado. Un comercio real con un período
+    // cerrado tiene sucursales.
+    $db->Execute(
+        'INSERT INTO outlet (outletId, outletName, outletStatus, companyId) VALUES (gen_random_uuid(), ?, 1, ?)',
+        ['Casa Central', $companyD]
+    );
+
     $db->Execute("SELECT period_close_run(?::uuid, '2026-08-01'::date, NULL, 'manual')", [$companyD]);
 
     $runCerrado = (new EncomImportService($companyD, new FixtureEncomClient($fixtures), null))
@@ -1612,6 +1752,41 @@ try {
         'H18 · y el job dice POR QUÉ no entró (no queda mudo)',
         str_contains(json_encode($runCerrado['errors'], JSON_UNESCAPED_UNICODE), 'CERRADO'),
         'errors = ' . json_encode($runCerrado['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // G. PREREQUISITO — un dominio dependiente no emite cientos de derivados
+    // ══════════════════════════════════════════════════════════════════
+    // El incidente: `config` no mapeó ninguna sucursal y el histórico emitió
+    // UN error POR VENTA —512— que enterraron la causa real bajo el síntoma.
+    seedCompany($companyF, 'Sin Sucursales SA');
+
+    $clientePrereq = new FixtureEncomClient($fixtures);
+    $runPrereq     = (new EncomImportService($companyF, $clientePrereq, null))
+        ->run(['sales_history'], $histOpts);
+
+    $errPrereq = json_encode($runPrereq['errors'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'G1 · sin sucursales, el histórico aborta con UN error — no con uno por venta',
+        count($runPrereq['errors']) === 1,
+        'errors = ' . $errPrereq,
+        $failures, $checks
+    );
+
+    check(
+        'G2 · y ese error nombra la CAUSA (falta el dominio config), no el síntoma por fila',
+        str_contains($errPrereq, 'config') && !str_contains($errPrereq, 'Venta '),
+        'errors = ' . $errPrereq,
+        $failures, $checks
+    );
+
+    check(
+        'G3 · el chequeo corre ANTES de la red: no se le pidió una sola venta al legacy',
+        $clientePrereq->calls === []
+            && (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyF]) === 0,
+        'calls = ' . json_encode($clientePrereq->calls),
         $failures, $checks
     );
 
@@ -1679,6 +1854,8 @@ try {
     cleanup($companyId);
     cleanup($companyB);
     cleanup($companyC);
+    cleanup($companyE);
+    cleanup($companyF);
     // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
     // línea, una segunda corrida del arnés contra la misma base encontraría el
     // período ya cerrado y H17 pasaría por el motivo equivocado.
