@@ -5,6 +5,7 @@ namespace Punto\Api\Admin;
 
 require_once __DIR__ . '/EncomSource.php';
 require_once __DIR__ . '/EncomMigrationException.php';
+require_once __DIR__ . '/EncomExportTruncatedException.php';
 require_once __DIR__ . '/EncomMigrationService.php';
 
 /**
@@ -86,17 +87,83 @@ final class EncomHistoryImporter
     /** itemId → `item.itemCost`, o null si el artículo no tiene costo cargado. */
     private array $costByItemId = [];
 
+    /** itemId → categoría del artículo, para congelarla en la línea. */
+    private array $categoryByItemId = [];
+
+    /**
+     * Las ventas históricas ya asentadas, para pegarles su log de ítems.
+     *
+     * `null` = todavía no se cargaron. Se indexan por las tres formas con las
+     * que el log puede nombrar a su venta: el id del legacy, el documento
+     * completo (`001-001-0001234`) y el número suelto (`6103`, que es como lo
+     * trae el sistema vivo).
+     */
+    private ?array $txPorId = null;
+    private array $txPorLegacy = [];
+    private array $txPorDocumento = [];
+    /** @var array<int,array<int,string>> número → ids de venta (puede haber varias) */
+    private array $txPorNumero = [];
+
+    /** Documentos del log de ítems que no tienen venta importada. */
+    private array $lineasHuerfanas = [];
+
+    /** Documentos cuyo número existe en más de una venta: no se elige ninguna. */
+    private array $lineasAmbiguas = [];
+
+    /** Cuántas líneas terminaron colgadas de un artículo histórico. */
+    private int $lineasEnHistorico = 0;
+
     /** Artículos cuyas líneas entraron SIN costo, para la bitácora. */
     private array $sinCostoLineas = [];
 
     /** Días tocados por dominio de rollup: "dominio|YYYY-MM-DD" → true. */
     private array $diasSucios = [];
 
+    /**
+     * Conteos del dominio EN CURSO.
+     *
+     * Es estado del objeto y no una variable local por una razón concreta: un
+     * dominio puede ABORTAR a mitad de camino (un mes truncado, el detalle de
+     * venta ilegible) y ahí el `return` no ocurre nunca. Con un local, todo lo
+     * que sí había entrado hasta ese momento se perdía de la pantalla del job
+     * y el operador veía el error sin saber cuánto quedó asentado. Acá el
+     * dispatcher lo lee igual (`counts()`), haya `return` o excepción.
+     *
+     * @var array{total:int,imported:int,skipped:int,failed:int,lines:int}
+     */
+    private array $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0, 'lines' => 0];
+
+    /** Momento del último latido, en segundos con decimales. */
+    private float $ultimoLatido = 0.0;
+
+    /**
+     * Cada cuánto late. 20 s es holgado contra los 45 minutos que tarda el
+     * reaper y corto contra el ritmo real del import (una request paceada por
+     * venta, 1,1 s), así que hay decenas de latidos entre dos chequeos.
+     */
+    private const LATIDO_SEGUNDOS = 20.0;
+
+    /**
+     * @param \Closure|null $heartbeat Se invoca con los conteos del dominio en
+     *        curso para que el job muestre avance Y siga vivo. Nulo en el arnés
+     *        y en cualquier uso sin job: el importador no conoce la tabla.
+     */
     public function __construct(
         private readonly string $companyId,
         private readonly EncomSource $source,
         private readonly ?string $jobId = null,
+        private readonly ?\Closure $heartbeat = null,
     ) {
+    }
+
+    /**
+     * Los conteos del dominio que corrió (o que estaba corriendo cuando falló).
+     *
+     * @return array{total:int,imported:int,skipped:int,failed:int,lines:int}
+     */
+    public function counts(): array
+    {
+        return $this->counts;
     }
 
     /** @return array<int,array{domain:string,message:string,at:string}> */
@@ -123,46 +190,65 @@ final class EncomHistoryImporter
     {
         global $db;
 
-        $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $this->resetCounts();
         [$desde, $hasta] = $this->range($options);
 
         $this->assertPrerequisitos('sales_history');
         $this->ensurePartitions($desde, $hasta);
 
-        $sinCliente = 0;
-        $sinUsuario = [];
+        // Dos cosas distintas que hasta hoy se contaban juntas y se reportaban
+        // como la segunda (F4): el legacy NO traía cliente (celda vacía, lo
+        // normal en mostrador) contra el legacy traía uno que acá no existe.
+        // La primera no es un problema y no hay nada que hacer; la segunda es
+        // un contacto sin migrar y tiene arreglo. Decir siempre "no está
+        // migrado" mandaba a buscar un cliente que nunca existió.
+        $sinClienteEnElLegacy = 0;
+        $clienteSinMigrar     = [];
+        $sinUsuario           = [];
 
         foreach ($this->months($desde, $hasta) as [$mesIni, $mesFin]) {
             if ($this->periodoCerrado($mesIni, 'sales_history')) {
                 continue;
             }
 
+            $desdeTs = $mesIni . ' 00:00:00';
+            $hastaTs = $mesFin . ' 23:59:59';
+
             try {
-                $ventas = $this->source->salesHistory($mesIni . ' 00:00:00', $mesFin . ' 23:59:59');
+                $ventas = $this->source->salesHistory($desdeTs, $hastaTs);
+            } catch (EncomExportTruncatedException $e) {
+                // Un export incompleto NO es un problema del mes: es el dominio
+                // entero el que no se puede dar por bueno. Se re-lanza para que
+                // aborte arriba, en vez de asentar los meses que sí entraron y
+                // dejar al comercio con un año al que le faltan filas que nadie
+                // sabe cuáles son.
+                throw $e;
             } catch (\Throwable $e) {
                 $this->fail('sales_history', 'No se pudieron traer las ventas de ' . $mesIni . ': ' . $e->getMessage());
                 continue;
             }
 
             foreach ($ventas as $venta) {
+                $this->latir();
+
                 $legacyId = trim((string) ($venta['ID'] ?? ''));
                 if ($legacyId === '') {
                     continue;
                 }
 
-                $counts['total']++;
+                $this->counts['total']++;
 
                 // Idempotencia: esta venta ya se asentó en una corrida previa.
                 // Es lo que hace que un job cortado a la mitad se pueda
                 // relanzar sin duplicar un solo asiento.
                 if (EncomMigrationService::mapped($this->companyId, 'sale_history', $legacyId) !== null) {
-                    $counts['skipped']++;
+                    $this->counts['skipped']++;
                     continue;
                 }
 
                 $fecha = $this->fecha($venta['date'] ?? '');
                 if ($fecha === null) {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('sales_history', 'Venta ' . $legacyId . ': no se pudo leer la fecha.');
                     continue;
                 }
@@ -173,7 +259,7 @@ final class EncomHistoryImporter
                 // NULL, así que sin mapa la venta no entra y se dice por qué.
                 $outletId = $this->mapOf('outlet', $venta['outlet'] ?? '', 'outlet_name');
                 if ($outletId === '') {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail(
                         'sales_history',
                         'Venta ' . $legacyId . ': la sucursal "' . (string) ($venta['outlet'] ?? '')
@@ -184,32 +270,29 @@ final class EncomHistoryImporter
 
                 $userId = $this->mapOf('user', $venta['user'] ?? '', 'user_name');
                 if ($userId === '') {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $sinUsuario[trim((string) ($venta['user'] ?? '(sin usuario)'))] = true;
                     continue;
                 }
 
-                $customerId = $this->mapOf('customer', $venta['customer'] ?? '', 'customer_name');
+                $clienteLegacy = $this->textoDeCelda($venta['customer'] ?? '');
+                $customerId    = $clienteLegacy !== '' ? $this->mapOf('customer', $clienteLegacy, 'customer_name') : '';
                 if ($customerId === '') {
-                    $sinCliente++;
-                }
-
-                try {
-                    $lineas = $this->source->saleLines($legacyId);
-                } catch (\Throwable $e) {
-                    $counts['failed']++;
-                    $this->fail('sales_history', 'Venta ' . $legacyId . ': no se pudo traer el detalle: ' . $e->getMessage());
-                    continue;
+                    if ($clienteLegacy === '') {
+                        $sinClienteEnElLegacy++;
+                    } else {
+                        $clienteSinMigrar[$clienteLegacy] = true;
+                    }
                 }
 
                 try {
                     $db->StartTrans();
 
-                    $txId = $this->insertTransaction($venta, $fecha, $outletId, $userId, $customerId, $lineas);
-                    $this->insertLines(
-                        $txId, $fecha, $lineas, $outletId, $userId, $legacyId,
-                        $this->esCredito($venta) ? '3' : '0'
-                    );
+                    // Solo la CABECERA. Las líneas son el OTRO log del legacy
+                    // —los ítems vendidos viven en una tabla aparte, con su
+                    // propio reporte— y entran después con `adjuntarLineas()`,
+                    // en bloque para todo el mes.
+                    $txId = $this->insertTransaction($venta, $fecha, $outletId, $userId, $customerId);
 
                     // El asiento y su marca, ATÓMICOS. Sin esto, un worker que
                     // muere entre las dos escrituras deja la venta sin marcar y
@@ -222,24 +305,40 @@ final class EncomHistoryImporter
                     $db->CompleteTrans();
 
                     $this->marcarSucio(['sales', 'item_sales', 'payments'], $fecha);
-                    $counts['imported']++;
+                    $this->counts['imported']++;
                 } catch (\Throwable $e) {
                     $db->FailTrans();
                     $db->CompleteTrans();
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('sales_history', 'Venta ' . $legacyId . ': ' . $e->getMessage());
                 }
             }
+
+            // El SEGUNDO log del mes, una vez que sus cabeceras ya están
+            // asentadas y mapeadas: sin eso no habría a qué pegarle cada línea.
+            $this->adjuntarLineas($desdeTs, $hastaTs, $mesIni);
         }
 
-        if ($sinCliente > 0) {
+        if ($sinClienteEnElLegacy > 0) {
             $this->note(
-                $sinCliente . ' venta(s) quedaron SIN cliente porque el cliente del legacy no está migrado. '
-                . 'El asiento es correcto (el total y los ítems están); lo que falta es a quién se le vendió. '
-                . 'No se inventan contactos.'
+                $sinClienteEnElLegacy . ' venta(s) entraron sin cliente porque EL LEGACY NO TRAÍA NINGUNO (la celda '
+                . 'viene vacía, que es lo normal en una venta de mostrador). No falta migrar nada: el asiento está '
+                . 'completo y así se vendió.'
             );
         }
 
+        if ($clienteSinMigrar !== []) {
+            $nombres = array_keys($clienteSinMigrar);
+            $this->note(
+                count($nombres) . ' cliente(s) del legacy NO están migrados, así que sus ventas entraron sin cliente: '
+                . implode(', ', array_slice($nombres, 0, 20))
+                . (count($nombres) > 20 ? ' … y ' . (count($nombres) - 20) . ' más.' : '')
+                . ' El asiento es correcto (el total y los ítems están); lo que falta es a quién se le vendió. '
+                . 'Migrá los clientes y volvé a lanzar. No se inventan contactos.'
+            );
+        }
+
+        $this->avisarLineas();
         $this->avisarSinCosto();
 
         if ($sinUsuario !== []) {
@@ -252,23 +351,25 @@ final class EncomHistoryImporter
 
         $this->drenarRollups();
 
-        return $counts;
+        return $this->counts;
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // COMPRAS
     // ═══════════════════════════════════════════════════════════════════
 
-    /** @return array{total:int,imported:int,skipped:int,failed:int} */
+    /** @return array{total:int,imported:int,skipped:int,failed:int,lines:int} */
     public function purchases(array $options): array
     {
         global $db;
 
-        $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $this->resetCounts();
         [$desde, $hasta] = $this->range($options);
 
         $this->assertPrerequisitos('purchases_history');
         $this->ensurePartitions($desde, $hasta);
+
+        $proveedorSinMigrar = [];
 
         foreach ($this->months($desde, $hasta) as [$mesIni, $mesFin]) {
             if ($this->periodoCerrado($mesIni, 'purchases_history')) {
@@ -280,6 +381,8 @@ final class EncomHistoryImporter
 
             try {
                 $compras = $this->source->purchasesHistory($desdeTs, $hastaTs);
+            } catch (EncomExportTruncatedException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 $this->fail('purchases_history', 'No se pudieron traer las compras de ' . $mesIni . ': ' . $e->getMessage());
                 continue;
@@ -296,11 +399,24 @@ final class EncomHistoryImporter
                         $lineasPorDoc[$doc][] = $l;
                     }
                 }
+            } catch (EncomExportTruncatedException $e) {
+                // Un detalle capado deja compras con la mitad de sus líneas, y
+                // eso no se distingue después de una compra que de verdad tenía
+                // pocas. Aborta el dominio igual que un listado truncado.
+                throw $e;
             } catch (\Throwable $e) {
-                $this->note('No se pudo traer el detalle de las compras de ' . $mesIni . ': entran solo las cabeceras.');
+                // Con la CAUSA, que es lo que faltaba: este camino tapaba un
+                // `return []` mudo del cliente y 207 compras entraron sin una
+                // sola línea sin que el job dijera nada.
+                $this->note(
+                    'No se pudo traer el detalle de las compras de ' . $mesIni . ': entran solo las cabeceras. '
+                    . $e->getMessage()
+                );
             }
 
             foreach ($compras as $compra) {
+                $this->latir();
+
                 $legacyId = trim((string) ($compra['ID'] ?? ''));
                 $doc      = trim((string) ($compra['docNumber'] ?? ''));
                 if ($legacyId === '') {
@@ -310,23 +426,23 @@ final class EncomHistoryImporter
                     continue;
                 }
 
-                $counts['total']++;
+                $this->counts['total']++;
 
                 if (EncomMigrationService::mapped($this->companyId, 'purchase_history', $legacyId) !== null) {
-                    $counts['skipped']++;
+                    $this->counts['skipped']++;
                     continue;
                 }
 
                 $fecha = $this->fecha($compra['date'] ?? '');
                 if ($fecha === null) {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('purchases_history', 'Compra ' . $legacyId . ': no se pudo leer la fecha.');
                     continue;
                 }
 
                 $outletId = $this->mapOf('outlet', $compra['outlet'] ?? '', 'outlet_name');
                 if ($outletId === '') {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail(
                         'purchases_history',
                         'Compra ' . $legacyId . ': la sucursal "' . (string) ($compra['outlet'] ?? '')
@@ -337,23 +453,34 @@ final class EncomHistoryImporter
 
                 $userId = $this->mapOf('user', $compra['user'] ?? '', 'user_name');
                 if ($userId === '') {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('purchases_history', 'Compra ' . $legacyId . ': el usuario no está migrado.');
                     continue;
                 }
 
                 // El proveedor es un contacto como el cliente: si no está
                 // migrado, la compra entra sin él (el gasto es correcto igual).
-                $supplierId = $this->mapOf('customer', $compra['supplier'] ?? '', 'supplier_name');
-                $lineas     = $lineasPorDoc[$doc] ?? [];
+                // Y como con el cliente, se distingue "el legacy no traía
+                // proveedor" de "el proveedor no está migrado": solo el segundo
+                // tiene algo que hacer al respecto.
+                $proveedorLegacy = $this->textoDeCelda($compra['supplier'] ?? '');
+                $supplierId      = $proveedorLegacy !== ''
+                    ? $this->mapOf('customer', $proveedorLegacy, 'supplier_name')
+                    : '';
+                if ($supplierId === '' && $proveedorLegacy !== '') {
+                    $proveedorSinMigrar[$proveedorLegacy] = true;
+                }
+
+                $lineas = $lineasPorDoc[$doc] ?? [];
 
                 try {
                     $db->StartTrans();
 
                     $txId = $this->insertPurchase($compra, $fecha, $outletId, $userId, $supplierId, $lineas);
-                    $this->insertLines(
+                    $this->counts['lines'] += $this->insertLines(
                         $txId, $fecha, $lineas, $outletId, $userId, $legacyId,
-                        $this->esCredito($compra) ? '4' : '1'
+                        $this->esCredito($compra) ? '4' : '1',
+                        'purchases_history'
                     );
 
                     EncomMigrationService::remember(
@@ -363,20 +490,42 @@ final class EncomHistoryImporter
                     $db->CompleteTrans();
 
                     $this->marcarSucio(['expenses'], $fecha);
-                    $counts['imported']++;
+                    $this->counts['imported']++;
                 } catch (\Throwable $e) {
                     $db->FailTrans();
                     $db->CompleteTrans();
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('purchases_history', 'Compra ' . $legacyId . ': ' . $e->getMessage());
                 }
             }
         }
 
+        if ($proveedorSinMigrar !== []) {
+            $nombres = array_keys($proveedorSinMigrar);
+            $this->note(
+                count($nombres) . ' proveedor(es) del legacy NO están migrados, así que sus compras entraron sin '
+                . 'proveedor: ' . implode(', ', array_slice($nombres, 0, 20))
+                . (count($nombres) > 20 ? ' … y ' . (count($nombres) - 20) . ' más.' : '')
+                . ' El gasto es correcto; lo que falta es a quién se le compró.'
+            );
+        }
+
+        // Una compra SIN una sola línea no es un error de fila —el total de la
+        // compra es correcto igual— pero que NINGUNA haya traído líneas sí es
+        // una señal, y es exactamente lo que pasó en la primera corrida real:
+        // 207 compras, cero líneas, job en verde.
+        if ($this->counts['imported'] > 0 && $this->counts['lines'] === 0) {
+            $this->note(
+                'Las ' . $this->counts['imported'] . ' compras entraron SIN una sola línea de detalle. Los totales '
+                . 'están bien, pero no hay qué se compró: revisá en esta misma bitácora si el detalle del legacy no '
+                . 'se pudo leer.'
+            );
+        }
+
         $this->avisarSinCosto();
         $this->drenarRollups();
 
-        return $counts;
+        return $this->counts;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -398,7 +547,7 @@ final class EncomHistoryImporter
     {
         global $db;
 
-        $counts = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $this->resetCounts();
         [$desde, $hasta] = $this->range($options);
 
         $this->assertPrerequisitos('expenses_history');
@@ -410,35 +559,39 @@ final class EncomHistoryImporter
 
             try {
                 $filas = $this->source->expensesHistory($mesIni . ' 00:00:00', $mesFin . ' 23:59:59');
+            } catch (EncomExportTruncatedException $e) {
+                throw $e;
             } catch (\Throwable $e) {
                 $this->fail('expenses_history', 'No se pudieron traer los movimientos de caja de ' . $mesIni . ': ' . $e->getMessage());
                 continue;
             }
 
             foreach ($filas as $fila) {
+                $this->latir();
+
                 $legacyId = trim((string) ($fila['ID'] ?? ''));
                 if ($legacyId === '') {
                     continue;
                 }
 
-                $counts['total']++;
+                $this->counts['total']++;
 
                 if (EncomMigrationService::mapped($this->companyId, 'expense_history', $legacyId) !== null) {
-                    $counts['skipped']++;
+                    $this->counts['skipped']++;
                     continue;
                 }
 
                 $fecha = $this->fecha($fila['date'] ?? '');
                 $monto = $fila['total'] ?? null;
                 if ($fecha === null || !is_float($monto)) {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('expenses_history', 'Movimiento de caja ' . $legacyId . ': fecha o monto ilegibles.');
                     continue;
                 }
 
                 $outletId = $this->mapOf('outlet', $fila['outlet'] ?? '', 'outlet_name');
                 if ($outletId === '') {
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail(
                         'expenses_history',
                         'Movimiento de caja ' . $legacyId . ': la sucursal "' . (string) ($fila['outlet'] ?? '')
@@ -479,11 +632,11 @@ final class EncomHistoryImporter
                     $db->CompleteTrans();
 
                     $this->marcarSucio(['drawer_expenses'], $fecha);
-                    $counts['imported']++;
+                    $this->counts['imported']++;
                 } catch (\Throwable $e) {
                     $db->FailTrans();
                     $db->CompleteTrans();
-                    $counts['failed']++;
+                    $this->counts['failed']++;
                     $this->fail('expenses_history', 'Movimiento de caja ' . $legacyId . ': ' . $e->getMessage());
                 }
             }
@@ -491,7 +644,7 @@ final class EncomHistoryImporter
 
         $this->drenarRollups();
 
-        return $counts;
+        return $this->counts;
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -505,17 +658,11 @@ final class EncomHistoryImporter
         string $outletId,
         string $userId,
         string $customerId,
-        array $lineas,
     ): string {
         [$prefix, $number] = $this->documento((string) ($venta['docNumber'] ?? ''));
 
         $esCredito = $this->esCredito($venta);
         $anulada   = $this->esAnulada($venta);
-
-        $units = 0.0;
-        foreach ($lineas as $l) {
-            $units += (float) ($l['qty'] ?? 0);
-        }
 
         $records = [
             'transactionDate'   => $fecha,
@@ -531,7 +678,10 @@ final class EncomHistoryImporter
             'transactionTotal'  => (float) ($venta['total'] ?? 0),
             'transactionTax'    => $venta['tax'] ?? null,
             'transactionDiscount' => $venta['discount'] ?? null,
-            'transactionUnitsSold' => $units > 0 ? $units : null,
+            // Las unidades se completan cuando entra el log de ítems vendidos
+            // (`adjuntarLineas()`): al asentar la cabecera todavía no se
+            // leyeron sus líneas, porque son otro reporte.
+            'transactionUnitsSold' => null,
             'transactionNote'   => $this->recortar((string) ($venta['note'] ?? ''), 255),
             'transactionDueDate' => $this->fecha($venta['dueDate'] ?? '') ,
             'invoiceNo'         => $number,
@@ -628,75 +778,170 @@ final class EncomHistoryImporter
         string $userId,
         string $legacyDocId,
         string $typeStr,
-    ): void {
+        string $domain,
+    ): int {
+        $escritas = 0;
+
         foreach ($lineas as $linea) {
-            $nombre = trim((string) ($linea['itemName'] ?? ''));
-            $qty    = $linea['qty'] ?? null;
-
-            if ($nombre === '' && trim((string) ($linea['legacyItemId'] ?? '')) === '') {
-                continue;
-            }
-
-            $itemId = $this->resolverArticulo($linea);
-            if ($itemId === '') {
-                // Nunca se descarta una línea en silencio: sin ella el total
-                // del documento deja de cerrar contra la suma de sus ítems.
-                $this->fail(
-                    'sales_history',
-                    'Documento ' . $legacyDocId . ': no se pudo resolver el artículo "' . $nombre . '".'
-                );
-                continue;
-            }
-
-            $total = $linea['total'] ?? null;
-            if ($total === null && $qty !== null && ($linea['price'] ?? null) !== null) {
-                $total = (float) $qty * (float) $linea['price'];
-            }
-
-            $records = [
-                'itemSoldTotal'       => (float) ($total ?? 0),
-                'itemSoldTax'         => $linea['tax'] ?? null,
-                'itemSoldUnits'       => $qty,
-                'itemSoldDate'        => $fecha,
-                'itemSoldDescription' => $this->recortar($nombre, 255) ?: null,
-                'itemId'              => $itemId,
-                'transactionId'       => $txId,
-                'userId'              => $userId,
-                'companyId'           => $this->companyId,
-                'outletId'            => $outletId,
-            ];
-
-            // ── COGS: el contrato es el de `SaleService` ───────────────────
-            // La columna guarda el costo UNITARIO (no el de la línea): es lo
-            // que devuelve `resolveUnitCOGS()` y lo que persiste
-            // `persistItemsAndStock()`, sin multiplicar por la cantidad.
-            //
-            // Y se OMITE cuando no se sabe, en vez de escribirse null: pasa por
-            // `flipOnReturn()`, que ante un valor no válido devuelve **0**, y un
-            // 0 se lee como "costó nada" → margen 100% en todos los reportes de
-            // ese artículo. Omitir deja la columna en NULL, que es la verdad.
-            // Mismo criterio que la apertura de stock (§16.3).
-            //
-            // `flipOnReturn` es no-op para los tipos que importa el histórico
-            // (0/3 venta, 1/4 compra) y solo invierte el signo en la devolución
-            // (tipo 6). Se llama igual para que el contrato quede literal y no
-            // haya que acordarse de esto si algún día se importan devoluciones.
-            $cogs = $this->costFor($itemId);
-            if ($cogs !== null) {
-                $records['itemSoldCOGS'] = \flipOnReturn($typeStr, $cogs);
-            } else {
-                $this->sinCostoLineas[$nombre !== '' ? $nombre : $itemId] = true;
-            }
-
-            $ok = \ncmInsert([
-                'records' => $records,
-                'table'   => 'itemSold',
+            $entro = $this->insertarLinea($linea, [
+                'txId'        => $txId,
+                'fecha'       => $fecha,
+                'outletId'    => $outletId,
+                'userId'      => $userId,
+                'legacyDocId' => $legacyDocId,
+                'typeStr'     => $typeStr,
+                'domain'      => $domain,
             ]);
 
-            if (!$ok) {
-                throw new \RuntimeException('no se pudo insertar una línea del documento ' . $legacyDocId);
+            if ($entro) {
+                $escritas++;
             }
         }
+
+        return $escritas;
+    }
+
+    /**
+     * Escribe UNA línea de un documento histórico. Devuelve si entró.
+     *
+     * Es el ÚNICO escritor de `itemSold` del migrador, y por eso lo comparten
+     * los dos caminos que tienen líneas: el detalle de compras (que viene con
+     * su documento) y el log de ítems vendidos (que se pega por documento a
+     * una venta ya asentada). Duplicarlo habría duplicado también el contrato
+     * del COGS, que es justo lo que no puede divergir.
+     */
+    private function insertarLinea(array $linea, array $ctx): bool
+    {
+        $nombre = trim((string) ($linea['itemName'] ?? ''));
+        $qty    = $linea['qty'] ?? null;
+
+        if ($nombre === '' && trim((string) ($linea['legacyItemId'] ?? '')) === '') {
+            return false;
+        }
+
+        $itemId = $this->resolverArticulo($linea);
+        if ($itemId === '') {
+            // Nunca se descarta una línea en silencio: sin ella el total del
+            // documento deja de cerrar contra la suma de sus ítems.
+            //
+            // El dominio viene por contexto: escrito fijo, el error de una
+            // línea de COMPRA se reportaba bajo `sales_history` y mandaba a
+            // revisar las ventas.
+            $this->fail(
+                (string) $ctx['domain'],
+                'Documento ' . (string) $ctx['legacyDocId'] . ': no se pudo resolver el artículo "' . $nombre . '".'
+            );
+            return false;
+        }
+
+        $typeStr = (string) $ctx['typeStr'];
+
+        $total = $linea['total'] ?? null;
+        if ($total === null && $qty !== null && ($linea['price'] ?? null) !== null) {
+            $total = (float) $qty * (float) $linea['price'];
+        }
+
+        $records = [
+            // El total viene CON IVA INCLUIDO y así se guarda: verificado
+            // contra dos filas del sistema vivo (21.000/11 = 1.909 y 6.000/11
+            // = 545, que son exactamente los IVA de esas filas). No se le
+            // descuenta el impuesto — además es la convención del proyecto.
+            'itemSoldTotal'       => (float) ($total ?? 0),
+            'itemSoldTax'         => $linea['tax'] ?? null,
+            'itemSoldUnits'       => $qty,
+            'itemSoldDate'        => (string) $ctx['fecha'],
+            'itemSoldDescription' => $this->recortar($nombre, 255) ?: null,
+            'itemId'              => $itemId,
+            'transactionId'       => (string) $ctx['txId'],
+            'userId'              => (string) $ctx['userId'],
+            'companyId'           => $this->companyId,
+            'outletId'            => (string) $ctx['outletId'],
+        ];
+
+        // Columnas que el log de ítems vendidos trae y que tienen su par
+        // exacto en `itemSold`. Se escriben solo si vinieron: el detalle de
+        // compras no las tiene, y un 0 inventado es un dato falso.
+        if (is_numeric($linea['discount'] ?? null)) {
+            $records['itemSoldDiscount'] = \flipOnReturn($typeStr, (float) $linea['discount']);
+        }
+        if (is_numeric($linea['comission'] ?? null)) {
+            $records['itemSoldComission'] = \flipOnReturn($typeStr, (float) $linea['comission']);
+        }
+
+        // La categoría se congela desde el ARTÍCULO ya migrado y no desde el
+        // texto del legacy: `itemSoldCategory` es un FK a `taxonomy`, no un
+        // nombre, y esta es exactamente la regla de `SaleService` (D8 de
+        // context/48 — un rollup por categoría no puede mirar el catálogo de
+        // hoy).
+        $categoria = $this->categoryByItemId[$itemId] ?? null;
+        if ($categoria !== null && $categoria !== '') {
+            $records['itemSoldCategory'] = $categoria;
+        }
+
+        // ── COGS: el contrato es el de `SaleService` ───────────────────────
+        // La columna guarda el costo UNITARIO (no el de la línea): es lo que
+        // devuelve `resolveUnitCOGS()` y lo que persiste
+        // `persistItemsAndStock()`, sin multiplicar por la cantidad.
+        //
+        // La FUENTE preferida es el costo REAL con el que se vendió, que trae
+        // el log de ítems vendidos. `item.itemCost` —el costo de HOY— queda
+        // como respaldo para cuando el log no lo trae: es una aproximación y
+        // está declarada como tal (context/77 §17.9).
+        //
+        // Se OMITE cuando no se sabe, en vez de escribirse null: pasa por
+        // `flipOnReturn()`, que ante un valor no válido devuelve **0**, y un 0
+        // se lee como "costó nada" → margen 100% para siempre en ese artículo.
+        // Mismo criterio que la apertura de stock (§16.3).
+        //
+        // `flipOnReturn` es no-op para los tipos que importa el histórico (0/3
+        // venta, 1/4 compra) y solo invierte el signo en la devolución (tipo
+        // 6). Se llama igual para que el contrato quede literal.
+        $cogs = $this->cogsUnitario($linea) ?? $this->costFor($itemId);
+        if ($cogs !== null) {
+            $records['itemSoldCOGS'] = \flipOnReturn($typeStr, $cogs);
+        } else {
+            $this->sinCostoLineas[$nombre !== '' ? $nombre : $itemId] = true;
+        }
+
+        $ok = \ncmInsert([
+            'records' => $records,
+            'table'   => 'itemSold',
+        ]);
+
+        if (!$ok) {
+            throw new \RuntimeException('no se pudo insertar una línea del documento ' . (string) $ctx['legacyDocId']);
+        }
+
+        return true;
+    }
+
+    /**
+     * Costo UNITARIO de una línea del log de ítems vendidos, o null.
+     *
+     * ── El único lugar donde vive la conversión ──────────────────────────
+     * El log trae el costo de la LÍNEA, no el unitario. Está VERIFICADO con
+     * dos filas del sistema vivo, despejándolo con la columna `Utilidad`:
+     *
+     *   · 21.000 − 11.400 = 9.600 = Utilidad, con Cantidad 3 ⇒ unitario 3.800
+     *   ·  6.000 −  2.800 = 3.200 = Utilidad, con Cantidad 1 ⇒ unitario 2.800
+     *
+     * Y `itemSoldCOGS` guarda el UNITARIO. Escribir el costo de la línea tal
+     * cual habría inflado el costo —y hundido el margen— por un factor igual a
+     * la cantidad, en silencio y para siempre.
+     *
+     * Sin cantidad no hay conversión posible, y ahí devuelve "no sé" en vez de
+     * un número: el caller decide, y lo que NO puede pasar es un 0.
+     */
+    private function cogsUnitario(array $linea): ?float
+    {
+        $costoDeLaLinea = $linea['cost'] ?? null;
+        $qty            = $linea['qty'] ?? null;
+
+        if (!is_numeric($costoDeLaLinea) || !is_numeric($qty) || (float) $qty === 0.0) {
+            return null;
+        }
+
+        return round((float) $costoDeLaLinea / (float) $qty, 4);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -728,8 +973,19 @@ final class EncomHistoryImporter
 
         $this->cargarCatalogo();
 
+        // ── El SKU manda sobre el nombre ─────────────────────────────────
+        // El log de ítems vendidos trae `Código/SKU`, y en un comercio que
+        // cargó su catálogo a mano —el caso del primer cliente real— los
+        // nombres NO coinciden (mayúsculas, abreviaturas, faltas) y los
+        // códigos sí. Emparejar por nombre primero le erraba o mandaba al
+        // artículo histórico lo que en realidad existía en el catálogo.
+        $sku = $this->normalizar((string) ($linea['sku'] ?? ''));
+        if ($sku !== '' && $sku !== '-' && isset($this->itemBySku[$sku])) {
+            return $this->itemBySku[$sku];
+        }
+
         $nombre = trim((string) ($linea['itemName'] ?? ''));
-        $clave  = $this->normalizar($nombre);
+        $clave  = $this->claveDeArticulo($nombre);
 
         if ($clave !== '' && isset($this->itemByName[$clave])) {
             return $this->itemByName[$clave];
@@ -742,8 +998,11 @@ final class EncomHistoryImporter
         // Ya se creó el histórico de este nombre en una corrida anterior.
         $previo = EncomMigrationService::mapped($this->companyId, 'item_history', $this->claveMapa($clave));
         if ($previo !== null) {
+            $this->lineasEnHistorico++;
             return $this->itemByName[$clave] = $previo;
         }
+
+        $this->lineasEnHistorico++;
 
         return $this->crearArticuloHistorico($nombre, $clave);
     }
@@ -803,7 +1062,7 @@ final class EncomHistoryImporter
         // abajo, y solo a los índices de BÚSQUEDA — un archivado no puede
         // ganar un match por nombre contra el catálogo vivo.
         $rs = \ncmExecute(
-            'SELECT itemId, itemName, itemSKU, itemCost, itemStatus FROM item WHERE companyId = ?',
+            'SELECT itemId, itemName, itemSKU, itemCost, itemStatus, categoryId FROM item WHERE companyId = ?',
             [$this->companyId],
             false,
             true
@@ -820,10 +1079,17 @@ final class EncomHistoryImporter
                     $costo = $f['itemCost'] ?? $f['itemcost'] ?? null;
                     $this->costByItemId[$id] = is_numeric($costo) ? (float) $costo : null;
 
+                    // La categoría del ítem, para congelarla en la línea: es
+                    // exactamente lo que hace `SaleService` (D8 de context/48).
+                    $cat = $f['categoryId'] ?? $f['categoryid'] ?? null;
+                    $this->categoryByItemId[$id] = ($cat !== null && trim((string) $cat) !== '')
+                        ? (string) $cat
+                        : null;
+
                     $activo = (int) ($f['itemStatus'] ?? $f['itemstatus'] ?? 0) === 1;
                     if ($activo) {
                         $sku    = $this->normalizar((string) ($f['itemSKU'] ?? $f['itemsku'] ?? ''));
-                        $nombre = $this->normalizar((string) ($f['itemName'] ?? $f['itemname'] ?? ''));
+                        $nombre = $this->claveDeArticulo((string) ($f['itemName'] ?? $f['itemname'] ?? ''));
                         if ($sku !== '') {
                             $this->itemBySku[$sku] = $id;
                         }
@@ -1314,6 +1580,374 @@ final class EncomHistoryImporter
     {
         $s = trim($s);
         return mb_strlen($s, 'UTF-8') <= $max ? $s : mb_substr($s, 0, $max, 'UTF-8');
+    }
+
+    /**
+     * Pega el LOG DE ÍTEMS VENDIDOS del mes a las ventas ya asentadas.
+     *
+     * ── Por qué es un segundo log y no "el detalle de cada venta" ────────
+     * En el legacy los ítems vendidos viven en una tabla APARTE de las
+     * transacciones y tienen su propio reporte en bloque. El histórico son
+     * entonces DOS LOGS INDEPENDIENTES, y eso cambia el costo por dos órdenes
+     * de magnitud: la vía anterior pedía el form de edición de cada venta —una
+     * request por venta, 6.927 en el primer cliente real, más de dos horas
+     * paceadas contra el servidor donde el comercio factura—. Este log entero
+     * entra en unas pocas páginas de 1000.
+     *
+     * ── Cómo se pega cada línea, y qué pasa si no se puede ───────────────
+     * Por el `#Documento`, el mismo patrón que ya usan las compras. Una línea
+     * cuya venta NO está importada no se asienta NUNCA: `itemsold.transactionid`
+     * es NOT NULL con FK, y las dos salidas fáciles están mal —inventarle una
+     * transacción falsea la facturación del período, y descartarla en silencio
+     * repite el bug que este trabajo vino a cerrar—. Se cuentan y se informan.
+     *
+     * Corre DESPUÉS de las cabeceras del mes porque necesita que estén
+     * mapeadas para encontrarlas.
+     */
+    private function adjuntarLineas(string $desdeTs, string $hastaTs, string $mesIni): void
+    {
+        global $db;
+
+        try {
+            $filas = $this->source->itemsSoldHistory($desdeTs, $hastaTs);
+        } catch (EncomExportTruncatedException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->fail(
+                'sales_history',
+                'No se pudo traer el log de ítems vendidos de ' . $mesIni . ': ' . $e->getMessage()
+                . ' Las ventas de ese mes quedan con sus totales, pero sin detalle: no hay ranking de productos '
+                . 'ni margen para ese período.'
+            );
+            return;
+        }
+
+        if ($filas === []) {
+            return;
+        }
+
+        $this->cargarTransaccionesImportadas();
+
+        $porVenta = [];
+        foreach ($filas as $fila) {
+            $this->latir();
+
+            $clave = $this->claveDeLinea($fila);
+
+            // Idempotencia POR LÍNEA: una corrida que se cortó a la mitad —o
+            // que se relanza para completar un mes— no vuelve a asentar lo que
+            // ya entró. Sin esto, el comercio vería el doble de unidades
+            // vendidas en todos sus reportes.
+            if (EncomMigrationService::mapped($this->companyId, 'sale_line_history', $clave) !== null) {
+                continue;
+            }
+
+            $txId = $this->transaccionDeLaLinea($fila);
+            if ($txId === '') {
+                continue;   // ya quedó contada como huérfana o como ambigua
+            }
+
+            $porVenta[$txId][] = ['clave' => $clave, 'linea' => $fila];
+        }
+
+        foreach ($porVenta as $txId => $items) {
+            $tx = $this->txPorId[$txId] ?? null;
+            if ($tx === null) {
+                continue;
+            }
+
+            $doc = (string) ($items[0]['linea']['docNumber'] ?? '');
+
+            try {
+                $db->StartTrans();
+
+                $escritas = 0;
+                $unidades = 0.0;
+
+                foreach ($items as $item) {
+                    $entro = $this->insertarLinea($item['linea'], [
+                        'txId'        => $txId,
+                        // La fecha viene POR LÍNEA en este log; la de la
+                        // cabecera es el respaldo.
+                        'fecha'       => $this->fecha($item['linea']['date'] ?? '') ?? $tx['date'],
+                        'outletId'    => $tx['outletId'],
+                        'userId'      => $tx['userId'],
+                        'legacyDocId' => $doc,
+                        'typeStr'     => $tx['typeStr'],
+                        'domain'      => 'sales_history',
+                    ]);
+
+                    if (!$entro) {
+                        continue;
+                    }
+
+                    // La marca va en la MISMA transacción que la línea, por lo
+                    // mismo que la cabecera (§17.6).
+                    EncomMigrationService::remember(
+                        $this->companyId, 'sale_line_history', $item['clave'], $txId, $this->jobId
+                    );
+
+                    $escritas++;
+                    $unidades += (float) ($item['linea']['qty'] ?? 0);
+                }
+
+                // Las unidades de la venta se completan acá: cuando entró la
+                // cabecera, sus líneas todavía no se habían leído.
+                if ($escritas > 0) {
+                    \ncmExecute(
+                        'UPDATE transaction
+                            SET transactionUnitsSold = COALESCE(transactionUnitsSold, 0) + ?
+                          WHERE transactionId = ? AND companyId = ?',
+                        [$unidades, $txId, $this->companyId]
+                    );
+                }
+
+                $db->CompleteTrans();
+
+                $this->counts['lines'] += $escritas;
+                $this->marcarSucio(['sales', 'item_sales'], (string) $tx['date']);
+            } catch (\Throwable $e) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                $this->fail(
+                    'sales_history',
+                    'Documento ' . $doc . ': no se pudieron asentar sus líneas: ' . $e->getMessage()
+                );
+            }
+        }
+    }
+
+    /**
+     * Índice de las ventas históricas ya asentadas, por sus tres nombres
+     * posibles. Una sola consulta por corrida.
+     */
+    private function cargarTransaccionesImportadas(): void
+    {
+        if ($this->txPorId !== null) {
+            return;
+        }
+
+        $this->txPorId = [];
+
+        $rs = \ncmExecute(
+            "SELECT m.legacyid AS legacyid, t.transactionid, t.transactiondate, t.outletid,
+                    t.userid, t.transactiontype, t.invoiceprefix, t.invoiceno
+               FROM migration_map m
+               JOIN transaction t ON t.transactionid = m.puntoid::uuid
+              WHERE m.companyid = ? AND m.domain = 'sale_history'",
+            [$this->companyId],
+            false,
+            true
+        );
+
+        if ($rs === false || !is_object($rs)) {
+            return;
+        }
+
+        while (!$rs->EOF) {
+            $f    = $rs->fields;
+            $txId = (string) ($f['transactionid'] ?? '');
+
+            if ($txId !== '') {
+                $this->txPorId[$txId] = [
+                    'date'     => (string) ($f['transactiondate'] ?? ''),
+                    'outletId' => (string) ($f['outletid'] ?? ''),
+                    'userId'   => (string) ($f['userid'] ?? ''),
+                    'typeStr'  => (string) ((int) ($f['transactiontype'] ?? 0)),
+                ];
+
+                $legacy = trim((string) ($f['legacyid'] ?? ''));
+                if ($legacy !== '') {
+                    $this->txPorLegacy[$legacy] = $txId;
+                }
+
+                $numero  = (int) ($f['invoiceno'] ?? 0);
+                $prefijo = trim((string) ($f['invoiceprefix'] ?? ''));
+                if ($numero > 0) {
+                    $this->txPorNumero[$numero][] = $txId;
+                    if ($prefijo !== '') {
+                        $this->txPorDocumento[$prefijo . '-' . $numero] = $txId;
+                    }
+                }
+            }
+
+            $rs->MoveNext();
+        }
+
+        $rs->Close();
+    }
+
+    /**
+     * A qué venta pertenece una fila del log de ítems. '' si no se puede saber.
+     *
+     * El número SUELTO (`6103`, que es como lo trae el sistema vivo) identifica
+     * bien mientras haya una sola venta con ese número. Si hay varias —dos
+     * cajas pueden repetir número bajo timbrados distintos— NO se elige: pegar
+     * la línea a la venta equivocada le mueve el margen a dos comprobantes y no
+     * queda rastro de que pasó.
+     */
+    private function transaccionDeLaLinea(array $fila): string
+    {
+        $ref = trim((string) ($fila['saleRef'] ?? ''));
+        if ($ref !== '' && isset($this->txPorLegacy[$ref])) {
+            return $this->txPorLegacy[$ref];
+        }
+
+        $doc = trim((string) ($fila['docNumber'] ?? ''));
+        if ($doc === '') {
+            $this->lineasHuerfanas['(sin documento)'] = true;
+            return '';
+        }
+
+        [$prefijo, $numero] = $this->documento($doc);
+
+        if ($prefijo !== null && $numero !== null && isset($this->txPorDocumento[$prefijo . '-' . $numero])) {
+            return $this->txPorDocumento[$prefijo . '-' . $numero];
+        }
+
+        if ($numero !== null && isset($this->txPorNumero[$numero])) {
+            $candidatas = array_values(array_unique($this->txPorNumero[$numero]));
+            if (count($candidatas) === 1) {
+                return $candidatas[0];
+            }
+
+            $this->lineasAmbiguas[$doc] = true;
+            return '';
+        }
+
+        $this->lineasHuerfanas[$doc] = true;
+        return '';
+    }
+
+    /**
+     * Clave de idempotencia de una línea del log.
+     *
+     * El id de la fila es lo mejor. Sin él se arma una clave compuesta y
+     * estable: si dos líneas idénticas del mismo documento colapsaran, el
+     * riesgo es no volver a asentar una repetida — el lado correcto para
+     * equivocarse, porque el otro duplica unidades vendidas.
+     */
+    private function claveDeLinea(array $fila): string
+    {
+        $id = trim((string) ($fila['ID'] ?? ''));
+        if ($id !== '') {
+            return $this->claveMapa('il:' . $id);
+        }
+
+        return $this->claveMapa('ilc:' . sha1(implode('|', [
+            (string) ($fila['docNumber'] ?? ''),
+            (string) ($fila['itemName'] ?? ''),
+            (string) ($fila['qty'] ?? ''),
+            (string) ($fila['total'] ?? ''),
+        ])));
+    }
+
+    /** Lo que hay que saber del log de ítems después de importarlo. */
+    private function avisarLineas(): void
+    {
+        if ($this->lineasHuerfanas !== []) {
+            $docs = array_keys($this->lineasHuerfanas);
+            $this->note(
+                'Hay líneas vendidas que NO se pudieron pegar a ninguna venta importada, así que no se asentaron ('
+                . count($docs) . ' documento(s)): ' . implode(', ', array_slice($docs, 0, 20))
+                . (count($docs) > 20 ? ' … y ' . (count($docs) - 20) . ' más.' : '')
+                . ' Pasa cuando esa venta no entró —por ejemplo, su usuario no está migrado— o quedó fuera del '
+                . 'rango. No se les inventa una transacción: falsearía la facturación del período.'
+            );
+        }
+
+        if ($this->lineasAmbiguas !== []) {
+            $docs = array_keys($this->lineasAmbiguas);
+            $this->note(
+                'Hay líneas cuyo número de documento corresponde a MÁS DE UNA venta importada (pasa cuando dos '
+                . 'cajas repiten numeración bajo timbrados distintos), así que no se asentaron: '
+                . implode(', ', array_slice($docs, 0, 20))
+                . (count($docs) > 20 ? ' … y ' . (count($docs) - 20) . ' más.' : '')
+                . ' Elegir una al azar le movería el margen a un comprobante que no es.'
+            );
+        }
+
+        if ($this->lineasEnHistorico > 0) {
+            $this->note(
+                $this->lineasEnHistorico . ' línea(s) quedaron colgadas de un artículo HISTÓRICO archivado porque '
+                . 'su artículo no existe en el catálogo migrado (el sistema anterior nombra sus artículos distinto, '
+                . 'por ejemplo con sufijos de stock). Los totales cierran, pero esas unidades no suman al ranking '
+                . 'del artículo real.'
+            );
+        }
+
+        $this->lineasHuerfanas  = [];
+        $this->lineasAmbiguas   = [];
+        $this->lineasEnHistorico = 0;
+    }
+
+    /**
+     * Clave con la que se compara el NOMBRE de un artículo.
+     *
+     * Además de normalizar, saca el sufijo de stock con el que el legacy
+     * bautiza sus artículos ("Empanada de Choclo fritas-stock", "Gaseosa de
+     * 250-Stock"). Es UNA regla y acotada al final del nombre, no una lista de
+     * reglas de limpieza: el catálogo que el comercio cargó a mano en Punto no
+     * arrastra ese sufijo, y sin sacarlo casi todas las líneas caerían en el
+     * artículo histórico y el ranking quedaría partido en dos mundos.
+     *
+     * Solo afecta la COMPARACIÓN. Lo que se guarda en la línea sigue siendo el
+     * nombre tal como vino, y lo que no matchea igual queda nombrado en la
+     * bitácora en vez de forzarse.
+     */
+    private function claveDeArticulo(string $nombre): string
+    {
+        $clave = $this->normalizar($nombre);
+        $clave = preg_replace('/[\s\-]*stock$/u', '', $clave) ?? $clave;
+
+        return trim($clave);
+    }
+
+    /** Deja los conteos en cero al empezar un dominio. */
+    private function resetCounts(): void
+    {
+        $this->counts       = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0, 'lines' => 0];
+        $this->ultimoLatido = microtime(true);
+    }
+
+    /**
+     * Latido: avisa cuánto lleva hecho, y con eso que sigue vivo.
+     *
+     * Es por TIEMPO y no cada N filas porque el ritmo cambia por dominio: una
+     * venta cuesta una request paceada (1,1 s) y un movimiento de caja cuesta
+     * un INSERT. "Cada 25 filas" serían 30 segundos en un caso y milisegundos
+     * en el otro.
+     *
+     * El importador no sabe qué es un `migration_job` y no tiene por qué: lo
+     * único que hace es llamar al callback con sus conteos.
+     */
+    private function latir(): void
+    {
+        if ($this->heartbeat === null) {
+            return;
+        }
+
+        $ahora = microtime(true);
+        if (($ahora - $this->ultimoLatido) < self::LATIDO_SEGUNDOS) {
+            return;
+        }
+        $this->ultimoLatido = $ahora;
+
+        ($this->heartbeat)($this->counts);
+    }
+
+    /**
+     * Texto real de una celda del legacy: '' cuando no había dato.
+     *
+     * El legacy pinta "-" en las celdas vacías. Tomarlo como nombre hace
+     * buscar un cliente llamado "-" y contar como "no mapeó" lo que en
+     * realidad era "no había" — que es la confusión que el aviso del job
+     * arrastraba.
+     */
+    private function textoDeCelda(mixed $v): string
+    {
+        $s = trim((string) ($v ?? ''));
+        return ($s === '-' || $s === '—') ? '' : $s;
     }
 
     private function fail(string $domain, string $message): void

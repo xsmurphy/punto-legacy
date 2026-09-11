@@ -6,6 +6,7 @@ namespace Punto\Api\Admin;
 require_once __DIR__ . '/EncomSource.php';
 require_once __DIR__ . '/EncomParse.php';
 require_once __DIR__ . '/EncomMigrationException.php';
+require_once __DIR__ . '/EncomExportTruncatedException.php';
 
 /**
  * Cliente HTTP del sistema legacy, para el migrador (context/77).
@@ -30,9 +31,10 @@ require_once __DIR__ . '/EncomMigrationException.php';
  * Por eso la sesión del panel y el transporte `get()` siguen vivos, y por eso
  * `EncomParse` no se borró del todo:
  *
- *   1. **El histórico de VENTAS (F2)** — `/fetchs` no lo expone por ningún
- *      `load`: es el bootstrap de una caja, no un reporte. `salesRaw()` /
- *      `saleDetailRaw()`.
+ *   1. **El histórico (F2)** — `/fetchs` no lo expone por ningún `load`: es el
+ *      bootstrap de una caja, no un reporte. Son DOS LOGS independientes,
+ *      cada uno con su pantalla: `salesHistory()` (transacciones) e
+ *      `itemsSoldHistory()` (ítems vendidos).
  *   2. **El COSTO de los artículos** — el POS no lo necesita para vender, así
  *      que el bootstrap no lo manda. `itemCosts()`.
  *
@@ -91,7 +93,54 @@ class EncomClient implements EncomSource
 
     private const RETRY_SLEEP_US = 3_000_000;
 
+    /**
+     * Filas que el legacy contesta SIN parámetros de paginación.
+     *
+     * No es una elección nuestra: es el techo del otro lado, medido en la
+     * primera corrida real (2026-09-11). Tres meses seguidos de ventas
+     * volvieron con exactamente 100 filas —y las compras de dos meses con 93 y
+     * 14, o sea por debajo—, que es la firma de un tope y no del volumen. Con
+     * 6.927 ventas en el rango, ese tope se comió el 96% del histórico y el
+     * job lo reportó como `imported 300, failed 0`.
+     *
+     * Acá se usa como FIRMA, no como tamaño: una respuesta de exactamente
+     * estas filas es sospechosa y dispara la paginación.
+     */
+    private const CAP_SIZE = 100;
+
+    /**
+     * Filas que se piden por página cuando sí se pagina.
+     *
+     * 1000 está VERIFICADO contra el sistema vivo (2026-09-11), y no se sube
+     * sin motivo: es el valor probado. Con este tamaño el listado de 6.927
+     * ventas son 7 requests en vez de 70.
+     */
+    private const PAGE_SIZE = 1000;
+
+    /**
+     * Tamaño de la sonda que demuestra que el parámetro de tamaño se RESPETA.
+     *
+     * Un legacy que ignora los parámetros de paginación contesta su página
+     * completa igual, así que pedir 5 y recibir 100 es la prueba directa de
+     * que la convención no está soportada — y cuesta una sola request.
+     */
+    private const PROBE_SIZE = 5;
+
+    /** Techo de páginas por listado: un rango que no corta es un error. */
+    private const MAX_PAGES = 200;
+
     private float $lastCallAt = 0.0;
+
+    /**
+     * Código HTTP de la última respuesta, para las SONDAS de diagnóstico.
+     *
+     * `send()` traduce todo lo que no sea 2xx en una excepción con un mensaje
+     * para el operador, que es lo correcto para el flujo normal y lo que deja
+     * sin evidencia a quien tiene que averiguar POR QUÉ un cuerpo vino mal
+     * formado con status 200 — el caso de las 300 ventas que volvieron sin
+     * líneas. Esto lo conserva sin cambiar ese contrato.
+     */
+    private int $lastStatus = 0;
 
     /** @var array<string,string> */
     private array $cookies;
@@ -706,8 +755,14 @@ class EncomClient implements EncomSource
      */
     public function itemCosts(): array
     {
-        $html    = EncomParse::tableHtml($this->get('/a_items', ['action' => 'showTable']));
-        $headers = EncomParse::htmlHeaders($html);
+        // Por el MISMO lector paginado que el histórico: esta tabla del panel
+        // tiene el mismo techo de filas, así que un catálogo de más de 100
+        // artículos traía 100 costos y ninguna señal sobre el resto. Si el
+        // deploy no deja paginar, lanza —y el importador lo traduce en "se
+        // importa sin costos"—, que es mucho mejor que costos a medias
+        // indistinguibles de "el comercio no los carga".
+        $tabla   = $this->pagedTable('los costos de los artículos', '/a_items', ['action' => 'showTable']);
+        $headers = $tabla['headers'];
 
         // Orden conocido del sistema vivo como respaldo: 0 imagen · 1 nombre ·
         // 2 tipo · 3 fecha · 4 UOM · 5 SKU · … · 14 costo · 15 precio.
@@ -725,7 +780,7 @@ class EncomClient implements EncomSource
         $cCost ??= 14;
 
         $out = [];
-        foreach (EncomParse::htmlRows($html) as $row) {
+        foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
 
             $name = trim((string) ($cells[$cName] ?? ''));
@@ -969,28 +1024,123 @@ class EncomClient implements EncomSource
     // ═══════════════════════════════════════════════════════════════════
 
     /**
-     * Ventas de un rango — HTML crudo del panel.
+     * El LOG DE ÍTEMS VENDIDOS de un rango — el segundo log del histórico.
      *
-     * `/fetchs` NO expone el histórico por ningún `load`: es el bootstrap de
-     * una caja, no un reporte. Por eso este dominio —y SOLO este— sigue
-     * saliendo de `a_report_transactions?action=detailTable`, con los valores
-     * crudos en `data-order` y el id de la venta en `data-id`.
+     * ── Por qué existe, y qué reemplaza ──────────────────────────────────
+     * En el legacy los ítems vendidos NO cuelgan de la transacción: son una
+     * tabla aparte con su propio reporte. Hasta 2026-09-11 el migrador los
+     * sacaba del form de edición de cada venta
+     * (`a_report_transactions?action=edit&id=`), UNA request por venta —
+     * 6.927 en el primer cliente real, más de dos horas paceadas contra el
+     * servidor donde el comercio factura—. Este log trae lo mismo en unas
+     * pocas páginas de 1000.
      *
-     * Es la razón por la que el cliente conserva la sesión del panel y el
-     * transporte `get()` después de que todo lo demás pasó a JSON.
+     * Los tres filtros vacíos (`itmId`, `cusId`, `usrId`) son los de la
+     * pantalla: van explícitos porque así está verificada la URL contra el
+     * sistema vivo.
      *
-     * @return array<int,array{id:string,cells:array<int,string>}>
+     * ⚠ SUPUESTO declarado: que este reporte acepta `from`/`to` como los
+     * otros. No está verificado. Si los ignorara, la única consecuencia es que
+     * vendrían filas de fuera del mes; el importador NO las asienta a ciegas
+     * —cada fila se pega a una venta ya importada o se cuenta como huérfana—,
+     * así que el modo de falla es ruidoso y no una fila de más.
      */
-    public function salesRaw(string $from, string $to): array
+    public function itemsSoldHistory(string $from, string $to): array
     {
-        return EncomParse::htmlRows(EncomParse::tableHtml($this->salesTableHtml($from, $to)));
+        $tabla = $this->pagedTable('las líneas de venta', '/a_report_products', [
+            'action' => 'detailTable',
+            'itmId'  => '',
+            'cusId'  => '',
+            'usrId'  => '',
+            'from'   => $from,
+            'to'     => $to,
+        ]);
+
+        $headers = $tabla['headers'];
+
+        // La referencia a la VENTA es lo único sin lo cual esto no sirve: una
+        // línea que no se puede pegar a su transacción no se puede asentar
+        // (`itemsold.transactionid` es NOT NULL con FK). Se buscan las dos
+        // formas posibles y se prefiere el ID sobre el número de documento,
+        // que es una clave natural y puede repetirse entre timbrados.
+        $cSale = EncomParse::columnIndex($headers, ['#TRANSACCION', 'TRANSACCION', '#VENTA', 'ID VENTA'])
+            ?? EncomParse::columnIndexExact($headers, ['VENTA']);
+        $cDoc  = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
+
+        // `NOMBRE` va PRIMERO y no es un sinónimo de más: el selector de
+        // columnas del legacy muestra la etiqueta "Artículo", pero la tabla
+        // renderiza el encabezado `Nombre`. Verificado contra el sistema vivo
+        // (2026-09-11). Buscar solo "ARTICULO" tiraba el dominio entero.
+        $cItem  = EncomParse::columnIndex($headers, ['NOMBRE', 'ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
+        // El SKU resuelve el artículo contra el catálogo migrado cuando está.
+        // ⚠ En la cuenta del primer cliente viene VACÍO, así que este camino
+        // existe para otros comercios y acá cae al nombre.
+        $cSku   = EncomParse::columnIndex($headers, ['CODIGO', 'SKU']);
+        $cQty   = EncomParse::columnIndex($headers, ['CANTIDAD', 'CANT']);
+        $cPrice = EncomParse::columnIndex($headers, ['PRECIO']);
+        $cTax   = EncomParse::columnIndexExact($headers, ['IVA']) ?? EncomParse::columnIndex($headers, ['IVA', 'IMPUESTO']);
+        $cTotal = EncomParse::columnIndexExact($headers, ['TOTAL']);
+        $cDate  = EncomParse::columnIndexExact($headers, ['FECHA']) ?? EncomParse::columnIndex($headers, ['FECHA']);
+        $cUser  = EncomParse::columnIndex($headers, ['USUARIO', 'VENDEDOR']);
+        $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
+        $cRegister = EncomParse::columnIndexExact($headers, ['CAJA']);
+        // Este reporte SÍ trae el costo con el que se vendió —el form de la
+        // venta no lo traía, que es de donde salía el supuesto viejo—, y
+        // además la utilidad, que es con lo que el importador despeja si ese
+        // costo es unitario o de la línea.
+        $cCost     = EncomParse::columnIndex($headers, ['COSTO']);
+        $cProfit   = EncomParse::columnIndex($headers, ['UTILIDAD']);
+        $cDiscount = EncomParse::columnIndex($headers, ['DESCUENTO']);
+        $cComision = EncomParse::columnIndex($headers, ['COMISION']);
+        $cCategory = EncomParse::columnIndex($headers, ['CATEGORIA']);
+
+        if ($tabla['rows'] === [] && $headers === []) {
+            return [];
+        }
+
+        // Falla NOMBRANDO lo que vino, igual que el detalle de compras: si el
+        // legacy renombró una columna, eso se ve en el mensaje en vez de
+        // deducirse de un silencio.
+        if (($cSale === null && $cDoc === null) || $cItem === null) {
+            throw new EncomMigrationException(
+                'El log de ítems vendidos del sistema legacy no tiene las columnas con las que se identifica la '
+                . 'venta y el artículo, así que no hay forma de pegar cada línea a su transacción. Encabezados '
+                . 'recibidos: ' . ($headers === [] ? '(ninguno)' : implode(' | ', $headers)) . '.',
+                502
+            );
+        }
+
+        $out = [];
+        foreach ($tabla['rows'] as $row) {
+            $cells = $row['cells'];
+            $out[] = [
+                // El id de la FILA es el de la línea, no el de la venta: sirve
+                // para no volver a asentarla en una corrida posterior.
+                'ID'           => $row['id'],
+                'saleRef'      => $cSale !== null ? trim((string) ($cells[$cSale] ?? '')) : '',
+                'docNumber'    => $cDoc !== null ? trim((string) ($cells[$cDoc] ?? '')) : '',
+                'date'         => $cDate !== null ? trim((string) ($cells[$cDate] ?? '')) : '',
+                'legacyItemId' => '',
+                'sku'          => $cSku !== null ? trim((string) ($cells[$cSku] ?? '')) : '',
+                'itemName'     => trim((string) ($cells[$cItem] ?? '')),
+                'qty'          => $cQty !== null ? self::numCell($cells[$cQty] ?? null) : null,
+                'price'        => $cPrice !== null ? self::numCell($cells[$cPrice] ?? null) : null,
+                'tax'          => $cTax !== null ? self::numCell($cells[$cTax] ?? null) : null,
+                'total'        => $cTotal !== null ? self::numCell($cells[$cTotal] ?? null) : null,
+                'cost'         => $cCost !== null ? self::numCell($cells[$cCost] ?? null) : null,
+                'profit'       => $cProfit !== null ? self::numCell($cells[$cProfit] ?? null) : null,
+                'discount'     => $cDiscount !== null ? self::numCell($cells[$cDiscount] ?? null) : null,
+                'comission'    => $cComision !== null ? self::numCell($cells[$cComision] ?? null) : null,
+                'category'     => $cCategory !== null ? trim((string) ($cells[$cCategory] ?? '')) : '',
+                'user'         => $cUser !== null ? trim((string) ($cells[$cUser] ?? '')) : '',
+                'outlet'       => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
+                'register'     => $cRegister !== null ? trim((string) ($cells[$cRegister] ?? '')) : '',
+            ];
+        }
+
+        return $out;
     }
 
-    /** Detalle de UNA venta (form con sus ítems). */
-    public function saleDetailRaw(string $legacyId): string
-    {
-        return $this->get('/a_report_transactions', ['action' => 'edit', 'id' => $legacyId, 'js' => 'true']);
-    }
 
     /**
      * Cabeceras de las ventas de un rango, con las columnas resueltas por
@@ -1006,8 +1156,13 @@ class EncomClient implements EncomSource
      */
     public function salesHistory(string $from, string $to): array
     {
-        $html    = EncomParse::tableHtml($this->salesTableHtml($from, $to));
-        $headers = EncomParse::htmlHeaders($html);
+        $tabla   = $this->pagedTable('las ventas', '/a_report_transactions', [
+            'action' => 'detailTable',
+            'from'   => $from,
+            'to'     => $to,
+            'cusId'  => '',
+        ]);
+        $headers = $tabla['headers'];
 
         $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
         $cAuth     = EncomParse::columnIndex($headers, ['AUTORIZACION', 'TIMBRADO']);
@@ -1038,7 +1193,7 @@ class EncomClient implements EncomSource
         }
 
         $out = [];
-        foreach (EncomParse::htmlRows($html) as $row) {
+        foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
 
             $fecha = trim((string) ($cells[$cDate] ?? ''));
@@ -1075,87 +1230,16 @@ class EncomClient implements EncomSource
         return $out;
     }
 
-    /**
-     * Líneas de UNA venta, leídas del form de edición.
-     *
-     * ── Por qué del FORM y no de la tabla ────────────────────────────────
-     * Las cantidades y los precios viajan en inputs (`itemQty[<id>]`,
-     * `itemPrice[<id>]`), que se leen por su atributo `name`: si el legacy
-     * mueve una columna de lugar, el `name` sigue siendo el mismo. La tabla
-     * visible, en cambio, es posicional.
-     *
-     * ── El supuesto que queda, declarado ─────────────────────────────────
-     * El NOMBRE del artículo no está en un input: está en una celda. Se lo
-     * empareja con su línea POR ORDEN de aparición (los `name` del form y las
-     * filas de la tabla salen los dos en orden de documento). Si el legacy
-     * llegara a desordenar uno de los dos, el nombre saldría corrido — por eso
-     * el importador nunca descarta una línea en silencio: la que no resuelve
-     * contra el catálogo queda nombrada en la bitácora.
-     */
-    public function saleLines(string $legacyId): array
-    {
-        $html   = $this->saleDetailRaw($legacyId);
-        $values = EncomParse::formValues($html);
-
-        // Ids de línea en orden de documento, tomados de las cantidades.
-        $ids = [];
-        foreach (array_keys($values) as $name) {
-            if (preg_match('/^itemQty\[([^\]]+)\]$/', (string) $name, $m) === 1) {
-                $ids[] = $m[1];
-            }
-        }
-
-        if ($ids === []) {
-            return [];
-        }
-
-        // Nombres visibles, en el mismo orden. La columna se resuelve por
-        // encabezado; si la tabla no se puede leer, las líneas salen sin
-        // nombre y el importador las manda a la bitácora en vez de inventar.
-        $tabla    = EncomParse::tableHtml($html);
-        $headers  = EncomParse::htmlHeaders($tabla);
-        $cName    = EncomParse::columnIndex($headers, ['ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
-        $cUser    = EncomParse::columnIndex($headers, ['USUARIO', 'VENDEDOR']);
-        $filas    = EncomParse::htmlRows($tabla);
-
-        $out = [];
-        foreach ($ids as $i => $id) {
-            $celdas = $filas[$i]['cells'] ?? [];
-
-            $qty   = self::numCell($values['itemQty[' . $id . ']'] ?? null);
-            $price = self::numCell($values['itemPrice[' . $id . ']'] ?? null);
-
-            $out[] = [
-                'ID'           => (string) $id,
-                // Algunos deploys exponen el artículo en un input propio. Si
-                // está, es mejor que el nombre: es el id del legacy.
-                'legacyItemId' => trim((string) (
-                    $values['itemId[' . $id . ']']
-                    ?? $values['itemID[' . $id . ']']
-                    ?? ''
-                )),
-                'itemName'     => $cName !== null ? trim((string) ($celdas[$cName] ?? '')) : '',
-                'qty'          => $qty,
-                'price'        => $price,
-                'tax'          => self::numCell($values['itemTax[' . $id . ']'] ?? null),
-                'total'        => ($qty !== null && $price !== null) ? round($qty * $price, 4) : null,
-                'user'         => $cUser !== null ? trim((string) ($celdas[$cUser] ?? '')) : '',
-            ];
-        }
-
-        return $out;
-    }
-
     /** Cabeceras de las compras de un rango. Columnas por ENCABEZADO. */
     public function purchasesHistory(string $from, string $to): array
     {
-        $html = EncomParse::tableHtml($this->get('/a_report_purchases', [
+        $tabla = $this->pagedTable('las compras', '/a_report_purchases', [
             'action' => 'general',
             'from'   => $from,
             'to'     => $to,
-        ]));
+        ]);
 
-        $headers = EncomParse::htmlHeaders($html);
+        $headers = $tabla['headers'];
 
         $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
         $cAuth     = EncomParse::columnIndex($headers, ['TIMBRADO', 'AUTORIZACION']);
@@ -1177,7 +1261,7 @@ class EncomClient implements EncomSource
         }
 
         $out = [];
-        foreach (EncomParse::htmlRows($html) as $row) {
+        foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
             $out[] = [
                 'ID'        => $row['id'],
@@ -1206,32 +1290,52 @@ class EncomClient implements EncomSource
      */
     public function purchaseLines(string $from, string $to): array
     {
-        $html = EncomParse::tableHtml($this->get('/a_report_purchases', [
+        $tabla = $this->pagedTable('el detalle de las compras', '/a_report_purchases', [
             'action' => 'detailTable',
             'from'   => $from,
             'to'     => $to,
-        ]));
+        ]);
 
-        $headers = EncomParse::htmlHeaders($html);
+        $headers = $tabla['headers'];
 
         $cDoc      = EncomParse::columnIndex($headers, ['#DOCUMENTO']) ?? EncomParse::columnIndex($headers, ['DOCUMENTO']);
         $cSupplier = EncomParse::columnIndex($headers, ['PROVEEDOR']);
         $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
-        $cItem     = EncomParse::columnIndex($headers, ['ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
-        $cQty      = EncomParse::columnIndex($headers, ['CANT']);
+        // `NOMBRE` primero: en las tablas de reporte del legacy el encabezado
+        // que se renderiza es ese, aunque el selector de columnas diga
+        // "Artículo" (verificado en vivo en el log de ítems vendidos).
+        $cItem     = EncomParse::columnIndex($headers, ['NOMBRE', 'ARTICULO', 'PRODUCTO', 'DESCRIPCION']);
+        $cQty      = EncomParse::columnIndex($headers, ['CANTIDAD', 'CANT']);
         $cPrice    = EncomParse::columnIndex($headers, ['PRECIO', 'COSTO']);
         $cTax      = EncomParse::columnIndexExact($headers, ['IVA']) ?? EncomParse::columnIndex($headers, ['IVA', 'IMPUESTO']);
         $cTotal    = EncomParse::columnIndexExact($headers, ['TOTAL']);
 
         if ($cDoc === null || $cItem === null) {
             // Sin documento no hay a qué compra pegar la línea, y sin artículo
-            // no hay línea. Se importan las cabeceras solas (el total de la
-            // compra es correcto igual) y el importador lo anota.
-            return [];
+            // no hay línea. Las cabeceras entran igual (el total de la compra
+            // es correcto), pero este camino NO puede ser mudo: en la primera
+            // corrida real 207 compras entraron sin una sola línea y el job no
+            // dijo nada, porque el `note()` del importador solo se dispara ante
+            // una EXCEPCIÓN y acá había un `return []`.
+            //
+            // Se lanza diciendo qué encabezados vinieron DE VERDAD, que es el
+            // dato con el que se ve si el legacy renombró una columna.
+            if ($tabla['rows'] === [] && $headers === []) {
+                // Ni tabla ni filas: el mes no tuvo compras. No hay nada que
+                // reportar y avisar por cada mes vacío sería ruido.
+                return [];
+            }
+
+            throw new EncomMigrationException(
+                'El detalle de compras del sistema legacy no tiene las columnas de documento y artículo: '
+                . 'las compras entran sin sus líneas. Encabezados recibidos: '
+                . ($headers === [] ? '(ninguno)' : implode(' | ', $headers)) . '.',
+                502
+            );
         }
 
         $out = [];
-        foreach (EncomParse::htmlRows($html) as $row) {
+        foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
             $out[] = [
                 'docNumber' => trim((string) ($cells[$cDoc] ?? '')),
@@ -1259,13 +1363,13 @@ class EncomClient implements EncomSource
      */
     public function expensesHistory(string $from, string $to): array
     {
-        $html = EncomParse::tableHtml($this->get('/a_report_expenses', [
+        $tabla = $this->pagedTable('los movimientos de caja', '/a_report_expenses', [
             'action' => 'generalTable',
             'from'   => $from,
             'to'     => $to,
-        ]));
+        ]);
 
-        $headers = EncomParse::htmlHeaders($html);
+        $headers = $tabla['headers'];
 
         $cDate     = EncomParse::columnIndexExact($headers, ['FECHA']) ?? EncomParse::columnIndex($headers, ['FECHA']);
         $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
@@ -1284,7 +1388,7 @@ class EncomClient implements EncomSource
         }
 
         $out = [];
-        foreach (EncomParse::htmlRows($html) as $row) {
+        foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
             $out[] = [
                 'ID'       => $row['id'],
@@ -1301,15 +1405,217 @@ class EncomClient implements EncomSource
         return $out;
     }
 
-    /** El HTML del listado de ventas. Separado porque lo usan dos lectores. */
-    private function salesTableHtml(string $from, string $to): string
+    // ═══════════════════════════════════════════════════════════════════
+    // El lector de listados: completo, o ruidoso
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Un listado del panel ENTERO — o una excepción diciendo que no lo está.
+     *
+     * ── El problema que resuelve (primera corrida real, 2026-09-11) ──────
+     * El legacy CAPA sus listados en 100 filas por request y no lo dice de
+     * ninguna forma: contesta 200, con una tabla bien formada, de exactamente
+     * 100 filas. El job importó "300 ventas, 0 errores" en tres meses que
+     * tenían 100 cada uno — el techo, no el volumen — y el resto del año se
+     * perdió sin una sola señal.
+     *
+     * ── Por qué UN lector y no un arreglo por método ─────────────────────
+     * Los cinco listados que se leen del panel (ventas, compras, detalle de
+     * compras, movimientos de caja y los costos del catálogo) tienen todos el
+     * mismo techo. Paginar en cada uno sería el mismo bug esperando en cuatro
+     * lugares más, y el próximo lector que alguien agregue nacería capado
+     * otra vez. Acá la única forma de leer una tabla del panel es esta.
+     *
+     * ── Dos mitades, las dos obligatorias ────────────────────────────────
+     *   1. **Intentar paginar Y DEMOSTRAR que funcionó.** El parámetro no está
+     *      documentado y no se puede sondear sin las credenciales de un
+     *      cliente, así que no alcanza con mandarlo: un legacy que lo ignora
+     *      contesta las mismas 100 filas con cara de éxito. Se prueban las
+     *      convenciones conocidas y cada una tiene que probar que respeta el
+     *      TAMAÑO y el OFFSET (ver `paginar()`).
+     *   2. **Si ninguna funciona y la respuesta vino justo en el tope, fallar
+     *      fuerte.** Es la mitad que no se puede negociar: el mes está
+     *      truncado y no hay forma de saber cuánto falta. Importarlo sería
+     *      repetir el incidente con más código.
+     *
+     * Ojo con la condición: se paginan los listados que devuelven EXACTAMENTE
+     * el tope. Menos es todo lo que había; MÁS es la prueba de que este deploy
+     * no tiene ese tope, y ahí tampoco hay nada recortado. En los dos casos no
+     * se gasta una sola request de más, que es el caso normal.
+     *
+     * @param string $que cómo nombrar estas filas en el mensaje de error
+     * @return array{headers:array<int,string>,rows:array<int,array{id:string,cells:array<int,string>}>}
+     */
+    private function pagedTable(string $que, string $path, array $params): array
     {
-        return $this->get('/a_report_transactions', [
-            'action' => 'detailTable',
-            'from'   => $from,
-            'to'     => $to,
-            'cusId'  => '',
-        ]);
+        $html    = EncomParse::tableHtml($this->get($path, $params));
+        $headers = EncomParse::htmlHeaders($html);
+        $filas   = EncomParse::htmlRows($html);
+
+        if (count($filas) !== self::CAP_SIZE) {
+            return ['headers' => $headers, 'rows' => $filas];
+        }
+
+        $probadas = [];
+        foreach (self::paginadores() as $convencion => $armar) {
+            $probadas[] = $convencion;
+
+            $todas = $this->paginar($path, $params, $armar);
+            if ($todas !== null) {
+                return ['headers' => $headers, 'rows' => $todas];
+            }
+        }
+
+        throw new EncomExportTruncatedException(
+            'El sistema legacy devolvió exactamente ' . self::CAP_SIZE . ' filas de ' . $que . ' para este mes, '
+            . 'que es su tope por pedido, y no aceptó ninguna forma de pedirle el resto (se probaron: '
+            . implode('; ', $probadas) . '). O sea que el mes está TRUNCADO: hay más ' . $que . ' de las que se '
+            . 'pueden leer, y no se sabe cuántas. No se importa nada de este dominio: un mes incompleto asentado '
+            . 'como completo deja reportes que no cuadran y que nadie vuelve a revisar.',
+            502
+        );
+    }
+
+    /**
+     * Lee el listado entero con UNA convención de paginación, o dice que no.
+     *
+     * Verifica las DOS propiedades por separado, porque son preguntas
+     * distintas y un legacy puede cumplir una sola:
+     *
+     *   · **¿respeta el tamaño?** Se le piden 5 filas. Si devuelve 100, está
+     *     ignorando los parámetros. Es la prueba más barata que hay: una
+     *     request, y descarta la convención sin pedir una página entera.
+     *   · **¿respeta el offset?** Se le pide la página 2 y sus ids tienen que
+     *     ser DISTINTOS de los de la primera. Sin este chequeo, un legacy que
+     *     recorta a lo que le piden pero siempre desde el principio devolvería
+     *     las mismas 100 filas una y otra vez, y el import las iría apilando
+     *     como si fueran nuevas.
+     *
+     * @param callable(int,int):array<string,int|string> $armar (OFFSET en filas, tamaño) → parámetros
+     * @return array<int,array{id:string,cells:array<int,string>}>|null null = esta convención no está soportada
+     */
+    private function paginar(string $path, array $params, callable $armar): ?array
+    {
+        $sonda = $this->rowsOf($path, array_merge($params, $armar(0, self::PROBE_SIZE)));
+        if (count($sonda) !== self::PROBE_SIZE) {
+            return null;
+        }
+
+        $filas = $this->rowsOf($path, array_merge($params, $armar(0, self::PAGE_SIZE)));
+        if ($filas === []) {
+            return null;
+        }
+
+        $vistos = self::idsDe($filas);
+
+        for ($n = 1; $n < self::MAX_PAGES; $n++) {
+            // ── El offset avanza por filas LEÍDAS, no por página pedida ────
+            // Un deploy puede respetar `limit` hasta un techo propio (pedimos
+            // 1000 y contesta 100). Avanzando de a 1000 nos saltearíamos las
+            // 900 del medio en silencio, que es el mismo modo de falla que
+            // esto viene a cerrar, solo que más difícil de ver.
+            //
+            // Por lo mismo, la ÚNICA señal de fin es una página vacía: "vino
+            // menos de lo que pedí" no prueba que no haya más.
+            $pagina = $this->rowsOf($path, array_merge($params, $armar(count($filas), self::PAGE_SIZE)));
+
+            if ($pagina === []) {
+                return $filas;
+            }
+
+            $repetidas = 0;
+            foreach ($pagina as $fila) {
+                if (isset($vistos[$fila['id']])) {
+                    $repetidas++;
+                }
+            }
+
+            // Nunca se deduplica en silencio. Una fila repetida no es un
+            // duplicado que se limpia: es la señal de que el listado no está
+            // avanzando, y taparla devolvería el problema al estado en que
+            // estaba —completo por fuera, incompleto por dentro—.
+            if ($repetidas > 0) {
+                if ($n === 1) {
+                    return null;   // el offset no se respeta: probar la que sigue
+                }
+
+                throw new EncomExportTruncatedException(
+                    'El listado del sistema legacy dejó de avanzar en la página ' . ($n + 1) . ': devolvió filas '
+                    . 'que ya había devuelto antes. No hay forma de saber qué quedó afuera, así que no se importa '
+                    . 'nada de este dominio en vez de asentar un período incompleto.',
+                    502
+                );
+            }
+
+            foreach ($pagina as $fila) {
+                $vistos[$fila['id']] = true;
+                $filas[] = $fila;
+            }
+        }
+
+        throw new EncomExportTruncatedException(
+            'El listado del sistema legacy no se terminó después de ' . self::MAX_PAGES . ' páginas de '
+            . self::PAGE_SIZE . ' filas. Se corta acá a propósito —seguir sería pedirle sin fin— y no se importa '
+            . 'nada de este dominio.',
+            502
+        );
+    }
+
+    /**
+     * Las convenciones de paginación que se prueban, en orden.
+     *
+     * Se prueban de a UNA y con verificación, en vez de mandar todos los
+     * parámetros juntos: mezclar `start` con `page` en el mismo pedido puede
+     * darle al legacy dos órdenes contradictorias, y el resultado sería
+     * imposible de interpretar. Además, así el mensaje de error dice
+     * exactamente qué se intentó.
+     *
+     * @return array<string,callable(int,int):array<string,int|string>> (offset, tamaño) → parámetros
+     */
+    private static function paginadores(): array
+    {
+        return [
+            // ── La vía REAL, verificada contra el sistema vivo (2026-09-11) ──
+            // `part=true` es lo que ENCIENDE el modo paginado; sin él, `offset`
+            // y `limit` se ignoran y vuelve la página con el tope. Los tres van
+            // juntos o no va ninguno.
+            'part/offset/limit' => static fn (int $offset, int $tam): array => [
+                'part'   => 'true',
+                'offset' => $offset,
+                'limit'  => $tam,
+            ],
+            // Respaldo para otro deploy: estas pantallas son DataTables
+            // (`action=*Table`, valor crudo en `data-order`, id en `data-id`),
+            // así que su convención nativa es la única otra que vale la pena
+            // probar. No se prueban convenciones inventadas: si ninguna de
+            // estas dos anda, el corte ruidoso es la respuesta correcta.
+            'start/length (DataTables)' => static fn (int $offset, int $tam): array => [
+                'draw'   => intdiv($offset, max(1, $tam)) + 1,
+                'start'  => $offset,
+                'length' => $tam,
+            ],
+        ];
+    }
+
+    /** Filas de una tabla del panel, en una request. */
+    private function rowsOf(string $path, array $params): array
+    {
+        return EncomParse::htmlRows(EncomParse::tableHtml($this->get($path, $params)));
+    }
+
+    /**
+     * Ids de fila como claves, para preguntar por pertenencia.
+     *
+     * @param array<int,array{id:string,cells:array<int,string>}> $filas
+     * @return array<string,true>
+     */
+    private static function idsDe(array $filas): array
+    {
+        $out = [];
+        foreach ($filas as $fila) {
+            $out[(string) $fila['id']] = true;
+        }
+        return $out;
     }
 
     /**
@@ -1424,6 +1730,17 @@ class EncomClient implements EncomSource
     protected function lastLocation(): ?string
     {
         return $this->lastLocation;
+    }
+
+    /**
+     * Código HTTP de la última respuesta. 0 si todavía no hubo ninguna.
+     *
+     * `protected` por lo mismo que `lastLocation()`: el arnés corre sin red y
+     * necesita poder decir qué contestó "el legacy" para ejercitar las sondas.
+     */
+    protected function lastStatus(): int
+    {
+        return $this->lastStatus;
     }
 
     /** `settings` crudo — lo comparten `tags()` y `paymentMethods()`. */
@@ -1574,6 +1891,12 @@ class EncomClient implements EncomSource
         $status  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $err     = curl_error($ch);
         curl_close($ch);
+
+        // Se guarda el código CRUDO, antes de la traducción de abajo (un 302
+        // se reporta como 401 porque para el resto del cliente eso ES la
+        // sesión caída). Las sondas necesitan lo que el legacy contestó, no lo
+        // que significa.
+        $this->lastStatus = $status;
 
         if (($status === 301 || $status === 302) && !$allowRedirect) {
             return ['status' => 401, 'body' => null, 'error' => ''];

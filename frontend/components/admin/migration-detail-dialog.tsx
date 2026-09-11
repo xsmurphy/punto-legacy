@@ -67,6 +67,10 @@ interface Counts {
   imported: number
   skipped: number
   failed: number
+  // Líneas de detalle asentadas. Solo la traen los dominios que tienen líneas
+  // (ventas y compras); en el resto no se muestra nada en vez de un 0 que se
+  // leería como "no entró ninguna".
+  lines?: number
 }
 
 function isCounts(v: unknown): v is Counts {
@@ -128,6 +132,11 @@ export function MigrationDetailDialog({
                       <TableHead>Dominio</TableHead>
                       <TableHead className="text-right">Encontrados</TableHead>
                       <TableHead className="text-right">Importados</TableHead>
+                      {/* Sin esta columna, "300 ventas importadas" se lee como
+                          éxito aunque no haya entrado una sola línea de detalle
+                          — que es exactamente lo que pasó en la primera
+                          migración real. */}
+                      <TableHead className="text-right">Líneas</TableHead>
                       <TableHead className="text-right">Ya estaban</TableHead>
                       <TableHead className="text-right">Con error</TableHead>
                     </TableRow>
@@ -138,6 +147,9 @@ export function MigrationDetailDialog({
                         <TableCell className="font-medium">{DOMAIN_LABEL[domain] ?? domain}</TableCell>
                         <TableCell className="text-right">{c.total}</TableCell>
                         <TableCell className="text-right">{c.imported}</TableCell>
+                        <TableCell className="text-right">
+                          {typeof c.lines === "number" ? c.lines : "—"}
+                        </TableCell>
                         <TableCell className="text-right">{c.skipped}</TableCell>
                         <TableCell className="text-right">{c.failed}</TableCell>
                       </TableRow>

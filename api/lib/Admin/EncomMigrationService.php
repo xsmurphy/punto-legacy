@@ -430,8 +430,40 @@ final class EncomMigrationService
      *
      * Pasado el tope de intentos se marca `failed` en vez de reencolar: un job
      * que mata al worker tres veces lo va a matar la cuarta.
+     *
+     * ── Se mide contra el ÚLTIMO LATIDO, no contra `started_at` ──────────
+     * Medir desde el arranque hace que el plazo sea un TOPE DE DURACIÓN, no un
+     * detector de muerte, y con el volumen real del primer cliente
+     * (6.927 ventas, una request paceada por cada detalle ⇒ más de dos horas)
+     * mataba corridas perfectamente sanas: a los 45 minutos el job volvía a
+     * `pending`, el drain —que corre cada 2 minutos— lanzaba un SEGUNDO worker
+     * sobre el mismo job, y al agotar los intentos lo cerraba como `failed`
+     * mientras el primero seguía escribiendo.
+     *
+     * Ese doble worker es lo peor del cuadro: `migration_map` garantiza que no
+     * se DUPLIQUEN filas, pero no que dos procesos no se pisen. La forma de
+     * evitarlo no es detectarlo después — es que el segundo no arranque. Con
+     * esta medición, `claimNext()` solo ve `pending` y un job que late nunca
+     * pasa a `pending`, dure lo que dure. Uno que dejó de latir se reencola
+     * exactamente como antes.
+     *
+     * ── Por qué `updated_at` y no una columna `heartbeat_at` nueva ───────
+     * Porque para una fila `running` `updated_at` YA ES el último latido: los
+     * únicos dos escritores de esa columna en ese estado son `claimNext()` (el
+     * arranque, que es el latido cero) y `reportProgress()` (el latido). Una
+     * columna aparte sería el mismo dato con dos nombres, y el día que alguien
+     * agregue un UPDATE y se acuerde de una sola de las dos, la que quede vieja
+     * decide si se mata un job vivo.
+     *
+     * El invariante que esto asume, escrito para que no se rompa sin querer:
+     * **ningún UPDATE nuevo sobre un job `running` puede tocar `updated_at` si
+     * no significa "el worker sigue vivo"**.
+     *
+     * `public` —como `PurchaseDraftService::requeueStale()`— para que el arnés
+     * pueda ejercitar el plazo sin pasar por `drain()`, que además lanzaría un
+     * worker de verdad.
      */
-    private function requeueStale(int $staleMinutes = 45): int
+    public function requeueStale(int $staleMinutes = 45): int
     {
         global $db;
 
@@ -443,7 +475,7 @@ final class EncomMigrationService
                     finished_at = now(),
                     updated_at  = now()
               WHERE status = 'running'
-                AND started_at < now() - (? || ' minutes')::interval
+                AND updated_at < now() - (? || ' minutes')::interval
                 AND attempts >= ?",
             [
                 json_encode([[
@@ -460,7 +492,7 @@ final class EncomMigrationService
             "UPDATE migration_job
                 SET status = 'pending', updated_at = now()
               WHERE status = 'running'
-                AND started_at < now() - (? || ' minutes')::interval
+                AND updated_at < now() - (? || ' minutes')::interval
                 AND attempts < ?
               RETURNING jobid",
             [$staleMinutes, self::MAX_ATTEMPTS]

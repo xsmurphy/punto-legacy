@@ -847,7 +847,37 @@ Se marcan con **`voidedAt`** (mig 154), que es lo que los rollups miran para
 excluirlas (mig 155) — no con `transactionType = 7`, que las sacaría de los
 reportes por otro camino y les borraría el tipo real.
 
-### 17.9 COGS — se ESCRIBE, y es una aproximación declarada
+### 17.9 COGS — se ESCRIBE, y desde 2026-09-11 es el costo REAL
+
+> **CORRECCIÓN (2026-09-11).** Lo que sigue abajo decía que el costo histórico
+> no existía y que se congelaba `item.itemCost` (el costo de HOY) como
+> aproximación declarada. **Eso quedó SUPERSEDED: el costo real SÍ existe.**
+> Lo que era cierto es que no está en el FORM DE EDICIÓN de una venta, que era
+> la única fuente que se había mirado; el **log de ítems vendidos**
+> (`a_report_products?action=detailTable`, §17.13) trae una columna `Costo`.
+> Cambió la FUENTE, no el criterio.
+>
+> Consecuencias:
+>
+> - **El margen histórico deja de ser una aproximación y pasa a ser el dato
+>   original.** Ya no hay que avisarle nada al comercio sobre eso.
+> - **`item.itemCost` queda como RESPALDO**, solo para las líneas en las que el
+>   log no trae costo. Esas siguen siendo aproximación y siguen nombrándose en
+>   la bitácora.
+> - **El costo del log es de la LÍNEA, no unitario** — verificado con dos filas
+>   del sistema vivo despejándolo con la columna `Utilidad`: 21.000 − 11.400 =
+>   9.600 y 6.000 − 2.800 = 3.200, las dos veces Total − Costo = Utilidad. Y
+>   `itemSoldCOGS` guarda el UNITARIO, así que **se divide por la cantidad**
+>   (11.400 / 3 = 3.800). Escribirlo tal cual habría hundido el margen por un
+>   factor igual a la cantidad, en silencio. La conversión vive en UN solo
+>   lugar: `EncomHistoryImporter::cogsUnitario()`.
+> - **Sin cantidad no hay conversión**, y ahí la columna se OMITE en vez de
+>   escribir un 0 — el mismo criterio de §16.3 que el resto de esta sección.
+>
+> Sigue vigente todo lo de abajo sobre el CONTRATO (unitario, `flipOnReturn()`,
+> omitir en vez de null) y sobre por qué un 0 es inaceptable.
+
+### 17.9.1 El texto original (la fuente que se creía única)
 
 **`itemSoldCOGS` se escribe en cada línea importada** (corrección del owner,
 2026-09-11). No alcanza con "el margen se calcula después": los reportes leen
@@ -942,3 +972,175 @@ un umbral ni comparar mensajes por parecido.
 que no resuelve —el comercio tiene tres y el legacy nombra una cuarta— es
 información legítima de ESA venta. Lo único que se corta es el caso en que el
 dominio entero era imposible desde antes de empezar.
+
+---
+
+### 17.13 La primera corrida real (2026-09-11) — el export era mudo
+
+La F2 se lanzó contra el primer cliente de verdad (rango 2026-01-01 a
+2026-09-11) y el job reportó **`sales_history: imported 300, failed 0`** y
+**`purchases_history: imported 207, failed 0`**. Verificado contra Postgres,
+ese "éxito" escondía **tres pérdidas silenciosas**. Las tres son la misma
+clase de bug —el export devolvía menos de lo que había y nadie preguntaba— y
+por eso el arreglo es un solo principio: **un export incompleto ABORTA el
+dominio; nunca se asienta como completo.**
+
+#### El tope de 100 filas por request
+
+La distribución de lo importado era: ventas 100 + 100 + 100 (julio, agosto,
+septiembre) y compras 100 + 93 + 14. **Tres meses clavados en exactamente 100
+no es el volumen: es el techo.** El volumen real que el propio legacy reporta
+es **6.927 ventas** (julio 3.468, agosto 2.627, septiembre 832): se había
+importado el **4%**. (Antes de julio no hay nada, y no es un bug: el comercio
+arrancó ahí.)
+
+**La vía de paginación está VERIFICADA contra el sistema vivo**: los mismos
+`action=*Table` aceptan `part=true&offset=N&limit=M`, con **`limit=1000`
+probado**. Sin `part=true` los otros dos se ignoran y vuelve la página con el
+tope. El listado de 6.927 ventas pasa de ~70 requests a 7.
+
+Lo que **no** se hace es confiar: el lector paginado
+(`EncomClient::pagedTable()`) exige **prueba de que la paginación funcionó**,
+porque un deploy que ignore los parámetros contesta 200 con una tabla
+perfectamente formada y ahí volvemos al mismo lugar. Dos pruebas, y son
+distintas:
+
+1. **¿Respeta el tamaño?** Se piden 5 filas; si vuelven 100, ignora los
+   parámetros. Cuesta UNA request y descarta la convención sin pedir una
+   página entera.
+2. **¿Respeta el offset?** La página siguiente tiene que traer ids que la
+   anterior no tenía. Sin esto, un legacy que recorta pero siempre desde el
+   principio devolvería las mismas 100 filas una y otra vez.
+
+**El offset avanza por filas LEÍDAS, no por página pedida**, y la única señal
+de fin es una página vacía: un deploy puede respetar `limit` hasta un techo
+propio (pedimos 1000 y contesta 100), y avanzando de a 1000 nos saltearíamos
+las 900 del medio — el mismo modo de falla, más difícil de ver. **Nunca se
+deduplica en silencio**: una fila repetida no es un duplicado que se limpia,
+es la señal de que el listado no avanza.
+
+Si nada de eso funciona y el request volvió **exactamente** en el tope, se
+lanza `EncomExportTruncatedException` y **el dominio entero aborta**. Es un
+tipo propio y no un error más porque los `catch` por mes y por fila —que
+existen para que un dato malo no tire la corrida— se lo tragarían: ese tipo
+se re-lanza en todos ellos.
+
+El mismo lector paginado se usa en los CINCO listados del panel (ventas,
+compras, detalle de compras, movimientos de caja y los costos del catálogo):
+todos tienen el mismo techo, y arreglarlo en cada uno habría dejado el bug
+esperando en los otros cuatro.
+
+#### Las ventas entraron sin una sola línea
+
+`saleLines()` devolvió `[]` para las 300 ventas y las cabeceras entraron
+igual, contadas como `imported`. Descartado que fuera la sesión (un 302 se
+traduce a 401 explícito) o la red (habría sido 502): el detalle contestó 200
+con un cuerpo sin los inputs esperados.
+
+**La causa real era de diseño, no del parser: el histórico son DOS LOGS
+INDEPENDIENTES, no un documento con sus renglones.** En el legacy los ítems
+vendidos viven en una tabla APARTE de las transacciones y tienen su propio
+reporte en bloque:
+
+| Log | Pantalla | Qué trae |
+|---|---|---|
+| Transacciones | `a_report_transactions?action=detailTable` | Una fila por venta, con sus totales |
+| Ítems vendidos | `a_report_products?action=detailTable` | Una fila por línea vendida, con su costo |
+
+Eso cambia el costo por dos órdenes de magnitud: el camino anterior pedía el
+form de edición de CADA venta (`action=edit&id=`), o sea **6.927 requests
+paceadas a 1,1 s ⇒ más de dos horas** contra el servidor donde el comercio
+está facturando. El log entero entra en **7-10 páginas**. Ese camino —y su
+parser de formularios, `EncomParse::formValues()`— **se eliminó**.
+
+**Verificado y descartado**: `a_report_transactions` NO tiene un `action` que
+devuelva líneas (`detail` e `itemsTable` contestan la página HTML entera). No
+volver a buscar por ahí.
+
+**Cómo se pega cada línea a su venta**: por `# Documento`, el mismo patrón que
+ya usaban las compras. El log del sistema vivo trae el número SUELTO (`6103`),
+así que se indexa por número y por documento completo. **Si un número
+corresponde a más de una venta importada** —dos cajas pueden repetir
+numeración bajo timbrados distintos— **no se elige ninguna**: se cuenta y se
+informa. Y una línea cuya venta no está importada **no se asienta nunca**
+(`itemsold.transactionid` es NOT NULL con FK): inventarle una transacción
+falsearía la facturación del período, y descartarla en silencio es el bug que
+esto vino a cerrar.
+
+La idempotencia es **por línea** (`migration_map` dominio `sale_line_history`,
+en la misma transacción que la línea): sin eso, completar un mes a medias
+duplicaría unidades vendidas en todos los reportes.
+
+`transactionUnitsSold` se completa al adjuntar las líneas, porque cuando entra
+la cabecera sus líneas todavía no se leyeron.
+
+#### El `return []` mudo de las compras
+
+`purchaseLines()` devolvía una lista vacía sin decir nada cuando no encontraba
+sus columnas, y el `note()` del importador solo se dispara ante una EXCEPCIÓN:
+**207 compras entraron sin una sola línea y el job no lo mencionó.** Ahora ese
+camino lanza **diciendo qué encabezados vinieron de verdad**, que es el dato
+con el que se ve si el legacy renombró una columna.
+
+Y hubo una renombrada esperando: **el encabezado real del artículo es
+`NOMBRE`, no `ARTICULO`** (el selector de columnas del legacy muestra
+"Artículo", pero la tabla renderiza `Nombre`). Sin el sinónimo, el dominio
+entero se caía.
+
+#### Cosas que el export dice y antes se leían mal
+
+- **"Sin cliente" son dos casos distintos.** El legacy no traía cliente (celda
+  vacía, lo NORMAL en mostrador — confirmado: en esta cuenta la columna viene
+  vacía) contra traía uno que no está migrado. El aviso afirmaba siempre lo
+  segundo y mandaba a buscar un cliente que nunca existió. Ahora se cuentan por
+  separado. Mismo tratamiento para el proveedor de compras.
+- **El artículo se resuelve por SKU antes que por nombre.** En esta cuenta el
+  `Código/SKU` viene vacío y cae al nombre, pero los nombres del legacy traen
+  sufijos de stock (`Gaseosa de 250-Stock`) que el catálogo cargado a mano no
+  tiene. Se saca **ese** sufijo antes de comparar —una regla, al final del
+  nombre, solo para comparar— y lo que igual no matchea va al artículo
+  histórico archivado y **se informa cuántas líneas cayeron ahí**.
+- **`Total` viene con IVA INCLUIDO** (21.000/11 = 1.909 y 6.000/11 = 545, que
+  son los IVA de esas filas). No se le descuenta nada: además es la convención
+  del proyecto.
+- **El progreso del job cuenta LÍNEAS por dominio**, y la pantalla las muestra
+  en su propia columna. "300 ventas / 0 líneas" tenía que ser legible de un
+  vistazo; leído como "300 importadas" parecía un éxito.
+
+#### El reaper mataba corridas sanas
+
+`requeueStale(45)` medía contra `started_at`, o sea que era un **tope de
+duración** disfrazado de detector de muerte. Con una corrida de horas, a los 45
+minutos el job volvía a `pending`, el drain —que corre cada 2 minutos— le
+lanzaba un **segundo worker encima del primero**, y al agotar los intentos lo
+cerraba como `failed` mientras el primero seguía escribiendo. `migration_map`
+evita que se DUPLIQUEN filas, pero no que dos procesos se pisen: la forma de
+evitarlo es que el segundo **no arranque**.
+
+Ahora **se mide contra el último LATIDO**. El importador reporta progreso cada
+20 segundos (`EncomImportService::latir()` → `reportProgress()`, que ya
+existía y **no lo llamaba nadie**), y además en cada borde de dominio. Un job
+que late no se reencola nunca, dure lo que dure; uno que dejó de latir se
+reencola igual que antes.
+
+**No se agregó una columna `heartbeat_at`**: para una fila `running`,
+`updated_at` YA ES el último latido —sus únicos escritores en ese estado son
+el claim y el latido—, y una columna aparte sería el mismo dato con dos
+nombres, lista para divergir el día que alguien se acuerde de una sola.
+**Invariante que esto asume, escrito para que no se rompa sin querer: ningún
+UPDATE nuevo sobre un job `running` puede tocar `updated_at` si no significa
+"el worker sigue vivo".**
+
+#### Lo que queda asumido
+
+1. **Que `a_report_purchases` y `a_report_expenses` aceptan `part/offset/limit`
+   igual que los otros dos.** Es el mismo framework de tabla y la probabilidad
+   es alta, pero **solo está verificado en `a_report_transactions` y
+   `a_report_products`**. Si alguno no lo acepta, el modo de falla es el
+   correcto: el mes aborta ruidoso en vez de entrar cortado.
+2. **Que el tope del legacy es de exactamente 100.** La paginación se dispara
+   cuando un listado vuelve con esa cantidad exacta. Un deploy con un tope
+   distinto y más chico no se detectaría.
+3. **Que `# Documento` identifica a la venta dentro del rango.** Con números
+   repetidos entre cajas la línea no se pega y se informa, que es el lado
+   correcto para equivocarse.
