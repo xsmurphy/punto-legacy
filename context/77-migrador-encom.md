@@ -1,8 +1,10 @@
 # 77 — Migrador ENCOM → Punto
 
-> Estado: **F1 IMPLEMENTADA** 2026-09-11 (branch `api/migrador-encom`).
-> D1-D6 cerradas por el owner el mismo día, no relitigar.
-> F2 (ventas históricas) **no** está implementada — ver §8.
+> Estado: **F1 IMPLEMENTADA** 2026-09-11. La capa de EXPORT se reescribió el
+> mismo día sobre `POST /fetchs` (branch `api/migrador-fetchs`): ver §4, que
+> reemplaza al scraping de pantallas con el que arrancó la F1.
+> D1-D6 cerradas por el owner, no relitigar.
+> F2 (ventas históricas) **no** está implementada — ver §12.
 
 ## 1. Qué resuelve
 
@@ -10,32 +12,38 @@ El equipo de soporte carga en `/admin` las credenciales de un cliente en el
 panel legacy (ENCOM) y un job exporta sus datos y los importa a una empresa de
 Punto **ya creada**. El migrador importa datos; no crea cuentas.
 
-Alcance de F1: catálogo (categorías, marcas, etiquetas, artículos), clientes,
-y configuración (sucursales + cajas **con su numeración fiscal**).
+Alcance: catálogo (categorías, marcas, etiquetas, artículos **con sus combos y
+recetas**), clientes, configuración (sucursales + cajas **con su numeración
+fiscal**), **usuarios** y **medios de pago**.
 
 ## 2. Decisiones cerradas por el owner (2026-09-11)
 
 | # | Decisión |
 |---|---|
 | **D1** | Superficie `/admin`, sección **Migraciones**: form de credenciales + empresa destino + checkboxes de qué migrar, y listado de jobs con estado y log por dominio. |
-| **D2** | **La password NO se persiste.** El endpoint hace el login al legacy en el momento, guarda SOLO las cookies efímeras en el job y descarta la password. Si el login falla, el job no se crea. |
+| **D2** | **La password NO se persiste.** El endpoint hace el login al legacy en el momento, guarda SOLO las cookies efímeras y el alcance en el job, y descarta la password. Si el login falla, el job no se crea. |
 | **D3** | Ejecución por tabla-cola `migration_job` + **worker CLI aparte**, disparado desde el drain de `api/v1/maintenance.php`. |
 | **D4** | Import por los **servicios reales** de Punto, nunca INSERT directo salvo la tabla de mapeo propia. `migration_map` da idempotencia. |
-| **D5** | Sucursales y cajas se importan **con timbrado, punto de expedición y numeración actual**; la caja de Punto CONTINÚA la serie desde el último número + 1. **Validación dura**: dos cajas con el mismo punto de expedición bajo el mismo timbrado = error del job, no se importa a medias. La FE no se configura (manual después). Usuarios/staff NO se migran en F1. |
+| **D5** | Sucursales y cajas se importan **con timbrado, punto de expedición y numeración actual**; la caja de Punto CONTINÚA la serie desde el último número + 1. **Validación dura**: dos cajas con el mismo punto de expedición bajo el mismo timbrado = error del job, no se importa a medias. La FE no se configura (manual después). |
 | **D6** | El job registra en `tenant_audit` del destino qué importó. |
+
+> D5 decía además "usuarios/staff NO se migran en F1". Eso era una consecuencia
+> de la fuente, no una decisión de producto: las pantallas del panel no
+> exponían el equipo. Con `/fetchs` sí se exponen, y se migran (§8).
 
 ## 3. Arquitectura
 
 ```
 /admin  ──POST /v1/admin/migrations.php──▶  login al legacy (AHORA)
-                                            └─ guarda cookies en migration_job (pending)
+                                            ├─ resuelve companyId/outletId del legacy
+                                            └─ guarda cookies + alcance en migration_job (pending)
 
 cron 2 min ──POST /v1/maintenance?job=migration-drain──▶ EncomMigrationService::drain()
                                             ├─ reencola jobs 'running' colgados
                                             └─ claimNext() + spawn del worker
 
 php api/scripts/migration_worker.php <jobId> <companyId>
-        ├─ EncomClient::fromCookies()   → export paceado del legacy
+        ├─ EncomClient::fromCookies()   → 7 POST a /fetchs
         ├─ EncomImportService::run()    → import por los servicios reales
         └─ finish()  → estado + progreso + BORRA las cookies
 ```
@@ -45,187 +53,281 @@ php api/scripts/migration_worker.php <jobId> <companyId>
 | Schema (cola + mapeo) | `api/database/migrations/postgres/218_migracion_encom.sql` |
 | Contrato de la fuente | `api/lib/Admin/EncomSource.php` |
 | Cliente HTTP del legacy | `api/lib/Admin/EncomClient.php` |
-| Parsers (CSV / tabla HTML / form) | `api/lib/Admin/EncomParse.php` |
+| Parsers (solo lo que F2 va a necesitar) | `api/lib/Admin/EncomParse.php` |
 | Ciclo de vida del job + drain | `api/lib/Admin/EncomMigrationService.php` |
 | Import por dominio | `api/lib/Admin/EncomImportService.php` |
 | Endpoint realm admin | `api/v1/admin/migrations.php` |
 | Worker | `api/scripts/migration_worker.php` |
 | UI | `frontend/app/(admin)/admin/migrations/page.tsx` + `components/admin/migration-*.tsx` |
-| Arnés | `api/tests/run_encom_migration_test.sh` (53 checks) |
+| Arnés | `api/tests/run_encom_migration_test.sh` |
 
-### 3.1 Por qué cola + proceso aparte (D3), con la razón corregida
+### 3.1 Por qué cola + proceso aparte (D3)
 
-El plan original justificaba D3 con "los servicios usan constantes de proceso
-único". **Verificado: los servicios de import reciben `$companyId` por
-argumento** (`ItemService`, `ContactService`, `CategoryService`,
-`OutletsService`, `RegisterAdminService`) — mejor de lo que el plan suponía.
+`api/data.php` define `COMPANY_ID` / `OUTLET_ID` / `TODAY` con `define()`, una
+vez por proceso, y exige outlet/register/user activos que una empresa recién
+creada —el caso normal de un destino— no tiene. El worker NO pasa por
+`data.php`: define las constantes a mano (patrón de los arneses de
+`api/tests/`).
 
-Lo que SÍ es por proceso es el **contexto global**: `api/data.php` define
-`COMPANY_ID` / `OUTLET_ID` / `TODAY` con `define()`, una vez por proceso. Y la
-razón que sola alcanza para descartar el inline: **el export son decenas de
-requests paceadas a 60 req/min**, o sea minutos de pared, muy por encima de
-cualquier timeout de PHP-FPM.
+La segunda razón perdió peso con `/fetchs`: el export ya no son decenas de
+requests paceadas (era una por sucursal y otra por caja), son **siete**. Sigue
+siendo un proceso aparte por el contexto de tenant y porque el import completo
+—catálogo grande por los servicios reales— igual pasa cualquier timeout de
+PHP-FPM razonable.
 
-El worker NO pasa por `data.php`: define las constantes a mano (patrón de los
-arneses de `api/tests/`). `data.php` además exige outlet/register/user activos,
-que una empresa recién creada —el caso normal de un destino— no tiene.
+## 4. La fuente: `POST /fetchs`, el bootstrap del POS
 
-## 4. El sistema VIVO no tiene `/API` ni `/bff`
+> **Esto reemplaza al scraping con el que se implementó la F1.** El plan
+> anterior documentaba que el deploy vivo no tenía superficie JSON (`/bff/*` da
+> 404, `/API/get_*` da "Acceso denegado") y concluía que el export tenía que
+> salir de las PANTALLAS del panel, parseando CSV y HTML. Esa conclusión era
+> correcta sobre las superficies que se habían probado, e **incompleta**: el
+> POS legacy se bootstrapea contra un endpoint propio que sí responde.
 
-> **Esto invalida el mapa con el que arrancó la tarea.** Verificado contra
-> `panel.encom.com.py` con una sesión real el 2026-09-11: **el deploy vivo es
-> MÁS VIEJO que el código del snapshot.** Cualquier plan que asuma la
-> superficie JSON está mirando código que no está desplegado.
+```
+POST https://app.encom.com.py/fetchs?load=<dominio>&gtoken=
+body: companyId=<hashid>&outletId=<hashid>&updateData=true&lastUpdate=false
+```
 
-| Superficie | Sistema vivo |
-|---|---|
-| `/bff/*.php` | **404**, no existe |
-| `/API/get_*.php` | **`{"error":"Acceso denegado"}`** incluso con sesión de panel válida (usa el auth viejo por api_key, que no tenemos) |
-| `a_*.php?action=…` con cookie **PHPSESSID** | **Funciona** — es la única superficie disponible |
+Verificado vivo el 2026-09-11 con `companyId=QE22&outletId=62Lm`. `gtoken`
+vacío funciona; la autorización real es la cookie **PHPSESSID** del login.
+Devuelve JSON limpio, no HTML.
 
-O sea: el export sale de las mismas PANTALLAS que ve el cliente. De ahí que el
-cliente parsee CSV y HTML en vez de consumir JSON; no es una preferencia.
+### 4.1 Qué devuelve cada `load`
 
-**La prueba más clara de la divergencia** está en el CSV de contactos: el vivo
-devuelve 10 columnas **con** `TELEFONO 2`, y el snapshot tiene 9 porque su
-"Migración 25" eliminó esa columna. Por eso `EncomParse::csvRows()` indexa
-**por nombre de columna, nunca por posición** — un parser posicional lee el
-email en la columna del teléfono en una de las dos versiones y no se entera.
-
-Y el encabezado del documento fiscal es la constante `TIN_NAME`, que sale de
-`settingTIN` del comercio: dice "RUC" en Paraguay y otra cosa en otro país.
-Se resuelve por alias y, si ninguno matchea, por su posición conocida.
-
-### 4.1 Fuente por dominio
-
-| Dominio | Fuente | Forma |
+| `load` | Forma | Lo que aporta |
 |---|---|---|
-| Clientes | `a_contacts?action=download` | CSV (coma, comillas, saltos `\r`) |
-| Artículos | `a_items?action=showTable&format=json` | JSON; **fallback** a la tabla HTML |
-| Categorías / marcas | derivadas de los artículos | el export los trae por NOMBRE |
-| Sucursales | `a_outlets?showTable=true` + `?action=edit&id=` | `{"table": "<html>"}` **con** wrapper + form |
-| Cajas | `a_registers?list=true` + `?action=edit&id=` | HTML **sin wrapper** + form |
-| Empresa | `a_settings` (página entera) | form HTML |
-| Ventas (F2) | `a_report_transactions?action=detailTable` + `?action=edit&id=` | HTML |
+| `items` | lista | Catálogo completo **con `compound` inline** (combos y recetas), `kind`, `tax`, `categoryId`, `sku`, stock actual |
+| `customers` | lista | `customerId` propio, documento **con su tipo**, `storeCredit`, `creditLine`, `loyalty`, geo SIFEN |
+| `users` | lista | Equipo del comercio con `lockPass` (PIN), `roleName` y `permissions` |
+| `outlets` | lista | Sucursales con razón social, RUC, lat/lng y `weekHours` |
+| `registers` | **objeto** `{registers, docsNum}` | Cajas con timbrado y punto, y el **último correlativo por tipo de documento** |
+| `settings` | lista de 1 | Config del comercio, **`paymentMethods`** y `tags` |
 
-Notas que gobiernan el diseño:
+### 4.2 Por qué se ELIMINÓ el scraping en vez de dejarlo como respaldo
 
-- **El valor crudo NO es el texto visible.** Viaja en `data-order` (tablas de
-  contactos/transacciones) o en `data-sort` (tabla de artículos); el texto
-  está formateado para mirar (`1.250.000`, `12 ene`). El parser prueba
-  `data-order` → `data-sort` → `data-filter` → texto, en ese orden.
-- **Las columnas se resuelven por ENCABEZADO, no por índice.** El listado vivo
-  de cajas tiene una columna `Sucursal` que el snapshot no tiene: por índice
-  fijo, el nombre de la sucursal se lee como TIMBRADO y todo lo de la derecha
-  queda corrido uno. Es el mismo defecto que el CSV posicional, y la misma
-  solución (`EncomParse::columnIndex()`).
-- **El punto de expedición viene con GUIÓN FINAL** (`009-001-`) y el número con
-  ceros (`0006848`). Punto valida `^\d{3}-\d{3}$`, así que sin normalizar el
-  prefijo TODAS las cajas serían rechazadas por formato. Los ceros sí sirven:
-  de esa cadena salen el correlativo y el ancho de impresión.
-- **El id de la fila tampoco está siempre en el mismo atributo**: cajas,
-  sucursales y transacciones usan `data-id`, pero la tabla de ARTÍCULOS usa
-  `id` a secas. Mirar solo `data-id` saltearía en silencio todo el catálogo.
-- **`a_contacts?action=download` NO filtra por tipo**: trae clientes,
-  proveedores y el personal del comercio en el mismo CSV. Los separa la
-  columna `ROL` (`Cliente` / `Proveedor` / nombre del rol). F1 importa solo
-  `Cliente`.
-- **El CSV de contactos no trae id**, así que la idempotencia usa clave
-  natural: el documento fiscal si está, si no el nombre normalizado
-  (`EncomImportService::customerKey()`). Dos clientes homónimos sin documento
-  se fusionan — costo conocido de no tener id, y el lado seguro.
-- **`a_items?action=exportCSV` se descartó**: exige `ids` (no tiene "todos") y
-  su header declara 18 columnas mientras las filas traen 7 claves con otros
-  nombres. Está desalineado en el propio código.
+Regla del proyecto: arquitectura, no parche. Dos fuentes para el mismo dominio
+dejan sin respuesta la pregunta "¿de dónde salió este dato?" cuando algo sale
+mal, y obligan a mantener y probar dos mapeos que divergen en silencio.
 
-### 4.2 Las cajas: el switch de sucursal `?o=`
+La que sobrevive es estrictamente mejor, y no solo por robustez:
 
-`a_registers?list=true` corre `... WHERE <roc>`, donde `<roc>` es `getROC(1)` =
-"empresa + la sucursal **ACTIVA de la sesión**", y ese archivo **no lee ningún
-parámetro de sucursal del request**. Por sí solo solo ve una sucursal.
+- **Trae lo que el otro no podía.** Combos, recetas, usuarios, PIN, medios de
+  pago y el correlativo por doctype eran "no migrables" en la F1 **por la
+  fuente**, no por una decisión.
+- **No depende del orden de las columnas de una tabla** ni de qué atributo
+  (`data-order` / `data-sort`) lleva el valor crudo, ni del encabezado
+  `TIN_NAME` que cambia por país, ni de que el `name` de un input del form no
+  se mueva. Toda esa fragilidad —documentada en detalle en la versión anterior
+  de este doc— desapareció junto con el código que la sufría.
+- **Pasó de decenas de requests a siete.** El recorrido por sucursal con el
+  switch `?o=` (dos requests por sucursal) más un `?action=edit` por caja ya no
+  existe.
 
-La salida es un switch **global** que procesa `includes/functions.php` en
-cualquier página del panel: **`?o=<outletId>`** escribe la sucursal activa en
-la sesión. Dos detalles obligan a hacerlo en DOS requests:
+Se borraron: el parser de CSV indexado por nombre de columna, `columnIndex()` /
+`htmlHeaders()` / `htmlTable()` y todos los métodos de scraping del cliente.
+**Sobreviven** `htmlRows()`, `tableHtml()` y `formValues()` en `EncomParse`,
+más `get()` y la sesión de panel en `EncomClient`, por una sola razón: el
+histórico de VENTAS (F2) **no está en `/fetchs`** y sigue saliendo de
+`a_report_transactions` (§12). Si F2 se descarta, se van los tres juntos.
 
-1. el switch responde `header('location: …')` **sin el query string**, así que
-   `?o=X&list=true` perdería el `list`;
-2. la constante `OUTLET_ID` se define **antes** de que el switch corra, así que
-   el cambio recién se ve en el request **siguiente**.
+### 4.3 Cómo se obtiene el alcance sin pedírselo a nadie
 
-Entonces, por cada sucursal: un GET que cambia la sucursal activa (se ignora el
-cuerpo, y contesta **302 a propósito** — el cliente lo tolera solo en esa
-llamada) y otro que pide el listado. `a_outlets?showTable=true` sí trae TODAS
-las sucursales (filtra solo por empresa), así que es el punto de entrada.
+`/fetchs` necesita el par (companyId, outletId) del legacy: hashids cortos
+(`QE22`, `62Lm`), no UUID, que el cliente nunca ve y no puede dictar. Se deduce
+de la sesión recién abierta:
 
-El listado de cajas no trae el vencimiento del timbrado ni la numeración
-máxima: eso solo está en `?action=edit&id=`, un request más por caja.
+1. `GET /bff/pos-redirect.php` **sin seguir el redirect** → header `Location`
+   con `?i=<base64>` → `base64_decode` → `"companyId,outletId"`.
+2. Fallback para el deploy viejo (donde ese archivo da 404): el mismo `?i=` en
+   el href del botón "Caja" del home del panel.
 
-### 4.3 Fragilidad asumida, y qué la contiene
+Si **ninguna** vía da un par completo, el cliente **LANZA** y el job no se
+crea. Es deliberado: seguir con un companyId vacío haría que `/fetchs`
+devolviera el catálogo de otro comercio —o de ninguno— y el job lo importaría
+sin una sola señal. El error sale en la pantalla del alta, con el operador
+mirando, no media hora después dentro del worker.
 
-Esto es scraping de pantallas: si el legacy cambia el orden de una columna o
-el `name` de un input, el export se rompe. Lo que lo contiene:
-
-- **Los `name` de los inputs son estables** y es de ahí que salen los datos
-  FISCALES (timbrado, punto, número, dígitos, vencimiento) — no de posiciones.
-  `EncomParse::formValues()` indexa por `name`.
-- **El CSV se indexa por nombre de columna.**
-- Lo único posicional que queda es el orden de columnas de las dos tablas
-  (cajas y artículos), y está cubierto por el arnés con fragmentos copiados
-  del sistema vivo.
-- **Nunca se interpreta un id**: se devuelve opaco tal como vino (`data-id` →
-  `?o=` / `?id=`). En el snapshot `enc()`/`dec()` son no-ops, pero en el deploy
-  viejo podrían no serlo, y así da igual.
-- Un choque de datos FISCALES no se resuelve adivinando: aborta el dominio
-  (§5.1).
+El alcance se guarda en `migration_job.credentials.scope`, junto a las cookies
+y con su misma vida útil: se borra cuando el job termina.
 
 ## 5. La numeración fiscal (D5) — el corazón
 
-El contador del legacy (`registerInvoiceNumber`) guarda el **último** número
-emitido. `document_sequence.nextnumber` de Punto guarda el **próximo** (mig
-117). Esa asimetría **es** el `+1`, no un margen de seguridad.
+El contador del legacy guarda el **último** número emitido. `document_sequence.
+nextnumber` de Punto guarda el **próximo** (mig 117). Esa asimetría **es** el
+`+1`, no un margen de seguridad. (Verificado contra el sistema vivo: la caja
+"AUTOIMPRESOR OLIVA 2026" mostraba `0006848` y la última factura del día era
+`009-001-0006848`.)
 
-La caja se crea con `RegisterAdminService::create($outletId, $name, $extra)`
-pasando `fiscal` (timbrado + `EEE-PPP`), `numbering.factura` (último + 1) y
-`padWidth.factura` (de `docsZeros`). Ese servicio ya abre la serie correcta:
-desde la mig 209 la identidad de `document_sequence` es
-`(companyid, doctype, scopetype, scopeid, invoiceauth, prefix)`.
+Lo que cambió con `/fetchs`: ese número ya no se lee de un campo de texto de un
+formulario, sino de **`docsNum`**, la estructura con la que el propio POS
+legacy numera. Y trae un contador **por tipo de documento**.
 
-**No se reimplementa nada de la numeración** — se usa el mismo camino que el
-alta de una caja desde el panel, que es el que aplica el invariante.
+`docsNum` tiene siete contadores y Punto numera por caja **tres**
+(`RegisterAdminService::DOC_TYPES` = `factura`, `cotizacion`, `nota_credito`).
+Se mapean esos tres:
+
+| legacy | Punto | Serie |
+|---|---|---|
+| `invoiceNo` | `factura` | timbrado + punto de expedición |
+| `quoteNo` | `cotizacion` | sin serie fiscal |
+| `returnNo` | `nota_credito` | hereda la de la factura (mig 215) |
+
+`ticketNo`, `orderNo`, `remissionNo` y `scheduleNo` **no se migran**: Punto no
+les asigna secuencia por caja, y mandarlos hace que `RegisterAdminService`
+rechace el alta entera con "Tipo de documento desconocido". No se inventa una
+secuencia para un documento que Punto no numera así.
+
+La caja se crea con `RegisterAdminService::create()` pasando `fiscal`,
+`numbering` y `padWidth` (de `leadingZero`). **No se reimplementa nada de la
+numeración** — es el mismo camino que el alta de una caja desde el panel.
 
 ### 5.1 El rechazo es duro y previo
 
 Dos cajas con el mismo `(timbrado, EEE-PPP)` llevarían la misma secuencia y
-terminarían emitiendo dos facturas con el mismo número: documento duplicado,
-ilegal ante la SET (`context/29` §2, multa por cada factura).
-
-`EncomImportService::assertExpeditionPointsFree()` valida **todo el lote antes
-de crear la primera caja** y aborta el dominio entero. `RegisterAdminService`
-tiene su propio guard y la mig 143 su índice único; esto **no los reemplaza**,
-se adelanta para poder fallar **sin efectos parciales**. Importar "hasta donde
-se pudo" dejaría al comercio con la mitad de sus cajas fiscales y sin señal de
-cuáles faltan.
-
-También se rechaza un `prefix` que no cumpla `^\d{3}-\d{3}$`: no se fabrica un
-punto de expedición a partir de datos incompletos.
+emitirían dos facturas con el mismo número: documento duplicado, ilegal ante la
+SET (`context/29` §2). `assertExpeditionPointsFree()` valida **todo el lote
+antes de crear la primera caja** y aborta el dominio entero. También se rechaza
+un prefijo que no cumpla `^\d{3}-\d{3}$` (el legacy lo guarda con guión final,
+`001-001-`, y se normaliza antes de validar).
 
 ## 6. Idempotencia
 
-`migration_map(companyid, domain, legacyid) → puntoid`, con esa PK. Antes de
-crear cualquier entidad se pregunta si ese id del legacy ya tiene id de Punto.
+`migration_map(companyid, domain, legacyid) → puntoid`. Antes de crear
+cualquier entidad se pregunta si ese id del legacy ya tiene id de Punto.
 Re-correr da los mismos conteos con todo en `skipped`, y **no vuelve a mover la
-numeración fiscal** (verificado en el arnés, caso B5).
+numeración fiscal**.
 
-`remember()` usa `ON CONFLICT DO NOTHING`, no `DO UPDATE`: si la clave ya
-existe, el id válido es el **primero** — es al que pueden estar apuntando los
-ítems ya importados.
+Dominios del mapa: `category`, `brand`, `tag`, `item`, **`compound`**,
+`customer`, `outlet`, `register`, `user`, `payment`.
 
-Un solo job vivo por empresa, con índice único parcial en la base: dos jobs
-concurrentes se pisan porque los dos leen el mapa antes de que el otro escriba.
-La idempotencia protege el **re-correr**, no el correr en paralelo.
+**`compound` es un dominio aparte del `item` a propósito**, y es el caso donde
+la idempotencia no era gratis: `ItemCompoundService::add()` **suma** la cantidad
+cuando el ingrediente ya existe, así que re-correr sin esa marca convertiría 1
+unidad de harina en 2, y en 3. Son dos hechos distintos —"el artículo existe" y
+"el artículo ya está compuesto"— y necesitan dos filas.
 
-## 7. Detalles que muerden
+`remember()` usa `ON CONFLICT DO NOTHING`: si la clave ya existe, el id válido
+es el **primero** — es al que pueden estar apuntando los ítems ya importados.
+
+Un solo job vivo por empresa, con índice único parcial en la base. La
+idempotencia protege el **re-correr**, no el correr en paralelo.
+
+## 7. Combos y recetas — el mapeo de `compound`
+
+`compound` viaja **inline en cada artículo**, como un string con JSON adentro:
+
+```json
+[{"id":"6KNgR","units":"1.000","select":"0"}]
+```
+
+`id` es el itemId del componente **en el legacy**, `units` la cantidad (decimal
+con punto: `1.000` es 1, no mil) y `select` si el componente lo elige el
+cliente al vender.
+
+**Se importa en DOS pasadas**: primero se crean todos los artículos, después se
+componen. Un combo puede referenciar ítems que vienen después que él en el
+export, así que la composición no se puede resolver mientras se crea.
+
+### 7.1 Mapeo de kinds
+
+| `kind` legacy | kind de Punto | Composición |
+|---|---|---|
+| `product` | `producto` | — |
+| `service` / `type=service` | `servicio` | — |
+| `combo` | `combo_fijo` | `item_compound` |
+| `precombo` | `combo_fijo` | `item_compound` (un combo cerrado usado como componente de otro sigue siendo un combo fijo) |
+| `production` | `produccion_previa` | `item_compound` |
+| `direct_production` | `produccion_directa` | `item_compound` |
+| `comboAddons` | `combo_dinamico` | **no se compone** |
+| `dynamic` | `combo_dinamico` | **no se compone** |
+| `giftcard` | `giftcard` | — |
+| `discount` | `descuento` | — |
+| lo que no matchee | `producto` | — |
+
+Los flags legacy (`itemType`/`itemCanSale`/`itemTrackInventory`/
+`itemProduction`) salen de `ItemImporter::legacyFlagsForKind()`, que es
+`public static` justamente para que no haya dos tablas kind→flags.
+
+### 7.2 Qué NO se inventa
+
+Un componente con `select="1"` es una OPCIÓN que el cliente elige. En Punto eso
+**no es una receta** sino un grupo de add-ons (`addon_group`), y el export no
+trae nada de lo que ese modelo necesita: ni el nombre del grupo, ni
+`minSelect`/`maxSelect`, ni el `priceDelta` de cada opción.
+
+Fabricar un grupo con valores inventados es **peor** que no migrarlo: un
+`maxSelect` adivinado deja al cajero sin poder cerrar la venta, y un
+`priceDelta` en 0 regala el agregado (`context/41` D2). Así que esos
+componentes no se escriben, el `combo_dinamico` entra **sin composición**, y el
+artículo queda anotado en la bitácora del job —con su nombre y su kind del
+legacy— como "revisar a mano". Lo mismo cuando un componente no existe en el
+mapa.
+
+Es la diferencia entre un combo que hay que terminar de armar (visible, con su
+nombre en el log) y uno que vende mal en silencio.
+
+## 8. Usuarios y roles
+
+Se migran nombre, email, teléfono, color, sucursal y **el PIN de la caja**
+(`lockPass`), por `UsersService` — el mismo servicio del panel, con su
+validación de 4 dígitos y de PIN único.
+
+**El objeto `permissions` del legacy NO se mapea permiso por permiso.** Su
+forma (`{register: {access, orders: {create, edit, view}, …}}`) no tiene
+relación con las permission keys de Punto (`pos.sale.create`, …), y traducirla
+a ciegas es adivinar: adivinar de más significa darle a un cajero un permiso
+que nunca tuvo, que es el tipo de error que nadie descubre hasta que alguien
+anula una venta que no debía.
+
+En su lugar se asigna el **ROL de Punto más cercano por nombre** y el rol trae
+sus permisos:
+
+1. nombre idéntico (`"Cajero"` del legacy → `Cajero` de Punto);
+2. palabra clave → slug: dueño/propietario → `owner`; encargado/gerente/
+   supervisor/**administrador** → `manager`; cajero/vendedor/mozo → `cashier`;
+3. ante la duda, el rol **más bajo** que exista.
+
+"Administrador" cae en `manager`, no en `owner` — mismo criterio que el mapa
+legacy de `RoleService`. El rol `device` nunca se asigna: no es para una
+persona, lo lleva la sesión de un dispositivo pareado.
+
+**Cada asignación queda escrita en la bitácora del job** ("rol del legacy X →
+rol de Punto Y") para que soporte la revise con el comercio.
+
+⚠ **`RoleService` vive en el namespace GLOBAL**, no en `Punto\Api\Auth` como el
+resto de `api/lib/Auth/`. Llamarlo con el namespace "obvio" tira *class not
+found* y se lleva puesto el dominio entero de usuarios (progreso en `null`, no
+una fila fallida). Lo encontró el arnés.
+
+**La contraseña del panel no se migra**: el legacy guarda un hash con otro
+algoritmo y otra sal. Cada usuario nace con una contraseña aleatoria que nadie
+conoce —entra al POS con su PIN, que sí se migra— y la del panel se restablece
+desde Equipo. Está dicho en la UI y en el log del job.
+
+Si un dato OPCIONAL viene sucio (email ya usado, PIN ya usado, teléfono que
+libphonenumber no parsea), el usuario se importa **sin ese campo** y la
+bitácora dice cuál se cayó. Perder al usuario entero por un email duplicado no
+se paga; pisarlo en silencio tampoco.
+
+## 9. Medios de pago
+
+`ensureSeed()` primero (Efectivo, tarjetas, Giftcard, Cheque — los que
+disparan flujos propios del POS por su `systemKey`), y recién después los del
+legacy. Un medio que ya existe con el mismo nombre **se adopta** (se mapea al
+existente) en vez de duplicarse: `taxonomy` tiene UNIQUE por (empresa, tipo,
+nombre) y "Efectivo" además es único por diseño.
+
+## 10. Impuestos
+
+`/fetchs` manda el impuesto del artículo como el VALOR legacy (`"10"`, `"5"`,
+`"0"`), que es exactamente lo que Punto guarda en `tax.name` (la compatibilidad
+con `getTaxValue()` es histórica y sigue vigente). Si el destino no tiene ese
+impuesto se crea con `TaxService`, que deriva `rate`/`kind` del nombre con el
+mismo criterio que el resto del sistema. Un impuesto que no se pudo crear no
+cuesta el artículo: entra sin impuesto y queda la nota.
+
+## 11. Detalles que muerden
 
 - **La caja placeholder se reusa.** `OutletsService::create()` deja una caja
   "Nueva Caja" sin timbrado para cumplir el invariante "sucursal sin caja no
@@ -236,159 +338,137 @@ La idempotencia protege el **re-correr**, no el correr en paralelo.
   caja **no se importa** (memoria: prohibido resolver una dimensión faltante
   con "el primer outlet activo").
 - **La categoría vive en dos lados**: la FK legacy `item.categoryId` y la m2m
-  `item_category`. Se escriben las dos — escribir una sola deja el artículo sin
-  categoría en la mitad de las pantallas (la trampa que ya pisó la mig 136,
-  `context/41`).
-- **El alta de un artículo es atómica.** `createBlank()` + `update()` van en
-  una transacción: sin eso, una fila mala dejaba un "Nuevo Artículo" huérfano
-  en el catálogo del cliente. Lo encontró el arnés.
-- **`ItemImporter::legacyFlagsForKind()` pasó a `public static`** y el migrador
-  la usa. Copiar el mapa kind→flags habría dejado dos tablas que se
-  desincronizan en cuanto se agregue un kind.
+  `item_category`. Se escriben las dos (la trampa que ya pisó la mig 136).
+- **El alta de un artículo es atómica.** `createBlank()` + `update()` van en una
+  transacción: sin eso, una fila mala dejaba un "Nuevo Artículo" huérfano.
+- **Los clientes ya no se fusionan.** El CSV del panel no traía id y la
+  idempotencia usaba una clave natural (documento, o nombre normalizado), que
+  fusionaba a dos homónimos sin documento en un solo cliente. `/fetchs` manda
+  `customerId`: ese parche se fue con el scraping.
 - **Un dominio que falla no frena a los otros**, y un job con errores queda
   `failed` aunque parte haya entrado: `done` con errores es un verde que nadie
   vuelve a mirar.
 - **Las cookies se borran al terminar el job**, salga bien o mal, y nunca se
-  devuelven por la API (el servicio expone solo `hasCredentials`). Y el drain
-  BARRE las de los jobs que nunca llegaron a correr: a las 24 h —lo que dura
-  la sesión del legacy— se nulean y el job se cierra como `failed` con el
-  motivo escrito. Cerrarlo no es cosmético: un `pending` sin cookies no puede
-  correr, y mientras siga `pending` el índice de "un job vivo por empresa"
-  bloquearía toda migración nueva de ese comercio.
+  devuelven por la API. El drain BARRE las de los jobs que nunca llegaron a
+  correr: a las 24 h se nulean y el job se cierra como `failed` con el motivo
+  escrito (un `pending` sin cookies no puede correr y bloquearía toda migración
+  nueva de ese comercio).
 
-## 8. Qué queda para F2 — NO implementado
+### 11.1 Ventana conocida: caja huérfana si el proceso muere entre medio
 
-- **Ventas históricas.** Fuera de alcance explícito de F1. La SUPERFICIE ya
-  quedó relevada y con cliente listo —`EncomClient::salesRaw($from, $to)` sobre
-  `a_report_transactions?action=detailTable` (valores crudos en `data-order`,
-  id de la venta en `data-id`) y `saleDetailRaw($id)` sobre `?action=edit&id=`,
-  que es el form con los ÍTEMS de esa venta— pero **ningún dominio de F1 los
-  llama**. Lo que falta decidir antes de construirlo: una venta importada NO
-  puede pasar por `SaleService::save()` (asignaría numeración nueva y movería
-  stock y caja); tiene que entrar como documento ya emitido, con su número
-  congelado, y sin tocar `document_sequence` — que es justo lo que el import de
-  cajas deja posicionado. Tampoco puede reabrir un período cerrado
-  (`context/48`).
-- **Etiquetas.** La superficie viva NO las expone por ninguna vía: la tabla de
-  artículos no tiene columna y el modo JSON no trae el campo. `tags()` devuelve
-  vacío a propósito — inventarlas a partir de otra cosa sería peor que no
-  migrarlas.
-- **Stock inicial.** Deliberadamente fuera: un saldo es un movimiento del
-  ledger con costo y sucursal (`context/52`), y el legacy solo expone un número
-  suelto. Se carga con un conteo en la sucursal.
-- **Proveedores.** Vienen en el MISMO CSV que los clientes (columna
-  `ROL = Proveedor`), así que sumarlos es cambiar un filtro. No se hizo porque
-  D5 acota F1 a clientes y un proveedor arrastra compras y cuentas por pagar.
-- **Usuarios y staff** (D5 los excluye de F1). También vienen en ese CSV, con
-  el nombre del rol en `ROL`. Ojo: `get_users.php` del snapshot tiene dos
-  claves `TIN`/`tin` con valores distintos (una lee `lockpass`) — mapear eso a
-  ciegas es cómo se importa una contraseña en el campo del RUC.
-- **Medios de pago / cuentas.** `banks()` devuelve vacío: la superficie viva no
-  los expone y el plan de cuentas de Punto no es el del legacy.
-- **Configuración de la empresa.** Se exporta (`settings()` lee el form de
-  `a_settings`) pero NO se escribe: pisar la config de una empresa que ya operó
-  es destructivo y el owner no lo pidió.
+El import de una caja son dos escrituras que NO están en la misma transacción:
+`RegisterAdminService::create()` y después `remember()`. Si el worker muere en
+el medio, la caja queda creada **sin mapear**, y al reintentar
+`assertExpeditionPointsFree()` encuentra el par (timbrado, punto) tomado por
+ella misma y aborta el dominio.
 
-## 9. Supuestos que quedan, y qué se verificó
+**Cómo se reconoce**: el error nombra como dueña del punto de expedición a una
+caja con el MISMO nombre que la que se está importando. **Cómo se arregla**:
+borrar esa caja en el panel del destino (no emitió nada) y relanzar.
 
-**Verificado contra el sistema vivo** (coordinador, 2026-09-11):
+**Por qué se deja así**: cerrarlo pide una transacción que abarque el servicio
+canónico de altas de caja —que abre la suya y publica un evento realtime al
+commitear— para servir a un caso del migrador. Un arreglo manual de un minuto,
+en un flujo que corre una vez por cliente y con un operador mirando, contra
+tocar el camino por el que se dan de alta TODAS las cajas del producto.
 
-- `/API` y `/bff` no sirven; el login por `POST /login?login=true` devuelve
-  `"true"` y PHPSESSID alcanza.
-- El header exacto del CSV de contactos (10 columnas, con `TELEFONO 2`).
-- **`registerInvoiceNumber` es el ÚLTIMO número EMITIDO** — la caja
-  "AUTOIMPRESOR OLIVA 2026" muestra `0006848` y la última factura del día es
-  `009-001-0006848`. **El `+1` de la continuación de serie es correcto.** Era
-  el supuesto más caro del plan y queda cerrado.
-- `a_outlets?showTable=true` responde **con** wrapper `{"table": …}`; columnas
-  Nombre | Razón Social | RUC | Teléfono | Dirección | Online | Estado.
-- `a_registers?list=true` responde **SIN** wrapper (HTML pelado) y sus
-  columnas son Nombre | Creado el | **Sucursal** | Timbrado | Prefijo | No. de
-  Factura | Sufijo | Estado. **Dos trampas ya corregidas**: esa columna
-  `Sucursal` no existe en el snapshot y corría un lugar todo lo fiscal (el
-  nombre de la sucursal se leía como timbrado), y el prefijo viene con **guión
-  final** (`009-001-`), que el regex `^\d{3}-\d{3}$` de Punto habría rechazado
-  abortando el dominio entero. Por eso las columnas se resuelven **por
-  encabezado** y el prefijo se normaliza.
+## 12. Qué NO se migra, y por qué
 
-**Sigue asumido, a confirmar en la primera corrida real:**
+- **Ventas históricas (F2).** `/fetchs` no las expone por ningún `load`: es el
+  bootstrap de una caja, no un reporte. La superficie ya está relevada y el
+  cliente listo (`salesRaw()` / `saleDetailRaw()` sobre
+  `a_report_transactions`), pero **ningún dominio los llama**. Lo que falta
+  decidir: una venta importada NO puede pasar por `SaleService::save()`
+  (asignaría numeración nueva y movería stock y caja); tiene que entrar como
+  documento ya emitido, con su número congelado, sin tocar `document_sequence`
+  —que es justo lo que el import de cajas deja posicionado— y sin reabrir un
+  período cerrado (`context/48`).
+- **Stock inicial.** `/fetchs` SÍ trae el saldo actual (`items[].inventory[].
+  count`), así que ahora es *posible*. Sigue **fuera de alcance a propósito**:
+  un saldo es un movimiento del ledger con costo y sucursal (`context/52`) y el
+  export da un número suelto sin costo. Meterlo como ajuste ensucia el costeo
+  promedio desde el día uno. Se carga con un conteo en la sucursal.
+- **El COSTO de los artículos.** El bootstrap del POS no lo manda (no lo
+  necesita para vender). Es la única cosa que el scraping daba y `/fetchs` no:
+  la tabla HTML tenía una columna de costo. Los artículos entran con
+  `itemCost = NULL` ("no lo sé", distinto de 0). Si hiciera falta, la vía es
+  pedirle al legacy otro `load` o un reporte — **no** revivir el scraping de
+  catálogo.
+- **Grupos de opciones de un combo dinámico.** Ver §7.2.
+- **Horario de atención de las sucursales.** `weekHours` viene en el export,
+  pero el `outlet` de Punto no tiene un modelo de horarios mantenido (la
+  columna `data` lo menciona; ningún servicio lo escribe ni lo lee). Guardarlo
+  acá sería crear un campo que solo el migrador conoce.
+- **Numeración de ticket / orden / remisión / agenda.** Ver §5.
+- **Configuración de la empresa.** Se exporta (`settings()`) y se usa para
+  etiquetas y medios de pago, pero NO se escribe sobre `company`: pisar la
+  config de una empresa que ya operó es destructivo y el owner no lo pidió.
+- **Proveedores.** El legacy los tiene; `/fetchs?load=customers` devuelve
+  clientes. Un proveedor arrastra compras y cuentas por pagar: es otro alcance.
 
-1. **Que los `name` de los inputs del form de caja sean los del snapshot**
-   (`auth`, `prefix`, `sufix`, `invoice`, `leadingZero`, `expiration`,
-   `registerInvoiceNoMax`). **No falla en silencio**: si el form llega y no
-   trae NINGUNO de esos campos, `enrichRegisterFromForm()` lanza nombrando la
-   caja y el dominio aborta sin importar ninguna (arnés, caso J).
-2. **Que `?o=<outletId>` siga cambiando la sucursal activa.** Cubierto por los
-   dos lados: si el switch no anduviera, se migrarían las cajas de una sola
-   sucursal (se nota en el conteo); y si el listado NO estuviera acotado por
-   sucursal —posible, porque el vivo trae una columna `Sucursal`, que es
-   justamente lo que tendría una lista que abarca varias— el recorrido
-   devolvería cada caja una vez por sucursal. Eso se ve como dos cajas con el
-   mismo (timbrado, punto) y habría abortado el import por un choque
-   inexistente, así que **las cajas se deduplican por id** y la sucursal sale
-   de esa columna cuando está.
-3. **Que `a_items?action=showTable` acepte `format=json`.** Probablemente NO
-   (es más nuevo); por eso hay fallback a la tabla HTML y el arnés prueba los
-   dos caminos.
-4. **El orden de columnas de la tabla de ARTÍCULOS** (20 columnas). Es lo único
-   que sigue siendo posicional; las de cajas y sucursales ya se resuelven por
-   encabezado.
+## 13. Supuestos que quedan, y qué se verificó
 
-### 9.1 Ventana conocida: caja huérfana si el proceso muere entre medio
+**Verificado contra el sistema vivo** (2026-09-11):
 
-**Esto no es un bug misterioso, está asumido y documentado.** El import de una
-caja son dos escrituras que NO están en la misma transacción:
+- `POST /fetchs?load=<X>&gtoken=` responde JSON con `gtoken` vacío y cookie
+  PHPSESSID, para `items` (416 filas), `users` (7), `customers` (481),
+  `outlets`, `registers` y `settings`.
+- Los campos de cada dominio (§4.1) y que `compound` viaja como string JSON.
+- `registers` devuelve `{registers, docsNum}` y `docsNum[].invoiceNo` es el
+  ÚLTIMO correlativo emitido.
+- El login por `POST /login?login=true` con `email`/`password` devuelve `"true"`
+  y PHPSESSID alcanza.
+- `base64_decode('UG5YYSxLTHpW') === 'PnXa,KLzV'` — la forma del `?i=`.
 
-```
-RegisterAdminService::create()   → la caja existe, con su (timbrado, punto)
-        ⟵ si el proceso muere ACÁ ⟶
-EncomMigrationService::remember() → recién ahora el mapa sabe que existe
-```
+**Asumido, a confirmar en la primera corrida real** (los tres están aislados y
+ninguno aborta un dominio):
 
-Si el worker muere en esa ventana (OOM, deploy que recicla el contenedor), la
-caja **queda creada pero sin mapear**. Al reintentar el dominio `config`:
+1. **El shape de `settings.paymentMethods`.** El relevamiento confirma que la
+   CLAVE existe, no cómo viene adentro. El cliente acepta lista de nombres o de
+   objetos (`name`/`paymentMethodName`/`title`/`label`) y descarta lo que no
+   tenga nombre.
+2. **El shape de `settings.tags`.** Igual que el anterior. Una etiqueta mal
+   leída es cosmética: se ignora en silencio en vez de abortar el catálogo.
+3. **Que `name` sea la razón social y `fullName` el nombre de la persona** en
+   `customers`. Si estuvieran invertidos, los dos campos igual quedan cargados
+   (`ContactService` guarda `contactName` + `contactSecondName`), solo que
+   cruzados.
+4. **Que `barcode` no venga.** No aparece en el relevamiento; se lee por si
+   acaso (`barcode`/`itemBarcode`) y su ausencia deja el artículo sin código,
+   nunca con uno inventado.
 
-- `migration_map` no la conoce, así que se la considera pendiente;
-- `assertExpeditionPointsFree()` encuentra el par (timbrado, punto) ya tomado
-  —por ella misma— y **aborta el dominio entero** con el mensaje de choque;
-- el retry queda bloqueado hasta que alguien lo resuelve a mano.
+**Confirmado como DISTINTO, y por eso no se traduce:** el `typeIdentifier` de
+`customers` usa la numeración del legacy (manda `1`, `2`), que **no** es la
+Tabla 3 de la SET con la que Punto valida (`ContactService::ID_TYPES` = 11..17).
+Su tabla de códigos no está relevada y es un dato fiscal, así que el tipo se
+manda SOLO si el valor ya es un código válido de Punto; si no, se omite y Punto
+lo infiere al leer. **El número del documento se migra igual** (`ruc` → `tin`,
+`ci` → `ci`), que es lo que identifica al cliente. Lo encontró el arnés: con la
+traducción a ciegas, `ContactService` lanzaba y se perdía el cliente ENTERO.
 
-**Cómo se reconoce:** el mensaje de error nombra como dueña del punto de
-expedición a una caja con el MISMO nombre que la que se está importando.
-
-**Cómo se arregla:** borrar esa caja en el panel del destino (no emitió nada:
-nació en la corrida que se cortó) y volver a lanzar la migración. La otra
-salida es insertar la fila que falta en `migration_map`.
-
-**Por qué se deja así.** Cerrarlo pide una transacción que abarque el servicio
-de alta de cajas y la tabla del migrador. `RegisterAdminService::create()` ya
-abre y cierra la suya —y publica un evento realtime al commitear—, así que
-envolverla desde afuera significa meter mano en el servicio canónico de altas
-de caja para servir a un caso del migrador. El costo de esa ventana es un
-arreglo manual de un minuto en un flujo que corre una vez por cliente y con un
-operador de soporte mirando; el costo de la alternativa es tocar el camino por
-el que se dan de alta TODAS las cajas del producto.
-
-## 10. Lo que hay que hacer antes de mergear
+## 14. Lo que hay que hacer antes de mergear
 
 1. **Cargar `ENCOM_MIGRATION_URL`** en Coolify (backend). Sin eso el endpoint
-   responde 503 y la UI muestra el aviso con el botón bloqueado. No se cablea
-   en código (regla: ningún dominio vive en el código).
-2. **Una corrida real contra un cliente de prueba**, mirando los cinco puntos
-   de §9 — sobre todo el 5, que es fiscal.
+   responde 503 y la UI muestra el aviso con el botón bloqueado.
+2. **Una corrida real contra un cliente de prueba**, mirando los cuatro puntos
+   de §13 y, sobre todo, la numeración (§5), que es fiscal.
 
-
-## 11. Arquitecturas rechazadas — no reintroducir
+## 15. Arquitecturas rechazadas — no reintroducir
 
 | Arquitectura | Por qué se rechazó |
 |---|---|
-| **Usar `/API/get_*.php` o `/bff/*.php`** (el mapa original) | NO EXISTEN en el deploy vivo: 404 y "Acceso denegado". Es código del snapshot que no está desplegado. Ver §4. |
-| **`get_company.php` como fuente de sucursales y cajas** | Era la fuente elegida en la primera versión de este plan, y está en el grupo `/API` de la fila de arriba: el vivo la rechaza. Se reemplazó por `a_outlets?showTable` + `a_registers?list` con el switch `?o=`. |
-| **Parsear el número de factura del TEXTO de la tabla** | El texto está formateado para mirar (`1.250.000`, `12 ene`). El valor crudo viaja en `data-order`/`data-sort`. Parsear el texto obliga a deshacer separadores de miles que dependen de la config del comercio. |
-| **Indexar el CSV de contactos por POSICIÓN** | El vivo tiene 10 columnas y el snapshot 9 (`TELEFONO 2`), y el header del documento fiscal es `TIN_NAME`, que cambia por país. Posicional lee el email en la columna del teléfono en una de las dos versiones. |
-| **`a_items?action=exportCSV`** | Exige `ids` (no tiene "todos") y su header declara 18 columnas mientras las filas traen 7 claves con otros nombres: está desalineado en el propio legacy. |
-| **Componer el punto de expedición como `prefix + "-" + sufix`** | `registerInvoicePrefix` YA es `EEE-PPP`; el legacy le hace `explode("-")` para SIFEN. `sufix` es otro campo. Componerlo generaría un punto de expedición inventado sobre un dato fiscal. |
+| **Scraping del panel para catálogo / clientes / cajas / sucursales** | Reemplazado por `/fetchs` y **eliminado**, no dejado como fallback. Ver §4.2: dos fuentes para el mismo dominio dejan sin respuesta de dónde salió un dato y divergen en silencio. |
+| **Usar `/API/get_*.php` o `/bff/*.php` como fuente de datos** | NO EXISTEN en el deploy vivo: 404 y "Acceso denegado". (`/bff/pos-redirect.php` se usa SOLO por su header `Location`, y con fallback si no está.) |
+| **Pedirle al operador el companyId/outletId del legacy** | El cliente no los conoce —son hashids internos que nunca ve— y tipearlos mal importa el catálogo de otro comercio. Se deducen de la sesión (§4.3). |
+| **Seguir con el alcance a medias** si no se pudo resolver | `/fetchs` contestaría el bootstrap de otra sucursal, o de ninguna, y el job importaría eso sin señal. Se LANZA. |
+| **Mapear `permissions` del legacy permiso por permiso** | Las dos formas no tienen relación y adivinar de más le da a un cajero permisos que nunca tuvo. Se asigna el ROL más cercano y ante la duda el más bajo (§8). |
+| **Fabricar grupos de add-ons a partir de los componentes `select=1`** | El export no trae nombre de grupo, min/max ni `priceDelta`. Un `maxSelect` adivinado traba la venta; un `priceDelta` 0 regala el agregado. Se anota para revisar (§7.2). |
+| **Componer las recetas en la misma pasada que crea los artículos** | Un combo referencia ítems que pueden venir después en el export. Dos pasadas. |
+| **Marcar la composición en el mismo dominio del mapa que el artículo** | `ItemCompoundService::add()` SUMA la cantidad: re-correr duplicaría cada receta. Son dos hechos distintos (§6). |
+| **Mandar `ticketNo`/`orderNo`/`remissionNo` como numeración de la caja** | `RegisterAdminService` rechaza el alta entera con "Tipo de documento desconocido". Punto no numera esos documentos por caja (§5). |
 | **Importar las cajas "hasta donde se pueda"** ante un choque de punto de expedición | Deja al comercio con la mitad de sus cajas fiscales y sin señal de cuáles faltan. D5 pide fallo duro del dominio. |
-| **Guardar la password del cliente** para poder reintentar el job | D2. El reintento se resuelve creando el job de nuevo (el login son 3 campos); guardar la credencial de un tercero para ahorrar eso no se paga. |
-| **INSERT directo del catálogo** para ir más rápido | D4. Los servicios son los que aplican los invariantes: saltearlos es exactamente cómo entran dos cajas con el mismo punto de expedición, un contacto con teléfono duplicado o un ítem sin fila en `item_outlet`. |
-| **Correr el import inline en la request de `/admin`** | Minutos de export paceado a 60 req/min, más el contexto de tenant que se fija una vez por proceso. Ver §3.1. |
+| **Componer el punto de expedición como `prefix + "-" + sufix`** | `invoicePrefix` YA es `EEE-PPP` (con guión final, que se normaliza). `sufix` es otro campo. Sería inventar un dato fiscal. |
+| **Guardar la password del cliente** para poder reintentar el job | D2. El reintento se resuelve creando el job de nuevo (el login son 3 campos). |
+| **INSERT directo del catálogo** para ir más rápido | D4. Los servicios son los que aplican los invariantes: saltearlos es exactamente cómo entran dos cajas con el mismo punto de expedición o una receta con un ciclo. |
+| **Correr el import inline en la request de `/admin`** | Contexto de tenant por proceso + duración del import por servicios reales. Ver §3.1. |
+| **Migrar el stock inicial ahora que el dato viene** | Un saldo es un movimiento del ledger con costo y sucursal; el export da un número suelto sin costo (§12). |
