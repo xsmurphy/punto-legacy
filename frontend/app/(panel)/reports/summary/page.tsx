@@ -32,7 +32,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { AlertCircle, ArrowDownRight, ArrowUpRight } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -61,6 +61,7 @@ import {
 } from "@/hooks/use-reports"
 import { useIncomeChart } from "@/hooks/use-dashboard-widget"
 import { formatInt, formatMoney } from "@/lib/format"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { cn } from "@/lib/utils"
 
 // ── Tipos locales ────────────────────────────────────────────────────────────
@@ -217,38 +218,39 @@ export default function SummaryReportPage() {
         bootstrap={bootstrap}
       />
 
-      {/* 2. KPI row */}
-      <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard
+      {/* 2. KPI row — `StatTile` como el resto de los reportes.
+          Tenía una card propia y por eso estas se veían distintas a las de
+          todos los demás (reportado por el owner 2026-09-10). Lo que la card
+          propia sabía hacer de más —la comparativa— se mudó al tile canónico,
+          así que no se perdió nada y cualquier otro reporte puede sumarla. */}
+      <StatsRow>
+        <StatTile
           label="Total (Bruto)"
           value={formatMoney(totalCurr, bootstrap)}
-          delta={pctDelta(totalCurr, totalPrev)}
-          trend="up"
+          delta={{ pct: pctDelta(totalCurr, totalPrev) }}
           isLoading={summary.isLoading}
         />
-        <KpiCard
+        {/* En devoluciones y descuentos, SUBIR es la mala noticia. */}
+        <StatTile
           label="Devoluciones"
           value={formatMoney(returnsCurr, bootstrap)}
-          delta={pctDelta(returnsCurr, returnsPrev)}
-          trend="down"
-          negative={returnsCurr > 0}
+          delta={{ pct: pctDelta(returnsCurr, returnsPrev), higherIsBetter: false }}
           isLoading={summary.isLoading}
         />
-        <KpiCard
+        <StatTile
           label="Descuentos"
           value={formatMoney(discountCurr, bootstrap)}
-          delta={pctDelta(discountCurr, discountPrev)}
-          trend="neutral"
+          delta={{ pct: pctDelta(discountCurr, discountPrev), higherIsBetter: false }}
           isLoading={summary.isLoading}
         />
-        <KpiCard
+        <StatTile
           label="Total (Neto)"
           value={formatMoney(netCurr, bootstrap)}
-          delta={pctDelta(netCurr, netPrev)}
-          trend="up"
+          delta={{ pct: pctDelta(netCurr, netPrev) }}
+          emphasis
           isLoading={summary.isLoading}
         />
-      </section>
+      </StatsRow>
 
       {/* 3. Charts secundarios */}
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -454,73 +456,6 @@ function ComparativeChart({
 }
 
 // ── KPI Cards ───────────────────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  delta,
-  trend,
-  negative,
-  isLoading,
-}: {
-  label: string
-  value: string
-  delta: number | null
-  trend: "up" | "down" | "neutral"
-  negative?: boolean
-  isLoading: boolean
-}) {
-  const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : null
-  const trendColor =
-    negative
-      ? "text-destructive"
-      : trend === "up"
-        ? "text-[var(--chart-1)]"
-        : "text-muted-foreground"
-
-  return (
-    <Card>
-      <CardContent className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
-          <span className="truncate">{label}</span>
-        </div>
-        {isLoading ? (
-          <Skeleton className="h-9 w-32" />
-        ) : (
-          <span className="text-3xl font-bold tabular-nums tracking-tight">{value}</span>
-        )}
-        {isLoading ? (
-          <Skeleton className="h-3 w-20" />
-        ) : (
-          <DeltaBadge delta={delta} positiveIsGood={trend === "up"} />
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function DeltaBadge({
-  delta,
-  positiveIsGood,
-}: {
-  delta: number | null
-  positiveIsGood: boolean
-}) {
-  if (delta === null) {
-    return <span className="text-xs text-muted-foreground">— vs período anterior</span>
-  }
-  const isPositive = delta >= 0
-  const good = positiveIsGood ? isPositive : !isPositive
-  const color = good ? "text-[var(--chart-1)]" : "text-destructive"
-  const sign = isPositive ? "+" : ""
-  return (
-    <span className={cn("text-xs tabular-nums", color)}>
-      {sign}
-      {delta.toFixed(1)}% vs período anterior
-    </span>
-  )
-}
 
 function pctDelta(curr: number, prev: number): number | null {
   if (prev === 0) {

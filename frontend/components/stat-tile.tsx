@@ -41,12 +41,51 @@ function StatsRow({
   )
 }
 
+/**
+ * Comparativa contra el período anterior.
+ *
+ * `null` = no se puede calcular (el período anterior fue cero y este no: el
+ * porcentaje sería infinito). Se dice, no se esconde ni se inventa un 0.
+ *
+ * `higherIsBetter` decide el color. Para devoluciones o gastos, subir es malo.
+ */
+export interface StatDelta {
+  pct: number | null
+  higherIsBetter?: boolean
+}
+
+function DeltaLine({ pct, higherIsBetter = true }: StatDelta) {
+  if (pct === null) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Sin base para comparar
+      </span>
+    )
+  }
+  // Cero es SIN CAMBIOS, y eso no es ni bueno ni malo. Antes caía del lado de
+  // "subió" (`0 >= 0`) y un período idéntico al anterior se pintaba de rojo en
+  // cualquier métrica donde bajar es lo deseable.
+  const color =
+    pct === 0
+      ? "text-muted-foreground"
+      : pct > 0 === higherIsBetter
+        ? "text-emerald-600"
+        : "text-destructive"
+  const sign = pct > 0 ? "+" : ""
+  return (
+    <span className={cn("text-xs tabular-nums", color)}>
+      {pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}%`} vs período anterior
+    </span>
+  )
+}
+
 function StatTile({
   icon,
   label,
   value,
   tone = "neutral",
   emphasis,
+  delta,
   isLoading,
   className,
 }: {
@@ -57,6 +96,16 @@ function StatTile({
   tone?: "positive" | "negative" | "neutral"
   /** Resalta el tile "hero" de la fila (ej. Neto / Total). */
   emphasis?: boolean
+  /**
+   * Comparativa contra el período anterior, cuando la pantalla la tiene.
+   *
+   * Vive acá y no en un componente por página: `/reports/summary` tenía su
+   * propio KPI con delta y por eso sus cards se veían distintas a las del
+   * resto de los reportes (reportado por el owner 2026-09-10). Que el tile
+   * canónico sepa mostrarlo es lo que permite que cualquier reporte lo sume
+   * sin volver a inventar la card.
+   */
+  delta?: StatDelta
   isLoading?: boolean
   className?: string
 }) {
@@ -81,6 +130,12 @@ function StatTile({
             {value}
           </span>
         )}
+        {delta &&
+          (isLoading ? (
+            <Skeleton className="h-3 w-28" />
+          ) : (
+            <DeltaLine pct={delta.pct} higherIsBetter={delta.higherIsBetter} />
+          ))}
       </CardContent>
     </Card>
   )
