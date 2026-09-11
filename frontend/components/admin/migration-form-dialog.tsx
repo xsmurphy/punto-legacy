@@ -33,20 +33,35 @@ import {
 const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
   {
     key: "catalog",
-    title: "Catálogo",
-    detail: "Categorías, marcas, etiquetas y artículos. El stock inicial no se migra.",
+    title: "Catálogo, combos y recetas",
+    detail:
+      "Categorías, marcas, etiquetas, artículos con su costo, y la composición de combos y recetas de producción. El stock inicial no se migra.",
   },
   {
     key: "customers",
     title: "Clientes",
-    detail: "Clientes con documento, teléfono y dirección.",
+    detail: "Con documento, teléfono, dirección, saldo a favor y línea de crédito.",
   },
   {
     key: "config",
-    title: "Configuración, sucursales y cajas",
+    title: "Sucursales y cajas",
     detail: "Las cajas se crean con su timbrado y continúan la numeración donde quedó el legacy.",
   },
+  {
+    key: "users",
+    title: "Usuarios",
+    detail:
+      "Con su PIN de caja y el rol de Punto más parecido al que tenían. La contraseña del panel no se migra: se restablece desde Equipo.",
+  },
+  {
+    key: "payments",
+    title: "Medios de pago",
+    detail: "Los que el comercio tenía configurados. Los que ya existan en Punto se reusan, no se duplican.",
+  },
 ]
+
+/** Todo seleccionado por defecto: migrar de menos es el error caro. */
+const ALL_DOMAINS = DOMAINS.map((d) => d.key)
 
 export function MigrationFormDialog({
   open,
@@ -64,7 +79,7 @@ export function MigrationFormDialog({
   // cambiaría la credencial que el cliente usa todos los días.
   const [identifier, setIdentifier] = React.useState("")
   const [password, setPassword] = React.useState("")
-  const [domains, setDomains] = React.useState<string[]>(["catalog", "customers", "config"])
+  const [domains, setDomains] = React.useState<string[]>(ALL_DOMAINS)
   const [registerOutletId, setRegisterOutletId] = React.useState("")
 
   const companies = useAdminCompanies({ limit: 30, q: search || undefined })
@@ -79,7 +94,7 @@ export function MigrationFormDialog({
       setSearch("")
       setIdentifier("")
       setPassword("")
-      setDomains(["catalog", "customers", "config"])
+      setDomains(ALL_DOMAINS)
       setRegisterOutletId("")
     }
   }, [open])

@@ -1,0 +1,42 @@
+[
+  {
+    "companyId": "QE22",
+    "companyName": "Comercio Migrado SA",
+    "companyBillingName": "Comercio Migrado SA",
+    "companyAddress": "Avda. Mcal. Lopez 1234",
+    "companyTIN": "80099887-1",
+    "companyPhone": "021555000",
+    "companyEmail": "info@comercio.test",
+    "companyWebsite": "",
+    "companyCategory": "Gastronomia",
+    "currency": "Gs",
+    "taxName": "IVA",
+    "removeTax": "0",
+    "taxPY": "1",
+    "decimal": 0,
+    "thousandSeparator": ".",
+    "customTemplates": "",
+    "tags": ["Artesanal", "Premium"],
+    "tagsSys": [],
+    "paymentMethods": [
+      { "id": "pm-1", "name": "Efectivo", "code": "A" },
+      { "id": "pm-2", "name": "Transferencia", "code": "T" },
+      { "id": "pm-3", "name": "T. Crédito", "code": "S" }
+    ],
+    "bankNames": [],
+    "sellSoldOut": "1",
+    "blindDrawer": "0",
+    "paymentMethodId": "pm-1",
+    "internalConsumption": "0",
+    "reduceStockOnOrder": "0",
+    "itemSerialized": "0",
+    "clocking": "0",
+    "lockScreen": "1",
+    "itemsSaleLimit": "0",
+    "country": "Paraguay",
+    "countryISO": "PY",
+    "currencyISO": "PYG",
+    "loyalty": "0",
+    "epos": "0"
+  }
+]

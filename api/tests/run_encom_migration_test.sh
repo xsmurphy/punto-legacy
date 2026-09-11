@@ -3,15 +3,22 @@
 # run_encom_migration_test.sh — arnés del migrador ENCOM → Punto
 # (context/77-migrador-encom.md).
 #
-# Corre el IMPORTADOR REAL (ItemService, ContactService, OutletsService,
-# RegisterAdminService) contra un Postgres descartable. Lo único mockeado es
-# el EXPORT: la fuente es un `EncomSource` de fixtures con el shape exacto que
-# devuelve cada endpoint legacy (api/tests/fixtures/encom/*.json).
+# Corre el IMPORTADOR REAL (ItemService, ItemCompoundService, ContactService,
+# OutletsService, RegisterAdminService, UsersService, PaymentMethodService)
+# contra un Postgres descartable. Lo único mockeado es el TRANSPORTE: el
+# cliente real del legacy sirve los payloads de `POST /fetchs` desde
+# `api/tests/fixtures/encom/fetchs-*.json`, con el shape exacto del sistema
+# vivo.
 #
-# Verifica: import idempotente (correr dos veces = mismos conteos), el mapeo
-# legacy→Punto, la CONTINUACIÓN de la numeración fiscal de las cajas (último
-# emitido + 1, en la serie del timbrado + punto de expedición) y el rechazo
-# duro cuando dos cajas comparten punto de expedición bajo el mismo timbrado.
+# Verifica: de dónde salen companyId/outletId del legacy (el `?i=` en base64,
+# por el redirect y por el fallback del home), el mapeo de cada dominio, la
+# COMPOSICIÓN de combos y recetas resuelta por el mapa —incluido que lo que no
+# mapea limpio NO se invente—, el rol que se le asigna a cada usuario, la
+# CONTINUACIÓN de la numeración fiscal por tipo de documento (último emitido +
+# 1, en la serie del timbrado + punto de expedición), el rechazo duro cuando
+# dos cajas comparten punto de expedición bajo el mismo timbrado, y que correr
+# dos veces no duplique nada (las recetas incluidas: componer de nuevo SUMARÍA
+# las cantidades).
 #
 # Mismo patrón que run_users_report_test.sh: Postgres descartable + schema +
 # migraciones, corre el arnés y destruye todo al terminar.

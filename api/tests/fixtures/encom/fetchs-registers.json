@@ -1,0 +1,80 @@
+{
+  "registers": [
+    {
+      "registerId": "reg-1",
+      "name": "Caja 1",
+      "outletId": "out-1",
+      "invoicePrefix": "001-001-",
+      "invoiceSerie": "",
+      "invoiceSufix": "",
+      "invoiceNoMax": "9999999",
+      "leadingZero": 7,
+      "invoiceAuthNo": "16543210",
+      "invoiceAuthExpiration": "2027-12-31",
+      "drawerControl": 1,
+      "electronicInvoice": 0,
+      "hotkeys": "[]",
+      "printers": "[]"
+    },
+    {
+      "registerId": "reg-2",
+      "name": "Caja 2",
+      "outletId": "out-1",
+      "invoicePrefix": "001-002-",
+      "invoiceSerie": "",
+      "invoiceSufix": "",
+      "invoiceNoMax": "9999999",
+      "leadingZero": 7,
+      "invoiceAuthNo": "16543210",
+      "invoiceAuthExpiration": "2027-12-31",
+      "drawerControl": 1,
+      "electronicInvoice": 0
+    },
+    {
+      "registerId": "reg-3",
+      "name": "Caja Shopping",
+      "outletId": "out-2",
+      "invoicePrefix": "002-001-",
+      "invoiceSerie": "",
+      "invoiceSufix": "",
+      "invoiceNoMax": "9999999",
+      "leadingZero": 7,
+      "invoiceAuthNo": "16543210",
+      "invoiceAuthExpiration": "2027-12-31",
+      "drawerControl": 0,
+      "electronicInvoice": 0
+    }
+  ],
+  "docsNum": [
+    {
+      "registerId": "reg-1",
+      "invoiceNo": 2128,
+      "ticketNo": 900,
+      "orderNo": 12,
+      "quoteNo": 15,
+      "returnNo": 3,
+      "remissionNo": 0,
+      "scheduleNo": 0
+    },
+    {
+      "registerId": "reg-2",
+      "invoiceNo": 3778,
+      "ticketNo": 0,
+      "orderNo": 0,
+      "quoteNo": 0,
+      "returnNo": 0,
+      "remissionNo": 0,
+      "scheduleNo": 0
+    },
+    {
+      "registerId": "reg-3",
+      "invoiceNo": 0,
+      "ticketNo": 0,
+      "orderNo": 0,
+      "quoteNo": 0,
+      "returnNo": 0,
+      "remissionNo": 0,
+      "scheduleNo": 0
+    }
+  ]
+}

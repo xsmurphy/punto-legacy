@@ -33,13 +33,22 @@ const DOMAIN_LABEL: Record<string, string> = {
   catalog: "Catálogo",
   customers: "Clientes",
   config: "Configuración",
+  users: "Usuarios",
+  payments: "Medios de pago",
   category: "Categorías",
   brand: "Marcas",
   tag: "Etiquetas",
   item: "Artículos",
+  // Combos y recetas: se cuentan aparte de los artículos porque son una
+  // segunda pasada sobre los mismos ítems (primero existen, después se
+  // componen), y porque es la fila donde el operador ve cuántos quedaron para
+  // revisar a mano.
+  compound: "Combos y recetas",
   customer: "Clientes",
   outlet: "Sucursales",
   register: "Cajas",
+  user: "Usuarios",
+  payment: "Medios de pago",
   job: "Migración",
 }
 
