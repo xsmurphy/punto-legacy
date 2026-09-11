@@ -129,19 +129,29 @@ interface EncomSource
     public function salesHistory(string $from, string $to): array;
 
     /**
-     * Líneas de UNA venta. Es una request POR VENTA (el legacy no tiene un
-     * endpoint de líneas por rango, a diferencia de las compras), así que el
-     * importador la llama paceada y por mes.
+     * El LOG DE ÍTEMS VENDIDOS de un rango, en bloque y paginado.
      *
-     * `legacyItemId` viene vacío cuando el form no lo expone (lo normal en el
-     * deploy relevado): ahí el artículo se resuelve por nombre contra el
-     * catálogo ya migrado, que es el mismo criterio con el que el migrador
-     * cruza los costos.
+     * ── Por qué esto y no "las líneas de cada venta" ─────────────────────
+     * En el legacy los ítems vendidos viven en una tabla APARTE de las
+     * transacciones, y tienen su propio reporte: el histórico son DOS LOGS
+     * INDEPENDIENTES, no un documento con sus renglones.
      *
-     * @return array<int,array{ID:string,legacyItemId:string,itemName:string,
-     *         qty:?float,price:?float,tax:?float,total:?float,user:string}>
+     * Eso cambia el costo por dos órdenes de magnitud. La vía anterior era el
+     * form de edición de UNA venta (`a_report_transactions?action=edit`), o
+     * sea una request por venta: 6.927 en el primer cliente real, más de dos
+     * horas paceadas contra el servidor donde el comercio está vendiendo. Este
+     * log entero entra en unas pocas páginas de 1000.
+     *
+     * Cómo se pega cada fila a su venta es problema del importador —el mismo
+     * que ya resuelven las compras—, no de esta capa.
+     *
+     * @param string $from 'YYYY-MM-DD HH:MM:SS'
+     * @param string $to   'YYYY-MM-DD HH:MM:SS'
+     * @return array<int,array{ID:string,saleRef:string,docNumber:string,date:string,
+     *         legacyItemId:string,itemName:string,qty:?float,price:?float,
+     *         tax:?float,total:?float,user:string}>
      */
-    public function saleLines(string $legacyId): array;
+    public function itemsSoldHistory(string $from, string $to): array;
 
     /**
      * Cabeceras de las compras de un rango.

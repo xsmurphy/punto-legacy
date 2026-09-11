@@ -128,6 +128,12 @@ final class EncomImportService
             } catch (\Throwable $e) {
                 $this->fail($domain, $e->getMessage());
             }
+
+            // Latido en cada borde de dominio, además de los que emite el
+            // histórico por dentro: así los dominios que no laten solos
+            // (catálogo, clientes, configuración) tampoco dejan al job callado
+            // mientras corren.
+            $this->latir();
         }
 
         return [
@@ -170,20 +176,67 @@ final class EncomImportService
                 . 'pueden correrse de día en los bordes. (' . $e->getMessage() . ')');
         }
 
-        $importer = new EncomHistoryImporter($this->companyId, $this->source, $this->jobId);
+        $importer = new EncomHistoryImporter(
+            $this->companyId,
+            $this->source,
+            $this->jobId,
+            // El LATIDO. El histórico del primer cliente real son más de dos
+            // horas de requests paceadas (6.927 ventas, una por detalle), y
+            // hasta hoy el progreso se escribía recién en `finish()`: la
+            // pantalla del job no mostraba nada en todo ese tiempo y el reaper
+            // daba por muerto un worker que estaba trabajando bien.
+            function (array $counts) use ($domain): void {
+                $this->progress[$domain] = $counts;
+                $this->latir();
+            }
+        );
 
-        $this->progress[$domain] = match ($domain) {
-            'sales_history'     => $importer->sales($options),
-            'purchases_history' => $importer->purchases($options),
-            'expenses_history'  => $importer->expenses($options),
-            default             => ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0],
-        };
+        try {
+            match ($domain) {
+                'sales_history'     => $importer->sales($options),
+                'purchases_history' => $importer->purchases($options),
+                'expenses_history'  => $importer->expenses($options),
+                default             => null,
+            };
+        } finally {
+            // Pase lo que pase, incluido un dominio que ABORTA a mitad de
+            // camino: los conteos de lo que sí entró, la bitácora y los errores
+            // llegan al job. Con el `return` como única vía, un dominio que
+            // lanzaba se llevaba consigo la evidencia —justamente la de las
+            // sondas, que existe para explicar por qué abortó—.
+            $this->progress[$domain] = $importer->counts();
 
-        foreach ($importer->log() as $entrada) {
-            $this->log[] = $entrada;
+            foreach ($importer->log() as $entrada) {
+                $this->log[] = $entrada;
+            }
+            foreach ($importer->errors() as $error) {
+                $this->errors[] = $error;
+            }
         }
-        foreach ($importer->errors() as $error) {
-            $this->errors[] = $error;
+    }
+
+    /**
+     * Latido del job: progreso parcial y, con él, señal de vida.
+     *
+     * `reportProgress()` bumpea `updated_at`, que es contra lo que
+     * `EncomMigrationService::requeueStale()` mide si el worker sigue vivo. O
+     * sea que esto no es solo cosmética de la pantalla: es lo que impide que
+     * una corrida larga se reencole sola y termine con dos workers sobre el
+     * mismo job.
+     *
+     * Un latido que falla NO puede tirar el import: es telemetría. Si la base
+     * estuviera caída, el import se cae solo y con un error que dice algo.
+     */
+    private function latir(): void
+    {
+        if ($this->jobId === null || $this->jobId === '') {
+            return;
+        }
+
+        try {
+            (new EncomMigrationService())->reportProgress($this->jobId, $this->progress, $this->log);
+        } catch (\Throwable $e) {
+            // Intencionalmente en silencio. Ver el docblock.
         }
     }
 

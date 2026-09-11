@@ -50,6 +50,10 @@ $companyD  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d7788';
 $companyE  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d99aa';
 // Empresa SIN sucursales, para el prerequisito del histórico (caso Q).
 $companyF  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6dbbcc';
+// Empresa con sucursales y usuarios migrados, para los casos del EXPORT: el
+// tope de filas por request (P), la sonda del detalle (S), el detalle apagado
+// (T) y el latido del job (R).
+$companyG  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6dddee';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -95,7 +99,7 @@ class FixtureEncomClient extends EncomClient
     /** @var array<int,string> `load` pedidos, en orden. */
     public array $calls = [];
 
-    public function __construct(private readonly string $dir)
+    public function __construct(protected readonly string $dir)
     {
         // El par que devolvió el sistema vivo en el relevamiento.
         parent::__construct('https://legacy.test', ['PHPSESSID' => 'fixture'], 'QE22', '62Lm');
@@ -136,9 +140,9 @@ class FixtureEncomClient extends EncomClient
         $file = match (true) {
             $path === '/a_items'                                          => 'panel-items-costs.json',
             $path === '/a_report_transactions' && $action === 'detailTable' => 'panel-sales.json',
-            // El detalle es por VENTA: una request por cada una.
-            $path === '/a_report_transactions' && $action === 'edit'
-                => 'panel-sale-detail-' . (string) ($params['id'] ?? '') . '.html',
+            // El log de ítems vendidos: en el legacy es una tabla APARTE de
+            // las transacciones, con su propio reporte en bloque.
+            $path === '/a_report_products'  && $action === 'detailTable'   => 'panel-items-sold.json',
             $path === '/a_report_purchases' && $action === 'general'       => 'panel-purchases.json',
             $path === '/a_report_purchases' && $action === 'detailTable'   => 'panel-purchase-lines.json',
             $path === '/a_report_expenses'  && $action === 'generalTable'  => 'panel-expenses.json',
@@ -165,6 +169,122 @@ final class SinCostosEncomClient extends FixtureEncomClient
     protected function get(string $path, array $params = [], bool $allowRedirect = false): string
     {
         throw new \RuntimeException('el panel respondió 403');
+    }
+}
+
+/**
+ * Listado de ventas del legacy con N filas, con el MISMO shape que el fixture
+ * real: los mismos encabezados (incluidos los pares ambiguos `Tipo
+ * Documento`/`Tipo` y `Total Gravado`/`Total`), el valor crudo en `data-order`
+ * y el id de la venta en `data-id`.
+ *
+ * @param array<int,string> $ids
+ */
+function ventasHtml(array $ids): string
+{
+    $thead = '<thead><tr>'
+        . '<th>ID</th><th>#Autorización</th><th>#Documento</th><th>Fecha</th><th>Hora</th>'
+        . '<th>Vencimiento</th><th>Cliente</th><th>RUC</th><th>Usuario</th><th>Sucursal</th>'
+        . '<th>Caja</th><th>Caja FE Activa</th><th>M.de Pago</th><th>Nota</th><th>Etiquetas</th>'
+        . '<th>Tipo Documento</th><th>Tipo</th><th>Descuento</th><th>Subtotal</th><th>IVA</th>'
+        . '<th>Total Gravado</th><th>Total</th></tr></thead>';
+
+    $filas = '';
+    foreach ($ids as $id) {
+        $filas .= '<tr data-id="' . $id . '">'
+            . '<td data-order="' . $id . '">' . $id . '</td>'
+            . '<td data-order="16543210">16543210</td>'
+            . '<td data-order="001-001-0009999">001-001-0009999</td>'
+            . '<td data-order="2026-08-14 10:30:00">14 ago</td>'
+            . '<td data-order="10:30">10:30</td>'
+            . '<td data-order="">-</td>'
+            . '<td data-order="">-</td>'
+            . '<td data-order="">-</td>'
+            // Un usuario que NO está migrado: la venta se rechaza ANTES de
+            // pedir su detalle, así que estos casos miden el LISTADO y nada
+            // más (y no insertan miles de filas para probar la paginación).
+            . '<td data-order="Usuario Fantasma">Usuario Fantasma</td>'
+            . '<td data-order="Casa Central">Casa Central</td>'
+            . '<td data-order="Caja Uno">Caja Uno</td>'
+            . '<td data-order="Sí">Sí</td>'
+            . '<td data-order="Efectivo">Efectivo</td>'
+            . '<td data-order="">-</td>'
+            . '<td data-order="">-</td>'
+            . '<td data-order="Factura">Factura</td>'
+            . '<td data-order="Contado">Contado</td>'
+            . '<td data-order="0">0</td>'
+            . '<td data-order="9091">9.091</td>'
+            . '<td data-order="909">909</td>'
+            . '<td data-order="9091">9.091</td>'
+            . '<td data-order="10000">10.000</td>'
+            . '</tr>';
+    }
+
+    return (string) json_encode(['table' => $thead . '<tbody>' . $filas . '</tbody>']);
+}
+
+/**
+ * Legacy con un listado GRANDE y un TOPE de filas por request.
+ *
+ * Es lo que se llevó el 96% del histórico en la primera corrida real: el
+ * legacy capa en 100 filas y contesta 200 con una tabla perfectamente formada,
+ * así que "300 ventas importadas, 0 errores" era en realidad el techo tres
+ * veces. El fixture reproduce las dos variantes que importan:
+ *
+ *   · `$pagina = false` — ignora los parámetros de paginación (el deploy que
+ *     nos mordió). El export tiene que ABORTAR, no asentar 100 de 250.
+ *   · `$pagina = true` — respeta `part/offset/limit`, pero con un techo PROPIO
+ *     por página más chico que lo pedido. Es el caso que obliga a avanzar el
+ *     offset por filas LEÍDAS y no por página pedida: avanzando de a 1000 se
+ *     saltearía todo lo del medio en silencio.
+ */
+class ListadoLargoEncomClient extends FixtureEncomClient
+{
+    /** @var array<int,array<string,mixed>> Parámetros de cada pedido al listado. */
+    public array $pedidos = [];
+
+    public function __construct(
+        string $dir,
+        private readonly int $filas,
+        private readonly bool $pagina,
+        private readonly int $porPagina = 100,
+    ) {
+        parent::__construct($dir);
+    }
+
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        $action = (string) ($params['action'] ?? '');
+
+        if ($path === '/a_report_transactions' && $action === 'detailTable') {
+            $this->pedidos[] = $params;
+
+            // Sin parámetros de paginación, el legacy contesta su tope.
+            $desde   = 0;
+            $cuantas = min(100, $this->filas);
+
+            $lePiden = isset($params['part']) || isset($params['start']);
+            if ($this->pagina && $lePiden) {
+                $desde   = (int) ($params['offset'] ?? $params['start'] ?? 0);
+                $pedidas = (int) ($params['limit'] ?? $params['length'] ?? 100);
+                $cuantas = max(0, min($pedidas, $this->porPagina, $this->filas - $desde));
+            }
+
+            $ids = [];
+            for ($i = $desde; $i < $desde + $cuantas; $i++) {
+                $ids[] = 'tx-lote-' . $i;
+            }
+
+            return ventasHtml($ids);
+        }
+
+        // El log de ítems vendidos, VACÍO: estos casos miden el listado de
+        // ventas y nada más.
+        if ($path === '/a_report_products') {
+            return (string) json_encode(['table' => '']);
+        }
+
+        return parent::get($path, $params, $allowRedirect);
     }
 }
 
@@ -1629,20 +1749,22 @@ try {
     // histórico directamente NO EXISTE: los reportes leen el costo congelado
     // por línea, no lo recalculan.
     //
-    // El contrato es el de `SaleService`: la columna guarda el costo UNITARIO,
-    // no el de la línea. "Café Espresso" costó 5.000 la unidad y la línea son
-    // 2 unidades a 15.000 — si acá apareciera 10.000 (2 × 5.000) o 30.000, el
-    // contrato estaría roto y todos los márgenes saldrían mal.
+    // El contrato es el de `SaleService`: la columna guarda el costo UNITARIO.
+    // El log del legacy trae el costo de la LÍNEA (verificado con dos filas
+    // reales: Total − Costo = Utilidad), así que hay que DIVIDIR por la
+    // cantidad: 10.000 de costo en 2 unidades ⇒ 5.000. Si acá apareciera
+    // 10.000, el margen histórico saldría hundido por un factor igual a la
+    // cantidad, en silencio y para siempre.
     $cogsConCosto = scalar(
         "SELECT itemSoldCOGS FROM itemSold
-          WHERE transactionId = ? AND itemSoldDescription = 'Café Espresso' LIMIT 1",
+          WHERE transactionId = ? AND itemSoldDescription = 'CAFE ESPRESSO GRANDE' LIMIT 1",
         [(string) ($f1['transactionid'] ?? '')]
     );
     check(
-        'H12 · la línea de un artículo CON costo guarda el COGS UNITARIO (5.000)',
+        'H12 · el costo de LÍNEA del log se guarda como COGS UNITARIO (10.000 / 2 = 5.000)',
         $cogsConCosto !== null && $cogsConCosto !== false && abs((float) $cogsConCosto - 5000.0) < 0.01,
         'itemSoldCOGS = ' . var_export($cogsConCosto, true)
-            . ' — esperado 5000 (item.itemCost unitario, NO 10000 = 2×5000 ni el total de la línea)',
+            . ' — esperado 5000; 10000 significaría que se escribió el costo de la línea sin dividir',
         $failures, $checks
     );
 
@@ -1756,6 +1878,165 @@ try {
     );
 
     // ══════════════════════════════════════════════════════════════════
+    // P/S/T/R. EL EXPORT — tope de filas, sonda del detalle, y latido
+    // ══════════════════════════════════════════════════════════════════
+    // Todo este bloque sale de la primera corrida real (2026-09-11), donde el
+    // job dijo "300 ventas importadas, 0 errores" y en realidad había perdido
+    // el 96% del histórico y no había entrado una sola línea.
+    seedCompany($companyG, 'Comercio Con Mucho Historico SA');
+    (new EncomImportService($companyG, new FixtureEncomClient($fixtures), null))
+        ->run(['config', 'users'], []);
+
+    // ── P. El tope de 100 filas por request ───────────────────────────
+    $topeCli = new ListadoLargoEncomClient($fixtures, 250, false);
+    $runTope = (new EncomImportService($companyG, $topeCli, null))->run(['sales_history'], $histOpts);
+    $errTope = json_encode($runTope['errors'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'P1 · un mes capado en el tope ABORTA el dominio en vez de asentar 100 de 250',
+        count($runTope['errors']) === 1
+            && str_contains($errTope, 'TRUNCADO')
+            && ($runTope['progress']['sales_history']['imported'] ?? -1) === 0,
+        'errors = ' . $errTope,
+        $failures, $checks
+    );
+
+    // Sin esto el corte sería carísimo: probar convenciones inventadas contra
+    // el servidor del cliente, una request por cada una, por mes.
+    check(
+        'P2 · y antes de abortar solo gasta 3 pedidos (el listado + una sonda por convención)',
+        count($topeCli->pedidos) === 3,
+        'pedidos = ' . count($topeCli->pedidos) . ' → ' . json_encode($topeCli->pedidos),
+        $failures, $checks
+    );
+
+    // ── P3/P4. Con paginación soportada se lee TODO ───────────────────
+    $pagCli = new ListadoLargoEncomClient($fixtures, 250, true, 100);
+    $runPag = (new EncomImportService($companyG, $pagCli, null))->run(['sales_history'], $histOpts);
+
+    check(
+        'P3 · con part/offset/limit se leen las 250 ventas, no las 100 del tope',
+        ($runPag['progress']['sales_history']['total'] ?? 0) === 250,
+        'progress = ' . json_encode($runPag['progress']['sales_history'] ?? null)
+            . ' · errores = ' . json_encode($runPag['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // El fixture respeta `limit` pero con un techo propio de 100: si el offset
+    // avanzara de a 1000 (lo PEDIDO) en vez de por filas leídas, se saltearía
+    // todo lo del medio y este caso daría 100.
+    check(
+        'P4 · el offset avanza por filas LEÍDAS: 6 pedidos (listado + sonda + 3 páginas + la vacía)',
+        count($pagCli->pedidos) === 6,
+        'pedidos = ' . count($pagCli->pedidos) . ' → ' . json_encode($pagCli->pedidos),
+        $failures, $checks
+    );
+
+    // ── S. El log de ítems: lo que no se puede pegar, se informa ──────
+    // Una línea cuya venta no está importada NO se puede asentar
+    // (`itemsold.transactionid` es NOT NULL con FK) y las dos salidas fáciles
+    // están mal: inventarle una transacción falsea la facturación del período,
+    // y descartarla en silencio es el bug que este trabajo vino a cerrar.
+    check(
+        'S1 · la línea cuyo documento no corresponde a ninguna venta importada NO se asienta',
+        (int) scalar(
+            "SELECT count(*) FROM itemSold WHERE companyId = ? AND itemSoldDescription = 'CAFE ESPRESSO GRANDE'",
+            [$companyId]
+        ) === 1,
+        'el log trae ese artículo DOS veces: una en la venta tx-1 y otra en un documento que no se importó',
+        $failures, $checks
+    );
+
+    check(
+        'S2 · y el job dice cuáles quedaron afuera, con su documento',
+        str_contains(json_encode($runH['log'], JSON_UNESCAPED_UNICODE), 'pegar')
+            && str_contains(json_encode($runH['log'], JSON_UNESCAPED_UNICODE), '001-001-0009999'),
+        'log = ' . json_encode($runH['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // Las unidades de la venta se completan cuando entra el log: al asentar la
+    // cabecera todavía no se habían leído sus líneas.
+    check(
+        'S3 · la venta queda con sus unidades vendidas (2 + 1), que llegan con el segundo log',
+        abs((float) scalar(
+            "SELECT COALESCE(transactionUnitsSold, 0) FROM transaction WHERE transactionId = ?",
+            [(string) ($f1['transactionid'] ?? '')]
+        ) - 3.0) < 0.001,
+        'transactionUnitsSold = ' . var_export(scalar(
+            "SELECT transactionUnitsSold FROM transaction WHERE transactionId = ?",
+            [(string) ($f1['transactionid'] ?? '')]
+        ), true),
+        $failures, $checks
+    );
+
+    // ── R. El latido, y el reaper que mata corridas sanas ─────────────
+    // `requeueStale` medía contra `started_at`, o sea que era un TOPE DE
+    // DURACIÓN disfrazado de detector de muerte: a los 45 minutos devolvía a
+    // `pending` un job que estaba trabajando bien, y el drain le lanzaba un
+    // SEGUNDO worker encima del primero.
+    $jobLatido = (string) scalar(
+        "INSERT INTO migration_job (companyid, source, status, domains, progress, attempts,
+                                    created_at, started_at, updated_at)
+         VALUES (?, 'encom', 'running', ?::jsonb, '{}'::jsonb, 1,
+                 now() - interval '90 minutes', now() - interval '90 minutes', now() - interval '10 minutes')
+         RETURNING jobid",
+        [$companyG, json_encode(['expenses_history'])]
+    );
+
+    (new EncomMigrationService())->requeueStale(45);
+
+    check(
+        'R1 · un job que LATÓ hace 10 minutos NO se reencola, aunque arrancó hace 90',
+        (string) scalar('SELECT status FROM migration_job WHERE jobid = ?', [$jobLatido]) === 'running',
+        'status = ' . var_export(scalar('SELECT status FROM migration_job WHERE jobid = ?', [$jobLatido]), true)
+            . ' (si dice pending, el reaper está matando corridas largas sanas)',
+        $failures, $checks
+    );
+
+    $db->Execute(
+        "UPDATE migration_job SET updated_at = now() - interval '60 minutes' WHERE jobid = ?",
+        [$jobLatido]
+    );
+    (new EncomMigrationService())->requeueStale(45);
+
+    check(
+        'R2 · uno que DEJÓ de latir sí se reencola (el worker murió de verdad)',
+        (string) scalar('SELECT status FROM migration_job WHERE jobid = ?', [$jobLatido]) === 'pending',
+        'status = ' . var_export(scalar('SELECT status FROM migration_job WHERE jobid = ?', [$jobLatido]), true),
+        $failures, $checks
+    );
+
+    // Y que el import LATA de verdad: sin esto, lo de arriba solo cambia
+    // contra qué se mide un latido que nadie emite.
+    $db->Execute(
+        "UPDATE migration_job
+            SET status = 'running', updated_at = now() - interval '30 minutes'
+          WHERE jobid = ?",
+        [$jobLatido]
+    );
+
+    (new EncomImportService($companyG, new FixtureEncomClient($fixtures), $jobLatido))
+        ->run(['expenses_history'], $histOpts);
+
+    $latidoFresco = scalar(
+        "SELECT updated_at > now() - interval '1 minute' FROM migration_job WHERE jobid = ?",
+        [$jobLatido]
+    );
+
+    check(
+        'R3 · el import escribe progreso mientras corre, que es lo que mantiene vivo al job',
+        in_array((string) $latidoFresco, ['1', 't', 'true'], true)
+            && str_contains(
+                (string) scalar('SELECT progress::text FROM migration_job WHERE jobid = ?', [$jobLatido]),
+                'expenses_history'
+            ),
+        'latido fresco = ' . var_export($latidoFresco, true)
+            . ' · progress = ' . (string) scalar('SELECT progress::text FROM migration_job WHERE jobid = ?', [$jobLatido]),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
     // G. PREREQUISITO — un dominio dependiente no emite cientos de derivados
     // ══════════════════════════════════════════════════════════════════
     // El incidente: `config` no mapeó ninguna sucursal y el histórico emitió
@@ -1856,6 +2137,7 @@ try {
     cleanup($companyC);
     cleanup($companyE);
     cleanup($companyF);
+    cleanup($companyG);
     // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
     // línea, una segunda corrida del arnés contra la misma base encontraría el
     // período ya cerrado y H17 pasaría por el motivo equivocado.

@@ -31,8 +31,11 @@ namespace Punto\Api\Admin;
  *     nombre de la sucursal se leía como TIMBRADO. La tabla de artículos era
  *     justamente la única que seguía siendo posicional; ahora que vuelve a
  *     tener un lector, lo hace por encabezado.
- *   · `formValues()` → `a_report_transactions?action=edit&id=`, el form con los
- *     ítems de UNA venta (F2).
+ * `formValues()` vivía acá para leer el form de edición de UNA venta, que era
+ * de donde salían sus ítems. Se ELIMINÓ junto con ese camino (2026-09-11): el
+ * histórico pasó a leer el log de ítems vendidos, que es una tabla más y entra
+ * en bloque. Un parser sin lectores no se conserva por si acaso — se vuelve
+ * código que nadie prueba y que el próximo lector asume vigente.
  */
 final class EncomParse
 {
@@ -202,75 +205,6 @@ final class EncomParse
             'Ü' => 'U', 'Ñ' => 'N',
         ]);
         return preg_replace('/\s+/u', ' ', $h) ?? $h;
-    }
-
-    /**
-     * Valor de un `<input>`/`<select>` por su atributo `name`, dentro de un
-     * form HTML del legacy (`?action=edit`).
-     *
-     * Es lo que permite leer el detalle de una venta sin depender del ORDEN de
-     * los campos en la pantalla: si el legacy mueve un input de lugar, el
-     * `name` sigue siendo el mismo.
-     *
-     * @return array<string,string> name => value
-     */
-    public static function formValues(string $html): array
-    {
-        if (trim($html) === '') {
-            return [];
-        }
-
-        $doc  = new \DOMDocument();
-        $prev = libxml_use_internal_errors(true);
-        $doc->loadHTML(
-            '<?xml encoding="UTF-8"?><div>' . $html . '</div>',
-            LIBXML_NOERROR | LIBXML_NOWARNING
-        );
-        libxml_clear_errors();
-        libxml_use_internal_errors($prev);
-
-        $out = [];
-
-        foreach (['input', 'textarea'] as $tag) {
-            foreach ($doc->getElementsByTagName($tag) as $el) {
-                if (!$el instanceof \DOMElement) {
-                    continue;
-                }
-                $name = trim($el->getAttribute('name'));
-                if ($name === '') {
-                    continue;
-                }
-                // Un checkbox/radio sin marcar no aporta valor.
-                $type = strtolower($el->getAttribute('type'));
-                if (($type === 'checkbox' || $type === 'radio') && !$el->hasAttribute('checked')) {
-                    continue;
-                }
-                $out[$name] = $tag === 'textarea'
-                    ? trim($el->textContent)
-                    : trim($el->getAttribute('value'));
-            }
-        }
-
-        // En un <select> el valor es la <option> con `selected`.
-        foreach ($doc->getElementsByTagName('select') as $sel) {
-            if (!$sel instanceof \DOMElement) {
-                continue;
-            }
-            $name = trim($sel->getAttribute('name'));
-            if ($name === '') {
-                continue;
-            }
-            foreach ($sel->getElementsByTagName('option') as $opt) {
-                if ($opt instanceof \DOMElement && $opt->hasAttribute('selected')) {
-                    $out[$name] = $opt->hasAttribute('value')
-                        ? trim($opt->getAttribute('value'))
-                        : trim($opt->textContent);
-                    break;
-                }
-            }
-        }
-
-        return $out;
     }
 
     /**

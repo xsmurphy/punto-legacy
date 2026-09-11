@@ -304,9 +304,10 @@ export function MigrationFormDialog({
                 />
               </div>
               <p className="text-sm text-muted-foreground">
-                Vacío = los últimos 12 meses. El detalle de cada venta se le pide de a una al sistema
-                anterior, así que un rango largo puede tardar horas: se puede cortar y volver a lanzar,
-                que sigue donde quedó sin duplicar nada. Un mes ya cerrado contablemente no se toca.
+                Vacío = los últimos 12 meses. Entran los totales de cada venta y también qué se vendió,
+                con su costo, así que el ranking de productos y el margen del período quedan completos.
+                Se puede cortar y volver a lanzar, que sigue donde quedó sin duplicar nada. Un mes ya
+                cerrado contablemente no se toca.
               </p>
             </div>
           )}
