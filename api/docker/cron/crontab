@@ -17,6 +17,13 @@
 */10 *  *  *  *   /usr/local/bin/maintenance.sh rollup-reconcile
 # Rescata extracciones OCR colgadas (proceso muerto a mitad, ej. deploy).
 */5  *  *  *  *   /usr/local/bin/maintenance.sh ocr-requeue
+# Migrador ENCOM → Punto (context/77). Lanza UN job de `migration_job` por
+# ciclo en un proceso aparte y reencola los que quedaron colgados. Cada 2
+# minutos y no cada 5: el operador de soporte está mirando la pantalla cuando
+# aprieta "Migrar", y 5 minutos de espera sin que pase nada se leen como que
+# el botón no hizo nada. El trabajo en sí dura lo que dure — esto es solo la
+# latencia del arranque.
+*/2  *  *  *  *   /usr/local/bin/maintenance.sh migration-drain
 # Entrega digital: drena `notification_outbox` (context/57 E3). Al lado del
 # drain de FE y con la misma cadencia porque es su continuación natural — la
 # reconciliación encola el envío del KuDE cuando SIFEN aprueba, y sin este job

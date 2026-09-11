@@ -1,0 +1,160 @@
+{
+  "_comment": [
+    "Export de ejemplo del panel legacy ENCOM, para el arnés del migrador (context/77).",
+    "Los nombres de campo son los que devuelve REALMENTE cada endpoint legacy,",
+    "leídos del código del snapshot — no una normalización nuestra:",
+    "  categories  API/get_categories.php  -> ID, name, pos",
+    "  brands      API/get_brands.php      -> ID, name",
+    "  tags        API/get_tags.php        -> objeto {id:{name}}, ya aplanado por EncomClient::tags()",
+    "  items       API/get_items.php       -> ID, name, sku, price, cost*, categoryID, brandID, status, type, UOM",
+    "                                         (*cost y stock solo vienen si el item rastrea inventario)",
+    "  customers   API/get_customers.php   -> id, UID, name, tin, CI, phone, address, email, note, status",
+    "  outlets     API/get_company.php     -> outlets[] con ID, name, address, tin, ... y registers[] adentro",
+    "  registers   API/get_company.php     -> invoiceAuth, prefix, sufix, invoiceNo, docsZeros, invoiceAuthExp",
+    "Ojo: `prefix` YA viene como EEE-PPP; el propio legacy hace explode('-') para SIFEN."
+  ],
+
+  "settings": {
+    "name": "Comercio Migrado SA",
+    "tin": "80012345-6",
+    "city": "Asunción",
+    "currency": "PYG",
+    "taxName": "IVA",
+    "decimal": "0",
+    "thousandS": "."
+  },
+
+  "categories": [
+    { "ID": "cat-100", "name": "Bebidas", "pos": 1 },
+    { "ID": "cat-200", "name": "Panificados", "pos": 2 }
+  ],
+
+  "brands": [
+    { "ID": "brd-10", "name": "Nespresso" }
+  ],
+
+  "tags": [
+    { "ID": "tag-7", "name": "Premium" }
+  ],
+
+  "items": [
+    {
+      "ID": "itm-1",
+      "name": "Café Espresso",
+      "sku": "CAF-001",
+      "price": 12000,
+      "cost": 5000,
+      "discount": 0,
+      "categoryID": "cat-100",
+      "brandID": "brd-10",
+      "status": "Active",
+      "type": "product",
+      "UOM": "unidad",
+      "description": "Café espresso doble"
+    },
+    {
+      "ID": "itm-2",
+      "name": "Medialuna",
+      "sku": "PAN-001",
+      "price": 3500,
+      "discount": 0,
+      "categoryID": "cat-200",
+      "brandID": "",
+      "status": "Active",
+      "type": "product",
+      "UOM": "unidad",
+      "description": ""
+    },
+    {
+      "ID": "itm-3",
+      "name": "Corte de cabello",
+      "sku": "SRV-001",
+      "price": 25000,
+      "discount": 0,
+      "categoryID": "",
+      "brandID": "",
+      "status": "Active",
+      "type": "service",
+      "UOM": "",
+      "description": "Servicio"
+    }
+  ],
+
+  "customers": [
+    {
+      "id": "cus-1", "UID": "cus-1", "name": "Juan Pérez",
+      "tin": "1234567-8", "CI": "1234567", "phone": "", "address": "Av. España 123",
+      "email": "juan@example.com", "note": "", "status": 1
+    },
+    {
+      "id": "cus-2", "UID": "cus-2", "name": "Distribuidora del Este SRL",
+      "tin": "80099887-1", "CI": "", "phone": "", "address": "",
+      "email": "", "note": "Cliente mayorista", "status": 1
+    }
+  ],
+
+  "outlets": [
+    {
+      "ID": "out-1",
+      "name": "Casa Central",
+      "address": "Mcal. López 1234",
+      "phone": "",
+      "email": "central@example.com",
+      "billingName": "Comercio Migrado SA",
+      "tin": "80012345-6",
+      "description": "Sucursal principal",
+      "lat": "-25.28",
+      "lng": "-57.63"
+    },
+    {
+      "ID": "out-2",
+      "name": "Sucursal Villa Morra",
+      "address": "Senador Long 500",
+      "phone": "",
+      "email": "",
+      "billingName": "",
+      "tin": "",
+      "description": "",
+      "lat": "",
+      "lng": ""
+    }
+  ],
+
+  "registers": [
+    {
+      "ID": "reg-1",
+      "name": "Caja Mostrador",
+      "invoiceAuth": "16543210",
+      "invoiceAuthExp": "2027-12-31",
+      "prefix": "001-001",
+      "sufix": "",
+      "invoiceNo": 2128,
+      "docsZeros": 7,
+      "outletLegacyId": "out-1"
+    },
+    {
+      "ID": "reg-2",
+      "name": "Caja Barra",
+      "invoiceAuth": "16543210",
+      "invoiceAuthExp": "2027-12-31",
+      "prefix": "001-002",
+      "sufix": "",
+      "invoiceNo": 613,
+      "docsZeros": 7,
+      "outletLegacyId": "out-1"
+    },
+    {
+      "ID": "reg-3",
+      "name": "Caja Villa Morra",
+      "invoiceAuth": "16543210",
+      "invoiceAuthExp": "2027-12-31",
+      "prefix": "002-001",
+      "sufix": "",
+      "invoiceNo": 0,
+      "docsZeros": 7,
+      "outletLegacyId": "out-2"
+    }
+  ],
+
+  "banks": []
+}

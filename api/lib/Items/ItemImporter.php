@@ -262,7 +262,7 @@ final class ItemImporter
         $taxId      = $taxName !== '' ? \getTaxonomyIdOrInsert($taxName, 'tax') : null;
         $outletId   = ($outletLabel === '' || $outletLabel === 'todas') ? null : ($outlets[$outletLabel] ?? null);
 
-        $legacyFlags = $this->legacyFlagsForKind($kind);
+        $legacyFlags = self::legacyFlagsForKind($kind);
 
         $record = [
             'itemName'              => $name,
@@ -487,7 +487,13 @@ final class ItemImporter
         return self::LEGACY_KIND_LABELS[$lower] ?? 'producto';
     }
 
-    private function legacyFlagsForKind(string $kind): array
+    /**
+     * `public static` desde 2026-09-11: el migrador ENCOM (context/77) crea
+     * ítems por el mismo camino que este importador y necesita EXACTAMENTE
+     * este mapa. Copiarlo allá habría dejado dos tablas kind→flags que se
+     * desincronizan en cuanto se agregue un kind.
+     */
+    public static function legacyFlagsForKind(string $kind): array
     {
         $map = [
             'producto'           => ['itemType' => 'product',    'itemCanSale' => 1, 'itemTrackInventory' => 1, 'itemProduction' => 0],
