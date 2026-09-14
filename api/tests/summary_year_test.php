@@ -62,6 +62,11 @@ try {
     annualTx($company,$a,5,'2020-02-03 12:00:00',40);
     annualTx($company,$a,1,'2020-02-04 12:00:00',999,0,6);
     annualTx($company,$a,4,'2020-02-05 12:00:00',999,0,1,true);
+    // Purchase credit notes (type 14): the credited 10 subtracts; the cancelled
+    // (status 6) and the voided one stay out — same exclusions as purchases.
+    annualTx($company,$a,14,'2020-02-06 12:00:00',10);
+    annualTx($company,$a,14,'2020-02-07 12:00:00',5,0,6);
+    annualTx($company,$a,14,'2020-02-08 12:00:00',999,0,1,true);
     annualTx($company,$a,6,'2020-03-01 12:00:00',-7);
     annualTx($company,$a,0,'2020-04-01 12:00:00',20,2,1,false,'[]',true);
     annualTx($company,$a,0,'2020-04-02 12:00:00',15,0,1,false,'[{"type":"giftcard","total":15}]');
@@ -86,7 +91,9 @@ try {
     verifyAnnual('only valid returns, positive magnitude', $jan['returnsTotal'] === 20.0);
     verifyAnnual('presentation income remains subtotal-discount-returns',
         $jan['salesTotal']-$jan['discount']-$jan['returnsTotal'] === 115.0);
-    verifyAnnual('purchase-only month excludes payments, voids and cash movements', $live['months'][1]['expensesTotal'] === 70.0);
+    verifyAnnual('purchase-only month excludes payments, voids and cash movements', $live['months'][1]['expensesTotal'] === 60.0);
+    verifyAnnual('purchase credit notes (type 14) subtract from expenses; cancelled/voided do not',
+        $live['months'][1]['purchaseReturnsTotal'] === 10.0 && $live['months'][1]['expensesTotal'] === 60.0);
     verifyAnnual('return-only month', $live['months'][2]['returnsTotal'] === 7.0);
     verifyAnnual('empty month is numeric zero', array_sum($live['months'][4]) === 5.0);
     verifyAnnual('tenant-local subsecond year boundary', $live['months'][11]['salesTotal'] === 9.0);

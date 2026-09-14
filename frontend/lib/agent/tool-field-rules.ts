@@ -170,7 +170,8 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
 
   /**
    * Son COMPRAS (`transactionType IN (1,4)`, `SummaryYearService.php:142-150`),
-   * no los gastos del módulo Finanzas — que son otra tabla (`fin_movement` con
+   * NETAS de notas de crédito de compra (type 14, el proveedor nos acreditó) —
+   * no los gastos del módulo Finanzas, que son otra tabla (`fin_movement` con
    * `kind='expense'`) y otro número. Un modelo que lee "expenses" contesta
    * "gastaste X" y el dueño compara contra un total que no es ese.
    */
@@ -178,11 +179,19 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
     {
       rename: "purchasesTotal",
       money: true,
-      note: "purchasesTotal son COMPRAS a proveedores (contado y crédito), no los gastos del módulo Finanzas.",
+      note: "purchasesTotal son COMPRAS a proveedores netas de notas de crédito (devoluciones a proveedor), no los gastos del módulo Finanzas.",
     },
   ],
 
   returnsTotal: [{ money: true }],
+
+  purchaseReturnsTotal: [
+    {
+      rename: "purchaseReturnsTotal",
+      money: true,
+      note: "purchaseReturnsTotal son notas de crédito de compra (devoluciones a proveedor) que ya restan de purchasesTotal.",
+    },
+  ],
 
   /**
    * Gift cards + crédito interno + puntos + ventas internas
@@ -659,6 +668,7 @@ export const ADDITIVE_FIELDS: ReadonlySet<string> = new Set([
   "salesTotalBeforeDiscount",
   "purchasesTotal",
   "returnsTotal",
+  "purchaseReturnsTotal",
   "nonRevenueSalesTotal",
   "newCustomers",
   // Costos y margen (montos, no porcentajes)

@@ -168,6 +168,7 @@ function AnnualReport() {
       money("discount", "Descuentos"),
       money("returnsTotal", "Devoluciones"),
       money("income", "Ingresos netos"),
+      money("purchaseReturnsTotal", "Devoluciones de compra"),
       money("expensesTotal", "Egresos por compras"),
       money("result", "Resultado"),
     ]
@@ -266,8 +267,9 @@ function AnnualReport() {
             <CardHeader>
               <CardTitle>Evolución mensual · {year}</CardTitle>
               <CardDescription>
-                Ingresos netos de descuentos y devoluciones. Compras según la
-                fecha del documento, sin duplicar sus pagos.
+                Ingresos netos de descuentos y devoluciones. Compras netas de
+                notas de crédito, según la fecha del documento y sin duplicar
+                sus pagos.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -342,9 +344,11 @@ function AnnualReport() {
               searchPlaceholder="Buscar mes…"
             />
             <p className="text-sm text-muted-foreground">
-              Resultado = ingresos netos − compras; no es utilidad ni margen de
-              los artículos vendidos. No incluye movimientos manuales de caja ni
-              gastos de Finanzas. Los meses sin movimientos se muestran en cero.
+              Resultado = ingresos netos − compras netas; no es utilidad ni
+              margen de los artículos vendidos. La devolución de compra (nota
+              de crédito del proveedor) resta de los egresos. No incluye
+              movimientos manuales de caja ni gastos de Finanzas. Los meses
+              sin movimientos se muestran en cero.
             </p>
           </section>
         </>

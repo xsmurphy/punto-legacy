@@ -891,6 +891,7 @@ export interface SummaryYearMonth {
   salesTotal: number
   expensesTotal: number
   returnsTotal: number
+  purchaseReturnsTotal: number
   nonAddingTotal: number
   customers: number
 }

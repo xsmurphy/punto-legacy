@@ -9,7 +9,9 @@ use Punto\Api\Support\TenantClock;
  * Annual document report, retaining the summary_year wire contract.
  * salesTotal retains the stored subtotal; the existing presentation derives
  * income = salesTotal - discount - returnsTotal (returnsTotal retains ABS total).
- * expensesTotal is purchases (1/4), NOT cash movements/payments or finance expenses.
+ * expensesTotal is purchases (1/4) NET of purchase credit notes (14) — the
+ * POSITIVE total of type-14 documents subtracts (the supplier credited us). It
+ * is NOT cash movements/payments or finance expenses.
  * nonAddingTotal retains the legacy payment/internal-sale metric: it is not an
  * accrual adjustment. customers retains registrations, not purchasing customers.
  */
@@ -51,7 +53,7 @@ final class SummaryYearService
         // Half-open PG interval includes subsecond timestamps and year 9999
         // without passing a five-digit year through PHP's date parser.
         $range = "transactionDate >= ?::timestamptz AND transactionDate < (?::timestamptz + interval '1 year')";
-        $types = $rollup ? '1,4,6' : '0,1,3,4,6';
+        $types = $rollup ? '1,4,6,14' : '0,1,3,4,6,14';
         $rows = ncmRows(
             "SELECT EXTRACT(MONTH FROM transactionDate)::int AS month,
                 COUNT(*) FILTER (WHERE transactionType IN (0,3)) AS count,
@@ -60,14 +62,17 @@ final class SummaryYearService
                 COALESCE(SUM(transactionTax) FILTER (WHERE transactionType IN (0,3)),0) AS tax,
                 COALESCE(SUM(transactionTotal) FILTER (WHERE transactionType IN (0,3)),0) AS sales,
                 COALESCE(SUM(transactionTotal) FILTER (WHERE transactionType IN (1,4)),0) AS purchases,
-                COALESCE(SUM(ABS(transactionTotal)) FILTER (WHERE transactionType = 6),0) AS returns
+                COALESCE(SUM(ABS(transactionTotal)) FILTER (WHERE transactionType = 6),0) AS returns,
+                COALESCE(SUM(transactionTotal) FILTER (WHERE transactionType = 14),0) AS purchaseReturns
              FROM transaction WHERE {$range} AND transactionType IN ({$types})
                 AND " . self::validDocumentsSql() . $roc . ' GROUP BY month', [$from, $from]
         );
         $documents = array_column(array_map('ncmRow', $rows), null, 'month');
         $sales = $rollup ? (new RollupReader())->monthlyBuckets($companyId, 'sales', $year, $outletIds) : [];
         // report_rollup(expenses) has no cancellation dimension; aggregating
-        // authoritative documents avoids serving cancelled purchases in rollup mode.
+        // authoritative documents avoids serving cancelled purchases in rollup
+        // mode. Same reason expenses are read from documents here: purchase
+        // credit notes (type 14) subtract, and the expense rollup is gross.
 
         $customers = array_column(array_map('ncmRow', ncmRows(
             "SELECT EXTRACT(MONTH FROM contactDate)::int AS month, COUNT(*) AS count
@@ -90,15 +95,16 @@ final class SummaryYearService
                 'discount' => (float) ($rollup ? ($s['discount'] ?? 0) : ($d['discount'] ?? 0)),
                 'tax' => (float) ($rollup ? ($s['tax'] ?? 0) : ($d['tax'] ?? 0)),
                 'salesTotal' => (float) ($rollup ? ($s['total'] ?? 0) : ($d['sales'] ?? 0)),
-                'expensesTotal' => (float) ($d['purchases'] ?? 0),
+                'expensesTotal' => (float) (($d['purchases'] ?? 0) - ($d['purchasereturns'] ?? 0)),
                 'returnsTotal' => (float) ($d['returns'] ?? 0),
+                'purchaseReturnsTotal' => (float) ($d['purchasereturns'] ?? 0),
                 'nonAddingTotal' => (float) ($nonAdding['total'] ?? 0),
                 'customers' => (int) ($customers[$m] ?? 0),
             ];
         }
         $years = array_map('intval', array_column(array_map('ncmRow', ncmRows(
             "SELECT DISTINCT EXTRACT(YEAR FROM transactionDate)::int AS year
-             FROM transaction WHERE transactionType IN (0,1,3,4,6)
+             FROM transaction WHERE transactionType IN (0,1,3,4,6,14)
                 AND transactionDate >= '1900-01-01'::timestamptz
                 AND transactionDate < '10000-01-01'::timestamptz
                 AND " . self::validDocumentsSql() . $roc, []
