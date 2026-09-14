@@ -570,6 +570,16 @@ $roleSoloClientes = makeRole('permtest-solo-clientes', ['contacts.customer.view'
 $tokSoloVentas    = panelSession($roleSoloVentas,   $companyId, $outletId, $adminId);
 $tokSoloClientes  = panelSession($roleSoloClientes, $companyId, $outletId, $adminId);
 
+// Resumen anual mezcla ventas y compras: una sola clave no alcanza.
+$res = hitEndpoint('v1/reports/summary_year.php', 'GET', 'y=2026', [], $tokSoloVentas);
+check('summary_year — solo ventas no revela compras',
+    esGateDePermiso($res, 'reports.purchases.view'), 'status=' . $res['status'], $failures, $checks);
+$roleSoloCompras = makeRole('permtest-solo-compras', ['reports.purchases.view'], $companyId, $adminId);
+$tokSoloCompras = panelSession($roleSoloCompras, $companyId, $outletId, $adminId);
+$res = hitEndpoint('v1/reports/summary_year.php', 'GET', 'y=2026', [], $tokSoloCompras);
+check('summary_year — solo compras no revela ventas',
+    esGateDePermiso($res, 'reports.sales.view'), 'status=' . $res['status'], $failures, $checks);
+
 $detalleInexistente = 'id=00000000-0000-0000-0000-0000000000ff';
 
 // El reporte: `reports.sales.view` y nada más. Un rol de contactos NO lista las

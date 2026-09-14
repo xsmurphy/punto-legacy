@@ -171,7 +171,7 @@ const GROUPS: ReportGroup[] = [
       },
       {
         title: "Resumen anual",
-        description: "Ventas, devoluciones y egresos mes a mes del año.",
+        description: "Compará ingresos netos, compras y resultado de los doce meses; elegí el año.",
         to: "/reports/summary-year",
         icon: CalendarRange,
         implemented: true,

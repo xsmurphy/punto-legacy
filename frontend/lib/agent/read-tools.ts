@@ -1000,7 +1000,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       "Sin argumentos devuelve el mapa completo; con `query` filtra por título, ruta o alias. " +
       "Los links son rutas del propio producto y se escriben tal cual vienen en `path`, sin dominio. " +
       "`app` dice de qué lado vive: 'panel' es la pantalla de gestión y 'pos' es la caja — no mandes a alguien a una ruta del POS para una tarea de gestión ni al revés. " +
-      "Si la entrada trae `requires`, esa pantalla exige un permiso: mencionalo, porque un usuario sin él va a ver un error al entrar. Si trae `requiresModule`, el módulo tiene que estar activo en el plan del comercio.",
+      "Si la entrada trae `requires`, esa pantalla exige un permiso: mencionalo, porque un usuario sin él va a ver un error al entrar. Si trae `requiresAll`, exige todos esos permisos adicionales. Si trae `requiresModule`, el módulo tiene que estar activo en el plan del comercio.",
     inputSchema: z.object({
       query: z
         .string()

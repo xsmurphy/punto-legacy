@@ -31,10 +31,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
  */
 require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
 \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.sales.view');
+// This response exposes purchases as well as sales. Both permissions are required.
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.purchases.view');
 
-$year = (string) (validateHttp('y') ?: date('Y'));
-if (!preg_match('/^\d{4}$/', $year)) {
-    apiError('Año inválido', 422);
+try {
+    $year = \Punto\Api\Reports\SummaryYearService::parseYear(
+        $_GET['y'] ?? null,
+        (int) substr(\Punto\Api\Support\TenantClock::now((string) COMPANY_ID), 0, 4)
+    );
+} catch (\InvalidArgumentException $e) {
+    apiError($e->getMessage(), 422);
 }
 
 try {

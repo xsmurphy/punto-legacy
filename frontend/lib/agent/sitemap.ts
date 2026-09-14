@@ -35,6 +35,8 @@ export interface SitemapEntry {
   keywords?: string[]
   /** Permiso que exige la pantalla, si exige alguno. */
   requires?: string
+  /** Todos estos permisos adicionales son necesarios. */
+  requiresAll?: string[]
   /** Módulo del tenant que tiene que estar activo. */
   requiresModule?: string
 }
@@ -47,6 +49,7 @@ function flatten(routes: typeof PANEL_ROUTES, app: SitemapEntry["app"]): Sitemap
     group: r.paletteGroup ?? r.sidebarGroup,
     keywords: r.keywords,
     requires: r.requires,
+    requiresAll: r.requiresAll,
     requiresModule: r.requiresModule,
   }))
 }

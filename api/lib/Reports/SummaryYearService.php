@@ -3,204 +3,117 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
-use Punto\App\Helpers\Date;
+use Punto\Api\Support\TenantClock;
 
 /**
- * Dominio de Reportes — Resumen Anual de Ingresos y Egresos (API compartida, motor ERP).
- *
- * Port FIEL de panel/lib/reports/ReportSummaryYearService.php (Fase 2 batch 7). Cambios vs original:
- *  - namespace + `final`
- *  - el ROC se recibe por PARÁMETRO (no `getROC(1)` interno)
- *  - `getNonAddingToSales` (sólo en panel, cadena profunda con `getSalesByPayment` +
- *    `lessInternalTotals` que en /app están latente rotos en PG) → reemplazado por
- *    `NonAddingSales::compute()` (helper compartido del namespace).
- *
- * Por cada mes del año con ventas: agregados de ventas (tipos 0,3) + gastos (1,4) +
- * devoluciones (6, magnitud) + clientes nuevos (contact type=1) + ventas que NO suman.
- *
- * Tenant: $roc en queries de transactions; companyId bound en contact + company.
- * Fixes PG: EXTRACT(MONTH ...) en vez de MONTH(); sin USE INDEX; sin LIMIT en COUNT.
+ * Annual document report, retaining the summary_year wire contract.
+ * salesTotal retains the stored subtotal; the existing presentation derives
+ * income = salesTotal - discount - returnsTotal (returnsTotal retains ABS total).
+ * expensesTotal is purchases (1/4), NOT cash movements/payments or finance expenses.
+ * nonAddingTotal retains the legacy payment/internal-sale metric: it is not an
+ * accrual adjustment. customers retains registrations, not purchasing customers.
  */
 final class SummaryYearService
 {
     public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
 
-    /**
-     * Resumen anual. Lee del rollup pre-agregado SOLO si el flag de env
-     * REPORTS_ROLLUP_ENABLED está activo (o $forceRollup=true desde ?verify=1).
-     * Default = cómputo live (yearlyLive) — red de seguridad: el rollup se
-     * confía recién tras verificar que `?verify=1` da diff vacío en datos
-     * reales. Una vez confirmado en prod, seteá REPORTS_ROLLUP_ENABLED=1 en
-     * Coolify y el reporte pasa a O(períodos).
-     *
-     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`);
-     *                                `[]` = sin filtro, 1 = esa sucursal, 2+ = consolidado
-     *                                acotado. La rama `yearlyLive` no lo mira: filtra por
-     *                                `$roc`, que ya sabe expresar el conjunto.
-     * @return array {year, years:[int], months:[{...}]}
-     */
+    /** Null/empty defaults to the tenant year; malformed and out-of-range input fails. */
+    public static function parseYear(mixed $year, int $currentYear): int
+    {
+        if ($year === null || $year === '') {
+            return $currentYear;
+        }
+        if ((!is_string($year) && !is_int($year))
+            || !preg_match('/^[0-9]{4}$/D', (string) $year)
+            || (int) $year < 1900) {
+            throw new \InvalidArgumentException('Año inválido (1900–9999)');
+        }
+        return (int) $year;
+    }
+
     public function yearly($year, string $roc, string $companyId, array $outletIds = [], bool $forceRollup = false): array
     {
-        if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
-            return $this->yearlyLive($year, $roc, $companyId);
-        }
-
-        $year   = (int) $year;
-        $reader = new RollupReader();
-
-        $salesMap    = $reader->monthlyBuckets($companyId, 'sales',    $year, $outletIds);
-        $expensesMap = $reader->monthlyBuckets($companyId, 'expenses', $year, $outletIds);
-        $returnsMap  = $reader->monthlyBuckets($companyId, 'returns',  $year, $outletIds);
-
-        $allMonths = array_unique(array_merge(
-            array_keys($salesMap),
-            array_keys($expensesMap),
-            array_keys($returnsMap)
-        ));
-        sort($allMonths);
-
-        $months = [];
-        foreach ($allMonths as $m) {
-            $ms = sprintf('%04d-%02d-01 00:00:00', $year, $m);
-            $me = date('Y-m-t ', strtotime($ms)) . Date::END_OF_DAY;
-
-            $s = $salesMap[$m]    ?? ['cnt' => 0, 'total' => 0, 'tax' => 0, 'discount' => 0, 'qty' => 0];
-            $e = $expensesMap[$m] ?? ['total' => 0];
-            $r = $returnsMap[$m]  ?? ['total' => 0];
-
-            $months[] = [
-                'month'          => $m,
-                'usold'          => (float) ($s['qty']      ?? 0),
-                'count'          => (int)   ($s['cnt']      ?? 0),
-                'discount'       => (float) ($s['discount'] ?? 0),
-                'tax'            => (float) ($s['tax']      ?? 0),
-                'salesTotal'     => (float) ($s['total']    ?? 0),
-                'expensesTotal'  => (float) ($e['total']    ?? 0),
-                'returnsTotal'   => (float) ($r['total']    ?? 0),
-                'nonAddingTotal' => $this->nonAddingTotal($ms, $me, $roc),
-                'customers'      => $this->newCustomers($ms, $me, $roc),
-            ];
-        }
-
-        return [
-            'year'   => $year,
-            'years'  => $this->yearsSince($companyId),
-            'months' => $months,
-        ];
+        return $this->build($year, $roc, $companyId,
+            $forceRollup || !empty($_ENV['REPORTS_ROLLUP_ENABLED']), $outletIds);
     }
 
     public function yearlyLive($year, string $roc, string $companyId): array
     {
-        $year      = (int) $year;
-        $startYear = sprintf('%04d-01-01 00:00:00', $year);
-        $endYear   = ($year < (int) date('Y'))
-            ? sprintf('%04d-12-31 ', $year) . Date::END_OF_DAY
-            : date('Y-m-d ') . Date::END_OF_DAY;
+        return $this->build($year, $roc, $companyId, false, []);
+    }
 
-        $res = ncmExecute(
-            'SELECT EXTRACT(MONTH FROM transactionDate)::int AS month,
-                    COALESCE(SUM(transactionUnitsSold), 0) AS usold,
-                    COUNT(*)                               AS count,
-                    COALESCE(SUM(transactionDiscount), 0)  AS discount,
-                    COALESCE(SUM(transactionTax), 0)       AS tax,
-                    COALESCE(SUM(transactionTotal), 0)     AS total
-             FROM transaction
-             WHERE transactionType IN (0, 3)
-               AND ' . SaleFilters::notVoidedSql() . '
-               AND transactionDate BETWEEN ? AND ?' . $roc . '
-             GROUP BY EXTRACT(MONTH FROM transactionDate)
-             ORDER BY month ASC',
-            [$startYear, $endYear], false, true
+    private function build($year, string $roc, string $companyId, bool $rollup, array $outletIds): array
+    {
+        TenantClock::apply($companyId);
+        $currentYear = (int) substr(TenantClock::now($companyId), 0, 4);
+        $year = self::parseYear($year, $currentYear);
+        $from = sprintf('%04d-01-01 00:00:00', $year);
+        // Half-open PG interval includes subsecond timestamps and year 9999
+        // without passing a five-digit year through PHP's date parser.
+        $range = "transactionDate >= ?::timestamptz AND transactionDate < (?::timestamptz + interval '1 year')";
+        $types = $rollup ? '1,4,6' : '0,1,3,4,6';
+        $rows = ncmRows(
+            "SELECT EXTRACT(MONTH FROM transactionDate)::int AS month,
+                COUNT(*) FILTER (WHERE transactionType IN (0,3)) AS count,
+                COALESCE(SUM(transactionUnitsSold) FILTER (WHERE transactionType IN (0,3)),0) AS usold,
+                COALESCE(SUM(transactionDiscount) FILTER (WHERE transactionType IN (0,3)),0) AS discount,
+                COALESCE(SUM(transactionTax) FILTER (WHERE transactionType IN (0,3)),0) AS tax,
+                COALESCE(SUM(transactionTotal) FILTER (WHERE transactionType IN (0,3)),0) AS sales,
+                COALESCE(SUM(transactionTotal) FILTER (WHERE transactionType IN (1,4)),0) AS purchases,
+                COALESCE(SUM(ABS(transactionTotal)) FILTER (WHERE transactionType = 6),0) AS returns
+             FROM transaction WHERE {$range} AND transactionType IN ({$types})
+                AND " . self::validDocumentsSql() . $roc . ' GROUP BY month', [$from, $from]
         );
+        $documents = array_column(array_map('ncmRow', $rows), null, 'month');
+        $sales = $rollup ? (new RollupReader())->monthlyBuckets($companyId, 'sales', $year, $outletIds) : [];
+        // report_rollup(expenses) has no cancellation dimension; aggregating
+        // authoritative documents avoids serving cancelled purchases in rollup mode.
 
+        $customers = array_column(array_map('ncmRow', ncmRows(
+            "SELECT EXTRACT(MONTH FROM contactDate)::int AS month, COUNT(*) AS count
+             FROM contact WHERE type = 1 AND contactDate >= ?::timestamptz
+                AND contactDate < (?::timestamptz + interval '1 year')" . $roc . ' GROUP BY month',
+            [$from, $from]
+        )), 'count', 'month');
         $months = [];
-        if ($res && is_object($res)) {
-            while (!$res->EOF) {
-                $f  = $res->fields;
-                $m  = (int) $f['month'];
-                $ms = sprintf('%04d-%02d-01 00:00:00', $year, $m);
-                $me = date('Y-m-t ', strtotime($ms)) . Date::END_OF_DAY;
-
-                $months[] = [
-                    'month'          => $m,
-                    'usold'          => (float) ($f['usold'] ?? 0),
-                    'count'          => (int)   ($f['count'] ?? 0),
-                    'discount'       => (float) ($f['discount'] ?? 0),
-                    'tax'            => (float) ($f['tax'] ?? 0),
-                    'salesTotal'     => (float) ($f['total'] ?? 0),
-                    'expensesTotal'  => $this->expensesTotal($ms, $me, $roc),
-                    'returnsTotal'   => $this->returnsTotal($ms, $me, $roc),
-                    'nonAddingTotal' => $this->nonAddingTotal($ms, $me, $roc),
-                    'customers'      => $this->newCustomers($ms, $me, $roc),
-                ];
-                $res->MoveNext();
-            }
-            $res->Close();
+        foreach (range(1, 12) as $m) {
+            $monthStart = sprintf('%04d-%02d-01 00:00:00', $year, $m);
+            $monthEnd = (new \DateTimeImmutable($monthStart))->format('Y-m-t') . ' 23:59:59';
+            // Keep the canonical payment/internal-sale calculation shared with other reports.
+            $nonAdding = $this->nonAdding->compute($monthStart, $monthEnd, $roc, false, 1);
+            $d = $documents[$m] ?? [];
+            $s = $sales[$m] ?? [];
+            $months[] = [
+                'month' => $m,
+                'usold' => (float) ($rollup ? ($s['qty'] ?? 0) : ($d['usold'] ?? 0)),
+                'count' => (int) ($rollup ? ($s['cnt'] ?? 0) : ($d['count'] ?? 0)),
+                'discount' => (float) ($rollup ? ($s['discount'] ?? 0) : ($d['discount'] ?? 0)),
+                'tax' => (float) ($rollup ? ($s['tax'] ?? 0) : ($d['tax'] ?? 0)),
+                'salesTotal' => (float) ($rollup ? ($s['total'] ?? 0) : ($d['sales'] ?? 0)),
+                'expensesTotal' => (float) ($d['purchases'] ?? 0),
+                'returnsTotal' => (float) ($d['returns'] ?? 0),
+                'nonAddingTotal' => (float) ($nonAdding['total'] ?? 0),
+                'customers' => (int) ($customers[$m] ?? 0),
+            ];
         }
-
-        return [
-            'year'   => $year,
-            'years'  => $this->yearsSince($companyId),
-            'months' => $months,
-        ];
+        $years = array_map('intval', array_column(array_map('ncmRow', ncmRows(
+            "SELECT DISTINCT EXTRACT(YEAR FROM transactionDate)::int AS year
+             FROM transaction WHERE transactionType IN (0,1,3,4,6)
+                AND transactionDate >= '1900-01-01'::timestamptz
+                AND transactionDate < '10000-01-01'::timestamptz
+                AND " . self::validDocumentsSql() . $roc, []
+        )), 'year'));
+        $years[] = $currentYear;
+        $years = array_values(array_unique($years));
+        rsort($years, SORT_NUMERIC);
+        return ['year' => $year, 'currentYear' => $currentYear, 'years' => $years, 'months' => $months];
     }
 
-    private function expensesTotal($from, $to, $roc): float
+    private static function validDocumentsSql(): string
     {
-        $r = ncmExecute(
-            'SELECT COALESCE(SUM(transactionTotal), 0) AS total FROM transaction
-             WHERE transactionType IN (1, 4) AND transactionDate BETWEEN ? AND ?' . $roc,
-            [$from, $to]
-        );
-        return (float) ($r['total'] ?? 0);
-    }
-
-    /** Devoluciones (tipo 6) — magnitud positiva (SUM(ABS)). */
-    private function returnsTotal($from, $to, $roc): float
-    {
-        $r = ncmExecute(
-            'SELECT COALESCE(SUM(ABS(transactionTotal)), 0) AS total FROM transaction
-             WHERE transactionType IN (6) AND transactionDate BETWEEN ? AND ?' . $roc,
-            [$from, $to]
-        );
-        return (float) ($r['total'] ?? 0);
-    }
-
-    /** Ventas que NO suman (gift card / crédito interno / puntos). Vía NonAddingSales helper. */
-    private function nonAddingTotal(string $from, string $to, string $roc): float
-    {
-        $na = $this->nonAdding->compute($from, $to, $roc, false, 1);
-        return (float) ($na['total'] ?? 0);
-    }
-
-    /**
-     * Clientes nuevos (contact type=1) creados en el período. PORT FIEL del legacy: usa el
-     * $roc completo (companyId + outletId) → solo cuenta los clientes registrados en la
-     * sucursal actual del usuario. Si producto decide "por toda la company", el cambio es
-     * cambiar $roc por bound `companyId = ?` acá — deuda registrada como mejora opcional.
-     */
-    private function newCustomers($from, $to, string $roc): int
-    {
-        $r = ncmExecute(
-            'SELECT COUNT(contactId) AS total FROM contact
-             WHERE type = 1 AND contactDate BETWEEN ? AND ?' . $roc,
-            [$from, $to]
-        );
-        return (int) ($r['total'] ?? 0);
-    }
-
-    /** Lista de años desde la creación de la company hasta hoy (desc), para el selector. */
-    private function yearsSince(string $companyId): array
-    {
-        $r = ncmExecute('SELECT createdAt FROM company WHERE companyId = ?', [$companyId]);
-        $created = ($r && !empty($r['createdAt'])) ? (int) date('Y', strtotime($r['createdAt'])) : (int) date('Y');
-        $now     = (int) date('Y');
-        if ($created > $now) { $created = $now; }
-
-        $years = [];
-        for ($y = $now; $y >= $created; $y--) {
-            $years[] = $y;
-        }
-        return $years;
+        // Sales use canonical SaleFilters; purchases/returns also support
+        // status=6. Legacy voids change type to 7, excluded by the type list.
+        return SaleFilters::notVoidedSql()
+            . ' AND (transactionType IN (0,3) OR COALESCE(transactionStatus,1) <> 6)';
     }
 }

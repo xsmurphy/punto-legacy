@@ -47,6 +47,7 @@ function isVisible(entry: RouteEntry, ctx: NavContext): boolean {
     if (!ctx.moduleEnabled?.(entry.requiresModule)) return false
   }
   if (!ctx.permsLoaded) return true
+  if (entry.requiresAll?.some((key) => !ctx.perms.includes(key))) return false
   if (!entry.requires) return true
   return ctx.perms.includes(entry.requires)
 }

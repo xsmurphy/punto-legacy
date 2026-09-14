@@ -85,6 +85,8 @@ export interface RouteEntry {
   keywords?: string[]
   /** Clave de permiso. Sin esto, la entrada es visible para cualquier usuario. */
   requires?: string
+  /** Permisos adicionales: se requieren TODOS junto con requires. */
+  requiresAll?: string[]
   /** Módulo del tenant que debe estar activo (`/v1/modules`). */
   requiresModule?: string
   /** Oculta el item en mobile. Solo aplica a `surface: "sidebar"`. */

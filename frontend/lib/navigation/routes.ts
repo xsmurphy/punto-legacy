@@ -476,7 +476,8 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Reportes",
     requires: "reports.sales.view",
-    keywords: ["anual", "year", "comparativo", "por mes", "ejercicio"],
+    requiresAll: ["reports.purchases.view"],
+    keywords: ["anual", "year", "comparativo", "por mes", "ejercicio", "ingresos", "egresos", "mes a mes"],
   },
   {
     to: "/reports/products",
