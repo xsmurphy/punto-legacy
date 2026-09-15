@@ -480,10 +480,11 @@ final class OrderCoreService
             $course    = isset($item['course']) ? (int) $item['course'] : 1;
 
             // Etiquetas de línea (uso interno — pedido owner 2026-08-14, mig
-            // 135): texto libre, sin FK contra ningún catálogo — mismo
-            // criterio que $itemNote, a diferencia de las etiquetas de VENTA
-            // (SaleService::persistRelations B7, que sí validan contra
-            // taxonomy/toTag). NULL si la línea no trae ninguna, para no
+            // 135): texto libre, sin catálogo detrás — mismo criterio que
+            // $itemNote. Las de VENTA sí van al catálogo: SaleService::
+            // persistSaleTags (B7) resuelve el nombre contra `tag` del tenant,
+            // lo crea si no existe y linkea el id en `toTag`. NULL si la línea
+            // no trae ninguna, para no
             // guardar un array vacío de más.
             $itemTags = [];
             if (isset($item['tags']) && is_array($item['tags'])) {

@@ -1,19 +1,28 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { api, type HttpClient } from "@/lib/api-client"
 import type { Tag, TagPayload } from "@/lib/types/tag"
 
 /**
  * CRUD de etiquetas de producto (Slice 4 del refactor taxonomy).
  *
- * Endpoint /v1/tags — tabla `tag` dedicada (mig 39). El POS sigue leyendo de
- * `taxonomy WHERE type='tag'` con sync automático vía triggers PG.
+ * Endpoint /v1/tags — tabla `tag` dedicada (mig 39), que los triggers PG
+ * mantienen en sync con `taxonomy WHERE type='tag'`.
+ *
+ * Consumida por el panel (settings/catálogo, ficha de ítem) y por el POS
+ * (`sale-options-drawer.tsx`, sugerencias del diálogo de etiquetas de la
+ * venta). El POS inyecta `client: posApi` (Bearer del device); el panel usa
+ * el default `api`. Ver invariante de realm en `lib/api-client.ts` — un
+ * cliente HTTP habla UN realm. Con el default, en la caja esta query
+ * respondía 401 y el cajero se quedaba sin sugerencias, que es lo que
+ * multiplica variantes de la misma etiqueta.
  */
-export function useTags() {
+export function useTags(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? api
   return useQuery<{ tags: Tag[] }>({
-    queryKey: ["tags"],
-    queryFn: () => api.get("/v1/tags"),
+    queryKey: ["tags", client === api ? "panel" : "pos"],
+    queryFn: () => client.get<{ tags: Tag[] }>("/v1/tags"),
     staleTime: 5 * 60 * 1000,
   })
 }
