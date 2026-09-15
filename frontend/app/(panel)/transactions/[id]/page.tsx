@@ -60,6 +60,7 @@ import {
 import { api } from "@/lib/api-client"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticket-data"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
@@ -436,6 +437,27 @@ function TransactionDetailView({
           )}
         </div>
       </header>
+
+      {/* Motivo de la anulación. El resolver ya lo devolvía (`voidReason`,
+          `voidedByName`, `voidedAt` — SaleVoidService) pero la página solo
+          cambiaba el badge a "Anulada": quien entraba a la factura no tenía
+          forma de saber por qué ni quién la anuló. Solo el camino vigente
+          (mig 154) guarda estos campos; una anulación legacy no los tiene y
+          el aviso muestra lo que haya. */}
+      {isVoid && (tx.voidReason || tx.voidedByName || tx.voidedAt) && (
+        <Alert>
+          <AlertTitle>Venta anulada</AlertTitle>
+          <AlertDescription>
+            <p>{tx.voidReason ? `Motivo: ${tx.voidReason}` : "Sin motivo registrado."}</p>
+            {(tx.voidedByName || tx.voidedAt) && (
+              <p className="text-muted-foreground">
+                {tx.voidedByName ? `Anulada por ${tx.voidedByName}` : "Anulada"}
+                {tx.voidedAt ? ` · ${formatDateTime(tx.voidedAt, "d MMM yyyy, HH:mm")}` : ""}
+              </p>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* El rechazo de la facturación electrónica, VISIBLE. Antes esta
           pantalla no decía nada: el comercio veía el badge de error en el

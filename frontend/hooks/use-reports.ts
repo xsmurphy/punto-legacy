@@ -1502,6 +1502,10 @@ export interface TxDetailFull {
     responsibleName?: string | null
     condition?: "cash" | "credit"
     void?: boolean
+    /** Anulación vigente (mig 154) — `TransactionDetailService`. Null en el camino legacy. */
+    voidedAt?: string | null
+    voidReason?: string | null
+    voidedByName?: string | null
     currency?: string | null
     ivaRemoved?: boolean
     registerId?: string | null
