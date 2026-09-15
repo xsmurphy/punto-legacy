@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import { useRouter } from "next/navigation"
 import { FileCheck, Plus } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -98,14 +99,21 @@ const buildColumns = (
   },
 ]
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const PAYMENT_ORDERS_TABLE_ID = "payment-orders"
+
 export default function PaymentOrdersPage() {
   const router = useRouter()
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
   const canCreate = usePermission("purchases.paymentorder.create")
 
-  const [status, setStatus] = React.useState<PaymentOrderStatus | typeof ALL>(ALL)
-  const [supplierId, setSupplierId] = React.useState<string>(ALL)
+  const [status, setStatus] = usePersistedTableState<PaymentOrderStatus | typeof ALL>(
+    PAYMENT_ORDERS_TABLE_ID,
+    "status",
+    ALL,
+  )
+  const [supplierId, setSupplierId] = usePersistedTableState<string>(PAYMENT_ORDERS_TABLE_ID, "supplier", ALL)
 
   const { from, to } = rangeToBackend(range)
   const { data, isLoading } = usePaymentOrders({
@@ -152,7 +160,7 @@ export default function PaymentOrdersPage() {
       </header>
 
       <DataTable<PaymentOrderListRow>
-        tableId="payment-orders"
+        tableId={PAYMENT_ORDERS_TABLE_ID}
         columns={columns}
         data={rows}
         getRowId={(r) => r.paymentOrderId}

@@ -19,6 +19,7 @@
  */
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import { AlertCircle, Percent } from "lucide-react"
 
@@ -56,6 +57,9 @@ interface CommissionDetailRow {
 /** Sentinel del Select: un `value=""` lo rompe (context/20 §select con sentinel). */
 const ALL_SELLERS = "__all"
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const COMMISSIONS_TABLE_ID = "report-users-commissions"
+
 export function UsersCommissionsTab({ range }: { range: DateRangeValue }) {
   const { data: bootstrap } = useBootstrap()
   const opts = React.useMemo(
@@ -65,7 +69,7 @@ export function UsersCommissionsTab({ range }: { range: DateRangeValue }) {
 
   const { data, isLoading, error } = useReport<UsersCommissionsResponse>("users", opts)
   const sellers = React.useMemo(() => data?.sellers ?? [], [data])
-  const [seller, setSeller] = React.useState<string>(ALL_SELLERS)
+  const [seller, setSeller] = usePersistedTableState<string>(COMMISSIONS_TABLE_ID, "seller", ALL_SELLERS)
 
   const allRows = React.useMemo<CommissionDetailRow[]>(
     () =>
@@ -222,7 +226,7 @@ export function UsersCommissionsTab({ range }: { range: DateRangeValue }) {
       )}
 
       <DataTable
-        tableId="report-users-commissions"
+        tableId={COMMISSIONS_TABLE_ID}
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}

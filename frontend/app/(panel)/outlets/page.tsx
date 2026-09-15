@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { Plus, AlertCircle, MapPin } from "lucide-react"
@@ -34,11 +35,18 @@ import { formatPhone } from "@/lib/phone"
 import { EmptyState } from "@/components/empty-state"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const OUTLETS_TABLE_ID = "outlets"
+
 export default function OutletsPage() {
   const router = useRouter()
   const { data, isLoading, error } = useOutlets()
   const { data: bootstrap } = useBootstrap()
-  const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
+  const [statusFilter, setStatusFilter] = usePersistedTableState<"all" | "active" | "inactive">(
+    OUTLETS_TABLE_ID,
+    "status",
+    "all",
+  )
 
   // Alta con paywall: el botón pide una sucursal, no la crea. Misma clave de
   // permiso que gatea el alta en el backend (`/v1/outlets.php`).
@@ -217,7 +225,7 @@ export default function OutletsPage() {
       )}
 
       <DataTable
-        tableId="outlets"
+        tableId={OUTLETS_TABLE_ID}
         data={filteredRows}
         columns={columns}
         initialColumnVisibility={initialColumnVisibility}

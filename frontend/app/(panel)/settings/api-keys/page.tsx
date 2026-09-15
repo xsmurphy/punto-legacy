@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Copy, KeyRound, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
@@ -70,8 +71,11 @@ function niceDate(iso: string | null): string {
   }).format(new Date(iso))
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const API_KEYS_TABLE_ID = "api-keys"
+
 export default function ApiKeysPage() {
-  const [showRevoked, setShowRevoked] = React.useState(false)
+  const [showRevoked, setShowRevoked] = usePersistedTableState(API_KEYS_TABLE_ID, "showRevoked", false)
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
   const [name, setName] = React.useState("")
@@ -205,7 +209,7 @@ export default function ApiKeysPage() {
       </header>
 
       <DataTable
-        tableId="api-keys"
+        tableId={API_KEYS_TABLE_ID}
         columns={columns}
         data={keys}
         isLoading={isLoading}

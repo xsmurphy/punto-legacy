@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Plus, Trash2, Bell, MonitorSmartphone, RefreshCw, ExternalLink, Copy } from "lucide-react"
 import { toast } from "sonner"
@@ -64,10 +65,13 @@ function niceDate(iso: string | null): string {
   }).format(new Date(iso))
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const DEVICES_TABLE_ID = "connected-devices"
+
 export default function DevicesPage() {
   const [createOpen, setCreateOpen] = React.useState(false)
   const [invitesOpen, setInvitesOpen] = React.useState(false)
-  const [showRevoked, setShowRevoked] = React.useState(false)
+  const [showRevoked, setShowRevoked] = usePersistedTableState(DEVICES_TABLE_ID, "showRevoked", false)
   // Un solo state de revoke para POS y screen — ambos viven en la misma
   // tabla `device` y se revocan via DeviceAuth::revoke, así que invalidar
   // un solo queryKey ["pos-devices"] funciona para los dos. Antes había
@@ -319,7 +323,7 @@ export default function DevicesPage() {
       )}
 
       <DataTable
-        tableId="connected-devices"
+        tableId={DEVICES_TABLE_ID}
         columns={columns}
         data={devices}
         isLoading={isLoading}

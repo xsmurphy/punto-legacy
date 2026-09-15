@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ArrowLeft, FileText, Loader2 } from "lucide-react"
@@ -25,6 +26,9 @@ import { formatMoney } from "@/lib/format"
  * context/32-ocr-facturas-compra.md. Click en fila → pantalla de revisión
  * (`/purchase/drafts/[id]`) con la imagen al lado del form editable.
  */
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const PURCHASE_DRAFTS_TABLE_ID = "purchase-drafts"
+
 export default function PurchaseDraftsPage() {
   const router = useRouter()
   const { data: bootstrap } = useBootstrap()
@@ -33,7 +37,11 @@ export default function PurchaseDraftsPage() {
   // usuario aterrizaba en una lista VACÍA justo después de subir un lote —
   // parecía que no se había guardado nada. Además, con la query filtrada a
   // `pending` el auto-refresco nunca veía filas en vuelo y no se encendía.
-  const [status, setStatus] = React.useState<PurchaseDraftStatus | "all">("all")
+  const [status, setStatus] = usePersistedTableState<PurchaseDraftStatus | "all">(
+    PURCHASE_DRAFTS_TABLE_ID,
+    "status",
+    "all",
+  )
 
   const drafts = usePurchaseDrafts(status === "all" ? undefined : status)
   const rows = drafts.data?.rows ?? []
@@ -153,7 +161,7 @@ export default function PurchaseDraftsPage() {
       </header>
 
       <DataTable<PurchaseDraftSummary>
-        tableId="purchase-drafts"
+        tableId={PURCHASE_DRAFTS_TABLE_ID}
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}

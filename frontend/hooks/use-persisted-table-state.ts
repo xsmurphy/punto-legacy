@@ -76,24 +76,29 @@ export function usePersistedTableState<T>(
     })
   }, [namespace, tableId, key])
 
-  const set = React.useCallback(
-    (next: React.SetStateAction<T>) => {
-      const resolved =
-        typeof next === "function" ? (next as (prev: T) => T)(valueRef.current) : next
-      valueRef.current = resolved
-      setValue(resolved)
-      // Escritura SÍNCRONA (no en un effect): "Restablecer vista" llama al
-      // `onClearFilters` del caller y DESPUÉS borra la clave; si esto escribiera
-      // en un effect, re-grabaría los defaults sobre la clave recién borrada.
-      if (namespace) {
-        const ser = optionsRef.current?.serialize
-        patchTableState(namespace, tableId, {
-          caller: { [key]: ser ? ser(resolved) : resolved },
-        })
-      }
-    },
-    [namespace, tableId, key],
-  )
+  // El setter es ESTABLE, como el de `useState`: los call-sites lo capturan en
+  // `useCallback(..., [])` (ej. el `clearFilters` de una página). Si dependiera
+  // del namespace, esa captura se quedaría con el del primer render —identidad
+  // todavía cargando— y nunca persistiría. Por eso lee todo de refs.
+  const targetRef = React.useRef({ namespace, tableId, key })
+  targetRef.current = { namespace, tableId, key }
+
+  const set = React.useCallback((next: React.SetStateAction<T>) => {
+    const resolved =
+      typeof next === "function" ? (next as (prev: T) => T)(valueRef.current) : next
+    valueRef.current = resolved
+    setValue(resolved)
+    // Escritura SÍNCRONA (no en un effect): "Restablecer vista" llama al
+    // `onClearFilters` del caller y DESPUÉS borra la clave; si esto escribiera
+    // en un effect, re-grabaría los defaults sobre la clave recién borrada.
+    const target = targetRef.current
+    if (target.namespace) {
+      const ser = optionsRef.current?.serialize
+      patchTableState(target.namespace, target.tableId, {
+        caller: { [target.key]: ser ? ser(resolved) : resolved },
+      })
+    }
+  }, [])
 
   return [value, set]
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -186,6 +187,10 @@ interface TransactionsListProps {
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
+/** Claves de las preferencias de los listados (ver `lib/table-state`). */
+const TRANSACTIONS_TABLE_ID = "report-transactions"
+const COBROS_TABLE_ID = "report-cobros"
+
 export function TransactionsList({
   backHref,
   mode = "panel",
@@ -222,8 +227,23 @@ export function TransactionsList({
   // según el realm (client-per-realm, ver project_client_per_realm_no_cross_credentials):
   // en POS del catálogo hidratado por bootstrap del dispositivo, en panel de
   // /v1/payment-methods (cliente cookie del panel) — nunca se mezclan.
-  const [paymentMethodFilter, setPaymentMethodFilter] = React.useState<string>("all")
-  const [saleTypeFilter, setSaleTypeFilter] = React.useState<string>("all")
+  //
+  // Persisten como preferencia del listado (ver `lib/table-state`), cada uno en
+  // la tabla donde filtra: tipo de venta en Transacciones; método de pago en la
+  // tabla VISIBLE, porque en /reports/sales cada pestaña es una instancia
+  // propia de este componente y "efectivo" en Pagos recibidos no tiene por qué
+  // arrastrarse a Transacciones.
+  const filtersTableId = activeView === "cobros" ? COBROS_TABLE_ID : TRANSACTIONS_TABLE_ID
+  const [paymentMethodFilter, setPaymentMethodFilter] = usePersistedTableState<string>(
+    filtersTableId,
+    "paymentMethod",
+    "all",
+  )
+  const [saleTypeFilter, setSaleTypeFilter] = usePersistedTableState<string>(
+    TRANSACTIONS_TABLE_ID,
+    "saleType",
+    "all",
+  )
   const catalogPaymentMethods = useCatalogStore((s) => s.paymentMethods)
   const { data: panelPaymentMethodsData } = usePaymentMethods({ enabled: mode === "panel" })
   const paymentMethodOptions = React.useMemo(() => {
@@ -971,7 +991,7 @@ export function TransactionsList({
 
           <TabsContent value="transacciones" className={tabsContentClass}>
             <DataTable
-              tableId="report-transactions"
+              tableId={TRANSACTIONS_TABLE_ID}
               data={filteredRows}
               columns={txColumns}
               getRowId={(r) => r.transactionId}
@@ -1002,7 +1022,7 @@ export function TransactionsList({
 
           <TabsContent value="cobros" className={tabsContentClass}>
             <DataTable
-              tableId="report-cobros"
+              tableId={COBROS_TABLE_ID}
               data={filteredCobrosRows}
               columns={cobrosColumns}
               getRowId={(r) => r.transactionId}
@@ -1059,7 +1079,7 @@ export function TransactionsList({
         </Tabs>
       ) : (
         <DataTable
-          tableId="report-transactions"
+          tableId={TRANSACTIONS_TABLE_ID}
           data={filteredRows}
           columns={txColumns}
           getRowId={(r) => r.transactionId}

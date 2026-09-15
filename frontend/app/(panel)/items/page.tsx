@@ -72,6 +72,7 @@ import {
 } from "@/lib/types/item"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { useDebounce } from "@/hooks/use-debounce"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import { useViewScope } from "@/hooks/use-view-scope"
 
 export default function ItemsPage() {
@@ -84,16 +85,21 @@ export default function ItemsPage() {
   )
 }
 
+const ITEMS_TABLE_ID = "items"
+
 function ItemsPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const parentId = searchParams.get("parent")
-  const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
-  const [outletFilter, setOutletFilter] = React.useState<"all" | string>("all")
-  const [categoryFilter, setCategoryFilter] = React.useState<"all" | string>("all")
+  // Filtros del listado: preferencias del usuario, sobreviven al reload (misma
+  // clave que el `<DataTable tableId="items">`, que los borra en "Restablecer
+  // vista").
+  const [kindFilter, setKindFilter] = usePersistedTableState<"all" | ItemKind>(ITEMS_TABLE_ID, "kind", "all")
+  const [outletFilter, setOutletFilter] = usePersistedTableState<"all" | string>(ITEMS_TABLE_ID, "outlet", "all")
+  const [categoryFilter, setCategoryFilter] = usePersistedTableState<"all" | string>(ITEMS_TABLE_ID, "category", "all")
   const { data: categories } = useTaxonomiesByType("category")
-  const [showArchived, setShowArchived] = React.useState(false)
-  const [showVariants, setShowVariants] = React.useState(false)
+  const [showArchived, setShowArchived] = usePersistedTableState(ITEMS_TABLE_ID, "archived", false)
+  const [showVariants, setShowVariants] = usePersistedTableState(ITEMS_TABLE_ID, "variants", false)
 
   // Cuántos filtros están puestos. Va al badge del botón "Filtros": con el panel
   // cerrado, un listado filtrado se ve igual que uno completo, y sin esta señal
@@ -113,17 +119,29 @@ function ItemsPageInner() {
     setOutletFilter("all")
     setCategoryFilter("all")
     setShowArchived(false)
-  }, [])
+  }, [setKindFilter, setOutletFilter, setCategoryFilter, setShowArchived])
   // Búsqueda server-side (nombre, SKU o categoría — ver api/v1/items.php).
   // Antes el <DataTable> filtraba client-side sobre las 200 filas cargadas
   // por `useItems`, así que tipear el nombre de una categoría ("materia
   // prima") no encontraba nada: esa columna nunca viajaba al globalFilter
   // porque el texto vive en otra fila del listado, no en la del item. Con
   // debounce para no pegarle un fetch a cada tecla.
-  const [searchInput, setSearchInput] = React.useState("")
+  const [searchInput, setSearchInput] = usePersistedTableState(ITEMS_TABLE_ID, "search", "")
+  // El debounce aplica solo mientras se TIPEA. La búsqueda restaurada al
+  // recargar viaja en el acto: con debounce, durante 300 ms se verían los
+  // artículos sin filtrar y el usuario leería "no se guardó la búsqueda".
+  const [searchTyped, setSearchTyped] = React.useState(false)
   const debouncedSearch = useDebounce(searchInput, 300)
+  const searchTerm = searchTyped ? debouncedSearch : searchInput
+  const handleSearchChange = React.useCallback(
+    (value: string) => {
+      setSearchTyped(true)
+      setSearchInput(value)
+    },
+    [setSearchInput],
+  )
   const { data, isLoading, error } = useItems({
-    q: debouncedSearch || undefined,
+    q: searchTerm || undefined,
     archived: showArchived,
     parentId: parentId ?? undefined,
     includeVariants: showVariants,
@@ -190,7 +208,7 @@ function ItemsPageInner() {
   // `outletVisibilityClause()` — ver api/v1/items.php): 0 ahí significa
   // "0 en el backend", no un recorte del filtro client-side de la tabla.
   const hasLocalFilters =
-    kindFilter !== "all" || categoryFilter !== "all" || outletFilter !== "all" || !!debouncedSearch
+    kindFilter !== "all" || categoryFilter !== "all" || outletFilter !== "all" || !!searchTerm
   const isOutletScoped = typeof viewScope === "string" && viewScope !== "all"
   const emptyState = React.useMemo(() => {
     if (hasLocalFilters) {
@@ -692,7 +710,7 @@ function ItemsPageInner() {
       )}
 
       <DataTable
-            tableId="items"
+            tableId={ITEMS_TABLE_ID}
             data={filteredRows}
             columns={columns}
             getRowId={(r) => r.itemId}
@@ -706,7 +724,7 @@ function ItemsPageInner() {
             isLoading={isLoading}
             searchPlaceholder="Buscar por nombre, SKU o categoría…"
             searchValue={searchInput}
-            onSearchChange={setSearchInput}
+            onSearchChange={handleSearchChange}
             totalCount={data?.total}
             exportFileName="articulos"
             initialColumnVisibility={initialColumnVisibility}

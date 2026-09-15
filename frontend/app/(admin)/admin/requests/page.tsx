@@ -15,6 +15,7 @@
  */
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { FileText, Check, X } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -144,8 +145,11 @@ const rejectSchema = z.object({
 
 type RejectValues = z.infer<typeof rejectSchema>
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const OUTLET_REQUESTS_TABLE_ID = "admin-outlet-requests"
+
 function OutletRequestsTable() {
-  const [statusFilter, setStatusFilter] = React.useState("pending")
+  const [statusFilter, setStatusFilter] = usePersistedTableState(OUTLET_REQUESTS_TABLE_ID, "status", "pending")
   const { data, isLoading } = useAdminOutletRequests(statusFilter)
   const resolve = useAdminResolveOutletRequest()
 
@@ -250,7 +254,7 @@ function OutletRequestsTable() {
   return (
     <>
       <DataTable
-        tableId="admin-outlet-requests"
+        tableId={OUTLET_REQUESTS_TABLE_ID}
         data={rows}
         columns={columns}
         isLoading={isLoading}
@@ -363,8 +367,11 @@ function RejectOutletForm({
 
 // ── Planes ───────────────────────────────────────────────────────────────────
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const PLAN_REQUESTS_TABLE_ID = "admin-requests"
+
 function PlanRequestsTable() {
-  const [statusFilter, setStatusFilter] = React.useState("pending")
+  const [statusFilter, setStatusFilter] = usePersistedTableState(PLAN_REQUESTS_TABLE_ID, "status", "pending")
   const { data, isLoading } = useAdminRequests(statusFilter)
   const resolveRequest = useAdminResolveRequest()
 
@@ -465,7 +472,7 @@ function PlanRequestsTable() {
 
   return (
     <DataTable
-      tableId="admin-requests"
+      tableId={PLAN_REQUESTS_TABLE_ID}
       data={rows}
       columns={columns}
       isLoading={isLoading}

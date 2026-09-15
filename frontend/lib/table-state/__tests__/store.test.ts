@@ -91,6 +91,15 @@ describe("preferencias persistidas de un listado", () => {
     expect(readTableState(NS, "items").caller).toEqual({ outlet: "outlet-de-a" })
   })
 
+  it("el panel y la caja no comparten preferencias aunque sea la misma persona", () => {
+    // `TransactionsList` se monta en los dos con el mismo tableId: el filtro que
+    // el dueño dejó en el panel no se le aparece al cajero.
+    const caja = tenantTableNamespace("company-a", 7, "pos")
+    expect(caja).not.toBe(NS)
+    patchTableState(NS, "report-transactions", { caller: { saleType: "3" } })
+    expect(readTableState(caja, "report-transactions")).toEqual({})
+  })
+
   it("un id raro no puede fabricar la clave de otro namespace", () => {
     expect(tenantTableNamespace("a.u-9", 1)).toBe("c-au-9.u-1")
   })

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import Link from "next/link"
 import { FileText, RefreshCw, Ban, Receipt, FilePlus2, AlertTriangle, Mail } from "lucide-react"
@@ -304,14 +305,19 @@ function ReissueBody({ doc }: { doc: EInvoiceDocument }) {
  * proyecto (context/14-ui-conventions.md — convención obligatoria para
  * listados) en vez de una tabla one-off.
  */
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const EINVOICE_DOCUMENTS_TABLE_ID = "einvoice-documents"
+
 export function EInvoiceDocumentsCard() {
   const canManage = usePermission("einvoice.manage")
   // Formato numérico del tenant para los montos sin divisa registrada.
   const { data: bootstrap } = useBootstrap()
 
-  const [status, setStatus] = React.useState<string>("all")
-  const [from, setFrom] = React.useState("")
-  const [to, setTo] = React.useState("")
+  // Fechas a mano (inputs `type="date"`): se guardan tal cual las eligió el
+  // usuario — no hay preset relativo que re-resolver.
+  const [status, setStatus] = usePersistedTableState<string>(EINVOICE_DOCUMENTS_TABLE_ID, "status", "all")
+  const [from, setFrom] = usePersistedTableState(EINVOICE_DOCUMENTS_TABLE_ID, "from", "")
+  const [to, setTo] = usePersistedTableState(EINVOICE_DOCUMENTS_TABLE_ID, "to", "")
 
   // Filtros de fecha/estado van al backend (WHERE sobre la tabla completa);
   // la búsqueda libre por CDC/cliente la resuelve el <DataTable> del lado
@@ -586,7 +592,7 @@ export function EInvoiceDocumentsCard() {
         </CardHeader>
         <CardContent>
           <DataTable
-            tableId="einvoice-documents"
+            tableId={EINVOICE_DOCUMENTS_TABLE_ID}
             columns={columns}
             data={data?.items ?? []}
             getRowId={(row) => row.id}

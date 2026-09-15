@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import { useRouter, useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { Plus, AlertCircle, Users } from "lucide-react"
@@ -43,6 +44,9 @@ function getActiveTab(searchParams: ReturnType<typeof useSearchParams>): ActiveT
   return "1"
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const CONTACTS_TABLE_ID = "contacts"
+
 function ContactsPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -60,7 +64,11 @@ function ContactsPage() {
 
   const { data, isLoading, error } = useContacts({ type: contactType })
   const { data: bootstrap } = useBootstrap()
-  const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "archived">("all")
+  const [statusFilter, setStatusFilter] = usePersistedTableState<"all" | "active" | "archived">(
+    CONTACTS_TABLE_ID,
+    "status",
+    "all",
+  )
   const isSupplier = activeTab === "2"
   const teamOpenCreateRef = React.useRef<(() => void) | null>(null)
 
@@ -305,7 +313,7 @@ function ContactsPage() {
               (top+bottom de la tabla) y los rows tienen divisores. El feedback del
               user fue claro: sin bordes externos. */}
           <DataTable
-            tableId="contacts"
+            tableId={CONTACTS_TABLE_ID}
             data={filteredRows}
             columns={columns}
             initialColumnVisibility={initialColumnVisibility}

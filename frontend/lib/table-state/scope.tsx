@@ -5,14 +5,14 @@
  *
  * Cada realm tiene su propia fuente de identidad y no se mezclan (un cliente
  * HTTP = un realm): el panel la saca del bootstrap del panel
- * (`PanelAuthGuard`), /admin del admin logueado (`AdminAuthGuard`). Por eso la
+ * (`PanelAuthGuard`), /admin del admin logueado (`AdminAuthGuard`), la caja del
+ * bootstrap del device (`PosAuthGuard`, abajo). Por eso la
  * identidad la INYECTA el guard de cada realm con este provider y el
  * `<DataTable>` no llama a ningún endpoint para averiguarla.
  *
- * La caja (`PosAuthGuard`) no lo monta: hoy no hay ningún `<DataTable>` en el
- * POS. El día que haya uno, su identidad es empresa del bootstrap del device +
- * el OPERADOR del PIN (`useLockStore().activeUser`), no el usuario del device:
- * la tablet la comparten varias personas.
+ * La caja (`PosAuthGuard`) usa la empresa del bootstrap del device + el
+ * OPERADOR del PIN (`useLockStore().activeUser`), no el usuario del device: la
+ * tablet la comparten varias personas.
  *
  * Tres estados:
  *   - `namespace: undefined` → identidad todavía cargando. El listado muestra

@@ -67,9 +67,20 @@ function segment(v: string | number): string {
   return String(v).replace(/[^A-Za-z0-9_-]/g, "")
 }
 
-/** Realm tenant (panel y caja): empresa + usuario. */
-export function tenantTableNamespace(companyId: string | number, userId: string | number): string {
-  return `c-${segment(companyId)}.u-${segment(userId)}`
+/**
+ * Realm tenant: empresa + usuario. La caja lleva además su propio segmento: el
+ * mismo componente (ej. `TransactionsList`) se monta en el panel y en `/pos`
+ * con el mismo `tableId`, y son dos superficies con dos usos — el filtro que el
+ * dueño dejó analizando en el panel no se le tiene que aparecer al cajero
+ * (mismo criterio que los scopes de `use-date-range`).
+ */
+export function tenantTableNamespace(
+  companyId: string | number,
+  userId: string | number,
+  surface: "panel" | "pos" = "panel",
+): string {
+  const base = `c-${segment(companyId)}.u-${segment(userId)}`
+  return surface === "pos" ? `pos.${base}` : base
 }
 
 /** Realm admin: no hay empresa, el usuario admin es la persona. */

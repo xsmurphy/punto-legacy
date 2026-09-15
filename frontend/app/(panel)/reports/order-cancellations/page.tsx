@@ -32,6 +32,7 @@
  */
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import { AlertCircle, ArrowLeft, Ban } from "lucide-react"
@@ -62,10 +63,17 @@ import { ACTOR_KIND_LABEL } from "@/lib/orders/order-display"
 /** Sentinel del `<Select>`: Radix no acepta `value=""` (context/20 §4). */
 const ALL_OUTLETS = "all"
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const ORDER_CANCELLATIONS_TABLE_ID = "report-order-cancellations"
+
 export default function OrderCancellationsReportPage() {
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
-  const [outletId, setOutletId] = React.useState<string>(ALL_OUTLETS)
+  const [outletId, setOutletId] = usePersistedTableState<string>(
+    ORDER_CANCELLATIONS_TABLE_ID,
+    "outlet",
+    ALL_OUTLETS,
+  )
 
   const outlets = bootstrap?.outlets ?? []
   const hasOutletFilter = outlets.length > 1
@@ -240,7 +248,7 @@ export default function OrderCancellationsReportPage() {
       )}
 
       <DataTable
-        tableId="report-order-cancellations"
+        tableId={ORDER_CANCELLATIONS_TABLE_ID}
         data={rows}
         columns={columns}
         getRowId={(r) => r.eventId}
