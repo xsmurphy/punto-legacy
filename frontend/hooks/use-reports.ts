@@ -1379,6 +1379,7 @@ export interface PurchaseReportRow {
   transactionComplete: 0 | 1
   transactionStatus: string
   category: string
+  costCenter: string
   tax: number
   discount: number
   total: number

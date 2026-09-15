@@ -33,13 +33,14 @@ final class PurchasesService
     {
         // Columnas que lee el loop de abajo ($f[...]/$r[...]). ncmExecute(forceObj=true)
         // pasa por Query::flattenJsonb, pero ninguna key usada acá vive en meta/data/config
-        // (todas son columnas reales — categoryTransId ya se selecciona por nombre en
-        // detail() más abajo, así que sabemos que existe como columna en PG).
+        // (todas son columnas reales — expenseCategoryId/costCenterId se seleccionan por
+        // alias SQL `meta->>...` para no depender del flatten).
         $cols = "transactionId, transactionType, transactionStatus, transactionComplete,
                  transactionDate, transactionDueDate, invoicePrefix, invoiceNo, transactionNote,
                  transactionPaymentType, categoryTransId, transactionTax, transactionDiscount,
                  transactionTotal, supplierId, userId, outletId,
-                 supplierAuthNo, supplierAuthNoDueDate";
+                 supplierAuthNo, supplierAuthNoDueDate,
+                 meta->>'expenseCategoryId' AS expenseCategoryId, meta->>'costCenterId' AS costCenterId";
 
         if ($filters['singleRow']) {
             $sql = "SELECT $cols FROM transaction
@@ -76,6 +77,14 @@ final class PurchasesService
         $usrIds  = array_map(fn($r) => (string) $r['userId'], $tx);
         $contacts = $this->contactInfo(array_merge($supIds, $usrIds), $companyId);
         $outlets = $this->nameMap('outlet', 'outletId', 'outletName', array_map(fn($r) => (string) $r['outletId'], $tx), $companyId);
+
+        // Categoría de gasto y centro de costo: la fuente canónica es `meta`
+        // (PurchasesService::create las persiste ahí — `categoryTransId` la
+        // columna legacy quedó sin escritores). Se resuelven en batch.
+        $finCat = $this->nameMap('fin_category', 'categoryId', 'name',
+            array_map(fn($r) => (string) ($r['expenseCategoryId'] ?? ''), $tx), $companyId);
+        $ccById = $this->costCenterMap(
+            array_map(fn($r) => (string) ($r['costCenterId'] ?? ''), $tx), $companyId);
 
         $creditIds = [];
         foreach ($tx as $r) {
@@ -123,7 +132,8 @@ final class PurchasesService
                 'transactionType'    => (int) $f['transactionType'],
                 'transactionComplete'=> $complete ? 1 : 0,
                 'transactionStatus'  => (string) ($f['transactionStatus'] ?? ''),
-                'category'           => $f['categoryTransId'] ? $this->taxonomyName($f['categoryTransId'], $companyId) : '',
+                'category'           => $this->resolvePurchaseCategory($f, $finCat, $companyId),
+                'costCenter'         => $ccById[(string) ($f['costCenterId'] ?? '')] ?? '',
                 'tax'                => (float) $f['transactionTax'],
                 'discount'           => (float) $f['transactionDiscount'],
                 'total'              => (float) $f['transactionTotal'],
@@ -497,6 +507,44 @@ final class PurchasesService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r[$idCol]] = (string) ($r[$nameCol] ?? '');
+        }
+        return $map;
+    }
+
+    /**
+     * Categoría de la compra: prioriza `meta.expenseCategoryId` (fin_category —
+     * la que persiste `PurchasesService::create`, con precedencia
+     * línea > cabecera > ítem resuelta por el form). Cae al legacy
+     * `categoryTransId` (taxonomy, columna sin escritores desde la migración)
+     * solo para filas históricas que la traen.
+     */
+    private function resolvePurchaseCategory(array|\CaseInsensitiveArray $f, array $finCat, string $companyId): string
+    {
+        $metaCat = (string) ($f['expenseCategoryId'] ?? '');
+        if ($metaCat !== '') {
+            return $finCat[$metaCat] ?? '';
+        }
+        return $f['categoryTransId'] ? $this->taxonomyName($f['categoryTransId'], $companyId) : '';
+    }
+
+    /** costCenterId → "code — name" (mismo formato que el selector del form de compra). */
+    private function costCenterMap(array $ids, string $companyId): array
+    {
+        $ids = array_values(array_unique(array_filter($ids)));
+        if (!$ids) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmExecute(
+            "SELECT costCenterId, name, code FROM fin_cost_center WHERE companyId = ? AND costCenterId IN ($ph)",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        $res = is_array($res) ? $res : [];
+        $map = [];
+        foreach ($res as $r) {
+            $code = (string) ($r['code'] ?? '');
+            $name = (string) ($r['name'] ?? '');
+            $map[(string) $r['costCenterId']] = $code !== '' ? "{$code} — {$name}" : $name;
         }
         return $map;
     }

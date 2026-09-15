@@ -114,6 +114,24 @@ export default function PurchasesReportPage() {
           ),
       },
       {
+        accessorKey: "category",
+        header: "Categoría",
+        meta: { label: "Categoría" },
+        cell: ({ row }) =>
+          row.original.category || (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        accessorKey: "costCenter",
+        header: "Centro de costo",
+        meta: { label: "Centro de costo" },
+        cell: ({ row }) =>
+          row.original.costCenter || (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
         accessorKey: "dueDate",
         header: "Vencimiento",
         meta: { label: "Vencimiento" },
