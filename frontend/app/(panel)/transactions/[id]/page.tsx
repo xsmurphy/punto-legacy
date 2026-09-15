@@ -46,7 +46,7 @@ import { useVoidCreditPayment } from "@/hooks/use-contacts"
 // `transport`: el default es el cliente del panel (`api`, Bearer del panel).
 // Pasarle `posFetch` sería el cruce de realms que el invariante prohíbe.
 import { useVoidOptions } from "@/hooks/use-sale-void"
-import { einvoiceKudeUrl } from "@/hooks/use-einvoice"
+import { downloadEinvoiceKude } from "@/hooks/use-einvoice"
 import { groupCdc } from "@/lib/einvoice/kude"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
@@ -400,7 +400,13 @@ function TransactionDetailView({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.open(einvoiceKudeUrl(einvoiceDoc.id), "_blank")}
+              onClick={() => {
+                void downloadEinvoiceKude(einvoiceDoc.id).catch((err) =>
+                  toast.error(
+                    err instanceof Error ? err.message : "No se pudo descargar el KuDE",
+                  ),
+                )
+              }}
               className="gap-1.5"
             >
               <FileCheck className="size-3.5" />

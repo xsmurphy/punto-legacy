@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
+import { triggerDownload } from "@/lib/download-blob"
 import type {
   EInvoiceAccount,
   EInvoiceConfig,
@@ -236,11 +237,27 @@ export function useReconcileEinvoiceDocuments() {
 }
 
 /**
- * URL del KuDE (PDF) para abrir en pestaña nueva — se navega directo al BFF
- * (mismo-origin, cookie de panel viaja sola) en vez de traer el blob por
- * `api-client` (que solo maneja JSON): un `<a target="_blank">`/`window.open`
- * deja que el browser maneje la descarga/preview nativamente.
+ * Descarga el KuDE (PDF) del panel.
+ *
+ * ── Por qué NO es una URL para `window.open` ─────────────────────────────
+ * Antes devolvía `/api/v1/einvoice?resource=kude&id=…` para navegar directo,
+ * y el comentario decía "mismo-origin, la cookie de panel viaja sola". Esa
+ * premisa dejó de ser cierta: el panel pasó a `Authorization: Bearer` y el
+ * BFF es TOKEN-ONLY desde context/54 F2 — la opción de reenviar cookies se
+ * eliminó a propósito, después de cuatro incidentes de sesión cruzada.
+ *
+ * Una navegación del browser no adjunta el Bearer, así que esa URL devolvía
+ * 401 "Autenticación requerida" en una pestaña en blanco. Lo dice el propio
+ * `api-client.ts`: para descargar, `getBlob`.
+ *
+ * El POS ya lo resolvía así (`pos-transactions-dialog.tsx` con
+ * `posApi.getBlob` + `triggerDownload`); esto alinea al panel con ese camino
+ * en vez de sostener dos formas de bajar el mismo PDF.
+ *
+ * Lanza si el backend rechaza: el envelope trae el motivo real (409 "todavía
+ * no está listo" / "no se emitió") y el caller lo muestra tal cual.
  */
-export function einvoiceKudeUrl(id: string): string {
-  return `/api/v1/einvoice?resource=kude&id=${encodeURIComponent(id)}`
+export async function downloadEinvoiceKude(id: string, label?: string): Promise<void> {
+  const blob = await api.getBlob(`/v1/einvoice?resource=kude&id=${encodeURIComponent(id)}`)
+  triggerDownload(blob, `kude-${label || id}.pdf`)
 }

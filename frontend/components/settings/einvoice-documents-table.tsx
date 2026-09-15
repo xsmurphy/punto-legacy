@@ -34,7 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { EmptyState } from "@/components/empty-state"
 
 import {
-  einvoiceKudeUrl,
+  downloadEinvoiceKude,
   useCancelEinvoiceDocument,
   useEinvoiceDocuments,
   useReconcileEinvoiceDocuments,
@@ -502,10 +502,15 @@ export function EInvoiceDocumentsCard() {
             <RowActions
               actions={[
                 {
-                  label: "Ver KuDE",
+                  label: "Descargar KuDE",
                   icon: FileText,
-                  href: doc.cdc ? einvoiceKudeUrl(doc.id) : undefined,
-                  target: "_blank",
+                  onSelect: () => {
+                    void downloadEinvoiceKude(doc.id).catch((err) =>
+                      toast.error(
+                        err instanceof Error ? err.message : "No se pudo descargar el KuDE",
+                      ),
+                    )
+                  },
                   hidden: !doc.cdc,
                 },
                 {
