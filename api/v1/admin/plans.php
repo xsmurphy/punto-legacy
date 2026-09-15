@@ -5,19 +5,14 @@
  *
  * Gateado por adminMiddleware() (sesión opaca admin). NO apiMiddleware.
  *
- * GET  ?archived=1        → lista TODOS los planes (incl. archivados) con
- *                            conteo de tenants vigentes por plan_code.
- * GET  (sin archived)      → solo planes activos (archived=0).
+ * GET                      → lista TODOS los planes con conteo de tenants por
+ *                            plan_code (`archived` viaja como historial, no filtra).
  * GET  ?code=<int>         → detalle de un plan.
  * POST                     → crea un plan nuevo (plan_code auto-asignado).
- * PATCH ?code=<int>        → edita un plan. Regla de versionado NO retroactiva
- *                            (ver PlanAdminService::update docblock): si el
- *                            body solo trae `name`, edita in-place; si trae
- *                            price, duration_days, límites max_N, features o
- *                            ai_credits_monthly distintos a los actuales,
- *                            crea un plan_code nuevo y archiva el viejo.
- * POST ?code=<int>&action=archive → archiva el plan (no se ofrece más para
- *                            asignar a tenants nuevos; los vigentes siguen igual).
+ * PATCH ?code=<int>        → edita el plan EN EL LUGAR: el cambio aplica a todos
+ *                            los tenants con ese plan_code (owner 2026-09-15; el
+ *                            versionado de F4 quedó SUPERSEDED — ver el docblock
+ *                            de PlanAdminService).
  *
  * Ver context/34-admin-saas-plan.md F4.
  */
@@ -51,22 +46,14 @@ if ($method === 'GET') {
         apiOk($plan);
     }
 
-    $includeArchived = !empty($_GET['archived']);
-    apiOk(['rows' => $svc->list($includeArchived)]);
+    apiOk(['rows' => $svc->list()]);
 }
 
 if ($method === 'POST') {
-    $action  = trim((string) ($_GET['action'] ?? ''));
-    $codeRaw = isset($_GET['code']) ? (string) $_GET['code'] : null;
-
-    if ($action === 'archive') {
-        $code   = requireCode($codeRaw);
-        $result = $svc->archive($code);
-        if (!$result['ok']) {
-            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
-        }
-        adminAudit('archivePlan', 'plan', (string) $code);
-        apiOk($result);
+    // Ya no hay acciones sobre un plan existente: archivar era parte del
+    // versionado de F4 y nada escribe `plans.archived` desde 2026-09-15.
+    if (trim((string) ($_GET['action'] ?? '')) !== '') {
+        apiError('Acción no soportada', 400);
     }
 
     // Crear plan nuevo.
@@ -100,17 +87,13 @@ if ($method === 'PATCH') {
         apiError($result['error'] ?? 'error', $result['code'] ?? 422);
     }
 
-    adminAudit(
-        $result['versioned'] ? 'versionPlan' : 'updatePlan',
-        'plan',
-        (string) ($result['plan']['code'] ?? $code),
-        $result['plan']['name'] ?? null,
-        [
-            'fields'       => array_keys($input),
-            'versioned'    => $result['versioned'],
-            'archivedCode' => $result['archivedCode'] ?? null,
-        ]
-    );
+    adminAudit('updatePlan', 'plan', (string) $code, $result['plan']['name'] ?? null, [
+        // El input completo, no solo los nombres: un cambio de precio o de
+        // límites aplica a todos los tenants del plan y tiene que quedar qué
+        // valor se puso.
+        'input'   => $input,
+        'tenants' => $result['tenants'] ?? null,
+    ]);
     apiOk($result);
 }
 
