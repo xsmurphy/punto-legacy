@@ -48,7 +48,7 @@ import { formatAmount, formatCurrencyAmount } from "@/lib/format-money"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatDateTime } from "@/lib/format-date"
 import { sifenVerdict } from "@/lib/einvoice/sifen-status"
-import { rejectionFix } from "@/lib/einvoice/rejection-fix"
+import { isSerieRejection, rejectionFix } from "@/lib/einvoice/rejection-fix"
 import type { EInvoiceDocument, EInvoiceDocumentStatus } from "@/lib/types/einvoice"
 import { CurrencyFlag } from "@/components/ui/country-flag"
 
@@ -144,6 +144,12 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">
           {doc.errorMessage ?? "El envío falló sin motivo registrado. Reintentá; si persiste, contactá a soporte."}
+          {/* 1110 (serie SIFEN, mig 223): el código crudo no dice dónde se
+              corrige. Se traduce con el mismo criterio que el diálogo de
+              reemisión (`rejectionFix`). */}
+          {isSerieRejection(doc.errorMessage) && (
+            <span className="mt-1 block font-medium">{rejectionFix(doc.errorMessage).title}</span>
+          )}
         </TooltipContent>
       </Tooltip>
     )

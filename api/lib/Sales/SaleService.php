@@ -6,6 +6,7 @@ namespace Punto\Api\Sales;
 use DB; // wrapper PDO en namespace global, en `app/includes/lib/DB.php`
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Documents\DocumentSeries;
 use Punto\Api\Items\AddonService;
 use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
 use Punto\Api\Sales\Exceptions\DuplicateInvoiceNumberException;
@@ -164,7 +165,8 @@ final class SaleService
         // `register.data->>'registerInvoiceAuth'` para esta venta. Si el
         // timbrado de la caja cambia mañana, este documento sigue mostrando
         // (y siendo comparado contra) el timbrado con el que se emitió.
-        [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration, $invoicePrefix] = $this->resolveFrozenInvoiceAuth();
+        [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration, $invoicePrefix, $invoiceSerie]
+            = $this->resolveFrozenInvoiceAuth($input->invoiceSerie);
 
         // ¿El timbrado congelado ya estaba VENCIDO en la fecha de la operación?
         // Se calcula acá, en el único lugar por donde pasan los dos caminos de
@@ -212,6 +214,7 @@ final class SaleService
                 invoiceAuthExpiration:  $invoiceAuthExpiration,
                 invoiceAuthExpiredAtEmission: $invoiceAuthExpiredAtEmission,
                 invoicePrefix:          $invoicePrefix,
+                invoiceSerie:           $invoiceSerie,
             );
 
             // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -766,29 +769,42 @@ final class SaleService
      * congelar media serie no alcanza para saber a qué talonario pertenece un
      * documento ya emitido.
      *
-     * @return array{0: ?string, 1: ?string, 2: ?string, 3: ?string}
-     *         [invoiceAuth, invoiceAuthStart, invoiceAuthExpiration, invoicePrefix]
+     * ── La SERIE SIFEN también (mig 223) ──
+     * `dSerieNum` es la tercera parte de la identidad de la serie. Manda la que
+     * DECLARA el device en el payload (`$declaredSerie`): el POS numera offline
+     * bajo la serie que conocía, y la venta puede sincronizar después de que el
+     * panel la cambie. Solo si el payload no la declara (bundle anterior a la
+     * mig 223) se congela la vigente de la caja, que es la que ese bundle venía
+     * usando. Una caja sin punto de expedición no tiene serie fiscal: null.
+     *
+     * @return array{0: ?string, 1: ?string, 2: ?string, 3: ?string, 4: ?string}
+     *         [invoiceAuth, invoiceAuthStart, invoiceAuthExpiration, invoicePrefix, invoiceSerie]
      */
-    private function resolveFrozenInvoiceAuth(): array
+    private function resolveFrozenInvoiceAuth(?string $declaredSerie = null): array
     {
         $row = ncmExecute(
             'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$this->ctx->registerId, $this->ctx->companyId]
         );
         if (!(is_array($row) || $row instanceof \ArrayAccess)) {
-            return [null, null, null, null];
+            return [null, null, null, null, null];
         }
 
         $auth   = trim((string) ($row['registerInvoiceAuth']           ?? ''));
         $start  = trim((string) ($row['registerInvoiceAuthStart']      ?? ''));
         $exp    = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
         $prefix = trim((string) ($row['registerInvoicePrefix']         ?? ''));
+        $serie  = $declaredSerie ?? DocumentSeries::serieFromConfig(
+            $row[DocumentSeries::SERIE_CONFIG_KEYS['factura']] ?? '',
+            'caja ' . $this->ctx->registerId . ', factura'
+        );
 
         return [
             $auth   === '' ? null : $auth,
             $start  === '' ? null : $start,
             $exp    === '' ? null : $exp,
             $prefix === '' ? null : $prefix,
+            ($prefix === '' || $serie === '') ? null : $serie,
         ];
     }
 
@@ -826,6 +842,7 @@ final class SaleService
         ?string $invoiceAuthExpiration = null,
         bool $invoiceAuthExpiredAtEmission = false,
         ?string $invoicePrefix = null,
+        ?string $invoiceSerie = null,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -920,6 +937,12 @@ final class SaleService
             // parámetros — una cotización no lleva timbrado ni punto, y sus
             // lectores ya caen al prefijo vivo de la caja.
             'invoicePrefix'          => $invoicePrefix,
+            // mig 223 — SERIE SIFEN (`dSerieNum`) congelada, la tercera parte
+            // de la serie. Es la que lee la emisión electrónica: un reintento
+            // manda ESTA, no la vigente de la caja (salvo la adopción de
+            // `EInvoiceService::serieToAdopt()`/`freezeAdoptedSerie()` para un documento
+            // numerado sin serie que SIFEN nunca aceptó, que escribe acá).
+            'invoiceSerie'           => $invoiceSerie,
             'timestamp'              => $input->timestamp,
             'transactionUID'         => $input->uid,
             'transactionCurrency'    => $input->currency,

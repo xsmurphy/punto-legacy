@@ -265,6 +265,8 @@ interface UpstreamRegisterRow {
   invoicePrefix?: string
   invoiceAuthStart?: string
   invoiceAuthExpiration?: string
+  // Serie SIFEN (dSerieNum) del talonario de facturas, mig 223. '' = sin serie.
+  invoiceSerie?: string
 }
 
 interface UpstreamRegisterList {
@@ -864,6 +866,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       authNumber: r.invoiceAuth || null,
       authStartDate: r.invoiceAuthStart || null,
       authExpiration: r.invoiceAuthExpiration || null,
+      invoiceSerie: r.invoiceSerie || null,
     }),
   )
 

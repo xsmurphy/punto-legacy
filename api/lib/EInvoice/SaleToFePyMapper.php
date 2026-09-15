@@ -192,7 +192,7 @@ final class SaleToFePyMapper
 
     /**
      * @param array<string,mixed> $sale   Shape documentado en el docblock de la clase.
-     * @param array{establecimiento:string,punto:string} $point Caja de la venta = punto de expedición.
+     * @param array{establecimiento:string,punto:string,serie?:string} $point Caja de la venta = punto de expedición; `serie` = dSerieNum congelada.
      * @param array<string,mixed> $config `einvoice_account.config` (mapa de medios de pago, kill-switches).
      * @param string $issuedDate Fecha de la OPERACIÓN, naive `Y-m-d\TH:i:s` en el reloj del tenant.
      * @param string $idempotencyKey `einvoicedocid` — viaja como header, no como campo del documento.
@@ -231,6 +231,7 @@ final class SaleToFePyMapper
 
         $establecimiento = self::padCode($point['establecimiento'] ?? '', 'establecimiento');
         $punto           = self::padCode($point['punto'] ?? '', 'punto de expedición');
+        $serie           = self::serieCode($point['serie'] ?? '');
 
         $moneyDecimals = SaleFiscalRules::currencyDecimals($currency);
 
@@ -297,6 +298,20 @@ final class SaleToFePyMapper
         $numero = $this->resolveDocumentNumber($sale, $config, $documentType);
         if ($numero !== '') {
             $payload['numero'] = $numero;
+        }
+
+        // Serie SIFEN (`dSerieNum`, mig 223): la de PUNTO, congelada en la
+        // transacción, viaja junto al número en cada documento (decisión del
+        // owner 2026-09-15 — nada de fijarla aparte en el motor).
+        //
+        // Sin serie la clave NO viaja, y no como `''`: la validación del motor
+        // es `serie != null && !/^[A-Z]{2}$/` → un string vacío es un 422 que
+        // tumbaría TODA emisión sin serie, que es el caso normal. Contracara
+        // conocida del lado del motor: ausente, FE-PY cae a la serie que tenga
+        // guardada para ese punto (`numeracion.serie`, que solo se carga con su
+        // `PUT /numeracion` — Punto no lo llama). Ver context/28 §F8.
+        if ($serie !== '') {
+            $payload['serie'] = $serie;
         }
 
         if (!$isCreditNote) {
@@ -870,5 +885,22 @@ final class SaleToFePyMapper
             );
         }
         return str_pad($value, 3, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * `serie` (`dSerieNum`): dos letras mayúsculas o nada. Fail-closed ante
+     * cualquier otra forma — el motor respondería 422, y mandar el documento
+     * para que rebote gasta un intento sin decir qué corregir.
+     */
+    private static function serieCode(mixed $value): string
+    {
+        $serie = \Punto\Api\Documents\DocumentSeries::normalizeSerie($value);
+        if (!\Punto\Api\Documents\DocumentSeries::isValidSerie($serie)) {
+            throw new \RuntimeException(
+                "La serie del documento no es válida (llegó \"$serie\"): tienen que ser dos letras, ej. AA. " .
+                'Corregila en Sucursales → Cajas.'
+            );
+        }
+        return $serie;
     }
 }

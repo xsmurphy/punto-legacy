@@ -73,7 +73,7 @@ final class RegisterService
         // prefijo— es de ESTA serie: si el admin cambió el punto, la caja
         // arranca una serie nueva en 1 y el device tiene que enterarse por
         // acá, no heredar el contador de la serie anterior.
-        $series = \Punto\Api\Documents\DocumentSeries::forRegister($registerId, $companyId);
+        $series = \Punto\Api\Documents\DocumentSeries::forRegister($registerId, $companyId, 'factura');
 
         $facturaMeta = \Punto\Api\Documents\DocumentNumber::sequenceMeta(
             'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId, $series
@@ -94,6 +94,11 @@ final class RegisterService
             // con solo el punto, cambiar de timbrado sobre el mismo punto
             // reusaría el contador de la serie anterior.
             'invoiceAuth'     => $series->auth,
+            // Serie SIFEN (`dSerieNum`) de la factura de esta caja (mig 223):
+            // tercera parte de la identidad de la serie. El POS la necesita para
+            // la clave de su contador local y la manda congelada en cada venta
+            // (`invoiceserie`), así que baja acá y no se consulta al vender.
+            'invoiceSerie'    => $series->serie,
             'quotePadWidth'   => $quoteMeta['padWidth'],
             // Factura y cotización ya salen de `document_sequence` (F2,
             // context/37): son las dos que tienen emisor migrado, así que leer

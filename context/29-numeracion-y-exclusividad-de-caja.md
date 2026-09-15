@@ -39,6 +39,18 @@ En Punto: **una caja va atada a un punto de expedición propio.** Si `001-001`
 ya está asignado a una caja, JAMÁS otra caja puede usar `001-001` — la
 siguiente caja de esa sucursal es `001-002`.
 
+> **La serie SIFEN (`dSerieNum`) es parte de la identidad** (mig 223,
+> 2026-09-15). SIFEN admite dos letras de serie por punto de expedición; si el
+> punto ya emitió con serie exige la MISMA en todo documento posterior
+> (rechazo `1110`), y al cambiarla (AA → AB) la numeración reinicia. Por eso la
+> serie fiscal de Punto es `(timbrado, punto, serie, correlativo)`:
+> `AA-001-001-0000001` y `AB-001-001-0000001` son dos documentos legales
+> distintos, y cambiar la serie abre una secuencia NUEVA —igual que cambiar el
+> timbrado o el punto (mig 209)—. Es OPCIONAL, por defecto vacía, NUNCA se
+> precarga, y se configura por tipo de documento en la caja
+> (`registerInvoiceSerie` / `registerCreditNoteSerie`). Detalle y el caso de un
+> documento numerado sin serie que SIFEN rechazó: `context/28` §F8.1.
+
 ## 2. El invariante
 
 **Por timbrado, la combinación `punto de expedición + correlativo` es única.**
@@ -170,4 +182,26 @@ contador necesita para el Libro de Compras.
 | Recibo de proveedor, NC de compra | ✅ (`PurchaseCreditNoteService.php:289,539`) |
 | **Confirmar ≠ adquirir** (§4.5) — flag `acquire`, decisión movida a `RegisterLeaseService::claim()` | ✅ 2026-09-01 (arnés caso E, `api/tests/register_tenancy_offline_test.php`). Pendiente: sacar el default `true` del servidor cuando no queden bundles viejos |
 | **Liberar una caja avisa por realtime** (§4.6) — publish desde `close()` | ✅ 2026-09-01 (`/v1/register-lease` sumado a `$excluded` de bootstrap.php para no duplicar) |
+| **Serie SIFEN (`dSerieNum`) como identidad de la serie** — `document_sequence.serie` en la clave, `transaction.invoiceserie` congelada (y en las unicidades fiscales de factura y NC), clave local del POS, body a FE-PY; adopción de la serie vigente por un documento numerado sin serie que SIFEN nunca aceptó | ✅ 2026-09-15 (mig 223, arnés `run_einvoice_serie_test.sh`, ver `context/28` §F8.1). **Deploy en horario de bajo tráfico** — ver nota abajo |
 | **No se borra un dispositivo con historial operativo** | ✅ 2026-09-01 (`DeviceHistoryService`, 409 `DEVICE_HAS_HISTORY` en `devices.php`, mig 184; cuatro tablas: `register_lease` con FK dura + `auth_session`/`pos_order_event`/`station_printer` que quedaban huérfanas en silencio) |
+
+> **Deploy de la mig 223 (serie SIFEN) — ventana conocida.** La migración
+> cambia `uq_document_sequence` a 7 columnas. Mientras corre en el contenedor
+> nuevo y el viejo sigue atendiendo, el `ON CONFLICT` de 6 columnas del código
+> viejo no coincide con ningún índice (Postgres 42P10): falla la numeración
+> SERVER-SIDE (cotización, orden, recibo, NC, documentos de stock; el
+> `advanceTo()` post-venta es best-effort y no tumba la venta). Las facturas
+> del POS no se afectan: el número lo decide el device. Dura lo que tarda en
+> levantar el backend (~1 min) → deployar en horario de bajo tráfico. La
+> migración lleva `SET LOCAL lock_timeout = '10s'` para no quedar encolada
+> detrás de un reporte largo bloqueando ventas: si no consigue el lock, falla y
+> se reintenta el deploy.
+>
+> **Pendiente documentado (no resuelto):** la venta congela la serie SIFEN que
+> DECLARA el device, pero el timbrado y el punto los sigue resolviendo el
+> servidor contra la caja al sincronizar. Si el punto de expedición cambia con
+> ventas offline en cola, la transacción puede quedar con la serie del device y
+> el punto nuevo de la caja. Es la misma brecha que ya existía para timbrado y
+> punto (no la abre la serie); el arreglo es que la venta declare la serie
+> fiscal COMPLETA con la que se numeró.
+

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Reports;
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Documents\DocumentSeries;
 use Punto\Api\EInvoice\EInvoiceService;
 
 /**
@@ -821,6 +822,11 @@ final class TransactionsService
         // la NC tiene serie fiscal propia —el par vigente de la caja de la que
         // hereda— así que su fila NO es la de serie vacía. Sin sumarla acá, su
         // ancho de impresión nunca se encontraba y caía al de la factura.
+        //
+        // El predicado es `DocumentSeries::vigenteSqlPredicate()` desde la
+        // mig 223: la serie SIFEN es por doctype y el mismo CASE copiado acá y
+        // en RegisterAdminService iba a divergir en cuanto uno de los dos la
+        // olvidara.
         $padByRegister = [];
         $seqRes = ncmRows(
             "SELECT s.scopeid, s.doctype, s.padwidth
@@ -828,12 +834,7 @@ final class TransactionsService
                JOIN register r
                  ON r.registerId = s.scopeid AND r.companyId = s.companyid
               WHERE s.companyid = ? AND s.scopetype = 'register' AND s.scopeid IN ($ph)
-                AND s.invoiceauth = CASE WHEN s.doctype IN ('factura', 'nota_credito')
-                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
-                      ELSE '' END
-                AND s.prefix = CASE WHEN s.doctype IN ('factura', 'nota_credito')
-                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
-                      ELSE '' END",
+                AND " . DocumentSeries::vigenteSqlPredicate('s', 'r'),
             array_merge([$companyId], $ids)
         );
         foreach ($seqRes as $s) {

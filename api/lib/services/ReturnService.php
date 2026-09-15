@@ -555,7 +555,10 @@ final class ReturnService
                     . 'de expedición adivinado.'
                 );
             }
-            $ncSeries = DocumentSeries::forRegister($ncRegisterId, $companyId);
+            // La serie SIFEN (`dSerieNum`, mig 223) es la del talonario de NOTAS
+            // DE CRÉDITO de esa caja, no la de facturas: la numeración de SIFEN
+            // es por tipo de documento.
+            $ncSeries = DocumentSeries::forRegister($ncRegisterId, $companyId, 'nota_credito');
 
             // Correlativo real (context/37 D1: SIEMPRE dentro de la TX del
             // documento — si algo de abajo falla, el rollback devuelve el
@@ -609,10 +612,10 @@ final class ReturnService
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactionunitssold,
-                    transactionpaymenttype, invoiceno, invoiceauth, invoiceprefix,
+                    transactionpaymenttype, invoiceno, invoiceauth, invoiceprefix, invoiceserie,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')
+                ) VALUES (?, 6, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')
                 RETURNING transactiondate',
                 [
                     $newTransactionId,
@@ -623,6 +626,7 @@ final class ReturnService
                     $invoiceNo,
                     $ncSeries->auth,
                     $ncSeries->prefix,
+                    $ncSeries->serie !== '' ? $ncSeries->serie : null,
                     $note,
                     $parent['customerid'] ?? null,
                     $registerId ?: null,

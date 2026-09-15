@@ -1281,6 +1281,9 @@ function buildTicketDataFromCartForTest(
     // termina impreso es SIEMPRE el correlativo de ejemplo que se pisa más
     // abajo en `buildTicketDataForTest` ("001-001-0000000"), nunca este 0.
     invoiceno: 0,
+    // Mismo criterio que `invoiceno`: placeholder de un payload que nunca se
+    // manda. Sin serie, que es el default.
+    invoiceserie: "",
   })
   const total = Math.max(0, payload.subtotal - payload.discount)
   // Pago de relleno: la prueba puede dispararse antes de que el cajero elija

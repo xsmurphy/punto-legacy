@@ -178,6 +178,15 @@ export interface PosRegister {
   authNumber?: string | null
   authStartDate?: string | null
   authExpiration?: string | null
+  /**
+   * Serie SIFEN (`dSerieNum`) del talonario de facturas de la caja
+   * (`register.data.registerInvoiceSerie`, mig 223). `null`/`""` = sin serie,
+   * el default. Tercera parte de la identidad de la serie
+   * (`lib/pos/invoice-series.ts`): entra en la clave del contador local y viaja
+   * congelada en cada venta (`invoiceserie`). Baja en el bootstrap porque el
+   * POS numera offline y no puede consultarla al vender.
+   */
+  invoiceSerie?: string | null
 }
 
 // ── Item vendible en el POS ───────────────────────────────────────────────────

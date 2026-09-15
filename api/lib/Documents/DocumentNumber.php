@@ -48,10 +48,13 @@ use Punto\Api\Sales\SaleType;
  * contador, así que la caja siguió numerando por la serie vieja bajo el punto
  * nuevo — mandó el 838 contra un punto que iba por 614.
  *
- * La identidad real es la SERIE: (timbrado, punto de expedición) — ver
- * `DocumentSeries` y context/29 §2. Cambiar cualquiera de los dos abre una
- * serie NUEVA que arranca en 1; la vieja queda intacta como registro de lo que
- * emitió. Todos los métodos de acá aceptan una `?DocumentSeries`, y `null` es
+ * La identidad real es la SERIE: (timbrado, punto de expedición, serie SIFEN
+ * `dSerieNum` — esta última desde la mig 223) — ver `DocumentSeries` y
+ * context/29 §2. Cambiar cualquiera de las tres abre una serie NUEVA que
+ * arranca en 1; la vieja queda intacta como registro de lo que emitió. Las
+ * tres columnas (`invoiceauth`, `prefix`, `serie`) van SIEMPRE juntas en el
+ * INSERT, el ON CONFLICT y el WHERE: el conflict target tiene que ser
+ * exactamente `uq_document_sequence`. Todos los métodos de acá aceptan una `?DocumentSeries`, y `null` es
  * "documento sin serie fiscal" (merma, producción, orden, cotización…), que
  * sigue teniendo una sola secuencia por scope igual que antes.
  */
@@ -109,13 +112,13 @@ final class DocumentNumber
         // índice ahora incluye timbrado y punto de expedición.
         $rs = $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, nextnumber)
-             VALUES (?, ?, ?, ?, ?, ?, 2)
-             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix)
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie, nextnumber)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 2)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie)
              DO UPDATE SET nextnumber = document_sequence.nextnumber + 1,
                            updated_at = now()
              RETURNING nextnumber - 1 AS allocated, rangeto',
-            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $series->serie]
         );
 
         if ($rs === false || $rs->EOF) {
@@ -202,12 +205,12 @@ final class DocumentNumber
 
         $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, nextnumber)
-             VALUES (?, ?, ?, ?, ?, ?, ?::bigint + 1)
-             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix)
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie, nextnumber)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?::bigint + 1)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie)
              DO UPDATE SET nextnumber = GREATEST(document_sequence.nextnumber, ?::bigint + 1),
                            updated_at = now()',
-            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $invoiceNo, $invoiceNo]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $series->serie, $invoiceNo, $invoiceNo]
         );
     }
 
@@ -235,9 +238,9 @@ final class DocumentNumber
         $row = ncmExecute(
             'SELECT nextnumber FROM document_sequence
               WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
-                AND invoiceauth = ? AND prefix = ?
+                AND invoiceauth = ? AND prefix = ? AND serie = ?
               LIMIT 1',
-            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $series->serie]
         );
 
         return $row ? (int) ($row['nextnumber'] ?? 1) : 1;
@@ -383,9 +386,9 @@ final class DocumentNumber
         $row = ncmExecute(
             'SELECT prefix, padwidth, rangeto FROM document_sequence
               WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
-                AND invoiceauth = ? AND prefix = ?
+                AND invoiceauth = ? AND prefix = ? AND serie = ?
               LIMIT 1',
-            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix]
+            [$companyId, $docType, $scopeType, $scopeId, $series->auth, $series->prefix, $series->serie]
         );
 
         return [

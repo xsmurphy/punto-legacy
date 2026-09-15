@@ -20,6 +20,7 @@ vi.stubGlobal("localStorage", {
 const { getNextInvoiceNo, primeInvoiceNumbering } = await import(
   "@/lib/pos/invoice-numbering"
 )
+const { invoiceSeriesKey } = await import("@/lib/pos/invoice-series")
 
 /**
  * El contador de comprobantes del POS — la pieza que ASIGNA el número.
@@ -80,6 +81,29 @@ describe("primeInvoiceNumbering", () => {
     expect(getNextInvoiceNo(REGISTER, SERIE_A)).toBe(100)
     expect(getNextInvoiceNo(REGISTER, SERIE_B)).toBe(1)
     expect(getNextInvoiceNo(REGISTER, SERIE_A)).toBe(101)
+  })
+
+  it("serie SIFEN recién configurada: el contador SIN serie del mismo punto es el piso (mig 223)", () => {
+    // El device venía emitiendo offline en 18260177|001-001 sin serie y va por
+    // 845; el servidor todavía no lo vio y abre la serie AA en 841. Sembrar AA
+    // en 841 volvería a usar 841-844 en el mismo punto de expedición.
+    const sinSerie = invoiceSeriesKey("18260177", "001-001")
+    const conSerie = invoiceSeriesKey("18260177", "001-001", "AA")
+    primeInvoiceNumbering(REGISTER, sinSerie, 845)
+
+    primeInvoiceNumbering(REGISTER, conSerie, 841)
+
+    expect(getNextInvoiceNo(REGISTER, conSerie)).toBe(845)
+  })
+
+  it("el piso NO se toma entre dos series con serie (AA → AB reinicia)", () => {
+    const aa = invoiceSeriesKey("18260177", "001-001", "AA")
+    const ab = invoiceSeriesKey("18260177", "001-001", "AB")
+    primeInvoiceNumbering(REGISTER, aa, 9_000_000)
+
+    primeInvoiceNumbering(REGISTER, ab, 1)
+
+    expect(getNextInvoiceNo(REGISTER, ab)).toBe(1)
   })
 
   it("ignora un número de servidor inválido en vez de romper el contador", () => {

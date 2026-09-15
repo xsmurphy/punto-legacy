@@ -70,11 +70,17 @@ interface EInvoiceProvider
     public function patchTenant(string $environment, string $tenantRef, string $bearer, array $fields): array;
 
     /**
-     * Timbrados del emisor.
+     * Timbrado del EMISOR tal como lo tiene el motor, en el modelo de Punto.
      *
+     * Solo el timbrado: número, inicio y vencimiento. El punto de expedición,
+     * la serie SIFEN y el correlativo NO están acá porque no son del emisor
+     * sino de cada CAJA (context/29) y viajan en cada documento.
+     *
+     * @return array{numero:string,fechaInicio:string,vencimiento:string}|array{}
+     *         Vacío si el motor no informa timbrado.
      * @throws \RuntimeException
      */
-    public function stamps(string $environment, string $tenantRef, string $bearer): array;
+    public function emitterTimbrado(string $environment, string $tenantRef, string $bearer): array;
 
     /**
      * Códigos de medios de pago que acepta el motor, para mapear contra los

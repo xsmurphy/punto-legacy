@@ -34,6 +34,8 @@
  * Ver `lib/pos/invoice-series.ts`.
  */
 
+import { invoiceSeriesKeyWithoutSerie } from './invoice-series'
+
 const KEY_PREFIX = 'pos_invoice_next_no:'
 const RANGE_KEY_PREFIX = 'pos_invoice_range_to:'
 
@@ -99,6 +101,14 @@ export function primeInvoiceNumbering(
 
   discardLegacyCounter(registerId)
   const local = loadNext(registerId, series)
+  // Serie SIFEN recién configurada en un punto que venía emitiendo SIN serie
+  // (mig 223): su clave nace vacía, pero el device puede tener ventas offline
+  // sin sincronizar numeradas en ese mismo (timbrado, punto) por delante del
+  // servidor. Ese contador es el piso: bajar de él reusaría números ya
+  // impresos en el mismo punto. No aplica entre series con serie (AA → AB):
+  // el piso sale solo de la clave SIN serie del mismo timbrado y punto.
+  const withoutSerie = invoiceSeriesKeyWithoutSerie(series)
+  const floor = withoutSerie !== null ? loadNext(registerId, withoutSerie) : null
   // El máximo DENTRO DE LA SERIE, nunca entre series: `local` sale de la clave
   // nueva, que ya lleva la serie, así que comparar es legítimo. Si el device
   // está adelante (ventas emitidas offline que el servidor todavía no vio), su
@@ -106,7 +116,7 @@ export function primeInvoiceNumbering(
   //
   // Se escribe siempre, incluso cuando `local` ya es el mayor: es un no-op
   // barato y deja la clave sembrada aunque el flujo llegue acá dos veces.
-  saveNext(registerId, series, Math.max(local ?? 0, serverNext))
+  saveNext(registerId, series, Math.max(local ?? 0, floor ?? 0, serverNext))
 }
 
 /**

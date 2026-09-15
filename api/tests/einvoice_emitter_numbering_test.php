@@ -26,7 +26,7 @@ require_once __DIR__ . '/_harness.php';
  *     timbrado lo inyecta él, y no hay nada contra qué comparar.
  *   - **Pre-flight del rango del talonario** (`stampSeries()`): leía el último
  *     número usado del lado del motor para cortar antes de pisarlo. Tampoco
- *     existe: FE-PY no publica un `CurrentNumber`.
+ *     existe: FE-PY no publica el último número usado del talonario.
  *
  * No se reemplazaron por un mock que finja el guard viejo: sería un test
  * verificando código que no existe. Lo que SÍ existe hoy es la detección
@@ -263,7 +263,7 @@ final class FakeFePyProvider implements EInvoiceProvider
     public function userInfo(string $e, string $t, string $b): array { return []; }
     public function readiness(string $t, string $b): array { return ['ready' => true, 'checks' => [], 'unverifiable' => []]; }
     public function patchTenant(string $e, string $t, string $b, array $f): array { return []; }
-    public function stamps(string $e, string $t, string $b): array { return []; }
+    public function emitterTimbrado(string $e, string $t, string $b): array { return []; }
     public function paymentMethods(string $e, string $t, string $b): array { return []; }
     public function cancel(string $e, string $t, string $b, string $cdc, string $r): array { return []; }
     public function kude(string $e, string $t, string $b, string $cdc): string { return ''; }

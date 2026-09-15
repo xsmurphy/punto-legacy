@@ -26,7 +26,7 @@ $resource   = (string) ($_GET['resource'] ?? '');
 //
 // El realm `api` entra SOLO al listado de cajas, y solo por GET: es de donde
 // `get_einvoice_setup` saca qué caja tiene timbrado cargado, que es el
-// prerequisito del alta del emisor (`registerStamps()` la exige). El timbrado
+// prerequisito del alta del emisor (`registerTimbrados()` la exige). El timbrado
 // es DATO fiscal y no un secreto —`context/58` lo dice explícito al listar qué
 // se puede configurar por MCP—, así que exponerlo a la key del propio comercio
 // no abre nada que su dueño no vea en el panel.
@@ -169,6 +169,10 @@ if ($method === 'GET' && $resource === 'list') {
                 'invoicePrefix'         => (string) ($f['registerInvoicePrefix'] ?? ''),
                 'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
                 'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
+                // Serie SIFEN (`dSerieNum`) del talonario de facturas (mig 223).
+                // Es parte de la identidad de la serie: el POS la usa en la clave
+                // de su contador local y la congela en cada venta que numera.
+                'invoiceSerie'          => \Punto\Api\Documents\DocumentSeries::normalizeSerie($f['registerInvoiceSerie'] ?? ''),
             ];
             $rs->MoveNext();
         }

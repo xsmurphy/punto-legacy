@@ -44,6 +44,20 @@ function normalize(text: string): string {
 }
 
 /**
+ * ¿El motivo es el rechazo 1110 de SIFEN ("Serie informada incorrecta")?
+ *
+ * Exportado porque el 1110 llega por DOS caminos: como veredicto de SIFEN en un
+ * documento emitido (`sifenReason`, diálogo de reemisión) y como `error_message`
+ * cuando el motor lo devuelve en el mismo envío (el documento queda `error` y se
+ * REINTENTA, no se reemite). Los dos tienen que decir lo mismo, y el criterio
+ * vive en un solo lugar.
+ */
+export function isSerieRejection(reason: string | null | undefined): boolean {
+  const r = normalize((reason ?? "").trim())
+  return /(^|\D)1110(\D|$)/.test(r) || r.includes("serie informada")
+}
+
+/**
  * El orden importa: se evalúa de lo más específico a lo más ancho. "documento
  * duplicado" (el rechazo más observado en producción, código 1002) va primero
  * porque menciona "documento" y caería en cualquier otra rama.
@@ -71,6 +85,21 @@ export function rejectionFix(reason: string | null | undefined): RejectionFix {
       // venta, emitir otro factura dos veces algo que se cobró una.
       warning:
         "Antes de emitir, revisá si esta venta ya tiene un documento aprobado. Si lo tiene, la venta ya está facturada y no hay que emitir otro.",
+    }
+  }
+
+  // 1110 — la serie (`dSerieNum`) que informó el documento no es la que SIFEN
+  // tiene registrada para ese punto de expedición (mig 223). Va ANTES de la rama
+  // del timbrado: su texto no menciona el timbrado ni el punto, y caería al
+  // fallback genérico, que no dice dónde se corrige. El arreglo es configurar
+  // la serie EN LA CAJA; después, "Reintentar" reenvía el MISMO número con la
+  // serie nueva (el documento nunca fue aceptado, así que la toma).
+  if (isSerieRejection(reason)) {
+    return {
+      target: "stamp",
+      title: "La serie del punto de expedición no coincide con la registrada en SIFEN — configurala en la caja.",
+      description:
+        "Ese punto de expedición ya emitió con serie (lo hacía el sistema de facturación anterior) y SIFEN exige la misma en cada documento. Cargala en la sucursal de esta venta, pestaña Cajas: el valor está en <dSerieNum> del XML de una factura aprobada de ese punto. Después volvé acá y reintentá: el documento sale con el mismo número y la serie nueva.",
     }
   }
 
