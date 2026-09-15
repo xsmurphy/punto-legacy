@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ClipboardList, Factory, Plus, Trash2 } from "lucide-react"
@@ -45,6 +46,9 @@ export default function ProduccionPage() {
   )
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const PRODUCTION_ORDERS_TABLE_ID = "production-orders"
+
 function ProduccionPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -52,7 +56,11 @@ function ProduccionPageInner() {
   const canManage = usePermission("production.manage")
   const { range, setRange } = useDateRange()
 
-  const [status, setStatus] = React.useState<ProductionStatus | typeof ALL_STATUS>(ALL_STATUS)
+  const [status, setStatus] = usePersistedTableState<ProductionStatus | typeof ALL_STATUS>(
+    PRODUCTION_ORDERS_TABLE_ID,
+    "status",
+    ALL_STATUS,
+  )
   const [newOrderOpen, setNewOrderOpen] = React.useState(false)
   const [wasteDialogOpen, setWasteDialogOpen] = React.useState(false)
   const [detailOrderId, setDetailOrderId] = React.useState<string | null>(null)
@@ -267,7 +275,7 @@ function ProduccionPageInner() {
 
         <TabsContent value="orders" className="mt-6">
           <DataTable
-            tableId="production-orders"
+            tableId={PRODUCTION_ORDERS_TABLE_ID}
             data={ordersData?.orders ?? []}
             columns={orderColumns}
             getRowId={(row) => row.id}

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, Controller } from "react-hook-form"
@@ -86,6 +87,9 @@ export default function FinanzasMovimientosPage() {
   )
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const MOVEMENTS_TABLE_ID = "finanzas-movimientos"
+
 function FinanzasMovimientosPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -94,18 +98,24 @@ function FinanzasMovimientosPageInner() {
 
   const accountIdParam = searchParams.get("accountId") ?? ""
   const [accountId, setAccountId] = React.useState(accountIdParam)
-  const [kind, setKind] = React.useState<"income" | "expense" | "all">("all")
+  // La CUENTA no se persiste: la manda la URL (`?accountId=`, el deep link desde
+  // /finanzas/cuentas) y una preferencia guardada la contradiría.
+  const [kind, setKind] = usePersistedTableState<"income" | "expense" | "all">(
+    MOVEMENTS_TABLE_ID,
+    "kind",
+    "all",
+  )
   // "none" = filtro "Sin categoría" — para que nada quede suelto sea fácil
   // de encontrar, no solo de prevenir. Casi siempre vacío en la práctica:
   // hoy solo lo dejan sin categoría las transferencias entre cuentas propias
   // (excluidas explícitamente por el backend, ver MovementService::list) y,
   // más raro, un movimiento importado desde afuera.
-  const [categoryId, setCategoryId] = React.useState<string>("all")
+  const [categoryId, setCategoryId] = usePersistedTableState<string>(MOVEMENTS_TABLE_ID, "category", "all")
   // "none" = "Sin centro de costo". Acá SÍ es el filtro de uso diario, al revés
   // que en categorías: el centro de costo es opcional al cargar el gasto y el
   // histórico previo a la mig 167 quedó entero sin imputar, así que este filtro
   // es la bandeja de trabajo desde la que se clasifica (con "Reclasificar").
-  const [costCenterId, setCostCenterId] = React.useState<string>("all")
+  const [costCenterId, setCostCenterId] = usePersistedTableState<string>(MOVEMENTS_TABLE_ID, "costCenter", "all")
   const { range, setRange } = useDateRange()
 
   // Sincroniza el filtro con la URL cuando cambia externamente (ej. click desde /finanzas/cuentas).
@@ -401,7 +411,7 @@ function FinanzasMovimientosPageInner() {
       </div>
 
       <DataTable
-        tableId="finanzas-movimientos"
+        tableId={MOVEMENTS_TABLE_ID}
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}

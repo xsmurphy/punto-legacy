@@ -6,6 +6,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { useAdminMe, type AdminMe } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
+import { TableStateScopeProvider } from "@/lib/table-state/scope"
+import { adminTableNamespace } from "@/lib/table-state/store"
 
 // Contexto para que los hijos puedan leer el admin logueado.
 export const AdminContext = React.createContext<AdminMe | null>(null)
@@ -69,5 +71,13 @@ export function AdminAuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!admin) return null
 
-  return <AdminContext.Provider value={admin}>{children}</AdminContext.Provider>
+  // Preferencias de los listados de /admin: del admin logueado. Namespace
+  // propio, separado de cualquier empresa a la que después "entre como".
+  return (
+    <AdminContext.Provider value={admin}>
+      <TableStateScopeProvider namespace={adminTableNamespace(admin.id)}>
+        {children}
+      </TableStateScopeProvider>
+    </AdminContext.Provider>
+  )
 }

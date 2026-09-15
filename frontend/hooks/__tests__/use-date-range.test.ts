@@ -97,3 +97,33 @@ describe("persistencia del rango de fecha global", () => {
     expect(readDateRange().to.getDate()).toBe(8)
   })
 })
+
+describe("presets relativos del rango", () => {
+  beforeEach(() => store.clear())
+
+  it("un preset se guarda como PRESET, no con las fechas del día que se eligió", async () => {
+    const { resolveDateRangePreset } = await import("@/lib/date-range-presets")
+    setDateRange(resolveDateRangePreset("today", new Date(2026, 4, 3, 10)))
+    expect(JSON.parse(store.get(DATE_RANGE_KEY)!)).toEqual({ preset: "today" })
+  })
+
+  it("'Hoy' guardado ayer muestra HOY al releerse", () => {
+    store.set(DATE_RANGE_KEY, JSON.stringify({ preset: "today" }))
+    const now = new Date()
+    const r = readDateRange()
+    expect(r.preset).toBe("today")
+    expect(r.from.getDate()).toBe(now.getDate())
+    expect(r.to.getDate()).toBe(now.getDate())
+  })
+
+  it("un rango manual (sin preset) sigue guardándose con fechas", () => {
+    setDateRange({ from: new Date(2026, 4, 3), to: new Date(2026, 4, 20) })
+    expect(JSON.parse(store.get(DATE_RANGE_KEY)!)).toEqual({ from: "2026-05-03", to: "2026-05-20" })
+    expect(readDateRange().preset).toBeUndefined()
+  })
+
+  it("un preset desconocido cae al default", () => {
+    store.set(DATE_RANGE_KEY, JSON.stringify({ preset: "ayer-y-anteayer" }))
+    expect(readDateRange().to.getDate()).toBe(8)
+  })
+})

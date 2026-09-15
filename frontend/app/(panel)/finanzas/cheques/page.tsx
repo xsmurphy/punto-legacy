@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
@@ -98,10 +99,17 @@ function todayISO(): string {
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const CHECKS_TABLE_ID = "finanzas-cheques"
+
 export default function FinanzasChequesPage() {
   const { data: bootstrap } = useBootstrap()
-  const [directionFilter, setDirectionFilter] = React.useState<CheckDirection | "all">("all")
-  const [statusFilter, setStatusFilter] = React.useState<CheckStatus | "all">("all")
+  const [directionFilter, setDirectionFilter] = usePersistedTableState<CheckDirection | "all">(
+    CHECKS_TABLE_ID,
+    "direction",
+    "all",
+  )
+  const [statusFilter, setStatusFilter] = usePersistedTableState<CheckStatus | "all">(CHECKS_TABLE_ID, "status", "all")
   const { data, isLoading } = useFinanceChecks({
     direction: directionFilter === "all" ? undefined : directionFilter,
     status: statusFilter === "all" ? undefined : statusFilter,
@@ -270,7 +278,7 @@ export default function FinanzasChequesPage() {
       </header>
 
       <DataTable
-        tableId="finanzas-cheques"
+        tableId={CHECKS_TABLE_ID}
         data={rows}
         columns={columns}
         getRowId={(r) => r.id}

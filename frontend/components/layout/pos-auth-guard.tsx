@@ -11,6 +11,9 @@ import { getDeviceToken } from "@/lib/auth/device-token"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { RealtimeProvider } from "@/components/realtime-provider"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
+import { useLockStore } from "@/lib/pos/lock-store"
+import { TableStateScopeProvider } from "@/lib/table-state/scope"
+import { tenantTableNamespace } from "@/lib/table-state/store"
 
 const REVOKED_FLAG_KEY = "punto.device.revoked.pos"
 
@@ -91,7 +94,9 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   if (hasLocalToken === false) return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
 
   // Loading: render children optimistically — el POS tiene su propio LoadingScreen.
-  if (status === "pending") return <>{children}</>
+  if (status === "pending") {
+    return <TableStateScopeProvider namespace={undefined}>{children}</TableStateScopeProvider>
+  }
 
   if (status === "error") {
     if (error instanceof ApiError && error.status === 401) {
@@ -143,10 +148,37 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
       <RealtimeProvider
         companyId={data?.config?.companyId != null ? String(data.config.companyId) : null}
       >
-        <PosRealtimeSync>{children}</PosRealtimeSync>
+        <PosTableStateScope
+          companyId={data?.config?.companyId ?? null}
+          deviceUserId={data?.user?.id ?? null}
+        >
+          <PosRealtimeSync>{children}</PosRealtimeSync>
+        </PosTableStateScope>
       </RealtimeProvider>
     </>
   )
+}
+
+/**
+ * Dueño de las preferencias de los listados de la caja: la empresa + la PERSONA
+ * que desbloqueó con su PIN. La tablet la comparten encargado y cajeros, así que
+ * el usuario del device no identifica a nadie; se usa solo como respaldo si
+ * todavía no hay operador (el lock screen tapa la caja hasta que lo haya).
+ */
+function PosTableStateScope({
+  companyId,
+  deviceUserId,
+  children,
+}: {
+  companyId: string | number | null
+  deviceUserId: string | number | null
+  children: React.ReactNode
+}) {
+  const operatorId = useLockStore((s) => s.activeUser?.id ?? null)
+  const userId = operatorId ?? deviceUserId
+  const namespace =
+    companyId != null && userId != null ? tenantTableNamespace(companyId, userId, "pos") : null
+  return <TableStateScopeProvider namespace={namespace}>{children}</TableStateScopeProvider>
 }
 
 /** Suscribe las invalidaciones con scope "pos" (ver use-realtime-sync). */

@@ -1,10 +1,13 @@
 "use client"
 
 import * as React from "react"
+import { defaultDateRange } from "@/components/date-range-picker"
 import {
-  defaultDateRange,
+  dateToDayKey,
+  deserializeDateRange,
+  serializeDateRange,
   type DateRangeValue,
-} from "@/components/date-range-picker"
+} from "@/lib/date-range-presets"
 
 /**
  * Rango de fecha compartido — análogo a `use-view-scope`. El rango que el
@@ -15,9 +18,12 @@ import {
  * el evento `storage`. Las suscripciones internas mantienen en fase a todos los
  * componentes que usan el hook dentro de la misma pestaña.
  *
- * Serialización: guardamos solo la fecha (YYYY-MM-DD, sin hora ni TZ) porque el
- * picker y `rangeToBackend` trabajan a granularidad de día. Al leer reconstruimos
- * `Date` en hora local.
+ * Serialización (`lib/date-range-presets`): un rango que salió de un preset
+ * ("Hoy", "Últimos 7 días"…) se guarda como PRESET y se vuelve a resolver
+ * contra el reloj al leer — guardar sus fechas hacía que mañana "Hoy" mostrara
+ * ayer. Un rango elegido a mano se guarda con sus fechas (YYYY-MM-DD, sin hora
+ * ni TZ) porque el picker y `rangeToBackend` trabajan a granularidad de día. Se
+ * sigue leyendo el formato viejo `{from,to}`.
  *
  * `isCustom` responde "¿el usuario eligió un rango, o está viendo el default?".
  * Se deriva de si HAY algo guardado, no de comparar contra `defaultDateRange()`:
@@ -49,31 +55,11 @@ export const DATE_RANGE_KEY = KEY_BY_SCOPE.panel
 
 const subs = new Set<() => void>()
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0")
-}
-
-function dateToKey(d: Date): string {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
-function keyToDate(s: string): Date | null {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s)
-  if (!m) return null
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  return Number.isNaN(d.getTime()) ? null : d
-}
-
 function readRaw(scope: DateRangeScope): DateRangeValue | null {
   if (typeof window === "undefined") return null
-  const raw = window.localStorage.getItem(KEY_BY_SCOPE[scope])
-  if (!raw) return null
   try {
-    const parsed = JSON.parse(raw) as { from?: string; to?: string }
-    const from = parsed.from ? keyToDate(parsed.from) : null
-    const to = parsed.to ? keyToDate(parsed.to) : null
-    if (!from || !to) return null
-    return { from, to }
+    const raw = window.localStorage.getItem(KEY_BY_SCOPE[scope])
+    return raw ? deserializeDateRange(JSON.parse(raw)) : null
   } catch {
     return null
   }
@@ -86,10 +72,11 @@ export function readDateRange(scope: DateRangeScope = "panel"): DateRangeValue {
 
 export function setDateRange(value: DateRangeValue, scope: DateRangeScope = "panel") {
   if (typeof window === "undefined") return
-  window.localStorage.setItem(
-    KEY_BY_SCOPE[scope],
-    JSON.stringify({ from: dateToKey(value.from), to: dateToKey(value.to) }),
-  )
+  try {
+    window.localStorage.setItem(KEY_BY_SCOPE[scope], JSON.stringify(serializeDateRange(value)))
+  } catch {
+    // Storage lleno o bloqueado: se pierde la persistencia, no el rango.
+  }
   // Se notifica a TODOS los suscriptores: cada uno relee su propio scope, así
   // que los del otro scope se quedan como estaban (su `sameState` no cambia).
   subs.forEach((fn) => fn())
@@ -104,7 +91,11 @@ export function setDateRange(value: DateRangeValue, scope: DateRangeScope = "pan
  */
 export function clearDateRange(scope: DateRangeScope = "panel") {
   if (typeof window === "undefined") return
-  window.localStorage.removeItem(KEY_BY_SCOPE[scope])
+  try {
+    window.localStorage.removeItem(KEY_BY_SCOPE[scope])
+  } catch {
+    // idem setDateRange
+  }
   subs.forEach((fn) => fn())
 }
 
@@ -132,8 +123,9 @@ function readState(scope: DateRangeScope): DateRangeState {
 function sameState(a: DateRangeState, b: DateRangeState): boolean {
   return (
     a.isCustom === b.isCustom &&
-    dateToKey(a.range.from) === dateToKey(b.range.from) &&
-    dateToKey(a.range.to) === dateToKey(b.range.to)
+    a.range.preset === b.range.preset &&
+    dateToDayKey(a.range.from) === dateToDayKey(b.range.from) &&
+    dateToDayKey(a.range.to) === dateToDayKey(b.range.to)
   )
 }
 

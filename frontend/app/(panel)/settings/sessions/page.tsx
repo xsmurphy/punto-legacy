@@ -1,5 +1,6 @@
 "use client"
 import * as React from "react"
+import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import type { ColumnDef } from "@tanstack/react-table"
 import { KeyRound, LogOut } from "lucide-react"
 import { toast } from "sonner"
@@ -52,8 +53,11 @@ const MODULE_LABELS: Record<string, string> = {
   api: "Integración",
 }
 
+/** Clave de las preferencias del listado (ver `lib/table-state`). */
+const SESSIONS_TABLE_ID = "auth-sessions"
+
 export default function SessionsPage() {
-  const [showRevoked, setShowRevoked] = React.useState(false)
+  const [showRevoked, setShowRevoked] = usePersistedTableState(SESSIONS_TABLE_ID, "showRevoked", false)
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
 
   const { data: sessions = [], isLoading } = useSessions({ showRevoked })
@@ -171,7 +175,7 @@ export default function SessionsPage() {
       </header>
 
       <DataTable
-        tableId="auth-sessions"
+        tableId={SESSIONS_TABLE_ID}
         columns={columns}
         data={sessions}
         isLoading={isLoading}

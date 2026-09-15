@@ -8,6 +8,7 @@ import {
   type SortingState,
   type VisibilityState,
   flexRender,
+  functionalUpdate,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
@@ -40,6 +41,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -61,6 +63,14 @@ import { formatInt } from "@/lib/format"
 // segundo consumidor.
 import { triggerDownload } from "@/lib/download-blob"
 import { cn } from "@/lib/utils"
+import { useTableStateNamespace } from "@/lib/table-state/scope"
+import {
+  clearTableState,
+  collectColumnIds,
+  patchTableState,
+  readTableState,
+  type PersistedTableState,
+} from "@/lib/table-state/store"
 
 /**
  * Opciones del selector "Filas por página". La paginación de <DataTable> es
@@ -72,7 +82,13 @@ import { cn } from "@/lib/utils"
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200, 500, 1000] as const
 
 export interface DataTableProps<T> {
-  /** Stable id del listado — usado para persistir visibilidad de columnas en localStorage. */
+  /**
+   * Id estable del listado. Es la clave de sus preferencias persistidas (orden,
+   * buscador, filtros por columna, columnas visibles y, vía
+   * `usePersistedTableState`, los filtros de dominio del caller) — ver
+   * `lib/table-state/store.ts`. Cambiarlo hace que los usuarios pierdan las
+   * suyas.
+   */
   tableId: string
   data: T[]
   columns: ColumnDef<T, unknown>[]
@@ -128,7 +144,11 @@ export interface DataTableProps<T> {
    * que lo paga.
    */
   activeFilterCount?: number
-  /** Si viene, el panel muestra "Limpiar filtros". */
+  /**
+   * Si viene, el panel muestra "Limpiar filtros". "Restablecer vista" (menú
+   * Columnas) también lo llama, para que el caller vuelva sus filtros de
+   * dominio al default.
+   */
   onClearFilters?: () => void
   /** Slot a la DERECHA del toolbar, pegado al column-toggle (Columnas). */
   rightToolbarSlot?: React.ReactNode
@@ -138,7 +158,10 @@ export interface DataTableProps<T> {
   enableSelection?: boolean
   /** Render de la barra de acciones cuando hay filas seleccionadas. Recibe los rows seleccionados. */
   bulkActions?: (selected: T[], clearSelection: () => void) => React.ReactNode
-  /** Visibilidad inicial de columnas. Solo aplica si no hay valor persistido en localStorage. */
+  /**
+   * Visibilidad inicial de columnas. Aplica mientras el usuario no haya elegido
+   * la suya, y es a donde vuelve "Restablecer vista".
+   */
   initialColumnVisibility?: VisibilityState
   /**
    * Fija la primera columna de datos (nombre del producto / cliente / sucursal)
@@ -183,28 +206,79 @@ export function DataTable<T>({
   // "1.234" en el browser = React #418. Acá se arregla el default de TODAS las
   // tablas de una vez, no tabla por tabla.
   const { data: bootstrapForFooter } = useBootstrap()
-  const [sorting, setSorting] = React.useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [filtersOpen, setFiltersOpen] = React.useState(false)
-  const [globalFilter, setGlobalFilter] = React.useState("")
   // Búsqueda externa (server-side): con `onSearchChange` el input lo maneja
   // el caller y `data` ya llega filtrada — el `globalFilter` de la tabla
   // queda forzado a "" para no re-filtrar client-side sobre datos que ya
   // pasaron por el filtro del servidor.
   const isSearchControlled = onSearchChange !== undefined
-  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
-    () => {
-      const persisted = loadVisibility(tableId)
-      // Si no hay valor persistido para esta tabla, arrancamos con los defaults.
-      return Object.keys(persisted).length === 0 ? (initialColumnVisibility ?? {}) : persisted
-    },
-  )
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
 
-  // Persistir visibilidad por table id.
-  React.useEffect(() => {
-    saveVisibility(tableId, columnVisibility)
-  }, [tableId, columnVisibility])
+  // ── Preferencias persistidas (lib/table-state) ───────────────────────────
+  //
+  // Orden, filtros por columna, buscador y columnas visibles sobreviven al
+  // reload, por empresa + usuario. La paginación no (vuelve a la página 1).
+  //
+  // HIDRATACIÓN. El primer render usa los defaults, igual en server y cliente
+  // (leer localStorage en el inicializador del useState da mismatch). Lo
+  // guardado se aplica en un LAYOUT effect: sus setState se re-renderizan
+  // sincrónicamente antes de que el browser pinte, así que nunca se ve un frame
+  // con el orden o el filtro default. Mientras la identidad todavía carga (no
+  // se sabe qué clave leer) las filas van en skeleton por la misma razón: filas
+  // sin filtrar que un instante después se filtran se leen como "no persistió".
+  const namespace = useTableStateNamespace()
+  const initialVisibilityRef = React.useRef(initialColumnVisibility)
+  initialVisibilityRef.current = initialColumnVisibility
+
+  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [globalFilter, setGlobalFilter] = React.useState("")
+  const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
+    () => initialColumnVisibility ?? {},
+  )
+  // Para qué (namespace, tableId) se restauró el estado. Si cambia la identidad
+  // (otra empresa, otro usuario) se vuelve a restaurar.
+  const [restoredFor, setRestoredFor] = React.useState<string | null>(null)
+  const restoreToken = namespace === undefined ? null : `${namespace ?? ""}|${tableId}`
+  const isRestored = restoreToken !== null && restoredFor === restoreToken
+
+  React.useLayoutEffect(() => {
+    if (namespace === undefined) return
+    const stored: PersistedTableState = namespace ? readTableState(namespace, tableId) : {}
+    setSorting(stored.sorting ?? [])
+    setColumnFilters(stored.columnFilters ?? [])
+    setGlobalFilter(stored.globalFilter ?? "")
+    // Campo PRESENTE = preferencia, aunque sea `{}` ("mostré todas"). Solo la
+    // ausencia cae al default de la tabla.
+    setColumnVisibility(stored.columnVisibility ?? initialVisibilityRef.current ?? {})
+    setRestoredFor(`${namespace ?? ""}|${tableId}`)
+  }, [namespace, tableId])
+
+  // Se persiste en el handler del cambio, no en un effect sobre el estado: un
+  // effect grabaría también los defaults del montaje, y eso congelaría como
+  // "preferencia" una visibilidad que el usuario nunca tocó.
+  const persist = React.useCallback(
+    (patch: Omit<PersistedTableState, "caller">) => {
+      if (namespace) patchTableState(namespace, tableId, patch)
+    },
+    [namespace, tableId],
+  )
+
+  // Ids de columnas que existen HOY. El orden/filtro guardado que apunte a una
+  // columna que ya no está no llega a TanStack: se conserva en memoria (una
+  // columna que depende de los datos puede aparecer después) pero no aplica.
+  const columnIds = React.useMemo(
+    () => collectColumnIds(columns as Parameters<typeof collectColumnIds>[0]),
+    [columns],
+  )
+  const effectiveSorting = React.useMemo(
+    () => sorting.filter((s) => columnIds.has(s.id)),
+    [sorting, columnIds],
+  )
+  const effectiveColumnFilters = React.useMemo(
+    () => columnFilters.filter((f) => columnIds.has(f.id)),
+    [columnFilters, columnIds],
+  )
 
   // Prepend de la columna de selección si está habilitada.
   const finalColumns = React.useMemo<ColumnDef<T, unknown>[]>(() => {
@@ -243,18 +317,35 @@ export function DataTable<T>({
     data,
     columns: finalColumns,
     state: {
-      sorting,
-      columnFilters,
+      sorting: effectiveSorting,
+      columnFilters: effectiveColumnFilters,
       globalFilter: isSearchControlled ? "" : globalFilter,
       columnVisibility,
       rowSelection,
     },
     getRowId: getRowId ? (row) => getRowId(row) : undefined,
     enableRowSelection: !!enableSelection,
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    onGlobalFilterChange: setGlobalFilter,
-    onColumnVisibilityChange: setColumnVisibility,
+    onSortingChange: (updater) => {
+      const next = functionalUpdate(updater, effectiveSorting)
+      setSorting(next)
+      persist({ sorting: next })
+    },
+    onColumnFiltersChange: (updater) => {
+      const next = functionalUpdate(updater, effectiveColumnFilters)
+      setColumnFilters(next)
+      persist({ columnFilters: next })
+    },
+    onGlobalFilterChange: (updater) => {
+      const next: unknown = functionalUpdate(updater, globalFilter)
+      const value = typeof next === "string" ? next : ""
+      setGlobalFilter(value)
+      persist({ globalFilter: value })
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next = functionalUpdate(updater, columnVisibility)
+      setColumnVisibility(next)
+      persist({ columnVisibility: next })
+    },
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -269,6 +360,27 @@ export function DataTable<T>({
   )
   const clearSelection = React.useCallback(() => setRowSelection({}), [])
 
+  /**
+   * "Restablecer vista": todo lo que es preferencia del listado vuelve al
+   * estado inicial — columnas, orden, buscador, filtros por columna y los
+   * filtros de dominio del caller.
+   *
+   * El orden importa: primero el caller limpia lo suyo (su
+   * `usePersistedTableState` escribe los defaults en el acto) y DESPUÉS se borra
+   * la clave, así no queda nada grabado. El borrado además avisa a esos hooks.
+   */
+  const resetView = () => {
+    onClearFilters?.()
+    if (isSearchControlled) onSearchChange?.("")
+    if (namespace) clearTableState(namespace, tableId)
+    setSorting([])
+    setColumnFilters([])
+    setGlobalFilter("")
+    setColumnVisibility(initialVisibilityRef.current ?? {})
+    setRowSelection({})
+    table.setPageIndex(0)
+  }
+
   const handleExport = async () => {
     if (!exportFileName) return
     const rows = table.getFilteredRowModel().rows
@@ -277,6 +389,8 @@ export function DataTable<T>({
   }
 
   const selectedCount = selectedRows.length
+  // Sin restaurar todavía, las filas en pantalla serían las SIN filtrar.
+  const showSkeleton = isLoading || !isRestored
 
   // Footer de sumatoria: solo se calcula si al menos una columna visible
   // declaró `meta.footerSum`. La suma toma SIEMPRE `getFilteredRowModel()`
@@ -407,7 +521,7 @@ export function DataTable<T>({
             onChange={(e) =>
               isSearchControlled
                 ? onSearchChange?.(e.target.value)
-                : setGlobalFilter(e.target.value)
+                : table.setGlobalFilter(e.target.value)
             }
             placeholder={searchPlaceholder}
             className="h-9 pl-8"
@@ -484,6 +598,9 @@ export function DataTable<T>({
                     {columnLabel(column.columnDef as ColumnDef<unknown, unknown>)}
                   </DropdownMenuCheckboxItem>
                 ))}
+              <DropdownMenuSeparator />
+              {/* Texto solo, como el resto de los menús del listado. */}
+              <DropdownMenuItem onSelect={resetView}>Restablecer vista</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -549,7 +666,7 @@ export function DataTable<T>({
             ))}
           </TableHeader>
           <TableBody>
-            {isLoading && (
+            {showSkeleton && (
               <>
                 {Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={`sk-${i}`}>
@@ -562,7 +679,7 @@ export function DataTable<T>({
                 ))}
               </>
             )}
-            {!isLoading && table.getRowModel().rows.length === 0 && (
+            {!showSkeleton && table.getRowModel().rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={table.getVisibleLeafColumns().length}>
                   <div className="py-12 text-center text-sm text-muted-foreground">
@@ -571,7 +688,7 @@ export function DataTable<T>({
                 </TableCell>
               </TableRow>
             )}
-            {!isLoading &&
+            {!showSkeleton &&
               table.getRowModel().rows.map((row) => (
                 <TableRow
                   key={row.id}
@@ -630,7 +747,7 @@ export function DataTable<T>({
 
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>
+        <span className={cn(!isRestored && "invisible")}>
           {totalCount != null && totalCount > table.getFilteredRowModel().rows.length ? (
             <>
               Mostrando {table.getFilteredRowModel().rows.length} de {totalCount}
@@ -689,25 +806,6 @@ export function DataTable<T>({
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-
-function loadVisibility(tableId: string): VisibilityState {
-  if (typeof window === "undefined") return {}
-  try {
-    const raw = window.localStorage.getItem(`punto.dt.cols.${tableId}`)
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveVisibility(tableId: string, v: VisibilityState) {
-  if (typeof window === "undefined") return
-  try {
-    window.localStorage.setItem(`punto.dt.cols.${tableId}`, JSON.stringify(v))
-  } catch {
-    // localStorage full / disabled — ignorable, sólo perdemos persistencia.
-  }
-}
 
 function columnLabel(colDef: ColumnDef<unknown, unknown>): string {
   // header puede ser string o ReactNode/function. Para el toggle queremos string.
