@@ -36,6 +36,16 @@ final class RegisterAdminService
     private const DOC_TYPES = ['factura', 'cotizacion', 'nota_credito'];
 
     /**
+     * Campo de `fiscal` (API del panel) → doctype cuya serie SIFEN declara
+     * (mig 223). La clave de `register.data` donde se guarda sale de
+     * `DocumentSeries::SERIE_CONFIG_KEYS`: acá solo vive el nombre público.
+     */
+    private const SERIE_FIELDS = [
+        'invoiceSerie'    => 'factura',
+        'creditNoteSerie' => 'nota_credito',
+    ];
+
+    /**
      * Próximos números de la caja, leídos de `document_sequence` (context/37).
      *
      * NUNCA devuelve vacío: la secuencia es NOT NULL DEFAULT 1 y las cajas se
@@ -59,20 +69,16 @@ final class RegisterAdminService
         // La factura y la nota de crédito comparten el par vigente de la caja
         // (timbrado y punto de expedición son de la CAJA, no del documento: el
         // provisioning da de alta los dos tipos en un solo timbrado). Lo que no
-        // comparten es el contador: son dos talonarios. La cotización no tiene
-        // serie fiscal: su fila siempre es ('', '').
+        // comparten es el contador —son dos talonarios— ni la serie SIFEN, que
+        // es por doctype (mig 223). La cotización no tiene serie fiscal: su
+        // fila siempre es ('', '', ''). El predicado vive en DocumentSeries.
         $rs = ncmExecute(
             "SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto, s.padwidth
                FROM document_sequence s
                JOIN register r
                  ON r.registerId = s.scopeid AND r.companyId = s.companyid
               WHERE s.companyid = ? AND s.scopetype = ?
-                AND s.invoiceauth = CASE WHEN s.doctype IN ('factura', 'nota_credito')
-                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
-                      ELSE '' END
-                AND s.prefix = CASE WHEN s.doctype IN ('factura', 'nota_credito')
-                      THEN COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')
-                      ELSE '' END",
+                AND " . DocumentSeries::vigenteSqlPredicate('s', 'r'),
             [$this->companyId, DocumentNumber::SCOPE_REGISTER],
             false,
             true  // forceObj → recordset
@@ -220,6 +226,12 @@ final class RegisterAdminService
                         'invoicePrefix'         => (string) ($f['registerInvoicePrefix'] ?? ''),
                         'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
                         'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
+                        // Serie SIFEN (`dSerieNum`) por talonario (mig 223).
+                        // Vacía = sin serie, que es el default: se completa
+                        // solo si el sistema anterior emitía con serie en este
+                        // punto. Nunca se precarga.
+                        'invoiceSerie'          => DocumentSeries::normalizeSerie($f['registerInvoiceSerie'] ?? ''),
+                        'creditNoteSerie'       => DocumentSeries::normalizeSerie($f['registerCreditNoteSerie'] ?? ''),
                     ],
                     // Próximo número de cada documento, de `document_sequence`.
                     // Siempre presente — es el número que la caja va a emitir.
@@ -366,6 +378,11 @@ final class RegisterAdminService
         $currentPrefix = (string) ($reg['registerInvoicePrefix'] ?? '');
         $currentAuth   = (string) ($reg['registerInvoiceAuth'] ?? '');
         $currentStatus = (bool) ($reg['registerStatus'] ?? $reg['registerstatus'] ?? false);
+        // Serie SIFEN vigente de cada talonario fiscal (mig 223).
+        $currentSerie = [];
+        foreach (DocumentSeries::SERIE_CONFIG_KEYS as $docType => $key) {
+            $currentSerie[$docType] = DocumentSeries::normalizeSerie($reg[$key] ?? '');
+        }
 
         $setParts  = [];
         $params    = [];
@@ -466,6 +483,28 @@ final class RegisterAdminService
                     $fiscalPatch[$key] = $v === '' ? null : $v;
                 }
             }
+
+            // ── Serie SIFEN (`dSerieNum`) por talonario (mig 223) ────────────
+            // Opcional: vacía es "sin serie" y es el default. Solo se completa
+            // cuando el sistema de facturación anterior emitía con serie en
+            // este punto de expedición — sin ella SIFEN rechaza con 1110. Se
+            // normaliza a mayúsculas (el panel ya lo hace al tipear; esto es
+            // para quien llega por API) y se rechaza cualquier otra forma: el
+            // motor devuelve 422 ante una serie que no sea dos letras, y una
+            // serie guardada que no puede emitir es una caja que no factura.
+            foreach (self::SERIE_FIELDS as $field => $docType) {
+                if (!array_key_exists($field, $fc)) {
+                    continue;
+                }
+                $serie = DocumentSeries::normalizeSerie($fc[$field]);
+                if (!DocumentSeries::isValidSerie($serie)) {
+                    throw new RegisterAdminException(
+                        'La serie va como dos letras (ej. AA), o vacía si el punto de expedición no usa serie',
+                        422
+                    );
+                }
+                $fiscalPatch[DocumentSeries::SERIE_CONFIG_KEYS[$docType]] = $serie === '' ? null : $serie;
+            }
         }
 
         // ── Serie EFECTIVA resultante del update (mig 209) ──────────────────
@@ -483,6 +522,33 @@ final class RegisterAdminService
         $effectiveAuth = array_key_exists('registerInvoiceAuth', $fiscalPatch)
             ? (string) ($fiscalPatch['registerInvoiceAuth'] ?? '')
             : $currentAuth;
+
+        // La serie SIFEN efectiva y la serie fiscal COMPLETA de cada talonario
+        // fiscal. La serie SIFEN es identidad igual que el timbrado y el punto:
+        // cambiarla abre una secuencia nueva (mig 223), así que la validación
+        // de "número ya usado" y la siembra de abajo trabajan sobre ESTA serie.
+        $effectiveSerie = [];
+        $seriesByDocType = [];
+        $serieChanged = [];
+        foreach (DocumentSeries::SERIE_CONFIG_KEYS as $docType => $key) {
+            $effectiveSerie[$docType] = array_key_exists($key, $fiscalPatch)
+                ? (string) ($fiscalPatch[$key] ?? '')
+                : $currentSerie[$docType];
+            $serieChanged[$docType] = $effectiveSerie[$docType] !== $currentSerie[$docType];
+            $seriesByDocType[$docType] = new DocumentSeries($effectiveAuth, $effectivePrefix, $effectiveSerie[$docType]);
+        }
+
+        // Una serie SIFEN es de un PUNTO DE EXPEDICIÓN: sin punto no hay serie
+        // fiscal a la que pertenezca. Guardarla igual abriría una secuencia
+        // ('', '', 'AA') que ninguna venta usa (la venta congela la serie en
+        // NULL si la caja no tiene punto). Vale sobre el estado RESULTANTE:
+        // también rechaza borrar el punto dejando la serie cargada.
+        if ($effectivePrefix === '' && array_filter($effectiveSerie, static fn (string $s): bool => $s !== '') !== []) {
+            throw new RegisterAdminException(
+                'La serie necesita el establecimiento y punto de expedición (EEE-PPP) de la caja: cargalo, o dejá la serie vacía',
+                422
+            );
+        }
 
         // ── Numeración por documento ────────────────────────────────────────
         // Un timbrado no siempre arranca en 1: la SET puede autorizar un rango
@@ -573,18 +639,24 @@ final class RegisterAdminService
                     // dos documentos legales distintos (context/29 §2).
                     //
                     // La cotización no tiene serie fiscal, así que se compara
-                    // contra la serie vacía y su comportamiento no cambia.
-                    $isFiscalDoc = $docType === 'factura' || $docType === 'nota_credito';
-                    $serieAuth   = $isFiscalDoc ? $effectiveAuth   : '';
-                    $seriePrefix = $isFiscalDoc ? $effectivePrefix : '';
+                    // contra la serie vacía y su comportamiento no cambia. La
+                    // serie SIFEN entra igual que el timbrado y el punto
+                    // (mig 223): `AA-0000001` y `AB-0000001` son dos
+                    // documentos distintos, y abrir AB con su primer número no
+                    // puede chocar contra lo emitido bajo AA.
+                    $series = $seriesByDocType[$docType] ?? DocumentSeries::none();
                     $ph   = implode(',', array_fill(0, count($txTypes), '?'));
                     $used = ncmExecute(
                         "SELECT 1 FROM transaction
                           WHERE registerid = ? AND companyid = ? AND invoiceno = ?
                             AND COALESCE(invoiceauth, '')   = ?
                             AND COALESCE(invoiceprefix, '') = ?
+                            AND COALESCE(invoiceserie, '')  = ?
                             AND transactiontype IN ($ph) LIMIT 1",
-                        array_merge([$id, $this->companyId, $n, $serieAuth, $seriePrefix], $txTypes)
+                        array_merge(
+                            [$id, $this->companyId, $n, $series->auth, $series->prefix, $series->serie],
+                            $txTypes
+                        )
                     );
                     if ($used) {
                         throw new RegisterAdminException(
@@ -705,12 +777,14 @@ final class RegisterAdminService
             );
         }
 
-        // Serie RESULTANTE del update (mig 209). Se arma con los mismos
-        // valores efectivos que ya validó `assertExpeditionPointFree()` más
-        // arriba, no con el patch crudo: si el request no toca el timbrado,
-        // la serie sigue siendo la que la caja ya tenía.
-        $series = new DocumentSeries($effectiveAuth, $effectivePrefix);
-
+        // Serie RESULTANTE del update (migs 209 y 223), una por talonario
+        // fiscal: `$seriesByDocType` se armó arriba con los mismos valores
+        // efectivos que ya validó `assertExpeditionPointFree()`, no con el
+        // patch crudo — si el request no toca el timbrado, la serie sigue
+        // siendo la que la caja ya tenía. La serie SIFEN es propia de cada
+        // talonario, así que cambiar la de la factura NO abre una secuencia
+        // nueva de nota de crédito.
+        //
         // La secuencia de la FACTURA se toca si cambió cualquiera de las cosas
         // que viven en ella: el próximo número, el techo del rango, el ancho —
         // o la SERIE misma (timbrado y/o punto de expedición), que ya no
@@ -722,14 +796,14 @@ final class RegisterAdminService
         // nuevo no tendría fila y el panel no podría mostrar su rango ni su
         // ancho hasta la primera venta.
         if (isset($numbering['factura']) || $rangeToTouched || $prefixChanged
-            || $authChanged || isset($padWidths['factura'])) {
+            || $authChanged || $serieChanged['factura'] || isset($padWidths['factura'])) {
             $this->seedSequence(
                 $id,
                 'factura',
                 $numbering['factura'] ?? null,
                 $rangeTo,
                 $rangeToTouched,
-                $series,
+                $seriesByDocType['factura'],
                 $padWidths['factura'] ?? null,
             );
         }
@@ -740,14 +814,14 @@ final class RegisterAdminService
         // talonario de FACTURAS y aplicarlo acá le pondría a la NC un límite
         // que nadie declaró.
         if (isset($numbering['nota_credito']) || $prefixChanged
-            || $authChanged || isset($padWidths['nota_credito'])) {
+            || $authChanged || $serieChanged['nota_credito'] || isset($padWidths['nota_credito'])) {
             $this->seedSequence(
                 $id,
                 'nota_credito',
                 $numbering['nota_credito'] ?? null,
                 null,
                 false,
-                $series,
+                $seriesByDocType['nota_credito'],
                 $padWidths['nota_credito'] ?? null,
             );
         }
@@ -873,18 +947,19 @@ final class RegisterAdminService
         // `padwidth` sigue el mismo patrón COALESCE que el resto: null = "no
         // se tocó", y en el INSERT cae al DEFAULT legal de la mig 159 (7).
         // Nunca se borra: una secuencia siempre tiene ancho.
-        // `prefix` e `invoiceauth` salen del ON CONFLICT DO UPDATE: son la
-        // CLAVE de la fila, y una fila no puede reescribir su propia identidad
-        // (si difirieran, el UPDATE ni siquiera se está ejecutando sobre esa
-        // fila). Van solo en el INSERT, que es el camino por el que nace una
-        // serie nueva.
+        // `prefix`, `invoiceauth` y `serie` salen del ON CONFLICT DO UPDATE:
+        // son la CLAVE de la fila, y una fila no puede reescribir su propia
+        // identidad (si difirieran, el UPDATE ni siquiera se está ejecutando
+        // sobre esa fila). Van solo en el INSERT, que es el camino por el que
+        // nace una serie nueva — cambiar la serie SIFEN (mig 223) es otro de
+        // esos caminos.
         $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix,
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie,
                   nextnumber, rangefrom, rangeto, padwidth)
-             VALUES (?, ?, ?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint,
+             VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint,
                      COALESCE(?::smallint, ' . DocumentNumber::DEFAULT_PAD_WIDTH . '))
-             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix) DO UPDATE SET
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie) DO UPDATE SET
                  nextnumber = COALESCE(?::bigint, document_sequence.nextnumber),
                  ' . $rangeSet . '
                  padwidth   = COALESCE(?::smallint, document_sequence.padwidth),
@@ -892,7 +967,7 @@ final class RegisterAdminService
             array_merge(
                 [
                     $this->companyId, $docType, DocumentNumber::SCOPE_REGISTER, $registerId,
-                    $series->auth, $prefix,
+                    $series->auth, $prefix, $series->serie,
                     $next, $next, $rangeTo, $padWidth,
                     $next,
                 ],

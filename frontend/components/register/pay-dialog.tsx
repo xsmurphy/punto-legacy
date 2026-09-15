@@ -50,7 +50,7 @@ import type {
 } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
 import { getNextInvoiceNo, peekNextInvoiceNo } from "@/lib/pos/invoice-numbering"
-import { invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
+import { invoiceSerieForRegister, invoiceSeriesForRegister } from "@/lib/pos/invoice-series"
 import { resolvePaymentAmount } from "@/lib/pos/payment-amount"
 import {
   extractRegisterConflictInfo,
@@ -686,21 +686,24 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       }
 
       let invoiceNo: number
+      let invoiceSerie: string
       try {
-        // El contador es por SERIE (timbrado + punto de expedicion), no por
-        // caja: cambiar cualquiera de las dos abre una serie nueva que arranca
-        // en 1, y seguir con el contador de la anterior es como se mando el
-        // numero 838 contra un punto que iba por 614. La serie se lee del
-        // store en el momento del click, igual que el veredicto de tenencia.
-        const series = invoiceSeriesForRegister(
-          useCatalogStore.getState().registers,
-          activeRegisterId,
-        )
+        // El contador es por SERIE (timbrado + punto de expedicion + serie
+        // SIFEN), no por caja: cambiar cualquiera de las tres abre una serie
+        // nueva que arranca en 1, y seguir con el contador de la anterior es
+        // como se mando el numero 838 contra un punto que iba por 614. La serie
+        // se lee del store en el momento del click, igual que el veredicto de
+        // tenencia — y de la MISMA lista, asi el numero y la serie SIFEN que
+        // viajan congelados en la venta salen de la misma foto de la caja.
+        const registersNow = useCatalogStore.getState().registers
+        const series = invoiceSeriesForRegister(registersNow, activeRegisterId)
+        const serie = invoiceSerieForRegister(registersNow, activeRegisterId)
         // Serie desconocida (la caja activa no esta en el catalogo del device)
         // se trata igual que no tener numero: se corta ANTES de emitir en vez
         // de numerar bajo una serie inventada.
-        if (series === null) throw new Error("NO_INVOICE_NUMBER")
+        if (series === null || serie === null) throw new Error("NO_INVOICE_NUMBER")
         invoiceNo = getNextInvoiceNo(activeRegisterId, series)
+        invoiceSerie = serie
       } catch {
         throw new Error(
           'No se pudo determinar el próximo número de comprobante de esta caja — conectate a internet e intentá de nuevo.',
@@ -723,6 +726,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         dueDate: credito ? (dueDate || null) : null,
         uid: saleUidRef.current,
         invoiceno: invoiceNo,
+        invoiceserie: invoiceSerie,
       })
 
       let result: CreateSaleResult
@@ -1335,6 +1339,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // (buildTicketData lo lee de `result`, no de `payload` — ver piece 4).
       // Este campo solo existe para satisfacer el tipo del payload de venta.
       invoiceno: saleResult.invoiceNumber ? Number(saleResult.invoiceNumber) : 0,
+      // Idem: la reimpresión no manda nada al backend. La serie SIFEN real de
+      // la venta viaja en el payload original (`handleConfirm`).
+      invoiceserie: "",
     } satisfies import("@/lib/commands/create-sale").CreateSalePayload
     const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
     // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el

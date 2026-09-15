@@ -57,7 +57,7 @@ export function emptyEstablishment(codigo: string): EInvoiceEstablishment {
  * los timbrados, y preguntarlo de nuevo abriría la puerta a que declare un
  * establecimiento que ninguna caja usa (o al revés, que falte el de la caja
  * que sí factura — que es el que hace fallar el alta). Es la misma fuente que
- * lee el backend (`registerStamps()`), no una copia.
+ * lee el backend (`registerTimbrados()`), no una copia.
  */
 export function establishmentCodesFromRegisters(
   registers: { status: boolean; fiscal: { invoicePrefix: string } }[] | undefined,

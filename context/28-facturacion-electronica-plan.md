@@ -1254,6 +1254,109 @@ si el otro sistema sigue emitiendo ahí y cuál es su último CDC. El punto
 invariante de punto de expedición único por timbrado — este caso es la
 excepción real de un punto compartido con un sistema externo.
 
+### §F8.1 — Implementado (2026-09-15, branch `fe/serie-punto-expedicion`, mig 223)
+
+Decisiones del owner que lo ordenan: opcional por punto de expedición y por
+defecto NO se manda; la serie es de Punto (vive con el timbrado y el punto, no
+en el motor); viaja en cada `POST /de`; **ningún valor precargado** en código,
+migración ni UI; `PUT /numeracion` NO se usa.
+
+- **Identidad, no atributo.** `document_sequence.serie` (NOT NULL DEFAULT '',
+  CHECK `^[A-Z]{2}$` o vacía) entra en `uq_document_sequence`: la serie fiscal
+  pasa a ser `(timbrado, punto, serie, correlativo)`. Cambiar la serie abre una
+  secuencia nueva y la vieja queda intacta — en SIFEN AA → AB reinicia la
+  numeración, mismo razonamiento que la mig 209 aplicó al timbrado y al punto.
+  Aplicado en los cuatro lugares: `document_sequence`, la clave del contador
+  local del POS (`lib/pos/invoice-series.ts`), lo congelado en `transaction`
+  (`invoiceserie`, espejado en `transaction_registry` y dentro de las dos
+  unicidades fiscales de factura y NC) y el body a FE-PY.
+- **Serie sin punto, rechazada.** El panel/API rechaza (422) guardar una serie
+  en una caja sin establecimiento y punto, y `DocumentSeries` descarta la serie
+  si el punto está vacío. Una serie inválida que llegue a `register.data` por
+  otro camino se lee como "sin serie" con log (`DocumentSeries::serieFromConfig`):
+  una venta ya emitida nunca se rechaza por eso.
+- **Piso offline.** Al configurar una serie en un punto que venía sin serie, el
+  POS siembra la clave nueva con `max(servidor, contador local sin serie del
+  mismo timbrado y punto)`, para no reusar números ya impresos offline.
+- **Deploy de la mig 223 en horario de bajo tráfico** (`lock_timeout` 10s y la
+  ventana del `ON CONFLICT` viejo documentadas en `context/29` §7).
+- **Por doctype.** La caja guarda `register.data.registerInvoiceSerie` y
+  `registerCreditNoteSerie` (panel: "Serie de facturas" / "Serie de notas de
+  crédito"). La numeración de SIFEN es por tipo de documento y un sistema
+  anterior pudo usar serie en facturas y no en NC. El mapa doctype → clave es
+  `DocumentSeries::SERIE_CONFIG_KEYS`; el predicado SQL de "serie vigente" que
+  estaba copiado en `RegisterAdminService` y `TransactionsService` se movió a
+  `DocumentSeries::vigenteSqlPredicate()`.
+- **Congelado y offline.** La serie baja en `GET /v1/register?resource=list`
+  (`PosRegister.invoiceSerie`) y en `docNumbers`; el POS la lee de la MISMA caja
+  y en el MISMO click que el número y la manda en la venta (`invoiceserie`).
+  `SaleService` congela la que DECLARA el device; solo si el payload no la trae
+  (bundle anterior) congela la vigente de la caja. La NC (`ReturnService`)
+  congela la serie de NC de la caja heredada. Sin serie, la clave local del
+  POS es la de antes (`timbrado|punto`), así que ningún contador offline quedó
+  huérfano con el deploy.
+- **Body a FE-PY.** El mapper agrega `serie` solo cuando hay; sin serie la
+  clave NO viaja. Verificado en el código de FE-PY: `serie: ""` es un 422
+  (`body.serie != null && !/^[A-Z]{2}$/`), y ausente cae a `numeracion.serie`
+  del motor (que solo carga su `PUT /numeracion`, que Punto no llama). Serie con
+  otra forma corta ANTES de mandarse.
+- **El caso de la 840 (regla del owner).** La serie queda congelada
+  DEFINITIVAMENTE cuando se numeró con serie explícita o cuando un documento de
+  la transacción fue (o puede estar siendo) aceptado por SIFEN. Un documento
+  numerado SIN serie que SIFEN nunca aceptó —el rechazado con 1110— toma, justo
+  antes del envío, la serie configurada hoy para su (timbrado, punto, doctype),
+  la ESCRIBE en `transaction.invoiceserie` y en `request_payload`, avanza esa
+  secuencia y se reenvía con el MISMO número y el mismo `security_code` (mismo
+  CDC, que FE-PY acepta para un rechazado desde su commit `b3f8f8c`). Va
+  DESPUÉS del paso de recuperación: un documento que el motor ya tenía (quizás
+  aprobado sin serie) se adopta tal cual y nunca cambia de serie.
+  `EInvoiceService::serieToAdopt()` (solo lee) + `freezeAdoptedSerie()`.
+  Si el motor devuelve el documento RECHAZADO al recuperarlo y hay serie que
+  agregar, NO se adopta como rechazado: se reenvía con la serie (sin serie que
+  agregar, el rechazado se refleja igual que antes). Si el número ya existe en
+  la serie adoptada, o el período de la venta está cerrado, o la serie de la
+  caja no es emitible, el documento se ESTACIONA en `error` con mensaje final y
+  los intentos automáticos agotados (`parkError()`); `retry()` lo reabre.
+  Para la 840: después del deploy, cargar `AA` en la caja con Próxima factura
+  841 y usar **Reintentar** (`retry()` resetea los intentos). Eso lo hace el
+  owner con el cliente — no se tocó producción.
+- **Rechazo 1110 traducido** en `lib/einvoice/rejection-fix.ts`
+  (`isSerieRejection()`): "La serie del punto de expedición no coincide con la
+  registrada en SIFEN — configurala en la caja." Se muestra en el diálogo de
+  reemisión y en el tooltip de un documento en `error`.
+- **Factomate fuera del timbrado del emisor.** `FePyProvider::stamps()` devolvía
+  un DTO que imitaba el catálogo del motor anterior (`Items[]`, `StampNumber`,
+  `Stablishment`, `ExpeditionPoint`, `CurrentNumber`, `Serie`, `Deleted`) y
+  `EInvoiceService::extractStamp()` lo parseaba. Reemplazado por
+  `EInvoiceProvider::emitterTimbrado()` → `{numero, fechaInicio, vencimiento}`,
+  y la mig 223 migra `einvoice_account.stamp` a esa forma (la columna conserva
+  el nombre para no romper al backend viejo durante el deploy). Provisioning:
+  `registerStamps`/`singleStampNumber` → `registerTimbrados`/`singleTimbrado`.
+  `.env.example` ya no declara las `FACTOMATE_*` (nadie las leía) y documenta
+  `FEPY_BASE_URL`/`FEPY_API_KEY`.
+
+**Arnés:** `api/tests/run_einvoice_serie_test.sh` (45 checks: serie sin punto, config corrupta, rechazado recuperado, período cerrado, validación,
+identidad, congelado, body con/sin serie, unicidad por serie, adopción 1110,
+aprobado sin serie, aislamiento multi-tenant) + sección (I) de
+`run_einvoice_fepy_mapper_test.sh`.
+
+**Supuestos abiertos (del lado del motor, no de Punto):**
+1. No hay forma de pedirle a FE-PY "sin serie" explícito: `""` es 422 y
+   `null`/ausente cae a su `numeracion.serie`. Hoy no importa porque nadie la
+   carga, pero si alguien usa `PUT /numeracion` el motor pondría una serie que
+   Punto no declaró. Pedido a FE-PY: aceptar `serie: null` como "sin serie".
+2. La recuperación por número (`GET /de/numero/{est}/{punto}/{numero}`) no
+   filtra por serie: tras rotar AA → AB, el mismo número de dos series cruza.
+   Hoy la búsqueda por `txnId` va primero y cubre el caso normal.
+4. La venta congela la serie que DECLARA el device, pero timbrado y punto los
+   resuelve el servidor al sincronizar: si el punto cambia con ventas en cola,
+   la transacción mezcla ambos. Brecha preexistente para timbrado/punto,
+   documentada en `context/29` §7 (sin resolver).
+3. Una venta encolada offline numerada sin serie que sincroniza después de
+   configurar una serie la adopta al emitirse; si el device ya emitió ese mismo
+   número bajo la serie nueva, la adopción choca con la unicidad y el documento
+   queda en `error` con el motivo. Caso angosto, visible, sin duplicado.
+
 ## Fases
 
 | Fase | Alcance | Estado |

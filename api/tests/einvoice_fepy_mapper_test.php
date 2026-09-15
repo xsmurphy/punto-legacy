@@ -42,6 +42,9 @@ require_once __DIR__ . '/_harness.php';
  */
 
 $root = dirname(__DIR__);
+// El mapper normaliza y valida la serie SIFEN con `DocumentSeries` (mig 223):
+// es la regla de formato compartida con el panel y la base, sin tocar la BD.
+require_once $root . '/lib/Documents/DocumentSeries.php';
 require_once $root . '/lib/EInvoice/EInvoiceProvider.php';
 require_once $root . '/lib/EInvoice/Cdc.php';
 require_once $root . '/lib/EInvoice/SaleFiscalRules.php';
@@ -544,6 +547,40 @@ check(
     'el payload nativo se conserva íntegro para trazabilidad',
     ($rechazado['FePy']['sifen']['mensaje'] ?? null) === 'Documento duplicado',
     json_encode($rechazado['FePy'] ?? null),
+    $failures,
+    $checks
+);
+
+echo "\n=== (I) serie SIFEN (dSerieNum, mig 223) ===\n";
+
+$conSerie = (new SaleToFePyMapper())->build(baseSale(), POINT + ['serie' => 'AA'], [], ISSUED, DOC_ID);
+check(
+    'con serie congelada el body lleva `serie` junto al número',
+    ($conSerie['serie'] ?? null) === 'AA' && ($conSerie['numero'] ?? null) === '0000042',
+    json_encode(array_intersect_key($conSerie, array_flip(['serie', 'numero']))),
+    $failures,
+    $checks
+);
+
+$sinSerie = (new SaleToFePyMapper())->build(baseSale(), POINT + ['serie' => ''], [], ISSUED, DOC_ID);
+check(
+    'sin serie la clave NO viaja (el motor responde 422 ante un string vacío)',
+    !array_key_exists('serie', $sinSerie) && !array_key_exists('serie', build(baseSale())),
+    json_encode($sinSerie['serie'] ?? null),
+    $failures,
+    $checks
+);
+
+$serieMala = null;
+try {
+    (new SaleToFePyMapper())->build(baseSale(), POINT + ['serie' => 'A1'], [], ISSUED, DOC_ID);
+} catch (\RuntimeException $e) {
+    $serieMala = $e->getMessage();
+}
+check(
+    'una serie con otra forma corta ANTES de mandarse (fail-closed)',
+    $serieMala !== null && mb_stripos($serieMala, 'serie') !== false,
+    (string) $serieMala,
     $failures,
     $checks
 );

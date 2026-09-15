@@ -116,6 +116,21 @@ final class SaleInput
          * cambia en nada cómo se procesa la venta.
          */
         public readonly ?string $quoteParentId = null,
+        /**
+         * Serie SIFEN (`dSerieNum`) bajo la que el DEVICE numeró `invoiceNo`
+         * (mig 223). `null` = el payload no la declara (un bundle anterior a la
+         * serie): el servidor congela la serie vigente de la caja, que es lo
+         * que ese bundle venía usando. `''` = numerada explícitamente SIN serie.
+         *
+         * Viaja en la venta por la misma razón que el número: el POS numera
+         * OFFLINE bajo la serie que conocía, y una venta encolada puede llegar
+         * después de que el panel cambie la serie de la caja. Congelar la
+         * vigente en ese momento pondría el número de la serie vieja bajo la
+         * serie nueva — el incidente del 838 por otra puerta. Nunca lanza: una
+         * serie con otra forma se descarta (`null`) en vez de rechazar una
+         * venta ya emitida (context/08 §53).
+         */
+        public readonly ?string $invoiceSerie = null,
     ) {
     }
 
@@ -210,7 +225,30 @@ final class SaleInput
             repeatF: !empty($payload['repeatF']) ? (string) $payload['repeatF'] : null,
             repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
             quoteParentId: self::normalizeUuid($payload['parentTransactionId'] ?? null),
+            invoiceSerie:  self::normalizeInvoiceSerie($payload),
         );
+    }
+
+    /**
+     * `invoiceserie` del payload (mig 223). Ausente → `null` (el servidor usa
+     * la vigente de la caja). Presente → normalizada a mayúsculas; `''` es "sin
+     * serie" y vale. Una forma inválida también da `null` y queda en el log:
+     * el POS la recibe del bootstrap ya validada, así que llegar acá con otra
+     * cosa es un payload roto, y §53 manda no rechazar la venta por eso.
+     *
+     * @param array<string,mixed> $payload
+     */
+    private static function normalizeInvoiceSerie(array $payload): ?string
+    {
+        if (!array_key_exists('invoiceserie', $payload) || $payload['invoiceserie'] === null) {
+            return null;
+        }
+        $serie = \Punto\Api\Documents\DocumentSeries::normalizeSerie($payload['invoiceserie']);
+        if (!\Punto\Api\Documents\DocumentSeries::isValidSerie($serie)) {
+            error_log('[SaleInput] invoiceserie con formato inválido, se usa la serie vigente de la caja: ' . $serie);
+            return null;
+        }
+        return $serie;
     }
 
     /**

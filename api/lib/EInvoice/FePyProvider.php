@@ -179,44 +179,36 @@ final class FePyProvider implements EInvoiceProvider
     }
 
     /**
-     * Timbrado del emisor, en el shape `Items[]` con `StampNumber` que
-     * `EInvoiceService::extractStamp()` ya parsea.
+     * Timbrado del emisor, en el modelo de Punto: `{numero, fechaInicio,
+     * vencimiento}`.
      *
      * El timbrado es **del TENANT**, no una fila por punto de expedición:
      * vive en `tenants.timbradoNumero/timbradoFecha/timbradoVencimiento` y el
      * servicio de emisión lo inyecta en el bloque `params` de cada documento
      * leyéndolo de ahí — el caller no puede mandarlo ni pisarlo.
-     * Consecuencias:
      *
-     *   - No existe un `Id` de timbrado; se devuelve vacío.
-     *   - `Stablishment`/`ExpeditionPoint` van vacíos: el emisor tiene N
-     *     establecimientos y el punto se elige POR DOCUMENTO, así que no hay
-     *     un par único que declarar acá. El del documento sale de la CAJA que
-     *     vendió (`context/29`).
-     *   - `CurrentNumber` va null: el contador es por (tipo, est, punto) y no
-     *     se expone. Por eso la divergencia de numeración se DETECTA sobre el
-     *     CDC devuelto en vez de prevenirse con un pre-flight.
+     * Hasta la mig 223 esto devolvía un DTO que imitaba el catálogo de
+     * timbrados del motor anterior (con punto, número y serie SIEMPRE vacíos,
+     * porque FE-PY no los tiene por emisor). Se reemplazó por lo único real:
+     * el punto de expedición, la serie SIFEN y el correlativo son de la CAJA
+     * (`context/29`) y viajan en cada `POST /de`. Tampoco hay un "número
+     * actual" del motor: la divergencia de numeración se DETECTA sobre el CDC
+     * devuelto (`EInvoiceService::cdcMismatchFor()`).
      */
-    public function stamps(string $environment, string $tenantRef, string $bearer): array
+    public function emitterTimbrado(string $environment, string $tenantRef, string $bearer): array
     {
         $tenant = $this->userInfo($environment, $tenantRef, $bearer);
 
-        $stampNumber = trim((string) ($tenant['timbradoNumero'] ?? ''));
-        if ($stampNumber === '') {
-            return ['Items' => []];
+        $numero = trim((string) ($tenant['timbradoNumero'] ?? ''));
+        if ($numero === '') {
+            return [];
         }
 
-        return ['Items' => [[
-            'Id'              => '',
-            'StampNumber'     => $stampNumber,
-            'StampDate'       => (string) ($tenant['timbradoFecha'] ?? ''),
-            'ExpirationDate'  => (string) ($tenant['timbradoVencimiento'] ?? ''),
-            'Stablishment'    => '',
-            'ExpeditionPoint' => '',
-            'CurrentNumber'   => null,
-            'Serie'           => '',
-            'Deleted'         => false,
-        ]]];
+        return [
+            'numero'      => $numero,
+            'fechaInicio' => trim((string) ($tenant['timbradoFecha'] ?? '')),
+            'vencimiento' => trim((string) ($tenant['timbradoVencimiento'] ?? '')),
+        ];
     }
 
     /** Catálogo fijo de la Tabla 22 de SIFEN — ver SIFEN_PAYMENT_METHODS. */

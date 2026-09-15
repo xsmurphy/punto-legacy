@@ -125,8 +125,10 @@ final class EInvoiceService
             'cscStored'      => $secrets['cscStored'],
             'cscUpdatedAt'   => $secrets['cscUpdatedAt'],
             'emitter'      => $this->decodeJsonb($row['emitter'] ?? null),
-            // Timbrado vigente cacheado de BranchDocumentType/Get — la
-            // fuente real del correlativo (lo lleva el proveedor).
+            // Timbrado del EMISOR según el motor, `{numero, fechaInicio,
+            // vencimiento}` (mig 223). Solo lectura para el panel: el timbrado,
+            // el punto, la serie y el correlativo de cada documento son de la
+            // caja (context/29).
             'stamp'         => $this->decodeJsonb($row['stamp'] ?? null),
             'stampSyncedAt' => $row['stamp_synced_at'] ?? null,
             'lastCheckAt'   => $row['last_check_at'] ?? null,
@@ -247,7 +249,10 @@ final class EInvoiceService
                 return ['status' => 'auth_error', 'emitter' => $emitter, 'stamp' => [], 'lastError' => $message];
             }
 
-            $stamp = $this->extractStamp($provider->stamps($environment, $tenantRef, $bearer));
+            // Timbrado del emisor en el modelo de Punto (mig 223): proyección
+            // de lectura para el panel, no fuente de nada — el timbrado de cada
+            // documento sale de la caja.
+            $stamp = $provider->emitterTimbrado($environment, $tenantRef, $bearer);
             ncmExecute(
                 "UPDATE einvoice_account
                     SET status = 'ok', emitter = ?::jsonb, stamp = ?::jsonb, stamp_synced_at = now(),
@@ -442,8 +447,7 @@ final class EInvoiceService
      *     usar `Id` mandaría un medio de pago equivocado en cada factura.
      *   - `name` ← Description/Name/Denomination, lo primero que exista.
      *
-     * Mismo criterio defensivo que extractToken()/extractStamp(): probar los
-     * casings plausibles en vez de asumir uno.
+     * Criterio defensivo: probar los casings plausibles en vez de asumir uno.
      *
      * @param array<mixed> $raw
      * @return array<int,array{code:int,name:string}>
@@ -499,45 +503,6 @@ final class EInvoiceService
     private function emitterIdentity(string $companyId): array
     {
         return $this->sessionFor($companyId)->identity($companyId);
-    }
-
-    /**
-     * `stamps[0]` de la respuesta de sincro/config. El shape no está
-     * tipado en la guía (que a veces usa lowercase — "stamps[0]" — y en
-     * otro punto documenta PascalCase para otro endpoint — "Items[0].CDC")
-     * así que se prueban ambos casings y el envoltorio `data`/`Data`, igual
-     * criterio defensivo que extractToken().
-     */
-    private function extractStamp(array $sincro): ?array
-    {
-        // `Items` es el envoltorio de BranchDocumentType/Get (la fuente que sí
-        // trae el timbrado — ver testConnection). Se descartan los borrados
-        // lógicos: un timbrado dado de baja se marca `Deleted` en vez de
-        // borrarse, y facturar contra un timbrado dado de baja es
-        // exactamente el error que SIFEN rechaza.
-        $items = $sincro['Items'] ?? $sincro['items'] ?? null;
-        if (is_array($items)) {
-            foreach ($items as $item) {
-                if (is_array($item) && empty($item['Deleted']) && empty($item['deleted'])) {
-                    return $item;
-                }
-            }
-        }
-
-        foreach (['stamps', 'Stamps'] as $key) {
-            if (is_array($sincro[$key] ?? null) && is_array($sincro[$key][0] ?? null)) {
-                return $sincro[$key][0];
-            }
-        }
-        $wrapped = $sincro['data'] ?? $sincro['Data'] ?? null;
-        if (is_array($wrapped)) {
-            foreach (['stamps', 'Stamps'] as $key) {
-                if (is_array($wrapped[$key] ?? null) && is_array($wrapped[$key][0] ?? null)) {
-                    return $wrapped[$key][0];
-                }
-            }
-        }
-        return null;
     }
 
 
@@ -1041,6 +1006,22 @@ final class EInvoiceService
      * mirando la pantalla que ya dice "Aprobado por SIFEN", y negarle la
      * acción sobre lo que la propia UI le afirma sería incoherente.
      */
+    /**
+     * ¿El documento que devolvió la recuperación es un RECHAZO (sin efecto
+     * fiscal)? Mira el `estado` del motor y, si trae veredicto de SIFEN, su
+     * clasificación. Un `aprobado`/`pendiente` nunca cuenta como rechazo.
+     *
+     * @param array<string,mixed> $vigente
+     */
+    private static function isRejectedRecovery(array $vigente): bool
+    {
+        $estado = strtolower(trim((string) ($vigente['estado'] ?? '')));
+        if ($estado === 'rechazado' || $estado === 'error') {
+            return true;
+        }
+        return self::sifenVerdict(self::sifenStatusFromBulk(FePyProvider::toBulkShape($vigente))) === 'rejected';
+    }
+
     private static function isSifenApproved(?string $sifenStatus): bool
     {
         return str_contains(mb_strtolower(trim((string) $sifenStatus)), 'aprobad');
@@ -2709,7 +2690,7 @@ final class EInvoiceService
             // Inicializado ANTES del try: `persistIssued()` lo necesita
             // después para verificar el CDC, y llegar ahí con una variable
             // inexistente es un TypeError, no un null silencioso.
-            $point = ['establecimiento' => '', 'punto' => ''];
+            $point = ['establecimiento' => '', 'punto' => '', 'serie' => ''];
 
             try {
                 // El par establecimiento/punto de la CAJA que vendió
@@ -2768,14 +2749,63 @@ final class EInvoiceService
             // resolver el 2026-09-09 (el proveedor nos reportó documentos
             // viejos golpeando su API todo el día). Quedar quieto y visible en
             // `error` degrada mejor que no parar nunca.
+            // Serie SIFEN a adoptar (mig 223), leída ANTES de la recuperación:
+            // decide qué hacer con un documento que el motor tiene RECHAZADO.
+            // Solo lee — congelarla va más abajo, recién cuando es seguro enviar.
+            try {
+                $adopt = $this->serieToAdopt($companyId, $transactionId, $docId);
+            } catch (SerieAdoptionBlockedException $e) {
+                $this->parkError($docId, $e->getMessage());
+                return false;
+            }
+
             if ($attempts > 0 || $storedTxnId !== '') {
                 $vigente = $this->lookupIssuedDocument(
                     $companyId, $environment, $tenantRef, $bearer, $storedTxnId, $payload, $point
                 );
-                if ($vigente !== null) {
+                // Un documento RECHAZADO que el reenvío va a CORREGIR con la serie
+                // configurada no se adopta: adoptarlo lo dejaría `issued` +
+                // Rechazado y la única salida sería reemitir con otro CDC. Es el
+                // caso de la 001-001-0000840 (1110). Sin serie que agregar, el
+                // rechazado se refleja igual que siempre — reenviarlo idéntico
+                // solo repetiría el rechazo.
+                $rechazadoCorregible = $vigente !== null
+                    && $adopt !== null
+                    && self::isRejectedRecovery($vigente);
+                if ($vigente !== null && !$rechazadoCorregible) {
                     return $this->adoptRecoveredDocument(
                         $companyId, $account, $point, $sale, $doctype, $config, $vigente, $docId, $attempts
                     );
+                }
+            }
+
+            // ── SERIE SIFEN: la vigente, si el documento nunca fue aceptado ──
+            //
+            // Va DESPUÉS de la recuperación a propósito: si el motor ya tenía
+            // este documento con efecto fiscal (enviado sin serie, quizás
+            // aprobado), la rama de arriba lo adoptó tal cual y nunca llegamos
+            // acá — un documento que SIFEN pudo aceptar no se reetiqueta. Ver
+            // `serieToAdopt()` para la regla completa (mig 223).
+            if ($adopt !== null) {
+                try {
+                    $adoptedSerie = $this->freezeAdoptedSerie($companyId, $transactionId, $docId, $adopt);
+                    if ($adoptedSerie !== null) {
+                        $point['serie'] = $adoptedSerie;
+                        $payload = (new SaleToFePyMapper())->build($sale, $point, $config, $issuedDate, $docId);
+                        // El archivo tiene que decir lo que REALMENTE sale: se
+                        // reescribe con la serie adoptada.
+                        $archived = $payload;
+                        unset($archived[FePyProvider::IDEMPOTENCY_PAYLOAD_KEY]);
+                        ncmExecute('UPDATE einvoice_document SET request_payload = ?::jsonb WHERE einvoicedocid = ?', [
+                            json_encode($archived, JSON_UNESCAPED_UNICODE), $docId,
+                        ]);
+                    }
+                } catch (SerieAdoptionBlockedException $e) {
+                    $this->parkError($docId, $e->getMessage());
+                    return false;
+                } catch (\RuntimeException $e) {
+                    $this->markError($docId, $attempts, $e->getMessage());
+                    return false;
                 }
             }
 
@@ -3025,7 +3055,6 @@ final class EInvoiceService
      *
      * @param array<string,mixed> $config
      * @param array<string,mixed> $sale
-     * @param array<string,mixed> $stamp Vacío para FE-PY (no tiene catálogo de timbrados).
      * @param array<string,mixed> $result Respuesta normalizada de `issue()`.
      * @param array<string,mixed>|null $bulk Estado FISCAL ya conocido, en el shape de
      *        `getBulk()`. Solo lo trae la RECUPERACIÓN (`adoptRecoveredDocument()`),
@@ -3136,13 +3165,22 @@ final class EInvoiceService
      * como fallback para las filas ANTERIORES a la mig 209, que no tienen el
      * dato congelado.
      *
-     * @return array{establecimiento:string,punto:string}
+     * ── La serie SIFEN viaja con el punto (mig 223) ──
+     * `serie` es la CONGELADA en la transacción (`invoiceserie`), nunca la
+     * vigente de la caja: un reintento o una reemisión mandan la serie con la
+     * que el documento se numeró. La única excepción —un documento numerado
+     * SIN serie que SIFEN nunca aceptó— la resuelve `serieToAdopt()`/`freezeAdoptedSerie()`
+     * justo antes del envío, y lo hace ACTUALIZANDO lo congelado, no leyendo
+     * la caja por atrás. Sin fallback a la caja para filas viejas: antes de la
+     * mig 223 nadie mandaba serie, así que su serie congelada ES la vacía.
+     *
+     * @return array{establecimiento:string,punto:string,serie:string}
      * @throws \RuntimeException si no se puede determinar sin adivinar.
      */
     private function fePyPointForDocument(string $companyId, string $transactionId): array
     {
         $tx = ncmExecute(
-            'SELECT t.registerId, t.invoicePrefix, r.registerName, r.data
+            'SELECT t.registerId, t.invoicePrefix, t.invoiceSerie, r.registerName, r.data
                FROM transaction t
           LEFT JOIN register r ON r.registerId = t.registerId AND r.companyId = t.companyId
               WHERE t.transactionId = ? AND t.companyId = ?',
@@ -3160,13 +3198,17 @@ final class EInvoiceService
         //
         // `data` viene aplanado por Query::flattenJsonb, así que
         // `registerInvoicePrefix` llega como clave de la fila. Mismo patrón
-        // —y mismo bug evitado— que `registerStamps()`.
+        // —y mismo bug evitado— que `registerTimbrados()`.
         $prefix = trim((string) ($tx['invoicePrefix'] ?? ''));
         if ($prefix === '') {
             $prefix = trim((string) ($tx['registerInvoicePrefix'] ?? ''));
         }
         if (preg_match('/^(\d{3})-(\d{3})$/', $prefix, $m) === 1) {
-            return ['establecimiento' => $m[1], 'punto' => $m[2]];
+            return [
+                'establecimiento' => $m[1],
+                'punto'           => $m[2],
+                'serie'           => \Punto\Api\Documents\DocumentSeries::normalizeSerie($tx['invoiceSerie'] ?? ''),
+            ];
         }
 
         // Fail-CLOSED. Sin punto congelado ni caja de la que leerlo no hay
@@ -3185,30 +3227,229 @@ final class EInvoiceService
     }
 
     /**
-     * Resuelve el timbrado con el que se emite UN documento. Tres casos, y la
-     * diferencia entre el segundo y el tercero es FISCAL, no cosmética:
+     * Serie SIFEN (`dSerieNum`) que le CORRESPONDE adoptar a un documento
+     * numerado SIN serie que SIFEN nunca aceptó, o null si no corresponde
+     * adoptar nada. Solo LEE: congelarla es `freezeAdoptedSerie()`. Están
+     * separados porque el caller necesita saberlo ANTES de decidir qué hacer
+     * con un documento que la recuperación encontró rechazado (ver
+     * `issueClaimedDocument()`), y en ese momento todavía no puede escribir.
      *
-     *   1. La caja de la venta está en el mapa del provisioning → su timbrado.
-     *   2. No hay mapa (cuenta manual de F0) o la venta no tiene caja (NC
-     *      emitida desde el panel) → el stamp cacheado global. Es el fallback
-     *      HISTÓRICO y sigue siendo válido: no hay otra caja a la que robarle
-     *      el punto de expedición.
-     *   3. HAY mapa y la venta SÍ tiene caja, pero esa caja no está en él
-     *      (caja sin timbrado) → **ERROR, nunca el fallback**. Hasta
-     *      2026-09-06 este caso caía en silencio al stamp global: una venta de
-     *      la "Segunda Caja" se emitía con el punto de expedición de la
-     *      principal — dos cajas alimentando la misma numeración, que es
-     *      exactamente el escenario de facturas duplicadas que el modelo
-     *      por-caja de `context/29` existe para impedir (auditoría
-     *      2026-09-06). El error es legible y cae en `markError`, así el
-     *      comercio ve QUÉ caja le falta timbrar en vez de emitir mal.
+     * ── El caso que la origina (Balloon Party, 2026-09-15) ────────────────
+     * La factura 001-001-0000840 se numeró y congeló ANTES de que existiera la
+     * serie en Punto, y SIFEN la rechazó con `1110 — Serie informada
+     * incorrecta` porque ese punto ya había emitido con serie `AA`. Con la
+     * regla pura "un reintento manda la serie con la que se numeró", la 840 se
+     * reintentaría sin serie y SIFEN la rechazaría para siempre.
      *
-     * Devuelve el shape que espera SaleToFePyMapper ('Id').
+     * ── La regla (decisión del owner, 2026-09-15) ────────────────────────
+     * La serie queda congelada DEFINITIVAMENTE cuando:
+     *   - el documento se numeró con una serie explícita (`invoiceserie` no
+     *     vacía) — nunca se pisa; o
+     *   - SIFEN ACEPTÓ un documento de la transacción (o puede estar
+     *     aceptándolo: `issued`/`cancelled`/`sending` sin veredicto de
+     *     rechazo) — un documento aprobado nunca cambia de serie.
+     * Fuera de eso —serie vacía y ningún documento aceptado, en particular el
+     * rechazado con 1110— el documento toma la serie configurada HOY para su
+     * (timbrado, punto de expedición, tipo de documento) y se reenvía con el
+     * MISMO número. El CDC no lleva la serie y el `security_code` está
+     * congelado en la fila del outbox, así que un `retry()` sale con el mismo
+     * CDC, que FE-PY acepta para un rechazado.
      *
-     * @param array|\ArrayAccess $account Fila de einvoice_account (con provisioning y stamp).
-     * @return array<string,mixed>
-     * @throws \RuntimeException caso 3 — caja conocida sin timbrado en el mapa.
+     * ── De qué caja sale la serie ─────────────────────────────────────────
+     * De la caja ACTIVA que tiene hoy el par (timbrado, punto) congelado —
+     * `assertExpeditionPointFree()` garantiza que es una sola—, no de la caja
+     * de la transacción: una NC emitida desde el panel no tiene caja, y la
+     * caja de una venta pudo cambiar de punto desde entonces. Si ninguna caja
+     * tiene ese par, no hay serie vigente que adoptar. Siempre acotado al
+     * `companyId` del documento.
+     *
+     * @return array{serie:string,holderId:string,docType:string,number:int,auth:string,prefix:string}|null
+     * @throws SerieAdoptionBlockedException si la serie configurada no es emitible.
      */
+    private function serieToAdopt(string $companyId, string $transactionId, string $docId): ?array
+    {
+        $tx = ncmExecute(
+            'SELECT transactiontype, invoiceno, invoiceauth, invoiceprefix, invoiceserie
+               FROM transaction_registry
+              WHERE transactionid = ? AND companyid = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+        if (!(is_array($tx) || $tx instanceof \ArrayAccess)) {
+            return null;
+        }
+
+        $frozen = \Punto\Api\Documents\DocumentSeries::fromFrozen($tx);
+        if ($frozen->serie !== '' || $frozen->auth === '' || $frozen->prefix === '') {
+            return null;
+        }
+        $docType = \Punto\Api\Documents\DocumentNumber::docTypeForSaleType($tx['transactiontype'] ?? null);
+        if ($docType === null || !\Punto\Api\Documents\DocumentSeries::isFiscalDocType($docType)) {
+            return null;
+        }
+
+        // ¿Algún OTRO documento de esta transacción fue (o puede estar siendo)
+        // aceptado por SIFEN? `pending`/`error`/`skipped` nunca llegaron a un
+        // veredicto; `issued`/`cancelled`/`sending` sí pueden tenerlo, y solo
+        // un rechazo explícito los descarta.
+        $docs = ncmExecute(
+            "SELECT status, sifen_status FROM einvoice_document
+              WHERE companyid = ? AND transactionid = ? AND einvoicedocid <> ?
+                AND status IN ('issued', 'cancelled', 'sending')",
+            [$companyId, $transactionId, $docId],
+            false,
+            true
+        );
+        if ($docs && is_object($docs)) {
+            while (!$docs->EOF) {
+                if (self::sifenVerdict($docs->fields['sifen_status'] ?? null) !== 'rejected') {
+                    $docs->Close();
+                    return null;
+                }
+                $docs->MoveNext();
+            }
+            $docs->Close();
+        }
+
+        $holder = ncmExecute(
+            "SELECT registerId, data FROM register
+              WHERE companyId = ? AND registerStatus = TRUE
+                AND TRIM(data ->> 'registerInvoiceAuth')   = ?
+                AND TRIM(data ->> 'registerInvoicePrefix') = ?
+              ORDER BY registerName ASC LIMIT 1",
+            [$companyId, $frozen->auth, $frozen->prefix]
+        );
+        if (!(is_array($holder) || $holder instanceof \ArrayAccess)) {
+            return null;
+        }
+        $serie = \Punto\Api\Documents\DocumentSeries::normalizeSerie(
+            $holder[\Punto\Api\Documents\DocumentSeries::SERIE_CONFIG_KEYS[$docType]] ?? ''
+        );
+        if ($serie === '') {
+            return null;
+        }
+        if (!\Punto\Api\Documents\DocumentSeries::isValidSerie($serie)) {
+            throw new SerieAdoptionBlockedException(
+                "La serie configurada en la caja para este punto de expedición (\"$serie\") no es válida: "
+                . 'tienen que ser dos letras (ej. AA). Corregila en Sucursales → Cajas y reintentá.'
+            );
+        }
+
+        return [
+            'serie'    => $serie,
+            'holderId' => (string) ($holder['registerId'] ?? $holder['registerid'] ?? ''),
+            'docType'  => $docType,
+            'number'   => (int) ($tx['invoiceno'] ?? 0),
+            'auth'     => $frozen->auth,
+            'prefix'   => $frozen->prefix,
+        ];
+    }
+
+    /**
+     * CONGELA la serie adoptada (`serieToAdopt()`) en la transacción y avanza
+     * su secuencia. Devuelve la serie que quedó guardada (la adoptada, o la
+     * que otro drenaje congeló primero), o null si no quedó ninguna.
+     *
+     * NO es "leer la caja por atrás": escribe lo congelado (y el caller
+     * reescribe `request_payload`), así que la transacción, el archivo del
+     * envío y el documento que recibe SIFEN dicen lo mismo.
+     *
+     * Dos bloqueos son DEFINITIVOS y no se reintentan solos (se estacionan con
+     * `SerieAdoptionBlockedException`, sin gastar los intentos automáticos del
+     * documento en algo que va a fallar igual):
+     *   - el número ya existe en la serie adoptada (la caja siguió emitiendo
+     *     bajo la serie nueva y ya usó ese número) — renumerar un comprobante
+     *     impreso no es algo que el motor pueda decidir solo;
+     *   - el período de la venta está CERRADO — el guard de cierre (mig 157)
+     *     no deja tocar la transacción, y reabrir el período es una decisión
+     *     del comercio.
+     *
+     * @param array{serie:string,holderId:string,docType:string,number:int,auth:string,prefix:string} $adopt
+     * @throws SerieAdoptionBlockedException bloqueo definitivo.
+     * @throws \RuntimeException fallo transitorio de base.
+     */
+    private function freezeAdoptedSerie(string $companyId, string $transactionId, string $docId, array $adopt): ?string
+    {
+        $serie  = $adopt['serie'];
+        $number = $adopt['number'];
+        try {
+            // CAS sobre la serie vacía: si otro drenaje la congeló primero, no
+            // se pisa — se relee abajo y se usa la que quedó.
+            ncmExecute(
+                "UPDATE transaction SET invoiceserie = ?
+                  WHERE transactionid = ? AND companyid = ? AND COALESCE(invoiceserie, '') = ''",
+                [$serie, $transactionId, $companyId]
+            );
+        } catch (\Punto\Api\Support\PeriodClosedException $e) {
+            error_log('[EInvoiceService] serie ' . $serie . ' no congelada en ' . $transactionId . ' (período cerrado): ' . $e->getMessage());
+            throw new SerieAdoptionBlockedException(
+                "Este documento necesita la serie $serie para que SIFEN lo acepte, pero el período de la venta está "
+                . 'cerrado y la venta no se puede modificar. Reabrí el período y volvé a reintentar; no se reintenta solo.'
+            );
+        } catch (\Throwable $e) {
+            error_log('[EInvoiceService] no se pudo congelar la serie ' . $serie . ' en ' . $transactionId . ': ' . $e->getMessage());
+            $msg = $e->getMessage();
+            if (str_contains($msg, 'uq_transaction_expedition_invoiceno') || str_contains($msg, 'uq_transaction_creditnote_invoiceno')) {
+                throw new SerieAdoptionBlockedException(
+                    "El número $number ya existe en la serie $serie del punto de expedición {$adopt['prefix']}, así que "
+                    . 'este documento no puede tomar esa serie sin duplicar un comprobante. Revisá la numeración de la '
+                    . 'caja; no se reintenta solo.'
+                );
+            }
+            throw new \RuntimeException(
+                "No se pudo asignar la serie $serie a este documento antes de emitirlo. Se reintenta en la próxima corrida."
+            );
+        }
+
+        $stored = \Punto\Api\Documents\DocumentSeries::forTransaction($transactionId, $companyId)->serie;
+        if ($stored === '') {
+            return null;
+        }
+
+        error_log(sprintf(
+            '[EInvoiceService] documento %s (transacción %s, número %d) adopta la serie %s de su punto de expedición %s/%s: '
+            . 'se había numerado sin serie y SIFEN no lo aceptó (mig 223).',
+            $docId, $transactionId, $number, $stored, $adopt['auth'], $adopt['prefix']
+        ));
+
+        // La secuencia de la serie adoptada no puede quedar por detrás de un
+        // número que ahora le pertenece. Best-effort, igual que después de una
+        // venta: la secuencia se corrige sola con el próximo avance.
+        if ($number > 0 && $adopt['holderId'] !== '') {
+            try {
+                \Punto\Api\Documents\DocumentNumber::advanceTo(
+                    $adopt['docType'],
+                    \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
+                    $adopt['holderId'],
+                    $companyId,
+                    $number,
+                    new \Punto\Api\Documents\DocumentSeries($adopt['auth'], $adopt['prefix'], $stored),
+                );
+            } catch (\Throwable $e) {
+                error_log('[EInvoiceService] advanceTo tras adoptar serie falló para ' . $docId . ': ' . $e->getMessage());
+            }
+        }
+
+        return $stored;
+    }
+
+    /**
+     * Error DEFINITIVO: el documento queda `error` con el motivo y con los
+     * intentos automáticos agotados, para que el drainer no lo repita cada
+     * pocos minutos sobre una causa que no se va a ir sola. `retry()` (acción
+     * humana) resetea los intentos y lo vuelve a poner en cola cuando la
+     * causa se corrigió.
+     */
+    private function parkError(string $docId, string $message): void
+    {
+        ncmExecute(
+            "UPDATE einvoice_document
+                SET status = 'error', attempts = GREATEST(attempts, ?), error_message = ?,
+                    next_retry_at = now(), updated_at = now()
+              WHERE einvoicedocid = ?",
+            [self::MAX_RETRY_ATTEMPTS, mb_substr($message, 0, 500), $docId]
+        );
+    }
+
     /**
      * `securityCode` estable del documento: los 9 dígitos del componente 10
      * del CDC, congelados en la fila del outbox en el PRIMER intento.
@@ -3277,7 +3518,9 @@ final class EInvoiceService
      * no es el código de dos dígitos de la SET, y mapearlo acá crearía una
      * segunda tabla de equivalencias que puede divergir de la del mapper.
      *
-     * @param array<string,mixed> $stamp  Timbrado con el que se emitió ('Id').
+     * La serie SIFEN (`dSerieNum`, mig 223) tampoco: no forma parte del CDC.
+     *
+     * @param array{establecimiento:string,punto:string,serie?:string} $point Punto con el que se emitió.
      * @param array<string,mixed> $sale   Venta reconstruida (fiscalNumber).
      * @param array<string,mixed> $config Config de la cuenta.
      */

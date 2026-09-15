@@ -10,7 +10,7 @@ namespace Punto\Api\EInvoice;
  * El comercio NO re-tipea nada que Punto ya tenga: el RUC y la razón social
  * salen de Configuración del negocio (companyFiscal) y los timbrados de las
  * CAJAS — cada caja es un punto de expedición (context/29 §1) y su timbrado
- * se administra en la caja (registerStamps). El formulario de facturación
+ * se administra en la caja (registerTimbrados). El formulario de facturación
  * electrónica solo pide lo que no existe en otro lado: actividad económica,
  * tipo de contribuyente, régimen, establecimientos con sus códigos SIFEN,
  * email de facturación y CSC.
@@ -116,16 +116,16 @@ final class EInvoiceProvisioningService
 
         try {
             $company = self::companyFiscal($companyId);
-            $stamps  = self::registerStamps($companyId);
+            $timbrados  = self::registerTimbrados($companyId);
 
-            $this->ensureTenantCreated($companyId, $environment, $fiscal, $company, $stamps, $form);
+            $this->ensureTenantCreated($companyId, $environment, $fiscal, $company, $timbrados, $form);
             $this->ensureCscApplied($companyId, $environment, $fiscal);
             $this->ensureCertApplied($companyId, $environment);
 
             // Verificación final: se relee el emisor del motor y se persiste
             // `emitter` + `stamp` + `status`. Reusa `testConnection()`, que
             // resuelve el motor por el factory y llama a `userInfo()` y
-            // `stamps()` — y que además empuja el LOGO del comercio al emisor
+            // `emitterTimbrado()` — y que además empuja el LOGO del comercio al emisor
             // (`syncEmitterLogo()`), así que el que recién nace ya sale con la
             // marca en su KuDE sin que este método tenga que ocuparse.
             $svc = new EInvoiceService();
@@ -296,7 +296,7 @@ final class EInvoiceProvisioningService
      *
      * @param array<string,mixed> $fiscal
      * @param array{ruc:string,razonSocial:string,nombreFantasia:string} $company
-     * @param array<int,array<string,mixed>> $stamps Timbrados por caja (`registerStamps`).
+     * @param array<int,array<string,mixed>> $timbrados Timbrados por caja (`registerTimbrados`).
      * @param array<string,mixed> $form Crudo — de ahí salen los establecimientos con códigos SIFEN.
      */
     private function ensureTenantCreated(
@@ -304,14 +304,14 @@ final class EInvoiceProvisioningService
         string $environment,
         array $fiscal,
         array $company,
-        array $stamps,
+        array $timbrados,
         array $form
     ): void {
         if (self::checkpoint($companyId, 'fepyTenantCreated')) {
             return;
         }
 
-        $timbrado = self::singleStampNumber($stamps);
+        $timbrado = self::singleTimbrado($timbrados);
 
         $payload = [
             // `externalId`: nuestro companyId. El motor lo guarda y lo indexa
@@ -330,7 +330,7 @@ final class EInvoiceProvisioningService
             // Zod). El formulario ya lo pide; sin él no se adivina.
             'tipoContribuyente' => self::requireInt($fiscal['taxpayerType'] ?? null, 1, 2, 'tipo de contribuyente'),
             'tipoRegimen'       => self::requireInt($fiscal['regimeId'] ?? null, 1, 15, 'régimen tributario'),
-            'establecimientos'  => self::establecimientos($form, $fiscal, $stamps),
+            'establecimientos'  => self::establecimientos($form, $fiscal, $timbrados),
             'actividadesEconomicas' => self::actividades($fiscal),
             // `env` decide contra qué SIFEN firma el emisor y se fija ACÁ,
             // para siempre. Sale de la configuración de plataforma, que es
@@ -506,18 +506,18 @@ final class EInvoiceProvisioningService
      * haría que las cajas del otro timbrado emitieran contra un talonario que
      * no es el suyo.
      *
-     * @param array<int,array<string,mixed>> $stamps
+     * @param array<int,array<string,mixed>> $timbrados
      * @return array{numero:string,fechaInicio:string}
      */
-    private static function singleStampNumber(array $stamps): array
+    private static function singleTimbrado(array $timbrados): array
     {
         $byNumber = [];
-        foreach ($stamps as $stamp) {
-            $numero = trim((string) ($stamp['numero'] ?? ''));
+        foreach ($timbrados as $timbradoCaja) {
+            $numero = trim((string) ($timbradoCaja['numero'] ?? ''));
             if ($numero === '') {
                 continue;
             }
-            $byNumber[$numero] = trim((string) ($stamp['fechaInicio'] ?? ''));
+            $byNumber[$numero] = trim((string) ($timbradoCaja['fechaInicio'] ?? ''));
         }
 
         if ($byNumber === []) {
@@ -557,10 +557,10 @@ final class EInvoiceProvisioningService
      *
      * @param array<string,mixed> $form
      * @param array<string,mixed> $fiscal
-     * @param array<int,array<string,mixed>> $stamps
+     * @param array<int,array<string,mixed>> $timbrados
      * @return array<int,array<string,mixed>>
      */
-    private static function establecimientos(array $form, array $fiscal, array $stamps): array
+    private static function establecimientos(array $form, array $fiscal, array $timbrados): array
     {
         $declared = [];
         foreach ([$form['establecimientos'] ?? null, $fiscal['establecimientos'] ?? null] as $source) {
@@ -579,8 +579,8 @@ final class EInvoiceProvisioningService
         }
 
         $codes = [];
-        foreach ($stamps as $stamp) {
-            $code = trim((string) ($stamp['establecimiento'] ?? ''));
+        foreach ($timbrados as $timbradoCaja) {
+            $code = trim((string) ($timbradoCaja['establecimiento'] ?? ''));
             if ($code !== '') {
                 $codes[str_pad($code, 3, '0', STR_PAD_LEFT)] = true;
             }
@@ -722,7 +722,7 @@ final class EInvoiceProvisioningService
         // (company.config.settingRUC/settingBillingName) y los timbrados en
         // las CAJAS (cada caja es un punto de expedición, context/29 §1) —
         // se leen de ahí, nunca se piden de nuevo (ver companyFiscal() y
-        // registerStamps()).
+        // registerTimbrados()).
         $email = trim((string) ($form['email'] ?? ''));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw new \RuntimeException('Ingresá un email de facturación válido.');
@@ -951,7 +951,7 @@ final class EInvoiceProvisioningService
      * @return array<int,array{registerId:string,name:string,numero:string,establecimiento:string,puntoExpedicion:string,fechaInicio:string}>
      * @throws \RuntimeException si ninguna caja activa tiene timbrado completo.
      */
-    private static function registerStamps(string $companyId): array
+    private static function registerTimbrados(string $companyId): array
     {
         $rs = ncmExecute(
             'SELECT registerId, registerName, data FROM register
@@ -962,7 +962,7 @@ final class EInvoiceProvisioningService
             true
         );
 
-        $stamps = [];
+        $timbrados = [];
         $incomplete = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
@@ -970,7 +970,7 @@ final class EInvoiceProvisioningService
                 // `$rs->fields` ya viene aplanado por Query::flattenJsonb, que
                 // mergea `data` a la fila y hace unset de la columna
                 // (Query.php:57). El json_decode($f['data']) que había leía
-                // null → ninguna caja tenía timbrado → registerStamps() las
+                // null → ninguna caja tenía timbrado → registerTimbrados() las
                 // marcaba TODAS incompletas y el provisioning de FE abortaba
                 // aunque estuvieran bien cargadas. Mismo bug que
                 // RegisterAdminService::listAll (2026-08-04).
@@ -989,7 +989,7 @@ final class EInvoiceProvisioningService
                     continue;
                 }
 
-                $stamps[] = [
+                $timbrados[] = [
                     'registerId'      => (string) ($f['registerid'] ?? $f['registerId'] ?? ''),
                     'name'            => $name,
                     'numero'          => $auth,
@@ -1008,13 +1008,13 @@ final class EInvoiceProvisioningService
                 . implode(', ', $incomplete) . '.'
             );
         }
-        if ($stamps === []) {
+        if ($timbrados === []) {
             throw new \RuntimeException(
                 'Ninguna caja tiene timbrado cargado. Cargá el timbrado de al menos una caja en la sección Timbrados por caja.'
             );
         }
 
-        return $stamps;
+        return $timbrados;
     }
 
     // ── Protocolo de checkpoints sobre `einvoice_account.provisioning` ───

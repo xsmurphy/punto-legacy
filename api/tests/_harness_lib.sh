@@ -46,6 +46,23 @@ HARNESS_PHP_OPTS=(-d variables_order=EGPCS -d 'error_reporting=E_ALL & ~E_DEPREC
 # relación con el de producción.
 export JWT_SECRET="${JWT_SECRET:-arnes-test-secret-no-usar-en-produccion}"
 
+# Credencial de FE-PY para los arneses de facturación electrónica.
+#
+# `FePySession::getBearer()` valida el FORMATO de la key de company —`cmp_` +
+# 32 hex— antes de salir a la red. Sin ella ningún documento se emite y el
+# arnés queda en un rojo ilegible ("sin configurar"). El motor va SIMULADO en
+# esos arneses: la key es de PRUEBA, aleatoria por corrida, y nadie la usa
+# contra un servidor real. Vive acá (como JWT_SECRET) para que cada runner de
+# FE no la genere por su cuenta. Se respeta un valor ya exportado.
+harness_ensure_fepy_test_key() {
+  if [ -n "${FEPY_API_KEY:-}" ]; then
+    return 0
+  fi
+  local hex
+  hex="$(php -r 'echo bin2hex(random_bytes(16));')"
+  export FEPY_API_KEY="cmp_${hex}"
+}
+
 harness_run() {
   local php_file="$1"; shift
   local name

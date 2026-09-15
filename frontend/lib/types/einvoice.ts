@@ -151,8 +151,12 @@ export interface EInvoiceAccount {
   cscUpdatedAt: string | null
   /** Payload crudo del emisor según el proveedor — shape sin tipar. */
   emitter: Record<string, unknown>
-  /** Timbrado vigente cacheado — shape sin tipar; el correlativo lo lleva el proveedor. */
-  stamp: Record<string, unknown>
+  /**
+   * Timbrado del EMISOR según el motor (mig 223). Proyección de lectura: el
+   * timbrado, el punto, la serie y el correlativo de cada documento son de la
+   * caja. Objeto vacío = el motor no informó timbrado.
+   */
+  stamp: EInvoiceEmitterTimbrado | Record<string, never>
   stampSyncedAt: string | null
   lastCheckAt: string | null
   lastError: string | null
@@ -164,6 +168,18 @@ export interface EInvoiceAccount {
  * guardado y desde cuándo. Ni el certificado, ni su contraseña, ni el código
  * del CSC cruzan la API — es el contrato de `FiscalSecretStore::status()`.
  */
+/**
+ * Timbrado del emisor en el modelo de Punto — `einvoice_account.stamp`
+ * (mig 223). Reemplaza al DTO que imitaba el catálogo del motor anterior.
+ */
+export interface EInvoiceEmitterTimbrado {
+  numero: string
+  /** "YYYY-MM-DD" o vacío. */
+  fechaInicio: string
+  /** "YYYY-MM-DD" o vacío. */
+  vencimiento: string
+}
+
 export interface EInvoiceSecretStatus {
   certStored: boolean
   certUploadedAt: string | null
@@ -174,7 +190,7 @@ export interface EInvoiceSecretStatus {
 export interface EInvoiceTestResult {
   status: EInvoiceStatus
   emitter: Record<string, unknown>
-  stamp: Record<string, unknown>
+  stamp: EInvoiceEmitterTimbrado | Record<string, never>
   lastError: string | null
 }
 

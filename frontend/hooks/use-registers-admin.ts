@@ -17,6 +17,15 @@ export interface RegisterFiscal {
   invoiceAuthStart: string
   /** Vencimiento, "YYYY-MM-DD". */
   invoiceAuthExpiration: string
+  /**
+   * Serie SIFEN (`dSerieNum`) de las FACTURAS de este punto — mig 223. Dos
+   * letras o vacía (default, nunca se precarga). Se completa solo si el sistema
+   * anterior emitía con serie acá. Es identidad: cambiarla abre una
+   * numeración nueva. Ver `lib/documents/serie.ts`.
+   */
+  invoiceSerie: string
+  /** Serie SIFEN de las NOTAS DE CRÉDITO: la numeración de SIFEN es por tipo de documento. */
+  creditNoteSerie: string
 }
 
 /**

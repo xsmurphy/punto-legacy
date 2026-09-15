@@ -244,6 +244,15 @@ export interface CreateSalePayload {
    * avanzan `document_sequence` (`DocumentNumber::advanceTo()`).
    */
   invoiceno: number
+  /**
+   * Serie SIFEN (`dSerieNum`) bajo la que se numeró `invoiceno` — mig 223.
+   * `""` = sin serie. Se lee de la MISMA caja y en el MISMO click que el número
+   * (`invoiceSerieForRegister()`), y viaja congelada: una venta encolada
+   * offline puede sincronizar después de que el panel cambie la serie, y el
+   * servidor tiene que congelar la serie con la que se NUMERÓ, no la vigente.
+   * Maps a `SaleInput::$invoiceSerie` (key `invoiceserie`).
+   */
+  invoiceserie: string
 }
 
 export interface CreateSaleResult {
@@ -334,6 +343,8 @@ export interface BuildSaleInput {
    * default seguro acá (el caller es quien sabe si vino de `getNextInvoiceNo()`).
    */
   invoiceno: number
+  /** Serie SIFEN del número — ver `CreateSalePayload.invoiceserie`. */
+  invoiceserie: string
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -343,7 +354,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid, invoiceno, ivaRemoved = false } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid, invoiceno, invoiceserie, ivaRemoved = false } = input
 
   // Los descuentos se reparten por ÍTEM (ver lib/cart/allocate-discounts.ts):
   // el descuento de venta se prorratea entre las líneas y se suma al descuento
@@ -455,6 +466,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     // igual (SaleInput no valida por type) pero no tiene sentido persistirla.
     dueDate: credito ? (dueDate || null) : null,
     invoiceno,
+    invoiceserie,
   }
 }
 

@@ -47,6 +47,7 @@ import { formatDate } from "@/lib/format-date"
 // El preview del form y la columna del listado tienen que mostrar EXACTAMENTE
 // lo que va a salir impreso.
 import { formatDocumentNumber, DEFAULT_PAD_WIDTH } from "@/lib/documents/format-document-number"
+import { isValidSerie, normalizeSerie, sanitizeSerieInput } from "@/lib/documents/serie"
 import {
   useRegistersAdmin,
   useCreateRegister,
@@ -88,6 +89,43 @@ const EMPTY_FISCAL: RegisterFiscal = {
   invoicePrefix: "",
   invoiceAuthStart: "",
   invoiceAuthExpiration: "",
+  // Serie SIFEN (mig 223): vacía por defecto. Nunca se precarga un valor.
+  invoiceSerie: "",
+  creditNoteSerie: "",
+}
+
+/**
+ * Talonarios cuya serie cambia con este guardado. La serie SIFEN es IDENTIDAD
+ * de la serie fiscal (mig 223): cambiarla abre una numeración nueva, así que el
+ * guardado se confirma antes. Comparación normalizada — tipear "aa" sobre "AA"
+ * no es un cambio.
+ */
+function changedSeries(before: RegisterFiscal, after: RegisterFiscal) {
+  const changes: { doc: "factura" | "nota_credito"; label: string; from: string; to: string }[] = []
+  const pairs = [
+    { doc: "factura" as const, label: "Facturas", from: before.invoiceSerie, to: after.invoiceSerie },
+    { doc: "nota_credito" as const, label: "Notas de crédito", from: before.creditNoteSerie, to: after.creditNoteSerie },
+  ]
+  for (const p of pairs) {
+    const from = normalizeSerie(p.from)
+    const to = normalizeSerie(p.to)
+    if (from !== to) changes.push({ doc: p.doc, label: p.label, from, to })
+  }
+  return changes
+}
+
+/** ¿Hay alguna serie cargada sin establecimiento y punto? (el backend lo rechaza) */
+function serieWithoutPrefix(fiscal: RegisterFiscal): boolean {
+  const hasSerie = normalizeSerie(fiscal.invoiceSerie) !== "" || normalizeSerie(fiscal.creditNoteSerie) !== ""
+  return hasSerie && fiscal.invoicePrefix.trim() === ""
+}
+
+/**
+ * ¿Las series del form se pueden guardar? Dos letras o vacías, y nunca sin
+ * punto de expedición: la serie es de un punto (mig 223).
+ */
+function seriesValid(fiscal: RegisterFiscal): boolean {
+  return isValidSerie(fiscal.invoiceSerie) && isValidSerie(fiscal.creditNoteSerie) && !serieWithoutPrefix(fiscal)
 }
 
 /** En el ALTA los campos arrancan vacíos y el backend siembra la secuencia en
@@ -159,6 +197,9 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editRangeTo, setEditRangeTo] = React.useState("")
 
   const [deleteTarget, setDeleteTarget] = React.useState<RegisterListItem | null>(null)
+  // Cambios de serie SIFEN pendientes de confirmar (mig 223). No-null = el
+  // AlertDialog está abierto y el guardado espera la confirmación.
+  const [serieChanges, setSerieChanges] = React.useState<ReturnType<typeof changedSeries> | null>(null)
 
   const registers = (data?.registers ?? []).filter((r) => r.outletId === outletId)
 
@@ -180,6 +221,26 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditNumbering({ ...EMPTY_NUMBERING, ...reg.numbering })
     setEditPadWidth({ ...EMPTY_PAD_WIDTH, ...reg.padWidth })
     setEditRangeTo(reg.range?.facturaTo != null ? String(reg.range.facturaTo) : "")
+  }
+
+  function saveEdit() {
+    if (!editTarget) return
+    updateRegister.mutate(
+      {
+        id: editTarget.id,
+        name: editName.trim(),
+        status: editStatus,
+        blindControl: editBlind,
+        fiscal: editFiscal,
+        numbering: editNumbering,
+        padWidth: editPadWidth,
+        range: { facturaTo: editRangeTo },
+      },
+      {
+        onSuccess: () => { toast.success("Caja actualizada"); setEditTarget(null) },
+        onError: (err) => toast.error(err.message),
+      }
+    )
   }
 
   const columns = React.useMemo<ColumnDef<RegisterListItem>[]>(() => [
@@ -217,6 +278,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           <span className="text-sm tabular-nums">
             {f.invoiceAuth}
             {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
+            {f.invoiceSerie ? ` · Serie ${f.invoiceSerie}` : ""}
           </span>
         )
       },
@@ -439,7 +501,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
             <Button
-              disabled={!newName.trim() || createRegister.isPending}
+              disabled={!newName.trim() || !seriesValid(newFiscal) || createRegister.isPending}
               onClick={() => {
                 createRegister.mutate(
                   {
@@ -512,25 +574,17 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancelar</Button>
             <Button
-              disabled={!editName.trim() || updateRegister.isPending}
+              disabled={!editName.trim() || !seriesValid(editFiscal) || updateRegister.isPending}
               onClick={() => {
                 if (!editTarget) return
-                updateRegister.mutate(
-                  {
-                    id: editTarget.id,
-                    name: editName.trim(),
-                    status: editStatus,
-                    blindControl: editBlind,
-                    fiscal: editFiscal,
-                    numbering: editNumbering,
-                    padWidth: editPadWidth,
-                    range: { facturaTo: editRangeTo },
-                  },
-                  {
-                    onSuccess: () => { toast.success("Caja actualizada"); setEditTarget(null) },
-                    onError: (err) => toast.error(err.message),
-                  }
-                )
+                // La serie SIFEN es identidad (mig 223): si cambia, se confirma
+                // antes de guardar porque abre una numeración nueva.
+                const changes = changedSeries(editTarget.fiscal, editFiscal)
+                if (changes.length > 0) {
+                  setSerieChanges(changes)
+                  return
+                }
+                saveEdit()
               }}
             >
               Guardar
@@ -538,6 +592,53 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={serieChanges !== null} onOpenChange={(o) => { if (!o) setSerieChanges(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cambiar la serie abre una numeración nueva</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                {/* Cada serie lleva su propio correlativo. Lo que se muestra es lo
+                    que el backend HACE al abrirla: la de facturas nace en el
+                    número que manda este form (Próxima factura); la de notas de
+                    crédito nace en 1, porque el panel no manda número de NC. */}
+                <ul className="space-y-1">
+                  {(serieChanges ?? []).map((c) => (
+                    <li key={c.doc}>
+                      {c.label}: {c.from || "sin serie"} → {c.to || "sin serie"}.{" "}
+                      {c.doc === "factura"
+                        ? `La próxima factura de esa serie va a ser la ${editNumbering.factura || "1"} (Próxima factura).`
+                        : "La próxima nota de crédito de esa serie va a ser la 1."}
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  Los documentos ya emitidos conservan la serie con la que salieron.
+                </p>
+                {(serieChanges ?? []).some((c) => c.doc === "factura") && (
+                  <p>
+                    Si esta serie viene del sistema anterior, verificá que Próxima factura siga después
+                    del último número que ese sistema emitió con ella.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Revisar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={updateRegister.isPending}
+              onClick={() => {
+                setSerieChanges(null)
+                saveEdit()
+              }}
+            >
+              Guardar y abrir la serie
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => { if (!o) setDeleteTarget(null) }}>
         <AlertDialogContent>
@@ -623,6 +724,44 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+/**
+ * Serie SIFEN de un talonario. Se escribe en mayúsculas mientras se tipea y no
+ * admite otra cosa que letras (máximo dos), así que lo único inválido que puede
+ * quedar es una sola letra — ese caso se marca y el guardado se deshabilita.
+ */
+function SerieField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (v: string) => void
+}) {
+  const invalid = !isValidSerie(value)
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(sanitizeSerieInput(e.target.value))}
+        placeholder="Sin serie"
+        maxLength={2}
+        autoCapitalize="characters"
+        autoComplete="off"
+        aria-invalid={invalid || undefined}
+        className="uppercase tabular-nums"
+      />
+      {invalid && (
+        <p className="text-xs text-destructive">Tienen que ser dos letras, ej. AA.</p>
+      )}
+    </div>
   )
 }
 
@@ -728,7 +867,33 @@ function StampAndNumbering({
               onChange={(e) => onFiscal({ invoiceAuthExpiration: e.target.value })}
             />
           </div>
+          {/* Serie SIFEN (`dSerieNum`, mig 223), por tipo de documento: la
+              numeración de SIFEN es por documento y un sistema anterior pudo
+              usar serie en facturas y no en notas de crédito. Opcional y sin
+              valor precargado: el placeholder es un ejemplo, no un default. */}
+          {serieWithoutPrefix(fiscal) && (
+            <p className="text-xs text-destructive sm:col-span-2">
+              La serie necesita el establecimiento y punto de expedición cargados.
+            </p>
+          )}
+          <SerieField
+            id={`${idPrefix}-serie-invoice`}
+            label="Serie de facturas"
+            value={fiscal.invoiceSerie}
+            onChange={(v) => onFiscal({ invoiceSerie: v })}
+          />
+          <SerieField
+            id={`${idPrefix}-serie-credit-note`}
+            label="Serie de notas de crédito"
+            value={fiscal.creditNoteSerie}
+            onChange={(v) => onFiscal({ creditNoteSerie: v })}
+          />
         </div>
+        <p className="text-xs text-muted-foreground">
+          La serie se completa solo si el sistema de facturación anterior emitía con serie en este punto
+          de expedición: sin ella SIFEN rechaza con 1110. El valor está en {"<dSerieNum>"} del XML de una
+          factura aprobada de este punto. Dejala vacía si no aplica.
+        </p>
       </div>
 
       {/* Numeración — el correlativo real de la caja (`document_sequence`). Va
