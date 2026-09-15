@@ -26,7 +26,6 @@ final class TransactionsService
 {
     private const TX_TYPES = '0,3,6,7,8';
 
-    private array $taxonomyCache = [];
 
     /** Ventas. $filters: ['cusId','src','singleRow']. */
     public function detail(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
@@ -103,6 +102,10 @@ final class TransactionsService
         // de un fetch por fila en el frontend). Mapa vacío si el tenant no tiene
         // FE — las filas simplemente no traen badge (ver einvoiceInfo()).
         $einvoiceMap = $this->einvoiceInfo($txIds, $companyId);
+        // Etiquetas desde la RELACIÓN (`toTag`), no desde `meta->'tags'`.
+        // Ver tagsByTx(): meta es el eco crudo del payload del POS, la
+        // relación es el vínculo real venta↔etiqueta.
+        $tagsMap = $this->tagsByTx($txIds, $companyId);
 
         $rows = [];
         foreach ($res as $f) {
@@ -167,7 +170,7 @@ final class TransactionsService
                 $invoicePrefix = ''; $invoiceAuth = ''; $padWidth = 1;
             }
             $paddedNo = DocumentNumber::pad($invoiceNo, $padWidth);
-            $tagNames = $this->tagNames($tagsArr, $companyId);
+            $tagNames = $tagsMap[(string) $f['transactionId']] ?? [];
 
             $custId = (string) $f['customerId'];
             $usrId  = (string) $f['userId'];
@@ -865,29 +868,64 @@ final class TransactionsService
     }
 
     /**
-     * Lookup directo bindeado por companyId: NO usa el global `getTaxonomyName` (que delega a
-     * Punto\App\Domain\Taxonomy y lee `$SQLcompanyId` del global vacío en /api → 'None' silente).
-     * Fix preventivo descubierto en batch 14 con ProductsService.
+     * Etiquetas por transacción, en BATCH, desde la RELACIÓN.
+     *
+     * ── Por qué `toTag` y no `meta->'tags'` ──────────────────────────────
+     * Las etiquetas SÍ tienen id, y el vínculo venta↔etiqueta vive en
+     * `toTag(parentId, tagId)` con FK al catálogo. `transaction.meta->'tags'`
+     * es otra cosa: el eco CRUDO de lo que mandó el POS, que desde que el
+     * cajero puede escribir una etiqueta nueva (ver
+     * `SaleService::persistSaleTags`) contiene NOMBRES, no ids.
+     *
+     * Leer de meta tenía dos defectos, y el segundo se llevó puesto un
+     * reporte en producción:
+     *
+     *   1. Es una copia congelada. Renombrar una etiqueta en el catálogo no
+     *      se reflejaba acá, así que el mismo tag salía con dos nombres
+     *      según la venta.
+     *   2. Ese texto terminaba comparado contra una columna `uuid`, y
+     *      Postgres responde 22P02 — que NO es "no encontré", es un error que
+     *      aborta la request entera. `/reports/sales?tab=transacciones` quedó
+     *      en 500 para un comercio real (2026-09-15) apenas entró una venta
+     *      etiquetada "Venta WhatsApp".
+     *
+     * Desde la relación el problema no existe: `toTag.tagId` es uuid con FK,
+     * no hay texto libre que pueda llegar a la comparación.
+     *
+     * `meta->'tags'` SIGUE leyéndose en `detail()`, pero sólo para el marcador
+     * legacy '166227' (documento interno): ese valor nunca fue una fila del
+     * catálogo, así que la relación no lo tiene.
+     *
+     * Bindeado por companyId a propósito: NO usa el global `getTaxonomyName`,
+     * que delega en Punto\App\Domain\Taxonomy y lee `$SQLcompanyId` —vacío en
+     * /api— devolviendo 'None' en silencio.
+     *
+     * @param array<int,string> $txIds
+     * @return array<string,array<int,string>> transactionId → nombres
      */
-    private function tagNames(array $tagIds, string $companyId): array
+    private function tagsByTx(array $txIds, string $companyId): array
     {
+        $ids = array_values(array_unique(array_filter($txIds)));
+        if (!$ids) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $res = ncmRows(
+            "SELECT tt.parentId, x.taxonomyName
+               FROM toTag tt
+               JOIN taxonomy x ON x.taxonomyId = tt.tagId AND x.companyId = ?
+              WHERE tt.toTagType = 0 AND tt.parentId IN ($ph)
+              ORDER BY x.taxonomyName",
+            array_merge([$companyId], $ids)
+        );
+
         $out = [];
-        foreach ($tagIds as $id) {
-            $id = (string) $id;
-            if ($id === '') {
+        foreach ($res as $r) {
+            $name = trim((string) ($r['taxonomyName'] ?? ''));
+            if ($name === '' || $name === 'None') {
                 continue;
             }
-            if (!array_key_exists($id, $this->taxonomyCache)) {
-                $r = ncmExecute(
-                    "SELECT taxonomyName FROM taxonomy WHERE taxonomyId = ? AND companyId = ? LIMIT 1",
-                    [$id, $companyId]
-                );
-                $name = $r ? (string) ($r['taxonomyName'] ?? '') : '';
-                $this->taxonomyCache[$id] = ($name === '' || $name === 'None') ? '' : toUTF8($name);
-            }
-            if ($this->taxonomyCache[$id] !== '') {
-                $out[] = $this->taxonomyCache[$id];
-            }
+            $out[(string) $r['parentId']][] = toUTF8($name);
         }
         return $out;
     }
