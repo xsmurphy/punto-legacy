@@ -14,7 +14,7 @@
  */
 
 import * as React from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { tenantNow } from "@/lib/format-date"
@@ -215,6 +215,20 @@ export const DRAWER_KEYS = {
   summary: ["drawer", "summary"] as const,
   hourly: ["drawer", "hourlyStats"] as const,
   blockers: ["drawer", "closeBlockers"] as const,
+}
+
+/**
+ * Refresca todo lo que una venta o un movimiento puede alterar en la caja.
+ *
+ * La serie horaria no forma parte del resumen: vive en un recurso separado
+ * para que el dashboard no cargue sus buckets cuando solo se abre Control de
+ * Caja. Por eso tiene que invalidarse junto al resumen, no depender del
+ * `staleTime` de un minuto para enterarse de un cobro recién confirmado.
+ */
+export function invalidateDrawerQueries(queryClient: QueryClient): void {
+  queryClient.invalidateQueries({ queryKey: DRAWER_KEYS.status })
+  queryClient.invalidateQueries({ queryKey: DRAWER_KEYS.summary })
+  queryClient.invalidateQueries({ queryKey: DRAWER_KEYS.hourly })
 }
 
 // ── Helpers de fetch ──────────────────────────────────────────────────────────
@@ -780,9 +794,7 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
     },
     onSuccess: () => {
       // Refrescar estado y resumen después de cualquier acción
-      qc.invalidateQueries({ queryKey: DRAWER_KEYS.status })
-      qc.invalidateQueries({ queryKey: DRAWER_KEYS.summary })
-      qc.invalidateQueries({ queryKey: DRAWER_KEYS.hourly })
+      invalidateDrawerQueries(qc)
       qc.invalidateQueries({ queryKey: LOCAL_SHIFT_TOTALS_KEY })
       onMutated?.()
     },

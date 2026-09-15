@@ -64,7 +64,7 @@ import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { refreshTenancy, type TenancyVerdictKind } from "@/lib/pos/register-tenancy"
 import { useTenancyStore } from "@/lib/pos/tenancy-store"
 import { emissionBlockNow, useEmissionBlock } from "@/lib/pos/emission-block"
-import { useDrawerStatus } from "@/hooks/use-drawer"
+import { invalidateDrawerQueries, useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
@@ -987,12 +987,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         data: { total, change: changeAmount },
       }).catch(() => {})
       // Invalidar caches afectadas por la venta: dashboard (KPIs/widgets),
-      // listado de transacciones, status de caja (montos efectivo).
+      // listado de transacciones y todos los recursos del turno en curso.
       void qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
       void qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
       void qc.invalidateQueries({ queryKey: ["bff", "income-chart"] })
-      void qc.invalidateQueries({ queryKey: ["drawer", "status"] })
-      void qc.invalidateQueries({ queryKey: ["drawer", "summary"] })
+      invalidateDrawerQueries(qc)
     } catch (err) {
       // F5 (context/29 §5.6) — 409 de tenencia de caja: el backend
       // (`api/v1/sales.php`, F3 online) rechazó ESTE número porque la
@@ -2120,4 +2119,3 @@ function subscribeOnlineStatus(onChange: () => void): () => void {
     window.removeEventListener("offline", onChange)
   }
 }
-

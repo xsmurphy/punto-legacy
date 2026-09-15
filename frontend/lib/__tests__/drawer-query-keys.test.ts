@@ -23,6 +23,8 @@ import { describe, expect, it } from "vitest"
  */
 
 const HOOK_PATH = path.join(__dirname, "..", "..", "hooks", "use-drawer.ts")
+const PAY_DIALOG_PATH = path.join(__dirname, "..", "..", "components", "register", "pay-dialog.tsx")
+const POS_MENU_PATH = path.join(__dirname, "..", "..", "components", "register", "pos-main-menu.tsx")
 
 describe("claves de caché de Control de Caja", () => {
   const source = fs.readFileSync(HOOK_PATH, "utf8")
@@ -62,5 +64,16 @@ describe("claves de caché de Control de Caja", () => {
     // `["drawer","summary",<cualquier caja>]`. Invalidar con la clave completa
     // dejaría viva la caché de las demás cajas del dispositivo.
     expect(source).toContain("invalidateQueries({ queryKey: DRAWER_KEYS.summary })")
+  })
+
+  it("un cobro refresca también la serie horaria del turno", () => {
+    const payDialog = fs.readFileSync(PAY_DIALOG_PATH, "utf8")
+    expect(payDialog).toContain("invalidateDrawerQueries(qc)")
+  })
+
+  it("las acciones de caja dejan que el hook escriba la hora local del comercio", () => {
+    const menu = fs.readFileSync(POS_MENU_PATH, "utf8")
+    expect(menu).not.toContain('new Date().toISOString().replace("T", " ").slice(0, 19)')
+    expect(menu).toContain("await openDrawer.mutateAsync({ amount })")
   })
 })

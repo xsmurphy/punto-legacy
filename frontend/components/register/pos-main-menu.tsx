@@ -1700,9 +1700,11 @@ function ControlDeCajaPanel() {
   }
 
   async function handleOpenConfirm(amount: number) {
-    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     try {
-      await openDrawer.mutateAsync({ amount, date })
+      // `useDrawerMutation` es dueño de la fecha de negocio: usa la zona del
+      // comercio, no UTC. Pasar `toISOString()` acá abría el turno tres horas
+      // adelante en Paraguay y dejaba sus ventas fuera del arqueo.
+      await openDrawer.mutateAsync({ amount })
       setModalMode(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error desconocido")
@@ -1719,7 +1721,6 @@ function ControlDeCajaPanel() {
    * el bug inverso al que la mig 164 vino a arreglar.
    */
   async function handleCloseConfirm(counted: CountedMethod[]) {
-    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     // La fila del efectivo SIEMPRE existe (`useShiftMethods` la siembra
     // primero, con ventas o sin ellas). Si alguna vez no llegara, cerrar con
     // `amount: 0` declararía el cajón vacío y el arqueo saldría con un
@@ -1735,7 +1736,7 @@ function ControlDeCajaPanel() {
       // query de summary se invalida y los datos desaparecen — sin este
       // snapshot no habría forma de imprimir el reporte de cierre después.
       const summarySnapshot = summary
-      const result = await closeDrawer.mutateAsync({ amount: cash, date, counted })
+      const result = await closeDrawer.mutateAsync({ amount: cash, counted })
       setModalMode(null)
 
       // Arqueo del servidor. `null` cuando el cierre se encoló (sin red): ese
@@ -1772,10 +1773,9 @@ function ControlDeCajaPanel() {
   }
 
   async function handleMovementConfirm(amount: number, note: string) {
-    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     try {
-      if (modalMode === "expense") await expense.mutateAsync({ amount, note, date })
-      if (modalMode === "income")  await income.mutateAsync({ amount, note, date })
+      if (modalMode === "expense") await expense.mutateAsync({ amount, note })
+      if (modalMode === "income")  await income.mutateAsync({ amount, note })
       setModalMode(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error desconocido")
