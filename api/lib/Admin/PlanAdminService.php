@@ -3,19 +3,46 @@
 /**
  * PlanAdminService.php — CRUD de planes del catálogo SaaS (realm /admin).
  *
- * REGLA DE VERSIONADO (cerrada — context/34-admin-saas-plan.md F4, NO retroactiva):
- *   - Metadata cosmética (name) se edita IN-PLACE. No genera un plan nuevo.
- *   - Cualquier cambio de price, duration_days, los límites max_N, features
- *     o ai_credits_monthly es una VERSION NUEVA del plan: se inserta una fila
- *     con plan_code siguiente (MAX(plan_code)+1) y la fila vieja se archiva
- *     (archived=1). `company.plan` de los tenants vigentes NUNCA se toca acá
- *     — siguen operando y facturando con los términos del plan_code viejo
- *     hasta que un admin los mueva explícitamente (companies.php PATCH). Los
- *     planes archivados no aparecen en list() por default — no se ofrecen
- *     para asignar a tenants nuevos.
- *   - El plan default (plan_code=0) es especial: nunca se archiva y nunca
- *     admite cambios de price, duration, límites, features o ai_credits_monthly
- *     (guard explícito abajo) — solo su `name` es editable.
+ * UN PLAN SE EDITA EN EL LUGAR (owner 2026-09-15, context/34 §F4 — la regla
+ * de versionado de F4 quedó SUPERSEDED):
+ *   "Un cambio en el plan aplica a todos los que están atados a ese plan."
+ *   Editar cualquier campo —precio incluido— hace UPDATE de la MISMA fila y
+ *   el `plan_code` no cambia nunca. Si hace falta un plan distinto para un
+ *   segmento de clientes, se crea un plan aparte y se mueve a esos tenants
+ *   (ficha del tenant en /admin → "Cambiar plan manualmente").
+ *
+ *   Por qué se revirtió el versionado: clonaba la fila por CUALQUIER campo y
+ *   archivaba la vieja sin mover a nadie, así que los tenants vigentes nunca
+ *   recibían el cambio. En producción el Trial se editó para dar 500 créditos
+ *   y los tenants siguieron en el Trial archivado con 0 — y `SignupService`
+ *   asigna el código 3 fijo, así que los NUEVOS también caían en el archivado.
+ *   Contradecía la D1 de §F7 ("el plan manda").
+ *
+ * QUÉ SIGNIFICA "APLICA A TODOS" (verificado 2026-09-15): todo lector de un
+ * campo del plan lo resuelve EN VIVO por `company.plan = plans.plan_code`
+ * (límites: UsersService/BillingService/DashboardService/Customer; créditos:
+ * PlanLifecycleService::rechargeMonthlyAiCredits; precio: BillingService,
+ * OutletRequestService, AdminReportsService). No hay copia en el tenant que
+ * re-proyectar. Consecuencias que NO son bugs:
+ *   - Precio: vale para lo que se calcule de acá en adelante. Una factura ya
+ *     emitida guarda su monto y no se toca.
+ *   - `ai_credits_monthly`: la recarga es una por período (`plan_monthly` +
+ *     `YYYY-MM`, guard en `grantAiCredits()`). Subirla aplica en el próximo
+ *     período no acreditado; no reacredita meses ya acreditados.
+ *   - `features`: sigue sin lector (F7 P1 sin implementar). Cuando P1 exista,
+ *     guardar un plan tiene que recalcular la proyección de D2
+ *     (`company.<key>` + `moduleData`) de TODOS sus tenants por el mismo
+ *     camino que el cambio de plan del tenant — no con un UPDATE paralelo.
+ *
+ * `plans.archived` queda como historial de la época del versionado: nada lo
+ * escribe y no filtra nada (un plan archivado que todavía tiene tenants es un
+ * plan vivo que los gobierna). La mig 222 consolidó los archivados que tenían
+ * un vigente equivalente.
+ *
+ * El plan código 0 (Free, destino post-trial) se edita como cualquier otro.
+ * Su única particularidad es de schema: el índice único de `plan_code` es
+ * PARCIAL (`WHERE plan_code != 0`, mig 10), así que el UPDATE va por `id` de
+ * la fila leída y no por `plan_code`, para no pisar filas duplicadas del 0.
  *
  * Mismo patrón que CompanyAdminService: `global $db; $db->Execute(...)`,
  * iterando con while(!$r->EOF) — el realm admin está aislado y no carga
@@ -23,25 +50,16 @@
  */
 class PlanAdminService
 {
-    /** Columnas cuyo cambio dispara versionado (todo excepto `name`). */
-    private const VERSIONED_FIELDS = [
-        'type', 'price', 'duration_days',
-        'max_items', 'max_users', 'max_customers', 'max_outlets', 'max_registers',
-        'max_suppliers', 'max_categories', 'max_brands',
-        'features', 'ai_credits_monthly',
-    ];
-
     private const INT_FIELDS = [
         'duration_days', 'max_items', 'max_users', 'max_customers', 'max_outlets',
         'max_registers', 'max_suppliers', 'max_categories', 'max_brands', 'ai_credits_monthly',
     ];
 
     /**
-     * Lista de planes con conteo de tenants vigentes en cada plan_code.
-     * Por default excluye archivados (usar $includeArchived=true para el
-     * listado admin, que muestra ambos con flag).
+     * Lista TODOS los planes con el conteo de tenants en cada plan_code.
+     * `archived` viaja como dato histórico, no filtra (ver docblock de la clase).
      */
-    public function list(bool $includeArchived = false): array
+    public function list(): array
     {
         global $db;
 
@@ -53,11 +71,8 @@ class PlanAdminService
                 FROM plans p
                 LEFT JOIN (
                     SELECT plan, COUNT(*) AS tenants FROM company GROUP BY plan
-                ) c ON c.plan = p.plan_code";
-        if (!$includeArchived) {
-            $sql .= ' WHERE p.archived = 0';
-        }
-        $sql .= ' ORDER BY p.plan_code ASC';
+                ) c ON c.plan = p.plan_code
+                ORDER BY p.plan_code ASC";
 
         $r   = $db->Execute($sql);
         $out = [];
@@ -65,12 +80,10 @@ class PlanAdminService
             while (!$r->EOF) {
                 // `$r->fields` es CaseInsensitiveArray, no array — pasarlo
                 // crudo a un typehint `array` tira TypeError y dejaba
-                // /admin/plans sin listado. Se normaliza con `toArray()`, el
-                // mismo idioma que `nextPlanCode()` más abajo en este archivo:
+                // /admin/plans sin listado. Se normaliza con `toArray()`:
                 // `ncmRow()` vive en includes/functions.php y el realm admin NO
                 // lo carga (es aislado a propósito — ver el docblock de esta
-                // clase), así que llamarlo acá era un 500 esperando a que
-                // alguien abriera el listado de planes.
+                // clase).
                 $out[] = $this->rowToPlan($r->fields->toArray(), true);
                 $r->MoveNext();
             }
@@ -104,7 +117,6 @@ class PlanAdminService
         $record               = $sanitized;
         $record['plan_code']  = $nextCode;
         $record['name']       = $name;
-        $record['archived']   = 0;
 
         $ok        = $db->Insert('plans', $record);
         $committed = $db->CompleteTrans();
@@ -112,13 +124,12 @@ class PlanAdminService
             return ['ok' => false, 'error' => $db->ErrorMsg() ?: 'No se pudo crear el plan', 'code' => 500];
         }
 
-        return ['ok' => true, 'plan' => $this->get($nextCode), 'versioned' => false];
+        return ['ok' => true, 'plan' => $this->get($nextCode)];
     }
 
     /**
-     * Aplica la regla de versionado: name-only → UPDATE in-place; cualquier
-     * otro campo (price/duration/limits/features/ai_credits_monthly) → crea
-     * plan_code nuevo y archiva el viejo.
+     * Edita el plan EN EL LUGAR. Aplica a todos los tenants con ese plan_code
+     * (ver docblock de la clase). Devuelve cuántos son, para que /admin lo diga.
      */
     public function update(int $planCode, array $input): array
     {
@@ -128,121 +139,21 @@ class PlanAdminService
         if (!$current) {
             return ['ok' => false, 'error' => 'Plan no encontrado', 'code' => 404];
         }
-        if ((int) $current['archived'] === 1) {
-            return ['ok' => false, 'error' => 'El plan está archivado — no se puede editar', 'code' => 422];
-        }
 
-        $isDefault = $planCode === 0;
         $sanitized = $this->sanitize($input, $current);
-
-        $versionedChanged = false;
-        foreach (self::VERSIONED_FIELDS as $f) {
-            if (!array_key_exists($f, $sanitized)) {
-                continue;
-            }
-            if ($f === 'features') {
-                if (!$this->featuresEqual((string) $sanitized[$f], (string) $current[$f])) {
-                    $versionedChanged = true;
-                }
-            } elseif ($f === 'price') {
-                // NUMERIC vuelve de PDO como string ("0.00") — comparar como
-                // float, NUNCA como string ("0" !== "0.00" da falso-positivo
-                // en CADA edición, code-review 2026-08-01).
-                if (abs((float) $sanitized[$f] - (float) $current[$f]) > 0.0001) {
-                    $versionedChanged = true;
-                }
-            } elseif (in_array($f, self::INT_FIELDS, true)) {
-                if ((int) $sanitized[$f] !== (int) $current[$f]) {
-                    $versionedChanged = true;
-                }
-            } elseif (trim((string) $sanitized[$f]) !== trim((string) $current[$f])) {
-                // 'type' — único VERSIONED_FIELD que queda como string plano.
-                $versionedChanged = true;
-            }
-        }
-
-        if ($versionedChanged && $isDefault) {
-            return [
-                'ok'    => false,
-                'error' => 'El plan default (código 0) no admite cambios de precio/duración/límites/features/créditos IA — solo el nombre es editable',
-                'code'  => 422,
-            ];
-        }
-
-        $newName = array_key_exists('name', $sanitized) ? trim((string) $sanitized['name']) : null;
-        if ($newName === '') {
+        if (array_key_exists('name', $sanitized) && $sanitized['name'] === '') {
             return ['ok' => false, 'error' => 'name no puede quedar vacío', 'code' => 422];
         }
 
-        if (!$versionedChanged) {
-            if ($newName !== null && $newName !== $current['name']) {
-                $db->AutoExecute('plans', ['name' => $newName], 'UPDATE', 'plan_code = ?', [$planCode]);
+        if ($sanitized) {
+            $ok = $db->AutoExecute('plans', $sanitized, 'UPDATE', 'id = ?', [$current['id']]);
+            if (!$ok) {
+                return ['ok' => false, 'error' => $db->ErrorMsg() ?: 'No se pudo guardar el plan', 'code' => 500];
             }
-            return ['ok' => true, 'plan' => $this->get($planCode), 'versioned' => false];
         }
 
-        // Versionado: nuevo plan_code con los campos mergeados, archivar el viejo.
-        // nextPlanCode() se recalcula DENTRO de la transacción para acotar la
-        // ventana de carrera; el índice único plans_plan_code_key (mig 10) es
-        // la red de seguridad final — un choque hace fallar el INSERT en vez
-        // de duplicar plan_code.
-        $merged = array_merge($current, $sanitized);
-
-        $db->StartTrans();
-        $nextCode = $this->nextPlanCode();
-
-        $newRecord = [
-            'plan_code'          => $nextCode,
-            'name'               => $newName ?? $current['name'],
-            'type'               => $merged['type'],
-            'price'              => $merged['price'],
-            'duration_days'      => (int) $merged['duration_days'],
-            'max_items'          => (int) $merged['max_items'],
-            'max_users'          => (int) $merged['max_users'],
-            'max_customers'      => (int) $merged['max_customers'],
-            'max_outlets'        => (int) $merged['max_outlets'],
-            'max_registers'      => (int) $merged['max_registers'],
-            'max_suppliers'      => (int) $merged['max_suppliers'],
-            'max_categories'     => (int) $merged['max_categories'],
-            'max_brands'         => (int) $merged['max_brands'],
-            'features'           => $merged['features'],
-            'ai_credits_monthly' => (int) $merged['ai_credits_monthly'],
-            'archived'           => 0,
-        ];
-
-        $ok1 = $db->Insert('plans', $newRecord);
-        $ok2 = $db->AutoExecute('plans', ['archived' => 1], 'UPDATE', 'plan_code = ?', [$planCode]);
-        $committed = $db->CompleteTrans();
-
-        if (!$ok1 || !$ok2 || !$committed) {
-            return ['ok' => false, 'error' => 'No se pudo versionar el plan', 'code' => 500];
-        }
-
-        return [
-            'ok'           => true,
-            'plan'         => $this->get($nextCode),
-            'versioned'    => true,
-            'archivedCode' => $planCode,
-        ];
-    }
-
-    public function archive(int $planCode): array
-    {
-        if ($planCode === 0) {
-            return ['ok' => false, 'error' => 'El plan default (código 0) no se puede archivar', 'code' => 422];
-        }
-
-        global $db;
-        $current = $this->getRaw($planCode);
-        if (!$current) {
-            return ['ok' => false, 'error' => 'Plan no encontrado', 'code' => 404];
-        }
-        if ((int) $current['archived'] === 1) {
-            return ['ok' => true, 'alreadyArchived' => true];
-        }
-
-        $db->AutoExecute('plans', ['archived' => 1], 'UPDATE', 'plan_code = ?', [$planCode]);
-        return ['ok' => true];
+        $plan = $this->get($planCode);
+        return ['ok' => true, 'plan' => $plan, 'tenants' => $this->tenantCount($planCode)];
     }
 
     // ── privados ─────────────────────────────────────────────────────────
@@ -264,35 +175,11 @@ class PlanAdminService
         return ((int) ($r->fields['m'] ?? 0)) + 1;
     }
 
-    /**
-     * Compara dos jsonb `features` como VALOR, no como texto — `===` sobre
-     * arrays decodificados es order-sensitive (un round-trip del cliente que
-     * reordena claves da falso-positivo). Normalizamos con ksort recursivo
-     * antes de comparar.
-     */
-    private function featuresEqual(string $a, string $b): bool
+    private function tenantCount(int $planCode): int
     {
-        $da = json_decode($a, true);
-        $db_ = json_decode($b, true);
-        if (!is_array($da)) {
-            $da = [];
-        }
-        if (!is_array($db_)) {
-            $db_ = [];
-        }
-        $this->ksortRecursive($da);
-        $this->ksortRecursive($db_);
-        return $da === $db_;
-    }
-
-    private function ksortRecursive(array &$arr): void
-    {
-        ksort($arr);
-        foreach ($arr as &$v) {
-            if (is_array($v)) {
-                $this->ksortRecursive($v);
-            }
-        }
+        global $db;
+        $r = $db->Execute('SELECT COUNT(*) AS n FROM company WHERE plan = ?', [$planCode]);
+        return ($r && !$r->EOF) ? (int) ($r->fields['n'] ?? 0) : 0;
     }
 
     private function defaults(): array

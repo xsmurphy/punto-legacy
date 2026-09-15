@@ -63,17 +63,18 @@ if ($method === 'GET') {
     // `{rows}` y no el array pelado: el hook del panel (`useAdminPlans`) lee
     // `.rows`, y el array sin envolver dejaba el selector VACÍO — el admin no
     // podía asignarle plan a ningún tenant (reporte del owner 2026-09-05).
-    // Sale de `PlanAdminService::list(false)` — la MISMA fuente que el CRUD de
+    // Sale de `PlanAdminService::list()` — la MISMA fuente que el CRUD de
     // /admin/planes — en vez de la query duplicada que tenía
-    // `CompanyAdminService::listPlans()`: aquella no excluía los planes
-    // ARCHIVADOS, así que el selector ofrecía asignar planes dados de baja.
-    // Se filtra el plan 0 (default/interno), igual que hacía la query vieja.
+    // `CompanyAdminService::listPlans()`. Trae todos los planes: desde
+    // 2026-09-15 `archived` no filtra (un plan archivado con tenants es un plan
+    // vivo — ver el docblock de PlanAdminService). Se filtra el plan 0
+    // (default/interno), igual que hacía la query vieja.
     if (!empty($_GET['plans'])) {
         require_once __DIR__ . '/../../lib/Admin/PlanAdminService.php';
         $plans = array_values(array_filter(
             // Namespace GLOBAL — la clase no declara namespace (igual que la
             // instancia `new PlanAdminService()` de plans.php).
-            (new \PlanAdminService())->list(false),
+            (new \PlanAdminService())->list(),
             static fn(array $p) => (int) ($p['code'] ?? 0) !== 0
         ));
         apiOk(['rows' => $plans]);

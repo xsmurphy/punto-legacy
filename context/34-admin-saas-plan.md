@@ -117,8 +117,46 @@ tenant: tabla `tenant_note`, companyid+authorid+texto+fecha).
 
 - **Planes**: CRUD sobre `plans` (hoy solo lectura desde BillingService):
   precio, duración, límites (usuarios/sucursales/devices), módulos
-  incluidos, créditos IA incluidos/mes. Cambios NO retroactivos: versionar
-  (`plans.version` o soft-copy) para no mutar el plan de tenants vigentes.
+  incluidos, créditos IA incluidos/mes. ~~Cambios NO retroactivos: versionar
+  (`plans.version` o soft-copy) para no mutar el plan de tenants vigentes.~~
+
+  > **SUPERSEDED 2026-09-15 — decisión del owner:** "un cambio en el plan
+  > aplica a todos los que están atados a ese plan". Editar un plan NUNCA crea
+  > versiones: es un UPDATE de la misma fila, en TODOS los campos, precio
+  > incluido. Si un segmento de clientes necesita otros términos, se crea un
+  > plan aparte y se los mueve (ficha del tenant → "Cambiar plan manualmente").
+  >
+  > **Por qué se revirtió.** El razonamiento original (no mutarle las
+  > condiciones a un tenant vigente) se implementó como "todo cambio salvo el
+  > nombre clona la fila con un `plan_code` nuevo y archiva la vieja, sin mover
+  > a nadie". En la práctica: (1) clonaba por CUALQUIER campo, incluso un
+  > límite o un flag de features; (2) los clientes vigentes nunca recibían
+  > ningún cambio — en producción el Trial se editó para dar 500 créditos (plan
+  > 5) y los 6 tenants siguieron en el Trial archivado (plan 3) con 0; y (3)
+  > `SignupService` asigna `plan = 3` fijo, así que los tenants NUEVOS también
+  > caían en el archivado. Contradecía la D1 de §F7 ("el plan manda"): un plan
+  > que se edita y no alcanza a sus clientes no gobierna nada.
+  >
+  > **Qué significa "aplica a todos"** (verificado 2026-09-15): todo lector de
+  > un campo del plan lo resuelve EN VIVO por `company.plan = plans.plan_code`
+  > — límites (`UsersService`, `BillingService`, `DashboardService`,
+  > `Customer`), créditos (`PlanLifecycleService::rechargeMonthlyAiCredits`),
+  > precio (`BillingService`, `OutletRequestService`, `AdminReportsService`).
+  > No hay copia en el tenant que re-proyectar. El precio vale para lo que se
+  > facture de acá en adelante (una factura emitida no se toca); subir
+  > `ai_credits_monthly` aplica al próximo período no acreditado. `features`
+  > sigue sin lector: cuando exista la P1 de §F7, guardar un plan recalcula la
+  > proyección de D2 de TODOS sus tenants por el mismo camino que el cambio de
+  > plan del tenant.
+  >
+  > **Implementación:** `PlanAdminService::update()` in-place (por `id`, porque
+  > el índice único de `plan_code` excluye al 0); se eliminó el archivado y la
+  > acción "Archivar" — `plans.archived` queda como historial, nada lo escribe
+  > y no filtra. La mig 222 consolidó los archivados: por cada `type` con
+  > exactamente un vigente, sobrevive el `plan_code` más bajo con los términos
+  > del vigente (el Trial queda en el 3 con 500 créditos), se mueven tenants y
+  > `billing_request` y se borran las demás filas; un `type` sin vigente único
+  > no se toca. Arnés: `api/tests/run_plan_in_place_test.sh`.
 - **Módulos**: catálogo admin — precio por módulo suelto (para los "Super
   Poderes" del agente, context/33), visibilidad (beta/GA), toggle global
   kill-switch.
@@ -344,7 +382,7 @@ salvo los límites numéricos.**
 
 | Pieza | Estado real |
 |---|---|
-| `plans.features` (jsonb) | Se edita en `/admin/planes`, está versionado… y **NADIE lo lee**. Write-only |
+| `plans.features` (jsonb) | Se edita en `/admin/planes` (en el lugar desde 2026-09-15; antes versionaba)… y **NADIE lo lee**. Write-only |
 | `plans.ai_credits_monthly` | Se leía SOLO para mostrarlo en billing: asignar un plan no acreditaba nada (bug real, "Balloon Party" con el plan Inicial de 10.000 créditos y saldo 0 — owner 2026-09-05). **Parcialmente resuelto**: desde 2026-09-05 el cambio de plan acredita el primer período (`CompanyAdminService::grantPlanAiCredits`). La RECARGA MENSUAL sigue sin existir — es P2 |
 | Límites (`max_users`, `max_items`…) | SÍ se enforcean (`UsersService::…`, `BillingService`) |
 | Módulos | Toggle POR TENANT en dos lugares (`company.<key>` plana + `company.config->moduleData[key].status`) + kill-switch global en `platform_config` |
@@ -491,9 +529,9 @@ P1 no se mergea sin test contra Postgres real:
   (columna plana y `moduleData`), no en una sola.
 - El kill-switch global sigue ganándole al plan.
 - La config en `moduleData.<key>` sobrevive intacta a un recálculo (D4).
-- Editar `features` de un plan versiona (archiva el viejo) y NO toca a los
-  tenants que quedaron en el `plan_code` anterior — la regla de versionado de
-  F4 sigue vigente.
+- Editar `features` de un plan recalcula la proyección de TODOS los tenants
+  con ese `plan_code` (el versionado de F4 quedó SUPERSEDED 2026-09-15: el
+  plan se edita en el lugar).
 
 P3 no se mergea sin:
 
@@ -530,7 +568,8 @@ P3 no se mergea sin:
   cuenta tenga que reconstruir su set de módulos.
 - **Dejar `plans.features` como está** — el owner descartó tanto esto como la
   variante "plan = techo, tenant elige dentro". Un campo que se edita, se
-  versiona y no gobierna nada es peor que no tenerlo.
+  versiona y no gobierna nada es peor que no tenerlo. (El versionado se
+  eliminó 2026-09-15 — ver F4.)
 
 ## Orden y tamaño
 

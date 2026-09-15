@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { CreditCard, Plus, Loader2, AlertTriangle } from "lucide-react"
+import { CreditCard, Plus, Loader2, Users } from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -18,17 +18,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Form,
   FormControl,
@@ -48,7 +38,6 @@ import {
   useAdminPlanCatalog,
   useAdminCreatePlan,
   useAdminUpdatePlan,
-  useAdminArchivePlan,
   type AdminPlanFull,
   type AdminPlanInput,
 } from "@/hooks/use-admin"
@@ -110,22 +99,6 @@ function planToValues(plan: AdminPlanFull): PlanValues {
   }
 }
 
-/** Campos cuyo cambio dispara versionado — mismo criterio que PlanAdminService::VERSIONED_FIELDS. */
-const VERSIONED_KEYS: (keyof PlanValues)[] = [
-  "type", "price", "duration_days", "max_items", "max_users", "max_customers",
-  "max_outlets", "max_registers", "max_suppliers", "max_categories", "max_brands",
-  "ai_credits_monthly", "features",
-]
-
-function willVersion(initial: PlanValues, current: PlanValues): boolean {
-  return VERSIONED_KEYS.some((k) => {
-    if (k === "features") {
-      return JSON.stringify(initial.features) !== JSON.stringify(current.features)
-    }
-    return initial[k] !== current[k]
-  })
-}
-
 function LimitField({
   form,
   name,
@@ -167,7 +140,6 @@ function PlanDialog({
   plan: AdminPlanFull | null
 }) {
   const isEdit = !!plan
-  const isDefault = !!plan?.isDefault
   const createPlan = useAdminCreatePlan()
   const updatePlan = useAdminUpdatePlan()
   const pending = createPlan.isPending || updatePlan.isPending
@@ -178,30 +150,22 @@ function PlanDialog({
     values: initial,
   })
 
-  const current = form.watch()
-  const versioning = isEdit && !isDefault && willVersion(initial, current)
+  // Un plan se edita en el lugar: el cambio aplica a todos sus tenants
+  // (owner 2026-09-15, context/34 §F4 SUPERSEDED).
+  const tenants = plan?.tenants ?? 0
 
   const onSubmit = (values: PlanValues) => {
     const payload: AdminPlanInput = { ...values }
-    if (isDefault) {
-      // Guard de UI — el backend igual lo rechaza: plan 0 solo admite name.
-      const onlyName: AdminPlanInput = { name: values.name }
-      updatePlan.mutate(
-        { code: plan!.code, data: onlyName },
-        {
-          onSuccess: () => { toast.success("Plan actualizado"); onOpenChange(false) },
-          onError: (err) => toast.error(err.message ?? "Error"),
-        },
-      )
-      return
-    }
-
     if (isEdit) {
       updatePlan.mutate(
         { code: plan!.code, data: payload },
         {
           onSuccess: (res) => {
-            toast.success(res.versioned ? `Nueva versión creada (plan #${res.plan.code})` : "Plan actualizado")
+            toast.success(
+              res.tenants > 0
+                ? `Plan actualizado — aplica a ${res.tenants} ${res.tenants === 1 ? "cliente" : "clientes"}`
+                : "Plan actualizado",
+            )
             onOpenChange(false)
           },
           onError: (err) => toast.error(err.message ?? "Error"),
@@ -222,17 +186,14 @@ function PlanDialog({
           <DialogTitle>{isEdit ? `Editar plan — ${plan.name}` : "Nuevo plan"}</DialogTitle>
         </DialogHeader>
 
-        {isDefault && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-            <span>El plan default (código 0) no admite cambios de precio, duración, límites, features ni créditos IA — solo el nombre es editable.</span>
-          </div>
-        )}
-        {versioning && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-            <span>Este cambio crea una VERSIÓN NUEVA del plan (código nuevo) y archiva el actual. Los tenants ya asignados al plan actual no se ven afectados.</span>
-          </div>
+        {isEdit && tenants > 0 && (
+          <Alert>
+            <Users />
+            <AlertDescription>
+              El cambio se aplica a {tenants === 1 ? "el cliente" : `los ${tenants} clientes`} con este plan, precio
+              incluido: rige para lo que se facture de acá en adelante.
+            </AlertDescription>
+          </Alert>
         )}
 
         <Form {...form}>
@@ -255,7 +216,7 @@ function PlanDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tipo</FormLabel>
-                    <FormControl><Input {...field} disabled={isDefault} /></FormControl>
+                    <FormControl><Input {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -267,7 +228,7 @@ function PlanDialog({
                   <FormItem>
                     <FormLabel>Precio</FormLabel>
                     <FormControl>
-                      <MoneyInput value={field.value} onChange={(v) => field.onChange(v ?? 0)} disabled={isDefault} />
+                      <MoneyInput value={field.value} onChange={(v) => field.onChange(v ?? 0)} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -283,7 +244,6 @@ function PlanDialog({
                       <Input
                         type="number"
                         min={1}
-                        disabled={isDefault}
                         value={field.value}
                         onChange={(e) => field.onChange(Number(e.target.value) || 0)}
                       />
@@ -302,7 +262,6 @@ function PlanDialog({
                       <Input
                         type="number"
                         min={0}
-                        disabled={isDefault}
                         value={field.value}
                         onChange={(e) => field.onChange(Number(e.target.value) || 0)}
                       />
@@ -316,7 +275,7 @@ function PlanDialog({
             <Separator />
             <div>
               <p className="text-sm font-medium mb-2">Límites</p>
-              <fieldset disabled={isDefault} className="grid grid-cols-4 gap-3">
+              <fieldset className="grid grid-cols-4 gap-3">
                 <LimitField form={form} name="max_items" label="Artículos" />
                 <LimitField form={form} name="max_users" label="Usuarios" />
                 <LimitField form={form} name="max_customers" label="Clientes" />
@@ -331,7 +290,7 @@ function PlanDialog({
             <Separator />
             <div>
               <p className="text-sm font-medium mb-2">Módulos incluidos</p>
-              <fieldset disabled={isDefault} className="grid grid-cols-2 gap-2">
+              <fieldset className="grid grid-cols-2 gap-2">
                 {FEATURE_KEYS.map(({ key, label }) => (
                   <div key={key} className="flex items-center gap-2">
                     <Checkbox
@@ -351,7 +310,7 @@ function PlanDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
               <Button type="submit" disabled={pending}>
                 {pending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                {isEdit ? (versioning ? "Crear versión nueva" : "Guardar") : "Crear plan"}
+                {isEdit ? "Guardar" : "Crear plan"}
               </Button>
             </DialogFooter>
           </form>
@@ -371,7 +330,6 @@ export default function AdminPlansPage() {
 
 function AdminPlansPageContent() {
   const { data, isLoading } = useAdminPlanCatalog()
-  const archivePlan = useAdminArchivePlan()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editingPlan, setEditingPlan] = React.useState<AdminPlanFull | null>(null)
 
@@ -419,35 +377,6 @@ function AdminPlansPageContent() {
         return (
           <div className="flex justify-end gap-2" onClick={(e) => e.stopPropagation()}>
             <Button variant="ghost" size="sm" onClick={() => setEditingPlan(plan)}>Editar</Button>
-            {!plan.isDefault && !plan.archived && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-destructive">Archivar</Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="sm:max-w-md">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Archivar el plan &quot;{plan.name}&quot;?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Deja de estar disponible para asignar a tenants nuevos. Los tenants ya asignados a este plan
-                      siguen operando igual — no se ven afectados.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() =>
-                        archivePlan.mutate(plan.code, {
-                          onSuccess: () => toast.success("Plan archivado"),
-                          onError: (err) => toast.error(err.message ?? "Error"),
-                        })
-                      }
-                    >
-                      Archivar
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
           </div>
         )
       },

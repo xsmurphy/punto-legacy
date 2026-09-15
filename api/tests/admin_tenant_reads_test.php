@@ -385,7 +385,7 @@ check(
 );
 
 // ── H. Planes ───────────────────────────────────────────────────────────────
-[$plans, $err] = attempt(fn() => (new PlanAdminService())->list(true));
+[$plans, $err] = attempt(fn() => (new PlanAdminService())->list());
 check('H1 PlanAdminService::list no explota con CaseInsensitiveArray', $err === '', $err);
 check('H2 devuelve planes con code/name', is_array($plans) && (!$plans || isset($plans[0]['code'], $plans[0]['name'])), json_encode(array_slice((array) $plans, 0, 1)));
 
