@@ -44,7 +44,7 @@ final class TransactionsService
                  transactionTotal, transactionPaymentType, transactionType, transactionNote,
                  transactionDueDate, transactionStatus, transactionComplete, invoiceNo,
                  invoicePrefix, invoiceAuth, customerId, registerId, userId, outletId, ivaRemoved,
-                 meta->>'tags' AS tags";
+                 voidedAt, meta->>'tags' AS tags";
 
         if ($filters['singleRow']) {
             $sql = "SELECT $cols FROM transaction
@@ -205,6 +205,11 @@ final class TransactionsService
                 'note'                => (string) ($f['transactionNote'] ?? ''),
                 'tags'                => $tagNames,
                 'transactionType'     => (int) $type,
+                // Anulación vigente (mig 154): marca `voidedAt` y a propósito NO
+                // pisa el tipo, así que el listado no puede deducirla de
+                // `transactionType === 7` — ese es solo el camino legacy. Sin
+                // este campo una venta anulada seguía figurando como contado.
+                'voidedAt'            => ($f['voidedAt'] ?? null) ?: null,
                 'transactionComplete' => $this->isComplete($f['transactionComplete'] ?? null) ? 1 : 0,
                 'topay'               => $topay,
                 'netTotal'            => $cNet,

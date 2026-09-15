@@ -569,6 +569,11 @@ export function TransactionsList({
         // (`lib/domain/sale-type.ts`, el mismo que usa el detalle).
         cell: ({ row }) => {
           const r = row.original
+          // Anulada primero: anular marca `voidedAt` sin tocar el tipo (mig
+          // 154), así que sin este corte una venta anulada se leía "Contado".
+          if (r.voidedAt || isVoided(r.transactionType)) {
+            return <Badge variant="outline">Anulada</Badge>
+          }
           const label = saleTypeLabel(r.transactionType)
           // El estado de cobro no se pierde: un crédito todavía adeudado va
           // atenuado. No se agrega columna — el ancho queda igual.
@@ -653,7 +658,12 @@ export function TransactionsList({
               </Tooltip>
             )
           }
-          // pending / sending / cancelled / skipped — estado transitorio u opcional.
+          // Anulado ante SIFEN: estado FINAL, no transitorio. Caía en
+          // "Pendiente" y hacía creer que la factura seguía por salir.
+          if (r.einvoiceStatus === "cancelled") {
+            return <Badge variant="outline">Anulada</Badge>
+          }
+          // pending / sending / skipped — estado transitorio u opcional.
           return <Badge variant="secondary">Pendiente</Badge>
         },
         meta: { label: "Fact. electrónica", className: "w-32" },

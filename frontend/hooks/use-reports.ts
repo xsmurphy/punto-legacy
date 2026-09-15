@@ -225,6 +225,11 @@ export interface TransactionRow {
   ivaRemoved?: boolean
   // F1 facturación electrónica — null = tenant sin FE o venta no encolada
   // (no es un error, simplemente no aplica). Ver TransactionsService::einvoiceInfo.
+  /**
+   * Anulación vigente (mig 154). Anular NO cambia `transactionType`, así que
+   * esto —y no el tipo 7— es lo que dice si la venta está anulada.
+   */
+  voidedAt?: string | null
   einvoiceStatus: "pending" | "sending" | "issued" | "error" | "cancelled" | "skipped" | null
   einvoiceCdc: string | null
   einvoiceError: string | null
