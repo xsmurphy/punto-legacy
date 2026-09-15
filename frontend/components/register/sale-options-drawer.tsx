@@ -786,7 +786,13 @@ function TagsDialog({
   onClose: () => void
 }) {
   const currentTags = useCartStore((s) => s.tags)
-  const { data } = useTags()
+  // posApi (Bearer del device) como el resto del POS — con el cliente de panel
+  // esta lectura daba 401 en la caja y el campo quedaba sin sugerencias.
+  const { data } = useTags({ client: posApi })
+  // Sugerencias por NOMBRE: es lo que se guarda en el carrito y lo que viaja
+  // en el payload. El backend resuelve el nombre contra el catálogo del tenant
+  // al sincronizar (SaleService::persistSaleTags) y lo crea si es nuevo, que es
+  // lo único compatible con vender sin red.
   const suggestions = (data?.tags ?? []).map((t) => t.name)
   const fieldRef = React.useRef<TagsChipsFieldHandle>(null)
 

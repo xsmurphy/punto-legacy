@@ -62,13 +62,14 @@ export interface SaleItem {
   totalDiscount: number
   note: string | null
   /**
-   * Etiquetas de línea (uso interno — pedido del owner 2026-08-14, mismo
-   * catálogo y comportamiento que `tags` a nivel venta más abajo, pero NO
-   * se persisten igual: `Money::sanitizeSaleArray` ya whitelisteaba esta key
-   * por ítem — SaleService::resolveItemSoldMeta la escribe en
-   * `itemSold.meta->'tags'`, sin FK contra ningún catálogo (a diferencia de
-   * las etiquetas de VENTA, que sí validan contra `taxonomy`/`toTag` en
-   * SaleService::persistRelations). Salen en comandas, nunca en facturas —
+   * Etiquetas de línea (uso interno — pedido del owner 2026-08-14). Texto
+   * libre, igual que `tags` a nivel venta, pero NO se persisten igual:
+   * `Money::sanitizeSaleArray` ya whitelisteaba esta key por ítem —
+   * SaleService::resolveItemSoldMeta la escribe tal cual en
+   * `itemSold.meta->'tags'`, sin catálogo detrás. Las de VENTA sí van al
+   * catálogo: SaleService::persistSaleTags resuelve el nombre contra `tag`
+   * del tenant y lo crea si no existe, y linkea el id en `toTag`. Salen en
+   * comandas, nunca en facturas —
    * eso depende de qué bloques tenga la plantilla de cada impresora, no de
    * este payload.
    */
@@ -205,7 +206,13 @@ export interface CreateSalePayload {
    * IVA del `taxId` del ítem no lo devenguen en esta venta.
    */
   ivaRemoved: boolean
-  /** Etiquetas de texto libre asociadas a la venta. */
+  /**
+   * Etiquetas de la venta, por NOMBRE (no por id). El backend las resuelve
+   * contra el catálogo del tenant al sincronizar y crea las que no existan
+   * (SaleService::persistSaleTags) — mandar el id obligaría a crear el tag
+   * ANTES de vender, o sea una llamada de red bloqueante en el cobro, que es
+   * lo que el POS offline-first no puede tener.
+   */
   tags: string[]
   /**
    * ID de la cotización que originó esta venta (si aplica).

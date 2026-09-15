@@ -104,6 +104,71 @@ final class TagService
         return $tagId;
     }
 
+    /**
+     * Resuelve una etiqueta por NOMBRE dentro del tenant y la CREA si no existe.
+     * Devuelve el `tagId`, o `null` si el nombre es vacío.
+     *
+     * Existe para el camino "el usuario escribió una etiqueta nueva" (etiquetas
+     * de VENTA, SaleService B7): el POS es offline-first, así que el nombre
+     * viaja dentro del payload encolado y recién se resuelve contra el catálogo
+     * al sincronizar — pedirle a la caja que cree el tag ANTES de vender sería
+     * una llamada de red bloqueante en el cobro.
+     *
+     * Case-insensitive por el MISMO criterio que el índice único que ya tiene
+     * la tabla (`uq_tag_company_name` sobre `(companyId, LOWER(name))`, mig 39):
+     * si buscáramos con `=` a secas, "Whatsapp" no encontraría "whatsapp" y el
+     * INSERT siguiente chocaría contra ese índice.
+     *
+     * NO puede fallar por una carrera: dos cajas sincronizando la misma
+     * etiqueta nueva a la vez harían que el segundo INSERT violara el índice
+     * único, y en este wrapper CUALQUIER error de PG marca la transacción como
+     * fallida (`DB::handleQueryFailure` → `failTransaction()`) — o sea que la
+     * VENTA se perdería por una etiqueta. De ahí el `ON CONFLICT DO NOTHING` +
+     * re-lectura en vez de un INSERT pelado.
+     *
+     * Escribe en `tag` (nunca en `taxonomy`): los triggers bidireccionales de
+     * la mig 39 replican la fila a `taxonomy` en la misma transacción, que es
+     * lo que satisface la FK de `toTag.tagId → taxonomy(taxonomyId)`.
+     */
+    public function resolveOrCreateByName(string $companyId, string $name, ?string $outletId = null): ?string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return null;
+        }
+
+        $existing = $this->findIdByName($companyId, $name);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $this->db->Execute(
+            'INSERT INTO tag (tagId, companyId, outletId, name)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT DO NOTHING',
+            [$this->generateUuid(), $companyId, $outletId, $name]
+        );
+
+        // Re-lectura: si el ON CONFLICT no insertó (carrera), ganó el otro y su
+        // id es el bueno. No reusamos el uuid generado arriba a ciegas.
+        return $this->findIdByName($companyId, $name);
+    }
+
+    private function findIdByName(string $companyId, string $name): ?string
+    {
+        $rs = $this->db->Execute(
+            'SELECT tagId FROM tag
+              WHERE companyId = ? AND LOWER(name) = LOWER(?)
+              LIMIT 1',
+            [$companyId, $name]
+        );
+        if ($rs === false || $rs->EOF) {
+            return null;
+        }
+        $id = (string) ($rs->fields['tagid'] ?? $rs->fields['tagId'] ?? '');
+        return $id !== '' ? $id : null;
+    }
+
     public function update(string $companyId, string $tagId, array $input): void
     {
         $sets   = [];

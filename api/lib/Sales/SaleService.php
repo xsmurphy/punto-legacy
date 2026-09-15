@@ -13,6 +13,7 @@ use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Support\DbQueryException;
+use Punto\Api\Tags\TagService;
 use Punto\Api\Tax\TaxEngine;
 
 /**
@@ -42,6 +43,16 @@ use Punto\Api\Tax\TaxEngine;
  */
 final class SaleService
 {
+    /**
+     * Forma de un UUID. Ningún valor que venga del payload puede llegar a una
+     * comparación contra una columna `uuid` sin pasar por acá: PG aborta la
+     * query con SQLSTATE 22P02 ANTES de poder devolver cero filas, así que un
+     * "validamos que exista y si no lo omitimos" NO alcanza si el valor puede
+     * no ser un uuid (incidente 2026-09-15: una etiqueta escrita a mano tumbó
+     * dos ventas ya cobradas).
+     */
+    private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
     private \Punto\Api\Services\TransactionLinkService $links;
 
     /** F3 add-ons (context/41): revalidador server-side de las selecciones. */
@@ -1009,26 +1020,98 @@ final class SaleService
         }
 
         // ── B7: tags de la venta (toTag) ────────────────────────────────────
-        // FIX PG: el legacy hacía `intval($ttag)` → roto, porque `totag.tagid` es
-        // UUID (taxonomyId), no int. Mantenemos los UUIDs. Validamos cada tag contra
-        // taxonomy (FK + tenant scope) antes de insertar — un tag inexistente
-        // dispararía FK violation y abortaría la venta.
         if ($input->tags) {
-            foreach ($input->tags as $tagId) {
+            $this->persistSaleTags($input->tags, $transId);
+        }
+    }
+
+    /**
+     * B7 — etiquetas de la VENTA (`toTag`, que apunta a `taxonomy`/`tag`).
+     *
+     * Acepta las dos formas, porque el campo de la caja es de texto libre:
+     *
+     *   - UUID → se valida contra el catálogo del tenant y se linkea (si no
+     *     existe o es de otro tenant, se omite).
+     *   - NOMBRE → se resuelve por nombre dentro del tenant y, si no existe, se
+     *     CREA (`TagService::resolveOrCreateByName`, que escribe en `tag` para
+     *     que los triggers de la mig 39 mantengan `taxonomy` en sync).
+     *
+     * POR QUÉ acepta nombres (incidente 2026-09-15): el POS es offline-first.
+     * El cajero escribe una etiqueta nueva en una venta que se encola sin red;
+     * exigir que el tag exista ANTES de vender obligaría a una llamada de red
+     * bloqueante en el cobro, que es justo lo que el mandato offline prohíbe.
+     * El nombre viaja dentro del payload encolado y se resuelve al sincronizar.
+     *
+     * POR QUÉ la validación de forma es obligatoria y no un detalle: comparar
+     * texto libre contra `taxonomy.taxonomyId` (columna `uuid`) hace que PG
+     * aborte con `22P02 invalid input syntax for type uuid` — el "omitido, no
+     * aborta la venta" que decía este bloque NUNCA se ejecutaba, porque el
+     * error pasa antes de poder devolver cero filas. Dos ventas cobradas de un
+     * tenant real quedaron trabadas para siempre en la cola por una etiqueta
+     * decorativa ("Venta Whatsapp").
+     *
+     * POR QUÉ no alcanza un try/catch alrededor de todo: en este wrapper
+     * CUALQUIER error de PG llama `failTransaction()` (DB.php), que marca la
+     * transacción como fallida de forma irreversible — tragarse la excepción
+     * no salva la venta, el COMMIT la revierte igual. La única garantía real es
+     * no emitir una query que pueda fallar: de ahí la validación de forma antes
+     * de tocar una columna uuid y el `ON CONFLICT DO NOTHING` del alta. El
+     * try/catch de abajo cubre lo que queda (fallos NO-SQL del servicio), que
+     * es lo único que un catch puede cubrir de verdad.
+     *
+     * @param array<int,mixed> $tags UUIDs o nombres, ya dedupeados y capados a 20
+     *                               por `SaleInput::normalizeTags`.
+     */
+    private function persistSaleTags(array $tags, string $transId): void
+    {
+        $tagService = null;
+        $seen       = [];
+
+        foreach ($tags as $raw) {
+            $value = trim((string) $raw);
+            if ($value === '') {
+                continue;
+            }
+
+            $tagId = null;
+
+            if (preg_match(self::UUID_RE, $value) === 1) {
                 $tag = $this->db->Execute(
                     "SELECT taxonomyId FROM taxonomy
-                     WHERE taxonomyId = ? AND taxonomyType = 'tag' AND companyId = ? LIMIT 1",
-                    [$tagId, $this->ctx->companyId]
+                      WHERE taxonomyId = ? AND taxonomyType = 'tag' AND companyId = ? LIMIT 1",
+                    [$value, $this->ctx->companyId]
                 );
                 if ($tag && !$tag->EOF) {
-                    $this->db->AutoExecute('toTag', [
-                        'toTagType' => 0,
-                        'parentId'  => $transId,
-                        'tagId'     => $tagId,
-                    ], 'INSERT');
+                    $tagId = $value;
                 }
-                // Tag inexistente o de otro tenant → omitido (no aborta la venta).
+                // Inexistente o de otro tenant → omitido. NO se intenta como
+                // nombre: un uuid no es una etiqueta que alguien haya escrito.
+            } else {
+                $tagService ??= new TagService($this->db);
+                try {
+                    $tagId = $tagService->resolveOrCreateByName(
+                        (string) $this->ctx->companyId,
+                        $value
+                    );
+                } catch (\Throwable $e) {
+                    error_log('[SaleService] B7 etiqueta omitida (' . $value . '): ' . $e->getMessage());
+                    $tagId = null;
+                }
             }
+
+            // Dedup por id RESUELTO: "whatsapp" y "Whatsapp" son la misma
+            // etiqueta (índice único case-insensitive), y `toTag` no tiene
+            // constraint que impida el link duplicado.
+            if ($tagId === null || isset($seen[$tagId])) {
+                continue;
+            }
+            $seen[$tagId] = true;
+
+            $this->db->AutoExecute('toTag', [
+                'toTagType' => 0,
+                'parentId'  => $transId,
+                'tagId'     => $tagId,
+            ], 'INSERT');
         }
     }
 
@@ -1383,7 +1466,7 @@ final class SaleService
         $beneficiaryId   = null;
         $beneficiaryName = null;
         $benef = trim((string) ($gc['beneficiaryContactId'] ?? ''));
-        if ($benef !== '' && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $benef)) {
+        if ($benef !== '' && preg_match(self::UUID_RE, $benef)) {
             $bRow = $this->db->Execute(
                 'SELECT contactId, contactName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
                 [$benef, $companyId]
@@ -1507,7 +1590,7 @@ final class SaleService
             // haría que el SELECT aborte la tx por "invalid input syntax for uuid".
             // En ese caso → beneficiaryId null (decorativo, no rompe la venta).
             if (is_string($candidate)
-                && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $candidate)) {
+                && preg_match(self::UUID_RE, $candidate)) {
                 $bRow = $this->db->Execute(
                     'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
                     [$candidate, $this->ctx->companyId]
@@ -1704,9 +1787,10 @@ final class SaleService
      * ("future per-line metadata", ver db-schema-postgres.sql) — no hace
      * falta migración.
      *
-     * A diferencia de las etiquetas de VENTA (persistRelations B7: `toTag` +
-     * `taxonomy` tipo 'tag', requieren que cada tag exista en ese catálogo)
-     * acá NO se valida contra ningún catálogo — son texto libre, mismo
+     * A diferencia de las etiquetas de VENTA (persistSaleTags, B7: resuelven
+     * el nombre contra el catálogo `tag`/`taxonomy` del tenant, creándolo si
+     * hace falta, y linkean el id en `toTag`) acá no hay catálogo detrás: la
+     * etiqueta se guarda tal cual como texto libre, mismo
      * criterio que `itemSoldDescription`/`note` arriba. `Money::
      * sanitizeSaleArray` ya sanitiza cada entrada (markupt2HTML) antes de
      * que `$sD['tags']` llegue acá.

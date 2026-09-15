@@ -8,17 +8,21 @@
  *   PUT    /v1/tags?id=<uuid>    → actualiza (partial)
  *   DELETE /v1/tags?id=<uuid>    → elimina
  *
- * Auth: panel (admin del catálogo). POS sigue leyendo de `taxonomy` con
- * sync automático vía trigger PG bidireccional.
+ * Auth: el GET acepta además `pos-app` — el diálogo "Etiquetas de la venta"
+ * en /pos lista el catálogo para SUGERIR y que el cajero reuse en vez de
+ * inventar variantes ("Whatsapp" / "venta whatsapp" / "WSP"), y lo hace con
+ * el Bearer del device: el POS nunca manda el token del panel. Mismo criterio
+ * y mismo precedente que /v1/price_list.php. Las MUTACIONES siguen siendo del
+ * panel: administrar el catálogo no es tarea de la caja.
  *
  * Slice 4 del refactor taxonomy. Tabla `tag` (migration 39).
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel', 'api']);
-$companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$ctx       = apiAuthTenant($method === 'GET' ? ['panel', 'api', 'pos-app'] : ['panel', 'api']);
+$companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
 global $db;

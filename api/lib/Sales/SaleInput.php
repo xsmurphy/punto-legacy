@@ -406,12 +406,15 @@ final class SaleInput
     }
 
     /**
-     * Normaliza `tags` a una lista de UUIDs (taxonomyId de tipo 'tag').
+     * Normaliza `tags` a una lista de etiquetas de la venta.
      *
      * El front manda `JSON.stringify(addedTags)` → un JSON-string. Aceptamos también
-     * array directo. Los tags son taxonomyId (UUID) — NO intval (el legacy hacía
-     * `intval($ttag)` que destruía el UUID y rompía el INSERT en `totag.tagid` UUID).
-     * Dedup + cap 20 (mismo límite que el legacy action.php:2078).
+     * array directo. Cada entrada puede ser un NOMBRE (lo que escribe el cajero en
+     * el campo de chips, que es texto libre) o un taxonomyId — quién es cada cosa
+     * lo decide `SaleService::persistSaleTags`, que valida la FORMA antes de tocar
+     * ninguna columna uuid. Acá NO se filtra ni se castea: descartar lo que no sea
+     * uuid perdería la etiqueta, y `intval()` (lo que hacía el legacy) la destruía.
+     * Trim + dedup + cap 20 (mismo límite que el legacy action.php:2078).
      *
      * @return list<string>|null
      */
@@ -429,7 +432,7 @@ final class SaleInput
         }
         $out = [];
         foreach ($raw as $t) {
-            $tag = (string) $t;
+            $tag = trim((string) $t);
             if ($tag !== '' && !in_array($tag, $out, true)) {
                 $out[] = $tag;
             }
