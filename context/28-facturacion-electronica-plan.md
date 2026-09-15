@@ -1231,6 +1231,29 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
     en el precio unitario y esos campos van en 0, así que el KuDE no lo
     desglosa.
 
+## §F8 — Serie SIFEN (`dSerieNum`) es de Punto, no del motor (2026-09-11 a 15)
+
+La serie (`dSerieNum`, 2 letras tipo `AA`) es un campo separado del número
+correlativo y del timbrado. **La decide Punto y viaja en el body de cada
+`POST /de` del motor**, junto al número — NO hay un `PUT /numeracion` que la
+fije aparte, es plan propuesto sin arrancar. No confundir con la serie de la
+NC (`context/40` F3, ya implementada — esa es la serie fiscal propia
+timbrado+punto+número, distinta de este campo `dSerieNum`).
+
+**Incidente Balloon Party, punto de expedición 001-001**: 3 facturas
+(838-840) rechazadas por SIFEN "1110 — Serie informada incorrecta". Se
+consultó el CDC de una factura previa (837, emitida por OTRO sistema del
+cliente el mismo punto de expedición) vía el endpoint nuevo de consulta de
+FE-PY (`GET /v1/tenants/{id}/consulta/de/{cdc}`, ya en prod) y devolvió
+`dSerieNum='AA'`. **No se cargó ni se reintentó**: el 001-001 lo comparten
+DOS emisores (el otro sistema del cliente + Punto), así que 838-840 podrían
+estar ocupados en SIFEN por el otro sistema — cargar la serie a ciegas
+arriesga re-emitir un CDC ya usado. Bloqueado hasta que el cliente confirme
+si el otro sistema sigue emitiendo ahí y cuál es su último CDC. El punto
+001-002 (exclusivo de Punto) aprueba sin problema. Ver `context/29` para el
+invariante de punto de expedición único por timbrado — este caso es la
+excepción real de un punto compartido con un sistema externo.
+
 ## Fases
 
 | Fase | Alcance | Estado |

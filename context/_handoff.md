@@ -1,79 +1,87 @@
-# Hand-off — 2026-09-10
-
-Dos sesiones paralelas cerraron hoy. Dos frentes, sin overlap de archivos.
+# Hand-off — 2026-09-15
 
 ## Objetivo
 
-**Frente A — Facturación/FE-PY** (sesión "Punto"): cerrar pendientes de
-facturación electrónica (badge anulada, serie NC, `INTERNAL_RENDER_KEY`).
-Terminó en dos incidentes reales en prod que forzaron al owner a eliminar
-Factomate entero y dar de baja el KuDE propio.
-
-**Frente B — Panel: reportes y UI** (esta sesión): reorganizar los reportes
-del panel (Artículos/Finanzas), corregir 2 bugs de backend en reportes
-(medios de pago 500, control de cajas), y arrancar Producción F1.
+Migrador ENCOM: histórico completo (F2, ventas/compras/gastos). Incidente
+real en prod (venta trabada por etiqueta a mano). Auditoría fiscal (Libro
+Ventas/RG90, KuDE, anuladas en panel). Persistencia de preferencias de
+listados por usuario.
 
 ## Estado al cerrar
 
-Backend HEAD `25f97d6a` — deploy `udejiig95n2nyzkkabkpbjda` **finished**,
-verificado (`running:healthy`). Front HEAD `25f97d6a` — deploy
-`f1hnoo5n92h2gj0tfhdmj1eh` **in_progress** al cerrar esta sesión: confirmar
-`finished` (`mcp__coolify__get_deployment`) antes de asumir que estos
-cambios (de los dos frentes) están en prod. Migs 214-217 (Frente A) y
-209/212/213 (Frente B) aplicadas y verificadas.
+Todo mergeado, pusheado y deployado: Backend en `bda10aa2`, Front en
+`54a9323d`, ambos `running:healthy`. Branches/worktrees de agentes de esta
+sesión limpiados.
+
+**EN CURSO, sin mergear**: agente en branch `api/planes-sin-versionado`
+(planes SaaS editan en el lugar + re-proyección a tenants + mig que mueve 6
+tenants de plan_code 3→5). Necesita `code-reviewer` (billing + realm admin)
+antes de mergear.
 
 ## Archivos y cambios
 
-### Frente A — Facturación / FE-PY
-- Factomate eliminado, FE-PY único motor (`eccf3d1b`, mig 214).
-- NC con serie propia heredando la caja de la factura (`418b679c`, mig 215).
-- `provider_txn_id` propio + reconsulta antes de reintentar (`f02477c8`, mig 217).
-- `KudeService::payload()` vuelve a leer del proveedor; render propio apagado (`context/73` SUPERSEDED).
-- `printableDocumentFor()` excluye rechazados por `sifen_status` (`0a35e91a`).
-
-### Frente B — Panel: reportes y UI
-- Design system: `--table-band` literal en `TableHeader`, `StatTile.delta`, `FormSectionColumns`, fix scroll modal settings (`context/20` changelog).
-- `/reports/products`→"Artículos" absorbe categorías/marcas por tab; Servicios se separa por `item.itemKind` (`9c56cae9`).
-- Charts reusables `RankingBarChart` (utilidad superpuesta) + `CompositionDonutChart` (cola en "Otras").
-- `/finanzas/reportes` → `/reports/finance-breakdown` (redirect); medios de pago pasa a "Finanzas y caja".
-- Fix 500 medios de pago: prefijo CONGELADO de la transacción, no `register.registerinvoiceprefix` (mig 209).
-- `DrawersService` asigna ventas por `drawerid` como el cierre en vivo, no solo por fecha.
-- Producción F1 (`context/76`): `/reports/production` tabs Dashboard·Productos·Consumos·Mermas·Órdenes.
-- Conteo de stock: cajero lo genera desde la caja (D10 en `context/63`, mig 213).
-- Impresión: mig 212 limpia títulos duplicados de HOJA; `nums_to_words` (`frontend/lib/number-to-words-es.ts`).
+- Migrador ENCOM (`context/77`): export paginado (`part=true&offset&limit=1000`,
+  fail-closed al tope 100), líneas de itemSold desde el log en bloque
+  `a_report_products?action=detailTable` (no 1 request/venta), COGS real
+  dividido por cantidad, reaper por `updated_at`. F2 histórico (ventas+compras+
+  gastos) reimportó 6.969 ventas + 248 compras en prod, tenant Don Ramon
+  (`01a081dd-742b-7847-9b66-b19670f9f4ed`).
+- `d50227f3`/`786f8542` — `SaleService::persistSaleTags` valida forma uuid y
+  resuelve-o-crea tag por nombre; `GET /v1/tags` acepta pos-app.
+- `bb021755` — `TransactionsService` lee etiquetas de la relación `toTag`,
+  no de `meta->'tags'` (mismo bug, en lectura).
+- `6753fe7b` — "Ver KuDE" del panel usa `api.getBlob`+`triggerDownload` en
+  vez de navegar al BFF token-only (daba 401).
+- `b617ed6b`/`8861a31a`/`d71942ba` — anuladas: no cuentan como contado en
+  listado, no suman en totales, detalle muestra motivo/autor/fecha.
+- `bda10aa2` — Libro Ventas/RG90 leen `transaction.invoiceauth` (congelado,
+  mig 145) en vez de reconstruir desde `register.data` vigente; arnés fiscal
+  34/34.
+- `54a9323d` (+ `346936c7`,`6e31e1f5`) — `lib/table-state`,
+  `hooks/use-persisted-table-state.ts`: orden/buscador/filtros por
+  columna/columnas visibles/filtros de dominio en localStorage por
+  empresa+usuario (caja: operador del PIN), "Restablecer vista", 16 listados
+  migrados.
+- Docs: `context/28-facturacion-electronica-plan.md` §F8 (serie SIFEN
+  `dSerieNum`), `context/46-reportes-fiscales-plan.md` punto 6 marcado
+  RESUELTO.
 
 ## Callejones sin salida
 
-### Frente A
-- KuDE propio: entregó un comprobante VACÍO a un cliente real (payload nunca migrado de Factomate a FE-PY). No reabrir.
-- Deployar un fix sin abrir lo que produce — causó el incidente de arriba.
-- Idempotency-Key estable + payload que cambia en un deploy = reintento envenenado. La garantía real es el índice único de FE-PY.
-- Un RECHAZADO tiene CDC y QR igual (se calculan antes de SIFEN) — filtrar por "tiene CDC" no sirve.
-- DB prod: container `w6rtfxm2n6l45r4r9melj3hl` (Postgres 18); `docker exec ... psql -c` con comillas anidadas falla, usar heredoc.
-
-### Frente B
-- Deployar SQL de reporte sin correrlo contra Postgres real: `e7ee53d2` salió con columnas inexistentes (`pos_order.spaceid`, `space.tablename`) → 500 en prod; arnés propio dio 14/24 fallas. Arnés ANTES de commitear SQL nuevo.
-- Separar Productos/Servicios por `itemTrackInventory`: metía combos y producción en Servicios. El dato correcto es `item.itemKind`.
-- Unificar "Más facturado"/"Más vendido" en un chart de eje dual: descartado, no comparten unidad y el eje dual engaña.
-- `--table-band` con `color-mix(oklch)`: daba gris correcto, se pasó a literal por legibilidad; el tinte cálido que vio el owner en dark no quedó explicado.
+- Atribuir la serie `AA` al default de Factomate: error — Factomate está
+  descartado, la 837 la emitió OTRO sistema del cliente en el mismo punto.
+- Endpoint en bloque de líneas de venta en `a_report_transactions`: no
+  existe (HTML entero); el log en bloque es de `a_report_products`.
+- curl_multi para 6.927 requests de detalle: descartado, no hacía falta con
+  el log en bloque.
+- Parche de `tagNames()` tratando no-uuid como nombre: revertido, las
+  etiquetas tienen id — hay que leer la relación.
 
 ## Próximo paso
 
-**Frente A**: probar una devolución con la serie nueva — confirmar NC
-`001-002-0000001` coincide en KuDE y email. Después confirmar que el Front
-terminó de deployar, texto de `leyendaDocumento`, limpiar worktrees.
-
-**Frente B**: el owner tiene que elegir la clave de permiso para
-`GET /v1/orders-core` en el realm panel (propuestas: `orders.view` nueva —
-**el owner dijo "no"** — o reusar `reports.sales.view`, que rompe la pestaña
-Órdenes de la ficha del cliente). Con eso, gatear el endpoint en la branch
-`frontend/orders-dashboard` (@ `6d943ecb`, worktree
-`.claude/worktrees/agent-abca48ff55d9b3740`, P0 de `code-reviewer`: hoy
-CUALQUIER usuario del panel lee cualquier orden del tenant), correr
-`bash api/tests/run_operations_report_test.sh`, review, merge y deploy.
+Revisar el diff de `api/planes-sin-versionado` cuando el agente termine
+(`code-reviewer`, foco en la mig que mueve los 6 tenants de plan_code 3→5
+contra prod), mergear a `main` y deployar Backend + Front.
 
 ## Trampas conocidas
 
-1. (Frente A) `logoUrl` de Balloon Party cargado a mano en FE-PY; facturas 615/617/619 siguen `issued` sin anular (no es olvido de esta sesión); disco lleno 98% durante la sesión, worktrees viejos siguen ocupando ~9GB.
-2. (Frente B) El bootstrap del POS sigue mandando `stockCountLists` (deprecado) a propósito, para devices con JS viejo en caché. Stack Docker local `api-api-1` en crash-loop — es entorno local, no prod.
-3. (Ambos) Worktree `.claude/worktrees/agent-a90674f18f266ded5` figura `locked` pero su proceso (pid 18561) está muerto — huérfano, se puede limpiar. `context/72-app-del-duenio.md` tiene cambios sin commitear de OTRA sesión — no tocar.
+1. Balloon Party, punto 001-001: facturas 838-840 rechazadas SIFEN "1110
+   Serie informada incorrecta". `dSerieNum='AA'` confirmado consultando el
+   CDC de la 837 (endpoint nuevo FE-PY `GET /v1/tenants/{id}/consulta/de/{cdc}`).
+   NO cargar serie ni reintentar: el 001-001 lo comparten DOS emisores, 838-840
+   pueden estar ocupados por el otro sistema. Esperar confirmación del
+   cliente. El 001-002 (exclusivo Punto) aprueba sin problema.
+2. Otros 3 docs FE en error de Balloon Party (parqueados, `MAX_RETRY_ATTEMPTS=8`):
+   2 por `dTelEmi` vacío (cargar teléfono del emisor en `einvoice_account`),
+   1 NC por Idempotency-Key reusada.
+3. KuDE del motor FE-PY recorta los últimos 8 dígitos del CDC en el PDF (bug
+   del motor, otro repo); el QR sí lleva el CDC completo. Probablemente
+   afecta a todos los KuDE, no solo Balloon Party.
+4. NC en Libro Ventas/RG90: NO implementadas a propósito — falta corregir
+   signo del desglose de IVA en devoluciones (`context/46` F5.0) y validar
+   contra un RG90 real aceptado por Marangatu que incluya una NC.
+5. P1 sin hacer: `SaleService::persistSaleTags` atrapa `\Throwable` y
+   enmascara la causa real si falla el insert.
+6. Sin idempotencia de ventas: `transactionUID` sin índice único ni dedupe
+   en offline-sync.
+7. Persistencia de listados (`54a9323d`) sin probar en navegador todavía.

@@ -276,14 +276,12 @@ tabla de agregación nueva.
    exactamente `registerInfo()` (`TransactionsService.php:114-129`) —
    `invoiceAuth`/`invoicePrefix` no vacíos y sin el tag de exclusión
    `166227`. Es lectura de código ya existente, no una columna nueva.
-6. **Timbrado no congelado por transacción** (hallazgo §1): se reconstruye
-   desde `register.data` VIGENTE, no desde el que regía al momento de la
-   venta. Para el archivo de un mes recién cerrado no debería importar, pero
-   para regenerar un período viejo tras un cambio de timbrado sí puede
-   declarar el número equivocado. Ver Decisión abierta #2 — no se resuelve
-   inventando una congelación nueva sin decisión del owner (mismo criterio
-   de riesgo aceptado ya en EInvoice, `context/28`, para la tasa de
-   impuesto vigente al facturar ventas viejas).
+6. ~~**Timbrado no congelado por transacción**~~ — **RESUELTO 2026-09-15**
+   (`bda10aa2`). El campo congelado ya existía desde la mig 145 (§ más
+   abajo), pero Libro Ventas/RG90 seguían reconstruyendo el timbrado desde
+   `register.data` VIGENTE en vez de leer `transaction.invoiceauth`. Ahora
+   leen el congelado; arnés fiscal 34/34 (C9). Pendiente análogo para
+   COMPRAS cuando arranque F5.3.
 
 Con los puntos 1-5 resueltos, el generador es un `SELECT` sobre `transaction`
 (filtrado por tipo/fecha/estado/numeración fiscal) `JOIN toTaxObj`
