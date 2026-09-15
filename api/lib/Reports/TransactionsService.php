@@ -115,8 +115,15 @@ final class TransactionsService
             $tax      = (float) $f['transactionTax'];
             $netTotal = $total - $discount;
 
+            // Anulada por cualquiera de los dos caminos: el legacy (tipo 7) o el
+            // vigente (mig 154), que marca `voidedAt` sin tocar el tipo. Mismo
+            // criterio que los rollups (mig 155): una venta anulada no suma.
+            // Antes solo se reconocía el tipo 7, así que una anulación vigente
+            // seguía entrando en los totales del listado.
+            $voided = $type === '7' || !empty($f['voidedAt']);
+
             $topay = 0.0;
-            if ($type === '3') {
+            if ($type === '3' && !$voided) {
                 $payed = $payedMap[(string) $f['transactionId']] ?? 0;
                 $topay = $netTotal - $payed;
             }
@@ -126,7 +133,7 @@ final class TransactionsService
             // gravado el total de una venta que nunca devengo impuesto.
             $ivaRemoved = !empty($f['ivaRemoved']) && $f['ivaRemoved'] !== 'f';
 
-            if ($type === '7') {
+            if ($voided) {
                 $cDiscount = $cSubtotal = $cTax = $cNet = 0.0;
             } else {
                 $cDiscount = $discount; $cSubtotal = $total; $cTax = $tax; $cNet = $netTotal;
