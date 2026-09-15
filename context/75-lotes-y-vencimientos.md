@@ -46,8 +46,9 @@ cumplir trazabilidad no importa.
     o darlo de baja como merma.
   - **Mercadería vendida por vencer**, POR CLIENTE: "Farmacia X tiene 100 del
     lote 123 y vence en 30 días". Acción: cambiárselo.
-- **D4 — Configuración SOLO por ítem.** Sin default de empresa ni de sucursal
-  ni de categoría, y sin reglas de precedencia. Por qué no los otros:
+- **D4 — Los días de aviso se configuran SOLO por ítem.** Sin default de
+  empresa ni de sucursal ni de categoría, y sin reglas de precedencia. Por qué
+  no los otros:
   - por lote: lo carga quien recibe la compra, se repite en cada ingreso y se
     olvida;
   - por sucursal: un producto no vence distinto según dónde esté, y el aviso
@@ -58,19 +59,42 @@ cumplir trazabilidad no importa.
   con niveles de configuración.
 - **D5 — El cambio de lote al cliente se registra como DEVOLUCIÓN + VENTA
   NUEVA.** No hay operación nueva de "canje de lote".
+- **D6 — El aviso de mercadería VENDIDA se activa con UN interruptor de
+  EMPRESA**, no por ítem. Una distribuidora lo prende y aplica a todos sus
+  ítems con lotes; una veterinaria que vende al público lo deja apagado (para
+  ella sería ruido). No es precedencia sobre D4: el interruptor decide SI
+  existe el aviso de vendido, los días siguen saliendo del ítem. Lo normal es
+  que un negocio sea distribuidor para todo lo que vende, no para algunos
+  productos.
+- **D7 — La función no complica la operativa: el operador carga el dato solo
+  donde NACE (la compra); todo lo demás lo decide el sistema.** Consecuencias
+  que forman parte de la decisión:
+  - la venta, la transferencia, la devolución y la anulación asignan lote
+    solas (FEFO / herencia); el cajero ve el lote en la línea y lo cambia solo
+    si quiere — no es un paso;
+  - el arranque NO exige contar: el stock existente queda en "sin lote" y FEFO
+    lo vende PRIMERO (§4.2); el conteo por lote es opcional;
+  - la merma de un lote vencido se hace desde el aviso ("Dar de baja" con el
+    lote precargado);
+  - producción queda FUERA de alcance (no aplica a importadoras ni
+    veterinarias).
 
 ## 4. Modelo
 
 ### 4.1 Ítem
 
-Tres campos nuevos en `item` (nombres a definir en la mig, lowercase — ver
+Dos campos nuevos en `item` (nombres a definir en la mig, lowercase — ver
 memoria de casing):
 
 | Campo | Qué |
 |---|---|
 | controla lotes | booleano; si está activo, toda compra/ingreso pide lote + vencimiento |
 | días de aviso | entero, **obligatorio** si controla lotes, precargado (ej. 30) — ningún ítem con lotes queda sin aviso por olvido. Un solo valor para los dos avisos |
-| avisar vendido | booleano por ítem; activa el aviso de mercadería vendida (D3) |
+
+### 4.1b Empresa
+
+Un interruptor en Ajustes (clave en `company.config` JSONB, sin migración):
+**"Avisarme la mercadería vendida por vencer"** (D6). Apagado por defecto.
 
 ### 4.2 Lote
 
@@ -84,8 +108,11 @@ distinto de "batch": **"lote" ya significa lote de PRODUCCIÓN**
 - **Lote "sin lote" explícito por ítem**: al activar "controla lotes" sobre un
   ítem con stock existente, ese saldo se mueve a un lote sistema sin
   vencimiento. Es una FILA, no un NULL — así el invariante de §4.3 se sostiene
-  sin excepciones. Un conteo por lote lo redistribuye después. No genera
-  avisos (no tiene fecha).
+  sin excepciones. **FEFO lo consume PRIMERO** (antes que cualquier lote con
+  fecha): es stock viejo, y así se agota vendiendo sin obligar a contar para
+  arrancar (D7). Un conteo por lote puede redistribuirlo antes, opcional. No
+  genera avisos (no tiene fecha). Las ventas que salen de él quedan con
+  trazabilidad "sin lote" — esperado para el stock previo a activar.
 
 ### 4.3 Ledger
 
@@ -120,8 +147,9 @@ Compra, dos líneas del mismo ítem:
 3. Venta de 120: FEFO → línea "lote 123 x100" + línea "lote 124 x20".
    Ledger: `-100 lote 123`, `-20 lote 124`. COGS 166,67 por unidad en ambas.
 4. Saldos: lote 123 = 0, lote 124 = 210.
-5. Avisos: el 123 no avisa como stock propio (saldo 0); sí como vendido si el
-   ítem tiene "avisar vendido" y la venta tiene cliente. El 124 avisa como
+5. Avisos: el 123 no avisa como stock propio (saldo 0); sí como vendido si la
+   empresa tiene el interruptor de vendido prendido (D6) y la venta tiene
+   cliente. El 124 avisa como
    stock propio al entrar en ventana.
 6. Retiro del lote 123: consulta sobre `itemSold.lotId` → clientes, facturas,
    fechas.
@@ -134,9 +162,9 @@ Compra, dos líneas del mismo ítem:
 | Devolución | hereda el lote de la línea original (`ReturnService`) |
 | Anulación | revierte por lote de cada línea (`SaleVoidService`) |
 | Transferencia entre depósitos | lleva lote (`StockTransferService::create()` `:213`) |
-| Merma / ajuste | lote obligatorio; vencer NO es merma automática (§8) |
-| Conteo | por lote para ítems que controlan lotes |
-| Producción | insumos con lotes consumen FEFO; el producido con lotes genera un lote (vencimiento a cargar al completar) |
+| Merma / ajuste | lote obligatorio; desde el aviso de vencimiento viene precargado ("Dar de baja"). Vencer NO es merma automática (§8) |
+| Conteo | opcional por lote para ítems que controlan lotes; no es requisito para arrancar (D7) |
+| Producción | **fuera de alcance** (D7). Si un ítem con lotes entra en una receta, hay que resolverlo antes de habilitarlo — ver §10 |
 
 ### 5.3 Offline del POS
 
@@ -164,7 +192,8 @@ Devolución del lote 123 + venta del lote 124. Efectos:
 
 - **Stock propio**: lotes con saldo > 0 y `vencimiento - hoy <= días de aviso
   del ítem`. Un aviso al entrar en ventana y otro al vencer.
-- **Vendido** (solo ítems con "avisar vendido"): por `(lote, cliente)`, neto
+- **Vendido** (solo si la empresa tiene el interruptor de D6 prendido): por
+  `(lote, cliente)`, neto
   = unidades vendidas − devueltas de ese lote a ese contacto, > 0, dentro de
   ventana. Ventas sin cliente identificado no se pueden avisar por cliente: se
   agrupan como "sin cliente" (dato para decidir, no acción).
@@ -210,8 +239,12 @@ Devolución del lote 123 + venta del lote 124. Efectos:
   la trazabilidad y SIFEN van por línea; se parte la línea.
 - **Job que descuente lotes vencidos automáticamente** — vencer no es salir
   del inventario; la baja es una merma con autor.
-- **Configuración en varios niveles** (empresa/sucursal/categoría + ítem) —
-  rechazada en D4.
+- **Configuración en varios niveles** para los días de aviso
+  (empresa/sucursal/categoría + ítem) — rechazada en D4.
+- **"Avisar vendido" como campo por ítem** — rechazado en D6: obliga a marcar
+  producto por producto algo que es una característica del NEGOCIO.
+- **Pasos nuevos obligatorios fuera de la compra** (elegir lote en la caja,
+  contar antes de arrancar) — rechazados en D7.
 - **"Alertar con stock en 0" como flag** — un aviso de lote en 0 sin decir
   quién lo tiene no sirve; el caso real es el aviso de VENDIDO por cliente
   (D3).
@@ -221,11 +254,12 @@ Devolución del lote 123 + venta del lote 124. Efectos:
 | Fase | Qué |
 |---|---|
 | **F0** | Mig: `stock_lot`, `stock.lotId`, `itemSold.lotId`, campos de ítem; DROP de `inventory`; invariante en `manageStock()` |
-| **F1** | Entradas: compra con lote+vencimiento por línea (`PurchasesService::create()` `:685`), lote "sin lote" al activar; ficha de ítem + editor masivo (`components/items/bulk-edit-dialog.tsx`); reporte de existencias por lote |
-| **F2** | Salidas: venta FEFO en backend y POS (con corrección del cajero y offline §5.3), devolución, anulación, transferencia, merma, conteo |
-| **F3** | Avisos: stock propio + vendido por cliente, feed + digest |
+| **F1** | Entradas: compra con lote+vencimiento por línea (`PurchasesService::create()` `:685`, autocompleta lote existente), lote "sin lote" al activar; ficha de ítem + editor masivo (`components/items/bulk-edit-dialog.tsx`); reporte de existencias por lote |
+| **F2** | Salidas: venta FEFO en backend y POS (con corrección opcional del cajero y offline §5.3), devolución, anulación, transferencia, merma, conteo opcional |
+| **F3** | Avisos: stock propio + vendido por cliente (interruptor de empresa D6), feed + digest, "Dar de baja" desde el aviso |
 | **F4** | Impresión (campos de plantilla), FE-PY (`gRasMerc`, tras verificar), reporte de trazabilidad |
-| **F5** | Producción: consumo FEFO de insumos + lote del producido |
+
+Producción: fuera de alcance (D7).
 
 La trazabilidad legal recién existe con F2: vender un ítem con lotes antes de
 F2 deja líneas sin lote que no se pueden reconstruir. **No habilitar "controla
@@ -238,7 +272,11 @@ lotes" a clientes hasta que F2 esté en producción.**
    guardar, o bloquea?
 3. UI del POS para corregir el lote: touch/teclado, sin desplazar botones
    (memoria de layout estable del POS). A diseñar en F2.
-4. Bot: los tres campos del ítem deben poder setearse por el agente — hoy solo
+4. Un ítem con lotes usado como insumo de una receta: producción está fuera
+   de alcance (D7), así que su consumo no sabe qué lote descontar. Opciones:
+   impedir activar lotes en ítems que son insumo, o consumir FEFO sin pedir
+   nada. A decidir antes de F2.
+5. Bot: los dos campos del ítem deben poder setearse por el agente — hoy solo
    existen `create_item` y `update_item_price` (`frontend/lib/agent/confirm-api.ts`).
    Se resuelve en el trabajo de ampliación de herramientas del bot
    (`context/66`), no acá.
