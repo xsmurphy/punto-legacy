@@ -13,26 +13,22 @@ import {
 } from "@/components/ui/popover"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
+import {
+  DATE_RANGE_PRESETS,
+  resolveDateRangePreset,
+  type DateRangePresetId,
+  type DateRangeValue,
+} from "@/lib/date-range-presets"
 
-export interface DateRangeValue {
-  from: Date
-  to: Date
-}
+// El tipo vive en `lib/date-range-presets` (lo leen capas que no dibujan); se
+// re-exporta acá para no mover los ~30 imports existentes.
+export type { DateRangeValue }
 
 interface Props {
   value: DateRangeValue
   onChange: (range: DateRangeValue) => void
   className?: string
 }
-
-const PRESETS = [
-  { label: "Hoy", days: 0 },
-  { label: "Últimos 7 días", days: 7 },
-  { label: "Últimos 14 días", days: 14 },
-  { label: "Últimos 30 días", days: 30 },
-  { label: "Últimos 90 días", days: 90 },
-  { label: "Este mes", days: -1 }, // sentinel
-] as const
 
 export function DateRangePicker({ value, onChange, className }: Props) {
   const [open, setOpen] = React.useState(false)
@@ -45,21 +41,11 @@ export function DateRangePicker({ value, onChange, className }: Props) {
     setDraft({ from: value.from, to: value.to })
   }, [value.from, value.to])
 
-  const applyPreset = (preset: (typeof PRESETS)[number]) => {
-    const now = new Date()
-    let from: Date
-    let to: Date = now
-    if (preset.days === -1) {
-      // Este mes
-      from = new Date(now.getFullYear(), now.getMonth(), 1)
-    } else if (preset.days === 0) {
-      from = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      to = now
-    } else {
-      from = new Date(now.getTime() - preset.days * 24 * 60 * 60 * 1000)
-    }
-    const range = { from, to }
-    setDraft(range)
+  // El rango sale con `preset`: así quien lo persista guarda la REGLA ("Hoy") y
+  // no las fechas de hoy, que mañana serían las de ayer.
+  const applyPreset = (preset: DateRangePresetId) => {
+    const range = resolveDateRangePreset(preset)
+    setDraft({ from: range.from, to: range.to })
     onChange(range)
     setOpen(false)
   }
@@ -96,13 +82,13 @@ export function DateRangePicker({ value, onChange, className }: Props) {
       <PopoverContent className="w-auto p-0" align="end">
         <div className="flex">
           <div className="flex flex-col gap-1 border-r p-2">
-            {PRESETS.map((p) => (
+            {DATE_RANGE_PRESETS.map((p) => (
               <Button
-                key={p.label}
+                key={p.id}
                 variant="ghost"
                 size="sm"
                 className="h-8 justify-start text-xs"
-                onClick={() => applyPreset(p)}
+                onClick={() => applyPreset(p.id)}
               >
                 {p.label}
               </Button>

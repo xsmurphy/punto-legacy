@@ -24,6 +24,8 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { AuthSentinel } from "@/components/auth/auth-sentinel"
+import { TableStateScopeProvider, type TableStateNamespace } from "@/lib/table-state/scope"
+import { tenantTableNamespace } from "@/lib/table-state/store"
 import { AccountDeniedScreen } from "@/components/auth/account-denied-screen"
 import {
   ACCOUNT_DENIED_EVENT,
@@ -287,6 +289,17 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     toast.success("Mostrando todas las sucursales")
   }
 
+  // Dueño de las preferencias de los listados (orden, filtros, columnas): la
+  // empresa + el usuario del bootstrap. `undefined` mientras carga, para que los
+  // listados esperen en skeleton en vez de pintar filas sin filtrar; `null` si
+  // el bootstrap falló (los listados andan, sin persistencia).
+  const tableStateNamespace: TableStateNamespace =
+    bootstrap?.companyId != null && bootstrap.user?.id != null
+      ? tenantTableNamespace(bootstrap.companyId, bootstrap.user.id)
+      : isLoading
+        ? undefined
+        : null
+
   // La cuenta no puede operar → pantalla de estado EN LUGAR del panel. No se
   // monta el sidebar ni los children: no hay datos que mostrar y cada query
   // que arrancara volvería a chocar contra el mismo 403.
@@ -329,7 +342,9 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         isImpersonating={isImpersonating}
         onExitImpersonation={handleExitImpersonation}
       />
-      <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
+      <TableStateScopeProvider namespace={tableStateNamespace}>
+        <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
+      </TableStateScopeProvider>
       {/* Asistente IA del PANEL. FAB oculto en /chat, que ya es el chat.
           Este guard NO cubre /pos —el grupo `(pos)` tiene el suyo—, así que la
           caja monta su propia instancia: `components/pos/pos-agent-chat.tsx`.
