@@ -247,6 +247,10 @@ try {
     $tx1 = seedSale($companyId, $outletA, $registerA, $userA, $custRuc, 123, '001-001', 0,
         '2026-03-15 10:00:00+00', 1100.0);
     seedTaxObj($companyId, $tx1, [['rate' => 10, 'kind' => 'rate', 'base' => 1000, 'amount' => 100]]);
+    // C9: TX1 lleva timbrado CONGELADO (mig 145) distinto del VIGENTE de la
+    // caja ('12345678'): es la caja que renovó timbrado después de emitir. TX2
+    // queda sin congelar para cubrir el respaldo a la caja.
+    $db->Execute("UPDATE transaction SET invoiceAuth = '87654321' WHERE transactionId = ?::uuid", [$tx1]);
 
     // TX2 (C2): venta a CRÉDITO (condicion=2), comprador CI.
     $tx2 = seedSale($companyId, $outletA, $registerA, $userA, $custCi, 124, '001-001', 3,
@@ -298,6 +302,15 @@ try {
     $r1 = $byInvoice['0010010000123'] ?? null; // TX1
     $r2 = $byInvoice['0010010000124'] ?? null; // TX2
     $r3 = $byInvoice['0010010000125'] ?? null; // TX3
+
+    // C9: el timbrado sale CONGELADO de la venta, no el vigente de la caja.
+    // Antes el archivo le ponía a TX1 el timbrado nuevo de la caja.
+    check('C9 rg90: timbrado CONGELADO de la venta gana sobre el vigente de la caja',
+        $r1 !== null && $r1['NUMERO DE TIMBRADO'] === '87654321',
+        'obtenido ' . v($r1['NUMERO DE TIMBRADO'] ?? null), $failures, $checks);
+    check('C9 rg90: sin timbrado congelado, respaldo al vigente de la caja',
+        $r2 !== null && $r2['NUMERO DE TIMBRADO'] === '12345678',
+        'obtenido ' . v($r2['NUMERO DE TIMBRADO'] ?? null), $failures, $checks);
 
     check('rg90: TX1/TX2/TX3 presentes por número de comprobante', $r1 !== null && $r2 !== null && $r3 !== null,
         'claves ' . json_encode(array_keys($byInvoice)), $failures, $checks);
@@ -357,6 +370,10 @@ try {
     }
     $lv1 = $lvByFact['0010010000123'] ?? null; // TX1
     $lv3 = $lvByFact['0010010000125'] ?? null; // TX3
+
+    check('C9 libroVentas: TIMBRADO congelado de la venta (mismo criterio que rg90)',
+        $lv1 !== null && $lv1['TIMBRADO'] === '87654321',
+        'obtenido ' . v($lv1['TIMBRADO'] ?? null), $failures, $checks);
 
     // C5: orden EXACTO de las 14 claves + encabezados literales.
     $expectedKeys = [

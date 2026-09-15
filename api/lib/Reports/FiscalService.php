@@ -194,7 +194,7 @@ final class FiscalService
     private function loadSales(string $from, string $to, string $roc, string $companyId): array
     {
         $cols = "transactionId, transactionDate, transactionDiscount, transactionTotal,
-                 transactionType, invoiceNo, invoicePrefix, customerId, registerId,
+                 transactionType, invoiceNo, invoicePrefix, invoiceAuth, customerId, registerId,
                  meta->>'tags' AS tags";
         // SIN cap de filas. El resto de /v1/reports corta en 5000 —es un
         // listado en pantalla, donde ver menos filas es una molestia— pero
@@ -363,6 +363,19 @@ final class FiscalService
             $invoiceNo = (string) ($f['invoiceNo'] ?? '');
             $docNo     = DocumentNumber::formatFlat($invoiceNo, $invoicePrefix);
 
+            // El TIMBRADO, igual que el prefijo: CONGELADO en la venta (mig
+            // 145) y la caja solo como respaldo de filas anteriores. Antes se
+            // leía siempre el timbrado VIVO de la caja —la consulta ni siquiera
+            // traía `invoiceAuth`—, así que cuando una caja renovaba timbrado
+            // el Libro Ventas y el RG90 le ponían el NUEVO a las facturas
+            // emitidas con el anterior: un archivo para presentar ante la SET
+            // con un timbrado que esas facturas nunca tuvieron. Mismo criterio
+            // que `TransactionsService::detail()`, que ya lo hacía bien.
+            $invoiceAuth = (string) ($f['invoiceAuth'] ?? '');
+            if ($invoiceAuth === '') {
+                $invoiceAuth = (string) ($reg['invoiceAuth'] ?? '');
+            }
+
             // ── Cliente: tipo/número de identificación — Tabla 3 SET
             // (contact.contactIdType, mig 125), NO el parseo de string
             // "tiene guion → RUC" que hacía el legacy contra contactTIN. ──────
@@ -372,7 +385,7 @@ final class FiscalService
             $sales[] = [
                 'dateFmt'      => date('d/m/Y', strtotime((string) $f['transactionDate'])),
                 'docNo'        => $docNo,
-                'authNo'       => (string) ($reg['invoiceAuth'] ?? ''),
+                'authNo'       => $invoiceAuth,
                 'customerName' => $customerName,
                 'idType'       => $idType,
                 'idNumber'     => $idNumber,
