@@ -954,7 +954,7 @@ export type AdminPlanInput = {
 export function useAdminPlanCatalog() {
   return useQuery<{ rows: AdminPlanFull[] }>({
     queryKey: ["admin", "plan-catalog"],
-    queryFn: () => apiAdmin.get("/plans.php?archived=1"),
+    queryFn: () => apiAdmin.get("/plans.php"),
     staleTime: 30 * 1000,
   })
 }
@@ -974,21 +974,10 @@ export function useAdminUpdatePlan() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ code, data }: { code: number; data: AdminPlanInput }) =>
-      apiAdmin.patch<{ ok: boolean; plan: AdminPlanFull; versioned: boolean; archivedCode?: number }>(
+      apiAdmin.patch<{ ok: boolean; plan: AdminPlanFull; tenants: number }>(
         `/plans.php?code=${code}`,
         data,
       ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin", "plan-catalog"] })
-      qc.invalidateQueries({ queryKey: ["admin", "plans"] })
-    },
-  })
-}
-
-export function useAdminArchivePlan() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (code: number) => apiAdmin.post(`/plans.php?code=${code}&action=archive`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin", "plan-catalog"] })
       qc.invalidateQueries({ queryKey: ["admin", "plans"] })
