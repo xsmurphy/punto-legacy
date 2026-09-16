@@ -346,3 +346,89 @@ proyecto, la misma app instalada.
   presente ya lo resuelve (8.2).
 - **Precachear el panel para que ande offline dentro de la app.** El panel no
   es offline-first y no debe serlo: sus pantallas leen estado compartido.
+
+## 9. Primer uso: de "Caja" en el sidebar a vender, sin código de pareo ni PIN (owner, 2026-09-16)
+
+> Estado: **decidido por el owner, en implementación.** Complementa §8: la
+> credencial presente sigue determinando la superficie; lo que cambia es CÓMO
+> un navegador con sesión de panel obtiene su credencial de device.
+
+### 9.1 El problema
+
+Un dueño recién registrado toca "Caja" en el sidebar y ve "Dispositivo no
+conectado", con un campo para pegar un link. Para vender tiene que: ir a
+Configuración › Dispositivos, generar un link, abrirlo, volver al panel y
+aprobarse a sí mismo con un código — tres pasos en dos pestañas. Después, la
+pantalla de bloqueo le pide un PIN (el signup le pone `1111` sin decírselo) y el
+primer cobro le pide "Tomar caja". Para quien está explorando el sistema, es una
+traba que no le deja avanzar.
+
+Hechos verificados (2026-09-16):
+- El signup (`SignupService::create()`) ya crea sucursal "Central", depósito,
+  "Caja Principal", roles y el usuario dueño con PIN `1111`. No crea device,
+  invitación ni `register_lease`.
+- Una caja sin timbrado VENDE: numera desde 1 bajo la serie vacía. No hace falta
+  configurar nada fiscal para probar.
+- **Corrección a §8.2**: el panel ya NO usa cookie. Desde `context/54` es un
+  Bearer en `localStorage` (`punto.panel.token`, `frontend/lib/auth/panel-token.ts`).
+  La tabla de §8.2 dice "cookie de panel": léase "sesión de panel".
+
+### 9.2 D-P1 — Pareo automático desde una sesión de panel
+
+Al entrar a `/pos` en un navegador SIN token de device, si ese mismo navegador
+tiene sesión de panel con permiso `settings.device.pair`, la caja se parea sola:
+- **Una sola caja disponible** en el alcance del usuario (`OutletScope`): sin
+  ningún clic.
+- **Varias**: se elige cuál (pantalla de selección, no código).
+- **Ninguna libre / sin permiso / sin sesión de panel**: sigue la pantalla actual
+  de link de conexión.
+
+**Mecánica — reusa el pareo existente, no lo reemplaza:**
+1. Endpoint del realm `panel` crea una invitación YA APROBADA para
+   (sucursal, caja, módulo `pos`) — mismo patrón que `createReconnect`
+   (`DeviceInvitationService`), que ya arma links auto-aprobados. Devuelve SOLO
+   el id de la invitación; **nunca un token de device**.
+2. El navegador la canjea por el camino normal y de un solo uso: `open`
+   (reclama con `pairingSecret`, mig 171) → `status` (canje CAS
+   `approved → consumed`) → `DeviceAuth::issueTokenForExistingDevice`.
+3. En el mismo paso toma la caja (`register_lease`) **solo si no la tiene otro
+   device**. Nunca se la quita a otro. El pedido explícito del humano ("entrar a
+   Caja") es la acción de una persona que exige `context/29` §4.3.
+
+**Por qué no rompe el mandato token-only** (`feedback_pos_token_only_no_realms`):
+la sesión de panel se usa SOLO contra un endpoint del panel para crear la
+invitación. El POS sigue sin aceptar ni reenviar otra credencial que su Bearer
+de device, y el token de device nace únicamente del canje de un solo uso.
+
+### 9.3 D-P2 — Sin PIN cuando la sucursal tiene un solo usuario
+
+**Regla del owner:** si no hay más de un usuario, no tiene sentido pedir PIN.
+
+- Si el roster de la sucursal de la caja (`UsersService::rosterForOutlet()`)
+  tiene **exactamente un** usuario habilitado para operar, la caja no muestra el
+  bloqueo y opera a nombre de ese usuario.
+- **Lo decide el SERVIDOR.** Desbloquear con PIN produce la afirmación de
+  operador (`/v1/unlock-pin` → `OperatorAssertion` → `OperatorContext`), que es
+  la que atribuye ventas, permisos y auditoría. El desbloqueo sin PIN emite esa
+  misma afirmación solo tras verificar server-side que el roster es de uno. Si
+  lo decidiera el navegador, cualquiera saltaría el PIN en un comercio con
+  empleados.
+- **Offline**: usa el roster que ya bajó al bootstrap. Un empleado recién creado
+  no puede operar hasta sincronizar, así que no abre un hueco.
+- **Al pasar a dos usuarios** el bloqueo aparece solo. Al dar de alta ese segundo
+  usuario desde el panel, si el PIN del dueño sigue siendo el que puso el signup,
+  se le pide elegir uno propio en ese momento — nunca queda frente a un PIN que
+  no conoce.
+
+### 9.4 Arquitecturas rechazadas — no reintroducir
+
+- **Emitir el token de device desde el endpoint del panel** (o convertir la
+  sesión de panel en credencial del POS): rompe el mandato token-only y saltea
+  el canje de un solo uso de la mig 171.
+- **Que `/api/pos/*` acepte la sesión de panel "solo para el primer uso"**:
+  misma clase de bug que los tres incidentes de realms (2026-07-19, 08-24, 08-25).
+- **Decidir "un solo usuario" en el cliente**: ver §9.3.
+- **Mostrar el PIN `1111` en pantalla** como solución: deja un PIN conocido en
+  todos los tenants.
+- **Tomar la caja quitándosela a otro device**: `context/29` §4.5, eso es
+  "Liberar caja" desde el panel.
