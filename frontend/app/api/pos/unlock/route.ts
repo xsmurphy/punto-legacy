@@ -20,48 +20,16 @@
  * como panel. Con Bearer solo, resuelve como `pos-app` y el roster de PINs que
  * valida es el de ESTA caja. Es la misma clase de bug que dejó el lock screen
  * sin PINs el 2026-08-25.
+ *
+ * El reenvío y la forma de la respuesta los comparte con `/api/pos/unlock-sole`
+ * (`lib/bff/operator-unlock.ts`): con PIN o sin PIN, el desbloqueo entrega lo
+ * mismo.
  */
 import { NextRequest, NextResponse } from "next/server"
+import { forwardOperatorUnlock } from "@/lib/bff/operator-unlock"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
-
-function getTargetBase(): string {
-  const url =
-    process.env.PUNTO_SHARED_API_BASE ??
-    process.env.API_URL ??
-    process.env.NEXT_PUBLIC_API_URL
-  if (!url) throw new Error("API base URL missing")
-  return url.replace(/\/$/, "")
-}
-
-const HOST_OVERRIDE = process.env.PUNTO_SHARED_API_HOST
-
-interface UpstreamEnvelope {
-  ok?: boolean
-  data?: {
-    user?: { id: string; name: string }
-    /**
-     * Afirmación de operador firmada por la API (HMAC, ver
-     * `api/lib/Auth/OperatorAssertion.php`). Es la ÚNICA prueba que tiene el
-     * backend de qué persona está operando esta caja: el token del device
-     * identifica la tablet, no al mozo. Se emite acá porque este es el único
-     * punto donde el PIN se valida contra la BD.
-     */
-    operatorToken?: string
-    /**
-     * Permisos `pos.*` del operador que acaba de probar su PIN — los emite el
-     * mismo endpoint, contra el rol del CONTACTO (no el del device).
-     *
-     * Solo sirven para que la caja no mienta: un encargado tiene que ver
-     * habilitadas las acciones sobre espacios de otro mozo, y un mozo tiene que
-     * verlas apagadas CON el motivo en vez de comerse un 403 al tocarlas. La
-     * autorización real la sigue haciendo el backend en cada request.
-     */
-    permissions?: string[]
-  }
-  error?: { message?: string }
-}
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const authHeader = req.headers.get("authorization") ?? ""
@@ -90,48 +58,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false, error: { message: "PIN inválido" } }, { status: 422 })
   }
 
-  const base = getTargetBase()
-  const headers = new Headers()
   // SOLO el Bearer. La cookie no se reenvía: ver el docblock de arriba.
-  headers.set("authorization", authHeader)
-  headers.set("accept", "application/json")
-  headers.set("content-type", "application/json")
-  if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)
-
-  try {
-    const res = await fetch(`${base}/v1/unlock-pin`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ pin }),
-      cache: "no-store",
-    })
-    const raw = await res.text()
-    const envelope = raw ? (JSON.parse(raw) as UpstreamEnvelope) : null
-    if (res.status === 401 || envelope?.ok === false) {
-      return NextResponse.json(
-        { ok: false, error: { message: envelope?.error?.message ?? "PIN incorrecto", code: res.status } },
-        { status: res.status === 401 ? 401 : res.status },
-      )
-    }
-    if (!res.ok || !envelope?.ok || !envelope.data?.user) {
-      return NextResponse.json(
-        { ok: false, error: { message: "Error validando PIN" } },
-        { status: 502 },
-      )
-    }
-    return NextResponse.json({
-      ok: true,
-      user: envelope.data.user,
-      operatorToken: envelope.data.operatorToken ?? null,
-      // Default `[]` y no `null`: "no vino la lista" y "el operador no tiene
-      // ningún permiso pos.*" se resuelven igual —sin capacidades extra— y un
-      // solo tipo le ahorra al consumidor una rama que no cambia nada.
-      permissions: Array.isArray(envelope.data.permissions) ? envelope.data.permissions : [],
-    })
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: { message: "No se pudo contactar la API" } },
-      { status: 502 },
-    )
-  }
+  return forwardOperatorUnlock({
+    authHeader,
+    upstreamPath: "/v1/unlock-pin",
+    body: { pin },
+    rejectedMessage: "PIN incorrecto",
+    badGatewayMessage: "Error validando PIN",
+  })
 }

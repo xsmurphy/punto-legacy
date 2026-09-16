@@ -165,3 +165,30 @@ export function useDeleteTeamMember() {
     },
   })
 }
+
+// ── PIN propio por defecto (context/72 §9.3) ───────────────────────────────
+//
+// El signup le pone al dueño un PIN por defecto. Mientras la sucursal tiene un
+// solo usuario la caja no lo pide; al darse de alta el segundo, el bloqueo
+// vuelve y el dueño tiene que elegir el suyo. El servidor decide si hace falta
+// (`GET /v1/users?resource=own-pin`) y guarda el elegido sobre el usuario de la
+// SESIÓN, nunca sobre un id que mande el front. Vive bajo la clave `["team"]`
+// para que crear, editar o dar de baja un usuario lo vuelva a preguntar.
+
+export function useOwnPinPrompt() {
+  return useQuery({
+    queryKey: ["team", "own-pin"],
+    queryFn: () => api.get<{ required: boolean }>("/v1/users?resource=own-pin"),
+  })
+}
+
+export function useSetOwnPin() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (lockPass: string) =>
+      api.post<{ ok: boolean }>("/v1/users?resource=own-pin", { lockPass }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["team"] })
+    },
+  })
+}

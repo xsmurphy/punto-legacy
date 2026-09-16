@@ -26,6 +26,16 @@
  * dejó de existir. Su única razón de ser era no relockear tras un remount o
  * un F5, que es exactamente el comportamiento que ahora se busca.
  *
+ * ── Excepción: sucursal con UN solo usuario (owner, 2026-09-16) ──────────
+ * context/72 §9.3 (D-P2): si el roster de la sucursal es de uno, no hay a
+ * quién distinguir y el PIN no protege nada. `locked` sigue arrancando en
+ * `true` y sin persistirse —la regla de arriba no cambia de mecanismo—, pero
+ * el lock screen lo baja solo, a nombre de ese usuario, y pide la afirmación
+ * a `/api/pos/unlock-sole`, donde el SERVIDOR vuelve a contar el roster. La
+ * regla es dinámica (`lib/pos/sole-operator.ts`): con dos usuarios el bloqueo
+ * vuelve solo. `soleOperator` marca que el desbloqueo vigente salió por este
+ * camino, para poder revertirlo cuando la regla deja de cumplirse.
+ *
  * `sessionStorage` sigue siendo la storage correcta para lo que SÍ persiste
  * (`activeUser`, `operatorToken`): sobrevive recargas de ESA pestaña, pero
  * cerrar la app lo tira.
@@ -90,7 +100,22 @@ interface LockState {
    * backend.
    */
   operatorPermissions: string[]
+  /**
+   * El desbloqueo vigente fue SIN PIN, por roster de uno (context/72 §9.3).
+   * No se persiste: igual que `locked`, se decide de nuevo en cada carga.
+   */
+  soleOperator: boolean
+  /**
+   * El servidor rechazó el desbloqueo sin PIN en esta carga (`pin_required`:
+   * el roster cacheado quedó viejo). Mientras sea `true` el lock screen pide
+   * PIN aunque el roster local diga uno. No se persiste.
+   */
+  soleOperatorDenied: boolean
   lock: () => void
+  /** Desbloqueo sin PIN a nombre del único usuario de la sucursal. */
+  unlockAsSoleOperator: (user: { id: string; name: string }) => void
+  /** Ver `soleOperatorDenied`. */
+  denySoleOperator: () => void
   unlock: () => void
   setActiveUser: (user: { id: string; name: string } | null) => void
   setOperatorToken: (token: string | null) => void
@@ -106,6 +131,8 @@ export const useLockStore = create<LockState>()(
       activeUser: null,
       operatorToken: null,
       operatorPermissions: [],
+      soleOperator: false,
+      soleOperatorDenied: false,
       // Bloquear TIRA la afirmación firmada del operador: es una prueba de
       // identidad de alguien que acaba de irse de la caja, y no hay ninguna
       // operación que deba poder ejecutar en su nombre mientras no vuelva a
@@ -115,13 +142,31 @@ export const useLockStore = create<LockState>()(
       // próximo PIN lo sobrescribe. Los permisos se van CON el token: son la
       // capacidad de esa misma persona, y conservarlos sin la prueba de
       // identidad solo habilitaría una UI optimista que el backend rechaza.
-      lock: () => set({ locked: true, operatorToken: null, operatorPermissions: [] }),
-      unlock: () => set({ locked: false }),
+      lock: () => set({ locked: true, operatorToken: null, operatorPermissions: [], soleOperator: false }),
+      unlock: () => set({ locked: false, soleOperator: false }),
+      // Mismo punto de partida que un PIN recién validado localmente: operador
+      // identificado, sin afirmación ni permisos hasta que responda el server.
+      unlockAsSoleOperator: (user) =>
+        set({
+          locked: false,
+          soleOperator: true,
+          activeUser: user,
+          operatorToken: null,
+          operatorPermissions: [],
+        }),
+      denySoleOperator: () =>
+        set({
+          locked: true,
+          soleOperator: false,
+          soleOperatorDenied: true,
+          operatorToken: null,
+          operatorPermissions: [],
+        }),
       setActiveUser: (user) => set({ activeUser: user }),
       setOperatorToken: (token) => set({ operatorToken: token }),
       setOperatorPermissions: (permissions) => set({ operatorPermissions: permissions }),
       reset: () =>
-        set({ locked: true, activeUser: null, operatorToken: null, operatorPermissions: [] }),
+        set({ locked: true, activeUser: null, operatorToken: null, operatorPermissions: [], soleOperator: false }),
     }),
     {
       name: "punto.pos.lock",
@@ -166,6 +211,8 @@ export const useLockStore = create<LockState>()(
         ...current,
         ...(persisted as Partial<LockState> | undefined),
         locked: true,
+        soleOperator: false,
+        soleOperatorDenied: false,
       }),
     },
   ),

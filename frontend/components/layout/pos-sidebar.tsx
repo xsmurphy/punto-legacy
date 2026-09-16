@@ -110,6 +110,10 @@ export function PosSidebar() {
   const stockCountEnabled =
     moduleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
   const lock = useLockStore((s) => s.lock)
+  // Sucursal con un solo usuario (context/72 §9.3): la caja se desbloquea sola,
+  // así que "Bloquear" no haría nada. Se deshabilita en su lugar, sin sacarlo:
+  // el pie del menú no se reacomoda (context/14 §10).
+  const soleOperatorMode = useLockStore((s) => s.soleOperator)
   // Permisos REALES del operador desbloqueado (llegan del unlock por PIN,
   // filtrados al prefijo `pos.` en el backend). Es la ÚNICA fuente válida de
   // permisos dentro de /pos — ver el comentario del item "Asistente" abajo.
@@ -398,6 +402,7 @@ export function PosSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Bloquear"
+              disabled={soleOperatorMode}
               onClick={() => {
                 closeMobile()
                 lock()

@@ -39,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { PasswordInput } from "@/components/ui/password-input"
 import { PinInput } from "@/components/ui/pin-input"
+import { OwnPinDialog } from "@/components/domain/contacts/own-pin-dialog"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -676,6 +677,9 @@ export function TeamSection({ openCreateRef }: { openCreateRef?: React.RefObject
         </DialogContent>
       </Dialog>
 
+      {/* Código POS propio cuando todavía es el del alta de la cuenta y el
+          comercio ya tiene otro usuario (context/72 §9.3). */}
+      <OwnPinDialog />
     </div>
   )
 }

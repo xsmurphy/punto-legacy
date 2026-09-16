@@ -432,3 +432,30 @@ de device, y el token de device nace únicamente del canje de un solo uso.
   todos los tenants.
 - **Tomar la caja quitándosela a otro device**: `context/29` §4.5, eso es
   "Liberar caja" desde el panel.
+
+### 9.5 Implementación (2026-09-16, branch `frontend/pos-primer-uso`)
+
+- **D-P1**: `GET /v1/device_invitations?resource=autopair-registers` y `POST
+  action=autopair` (realm `panel`, `settings.device.pair`, `OutletScope`).
+  La invitación nace `auto_approve=true` con `device_id` NULL y TTL 5 min; el
+  device se crea recién en el canje (`DeviceInvitationService::redeemAutoPair`,
+  bajo el lock por caja), que RE-VALIDA permiso, alcance y disponibilidad.
+  Front: `components/layout/pos-first-use.tsx` + `lib/devices/auto-pair.ts`;
+  el canje es `lib/devices/redeem-invitation.ts`, compartido con `/connect/[id]`.
+- **Caja disponible** (`availabilityFilterSql()`): activa, sucursal activa y en
+  alcance, sin `register_lease` activa y SIN device POS vivo (status 1 + sesión
+  `pos-app` activa). Una caja con device pareado pero sin tenencia NO cuenta
+  como libre: "sin lease" describe también a la tablet del cajero después de
+  cerrar caja. Sumar un segundo dispositivo a una caja sigue siendo el link.
+- **D-P2**: `POST /v1/unlock-sole` (solo Bearer de device, module `pos`),
+  respuesta idéntica a `/v1/unlock-pin` vía `OperatorUnlock::grant()`. Front:
+  `lib/pos/sole-operator.ts` (regla local), `lib/pos/sole-unlock.ts` (si el
+  servidor responde `pin_required` la caja se bloquea y no se reabre sola en
+  esa carga), "Bloquear" queda deshabilitado en ese modo.
+- **PIN del signup**: columna `contact.pinisdefault` (mig 224, backfill del
+  usuario `main` con `1111`); la baja toda escritura del PIN en `UsersService`.
+  `GET/POST /v1/users?resource=own-pin` (solo panel, sobre el usuario de la
+  sesión, solo mientras la marca esté y haya ≥2 usuarios activos) y
+  `OwnPinDialog` en Equipo. Pendiente: si el segundo usuario lo da de alta el
+  agente o el migrador, el aviso aparece recién cuando el dueño entra a Equipo.
+- Arnés: `api/tests/run_pos_first_use_test.sh`.

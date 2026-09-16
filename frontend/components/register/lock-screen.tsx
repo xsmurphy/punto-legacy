@@ -7,7 +7,9 @@
  *
  * Se muestra SIEMPRE al abrir la app y ante cualquier recarga (owner
  * 2026-08-24) — ver `lib/pos/lock-store.ts`. También lo dispara el item
- * "Bloquear" del menú de usuario.
+ * "Bloquear" del menú de usuario. Única excepción: la sucursal tiene UN solo
+ * usuario (owner 2026-09-16, context/72 §9.3) — ahí se desbloquea solo, ver
+ * el bloque "Sin PIN con un solo usuario" más abajo.
  *
  * Roster: los operadores contra los que se valida bajan DENTRO del bootstrap
  * del POS (`/v1/bootstrap` → `users`, proyección id/name/pinhash de los
@@ -40,8 +42,24 @@ import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { posFetch } from "@/lib/api/pos-fetch"
+import { soleOperator } from "@/lib/pos/sole-operator"
+import { unlockAsSoleOperator } from "@/lib/pos/sole-unlock"
 
 const PIN_LENGTH = 4
+
+/**
+ * Dependencias reales del desbloqueo sin PIN. `getState()` y las acciones del
+ * store se leen en el momento, nunca de un render viejo — ver el guard de
+ * respuesta tardía en `lib/pos/sole-unlock.ts`.
+ */
+const soleUnlockDeps = {
+  post: () => posFetch("/api/pos/unlock-sole", { method: "POST" }),
+  getState: () => useLockStore.getState(),
+  unlockAsSoleOperator: (user: { id: string; name: string }) => useLockStore.getState().unlockAsSoleOperator(user),
+  setOperatorToken: (token: string | null) => useLockStore.getState().setOperatorToken(token),
+  setOperatorPermissions: (permissions: string[]) => useLockStore.getState().setOperatorPermissions(permissions),
+  denySoleOperator: () => useLockStore.getState().denySoleOperator(),
+}
 
 export function LockScreen() {
   const locked = useLockStore((s) => s.locked)
@@ -251,7 +269,38 @@ export function LockScreen() {
   const catalogSettled = catalogStatus === "ready" || catalogStatus === "error"
   const noPinsToValidate = catalogSettled && users.every((u) => !u.pinhash)
 
+  // ── Sin PIN con un solo usuario (context/72 §9.3, D-P2) ────────────────────
+  // Con el roster de la sucursal en UNO, la caja no muestra el bloqueo: se
+  // desbloquea a nombre de ese usuario y pide la afirmación al servidor, que
+  // vuelve a contar el roster (`lib/pos/sole-unlock.ts`). Aplica también al
+  // bloqueo manual y al de inactividad: con nadie más a quien ceder la caja,
+  // bloquear no protege nada.
+  const soleOperatorDenied = useLockStore((s) => s.soleOperatorDenied)
+  const sole = catalogSettled && !soleOperatorDenied ? soleOperator(users, rosterMissing) : null
+  const soleId = sole?.id ?? null
+  const soleName = sole?.name ?? ""
+
+  React.useEffect(() => {
+    if (!locked || soleId === null) return
+    void unlockAsSoleOperator({ id: soleId, name: soleName }, soleUnlockDeps)
+  }, [locked, soleId, soleName])
+
+  // Regla dinámica: si el desbloqueo vigente fue SIN PIN y el roster dejó de
+  // ser de uno (llegó un empleado nuevo en la sincronización) o es de otra
+  // persona, el bloqueo vuelve solo.
+  React.useEffect(() => {
+    if (locked) return
+    const now = useLockStore.getState()
+    if (now.soleOperator && (soleId === null || now.activeUser?.id !== soleId)) {
+      now.lock()
+    }
+  }, [locked, soleId])
+
   if (!locked) return null
+
+  // El efecto de arriba lo desbloquea en este mismo ciclo: no pintar el
+  // bloqueo un frame para sacarlo enseguida.
+  if (sole) return null
 
   // Mientras el catálogo carga, evitar render del lock real (compara contra
   // users=[]) y del aviso de "no hay PINs" (falso positivo). Spinner mínimo.
