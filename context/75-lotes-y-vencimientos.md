@@ -75,9 +75,18 @@ cumplir trazabilidad no importa.
   - el arranque NO exige contar: el stock existente queda en "sin lote" y FEFO
     lo vende PRIMERO (§4.2); el conteo por lote es opcional;
   - la merma de un lote vencido se hace desde el aviso ("Dar de baja" con el
-    lote precargado);
-  - producción queda FUERA de alcance (no aplica a importadoras ni
-    veterinarias).
+    lote precargado).
+- **D8 — Un insumo con lotes recibe el MISMO trato que cualquier producto.**
+  Cerrada por el owner (2026-09-16): *"reciben el mismo trato que un producto
+  normal; si los lotes vencen se notifica"*. Entonces:
+  - **producción consume FEFO igual que una venta**, sin paso nuevo para quien
+    produce, y con el costo saliendo del promedio del ítem como hoy
+    (`RecipeCosting` no cambia);
+  - los avisos de vencimiento aplican al insumo como a cualquier otro ítem;
+  - **no se prohíbe activar lotes en un insumo** — era la otra opción y queda
+    descartada;
+  - si el ítem PRODUCIDO controla lotes, su lote nace al completar la orden:
+    número = el de la orden de producción, y se carga el vencimiento (un campo).
 
 ## 4. Modelo
 
@@ -164,7 +173,7 @@ Compra, dos líneas del mismo ítem:
 | Transferencia entre depósitos | lleva lote (`StockTransferService::create()` `:213`) |
 | Merma / ajuste | lote obligatorio; desde el aviso de vencimiento viene precargado ("Dar de baja"). Vencer NO es merma automática (§8) |
 | Conteo | opcional por lote para ítems que controlan lotes; no es requisito para arrancar (D7) |
-| Producción | **fuera de alcance** (D7). Si un ítem con lotes entra en una receta, hay que resolverlo antes de habilitarlo — ver §10 |
+| Producción | los insumos con lotes consumen FEFO como cualquier salida, sin paso nuevo (D8); el producido con lotes genera su lote al completar |
 
 ### 5.3 Offline del POS
 
@@ -254,12 +263,10 @@ Devolución del lote 123 + venta del lote 124. Efectos:
 | Fase | Qué |
 |---|---|
 | **F0** | Mig: `stock_lot`, `stock.lotId`, `itemSold.lotId`, campos de ítem; DROP de `inventory`; invariante en `manageStock()` |
-| **F1** | Entradas: compra con lote+vencimiento por línea (`PurchasesService::create()` `:685`, autocompleta lote existente), lote "sin lote" al activar; ficha de ítem + editor masivo (`components/items/bulk-edit-dialog.tsx`); reporte de existencias por lote |
-| **F2** | Salidas: venta FEFO en backend y POS (con corrección opcional del cajero y offline §5.3), devolución, anulación, transferencia, merma, conteo opcional |
+| **F1** | Entradas: compra con lote+vencimiento por línea (`PurchasesService::create()` `:685`, autocompleta lote existente), lote del producido al completar una orden (`ProductionService::complete()` `:698`, D8), lote "sin lote" al activar; ficha de ítem + editor masivo (`components/items/bulk-edit-dialog.tsx`); reporte de existencias por lote |
+| **F2** | Salidas: venta FEFO en backend y POS (con corrección opcional del cajero y offline §5.3), devolución, anulación, transferencia, merma, conteo opcional, consumo de insumos en producción (FEFO, sin UI nueva) |
 | **F3** | Avisos: stock propio + vendido por cliente (interruptor de empresa D6), feed + digest, "Dar de baja" desde el aviso |
 | **F4** | Impresión (campos de plantilla), FE-PY (`gRasMerc`, tras verificar), reporte de trazabilidad |
-
-Producción: fuera de alcance (D7).
 
 La trazabilidad legal recién existe con F2: vender un ítem con lotes antes de
 F2 deja líneas sin lote que no se pueden reconstruir. **No habilitar "controla
@@ -272,11 +279,7 @@ lotes" a clientes hasta que F2 esté en producción.**
    guardar, o bloquea?
 3. UI del POS para corregir el lote: touch/teclado, sin desplazar botones
    (memoria de layout estable del POS). A diseñar en F2.
-4. Un ítem con lotes usado como insumo de una receta: producción está fuera
-   de alcance (D7), así que su consumo no sabe qué lote descontar. Opciones:
-   impedir activar lotes en ítems que son insumo, o consumir FEFO sin pedir
-   nada. A decidir antes de F2.
-5. Bot: los dos campos del ítem deben poder setearse por el agente — hoy solo
+4. Bot: los dos campos del ítem deben poder setearse por el agente — hoy solo
    existen `create_item` y `update_item_price` (`frontend/lib/agent/confirm-api.ts`).
    Se resuelve en el trabajo de ampliación de herramientas del bot
    (`context/66`), no acá.
