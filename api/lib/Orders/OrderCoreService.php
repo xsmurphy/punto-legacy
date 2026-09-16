@@ -8,6 +8,8 @@ use Punto\Api\Items\AddonService;
 use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
 use Punto\Api\Services\TransactionLinkService;
 
+require_once __DIR__ . '/OrderNotFoundException.php';
+
 /**
  * OrderCoreService — núcleo del módulo de Órdenes (O0, context/24-orders-module-plan.md).
  *
@@ -610,19 +612,20 @@ final class OrderCoreService
     }
 
     /**
-     * open → sent. $outletScope (realm pos-app): restringe la operación a
-     * órdenes del outlet del device — un POS/KDS de la sucursal A no puede
-     * operar órdenes de la sucursal B del mismo tenant.
+     * open → sent.
+     *
+     * @param list<string>|null $outletScope alcance por sucursal — semántica en
+     *        `normalizeOutletScope()`.
+     * @throws OrderNotFoundException no existe o está fuera del alcance.
      */
-    public function send(string $companyId, string $id, ?string $outletScope = null): array
+    public function send(string $companyId, string $id, ?array $outletScope = null): array
     {
         global $db;
 
-        $order = $this->find($companyId, $id);
+        $order = $this->find($companyId, $id, $outletScope);
         if ($order === null) {
-            throw new \RuntimeException('Orden no encontrada');
+            throw new OrderNotFoundException('Orden no encontrada');
         }
-        $this->assertOutletScope($order['outletId'], $outletScope);
         if ($order['status'] !== 'open') {
             throw new \RuntimeException('Solo se puede enviar una orden en status open (actual: ' . $order['status'] . ')');
         }
@@ -679,10 +682,11 @@ final class OrderCoreService
         string $companyId,
         string $id,
         string $status,
-        ?string $outletScope = null,
+        ?array $outletScope = null,
         ?string $reason = null
     ): array {
         global $db;
+        $outletScope = self::normalizeOutletScope($outletScope);
 
         // Una orden NUNCA se elimina: se cancela, y toda cancelación lleva
         // motivo (regla del owner 2026-07-19). El enforcement va ACÁ, no en la
@@ -703,15 +707,12 @@ final class OrderCoreService
             'SELECT * FROM pos_order WHERE orderid = ? AND companyid = ? FOR UPDATE',
             [$id, $companyId]
         );
-        if (!$order) {
+        if (!$order || !self::inOutletScope((string) $order['outletid'], $outletScope)) {
+            // Mismo error para "no existe" y "de otra sucursal": no revelar
+            // existencia fuera del alcance (ver OrderNotFoundException).
             $db->FailTrans();
             $db->CompleteTrans();
-            throw new \RuntimeException('Orden no encontrada');
-        }
-        if ($outletScope !== null && (string) $order['outletid'] !== $outletScope) {
-            $db->FailTrans();
-            $db->CompleteTrans();
-            throw new \RuntimeException('Orden no encontrada'); // no revelar existencia cross-outlet
+            throw new OrderNotFoundException('Orden no encontrada');
         }
         $current = (string) $order['status'];
         $allowed = self::ORDER_TRANSITIONS[$current] ?? [];
@@ -824,15 +825,15 @@ final class OrderCoreService
      * a quién y cuándo" en el timeline, es una evolución de schema aparte
      * (scope nuevo o columna dedicada), no de esta tarea.
      */
-    public function assignCourier(string $companyId, string $orderId, ?string $courierId, ?string $outletScope = null): array
+    public function assignCourier(string $companyId, string $orderId, ?string $courierId, ?array $outletScope = null): array
     {
         global $db;
+        $outletScope = self::normalizeOutletScope($outletScope);
 
         $order = ncmExecute('SELECT * FROM pos_order WHERE orderid = ? AND companyid = ?', [$orderId, $companyId]);
-        if (!$order) {
-            throw new \RuntimeException('Orden no encontrada');
+        if (!$order || !self::inOutletScope((string) $order['outletid'], $outletScope)) {
+            throw new OrderNotFoundException('Orden no encontrada');
         }
-        $this->assertOutletScope((string) $order['outletid'], $outletScope);
 
         if ((string) ($order['fulfillment'] ?? 'dine_in') !== 'delivery') {
             throw new \InvalidArgumentException("Solo se puede asignar repartidor a órdenes con fulfillment='delivery'");
@@ -885,9 +886,10 @@ final class OrderCoreService
      * después de SU commit — igual que hace SpaceSessionService::cancel()
      * con las cancelaciones en cascada.
      */
-    public function markPaid(string $companyId, string $orderId, string $transactionId, ?string $outletScope = null): array
+    public function markPaid(string $companyId, string $orderId, string $transactionId, ?array $outletScope = null): array
     {
         global $db;
+        $outletScope = self::normalizeOutletScope($outletScope);
 
         if ($transactionId === '') {
             throw new \InvalidArgumentException('transactionId requerido');
@@ -899,15 +901,12 @@ final class OrderCoreService
             'SELECT * FROM pos_order WHERE orderid = ? AND companyid = ? FOR UPDATE',
             [$orderId, $companyId]
         );
-        if (!$order) {
+        if (!$order || !self::inOutletScope((string) $order['outletid'], $outletScope)) {
+            // Mismo error para "no existe" y "de otra sucursal": no revelar
+            // existencia fuera del alcance (ver OrderNotFoundException).
             $db->FailTrans();
             $db->CompleteTrans();
-            throw new \RuntimeException('Orden no encontrada');
-        }
-        if ($outletScope !== null && (string) $order['outletid'] !== $outletScope) {
-            $db->FailTrans();
-            $db->CompleteTrans();
-            throw new \RuntimeException('Orden no encontrada'); // no revelar existencia cross-outlet
+            throw new OrderNotFoundException('Orden no encontrada');
         }
         if (in_array($order['status'], ['closed', 'cancelled'], true)) {
             $db->FailTrans();
@@ -1020,10 +1019,11 @@ final class OrderCoreService
         string $companyId,
         string $orderItemId,
         string $status,
-        ?string $outletScope = null,
+        ?array $outletScope = null,
         ?string $reason = null
     ): array {
         global $db;
+        $outletScope = self::normalizeOutletScope($outletScope);
 
         if (!array_key_exists($status, self::ITEM_TRANSITIONS)) {
             throw new \InvalidArgumentException('status de ítem inválido: ' . $status);
@@ -1054,15 +1054,12 @@ final class OrderCoreService
               FOR UPDATE OF oi',
             [$orderItemId, $companyId]
         );
-        if (!$item) {
+        if (!$item || !self::inOutletScope((string) ($item['orderoutletid'] ?? ''), $outletScope)) {
+            // Mismo error para "no existe" y "de otra sucursal" (ver
+            // OrderNotFoundException).
             $db->FailTrans();
             $db->CompleteTrans();
-            throw new \RuntimeException('Ítem de orden no encontrado');
-        }
-        if ($outletScope !== null && (string) ($item['orderoutletid'] ?? '') !== $outletScope) {
-            $db->FailTrans();
-            $db->CompleteTrans();
-            throw new \RuntimeException('Ítem de orden no encontrado'); // no revelar existencia cross-outlet
+            throw new OrderNotFoundException('Ítem de orden no encontrado');
         }
 
         // Una línea hija de add-on NO tiene ciclo propio: viaja con su padre
@@ -1195,13 +1192,28 @@ final class OrderCoreService
      *             por el diálogo de sesión de espacio, context/15 F3). Los
      *             ítems `cancelled` SE INCLUYEN; el consumidor decide qué
      *             hacer con ellos (tacharlos, excluirlos del total, etc).
+     * @param list<string>|null $outletScope alcance por sucursal — semántica en
+     *             `normalizeOutletScope()`. Es el LÍMITE: se aplica además del
+     *             filtro `outletId`, nunca en su lugar, así que un `outletId`
+     *             fuera del alcance devuelve lista vacía acá (el endpoint lo
+     *             rechaza antes con 403).
      * @return array<int,array<string,mixed>>
      */
-    public function list(string $companyId, array $filters = [], bool $includeItems = false): array
+    public function list(string $companyId, array $filters = [], bool $includeItems = false, ?array $outletScope = null): array
     {
+        $outletScope = self::normalizeOutletScope($outletScope);
         $where  = ['o.companyid = ?'];
         $params = [$companyId];
 
+        if ($outletScope !== null) {
+            // Bindeado, no interpolado: acá el array de params se arma en orden
+            // y no hay binds insertados en el medio (el motivo por el que
+            // `OutletScope::sqlFilter()` interpola no aplica).
+            $where[] = 'o.outletid IN (' . implode(',', array_fill(0, count($outletScope), '?::uuid')) . ')';
+            foreach ($outletScope as $oid) {
+                $params[] = $oid;
+            }
+        }
         if (!empty($filters['outletId'])) {
             $where[]  = 'o.outletid = ?';
             $params[] = (string) $filters['outletId'];
@@ -1307,8 +1319,14 @@ final class OrderCoreService
         return $out;
     }
 
-    public function find(string $companyId, string $id): ?array
+    /**
+     * @param list<string>|null $outletScope alcance por sucursal — semántica en
+     *        `normalizeOutletScope()`. Fuera del alcance devuelve `null`, igual
+     *        que si no existiera.
+     */
+    public function find(string $companyId, string $id, ?array $outletScope = null): ?array
     {
+        $outletScope = self::normalizeOutletScope($outletScope);
         $rs = $this->db->Execute(
             // Mismo enriquecimiento de cliente y espacio que list() — el shape
             // de una orden es único, venga del listado o del detalle.
@@ -1353,6 +1371,9 @@ final class OrderCoreService
         if ($rs === false || $rs->EOF) return null;
         $row = [];
         foreach ($rs->fields as $k => $v) $row[$k] = $v;
+        if (!self::inOutletScope((string) ($row['outletid'] ?? ''), $outletScope)) {
+            return null;
+        }
         return $this->presentOrder($row, true, $companyId);
     }
 
@@ -1440,13 +1461,101 @@ final class OrderCoreService
         return $out;
     }
 
-    /** Rechaza operar sobre una orden de otro outlet (realm pos-app). */
-    private function assertOutletScope(?string $orderOutletId, ?string $outletScope): void
+    // ------------------------------------------------------------------
+    // Alcance por sucursal
+    // ------------------------------------------------------------------
+
+    /**
+     * Verifica que la orden exista y esté dentro del alcance, SIN tocarla.
+     *
+     * Existe para los endpoints que corren una puerta de autorización que lee
+     * la orden ANTES del service (`OrderCancelGate`): sin este chequeo previo,
+     * la puerta respondería "fuera de ventana" sobre una orden de otra
+     * sucursal, confirmando que existe. El service vuelve a validar el alcance
+     * dentro de su transacción; esto no lo reemplaza.
+     *
+     * @param list<string>|null $outletScope ver `normalizeOutletScope()`.
+     * @throws OrderNotFoundException
+     */
+    public function assertOrderInScope(string $companyId, string $orderId, ?array $outletScope): void
     {
-        if ($outletScope !== null && (string) $orderOutletId !== $outletScope) {
-            // Mismo mensaje que "no existe" — no revelar existencia cross-outlet.
-            throw new \RuntimeException('Orden no encontrada');
+        $outletScope = self::normalizeOutletScope($outletScope);
+        $row = ncmExecute(
+            'SELECT outletid FROM pos_order WHERE orderid = ? AND companyid = ? LIMIT 1',
+            [$orderId, $companyId]
+        );
+        if (!$row || !self::inOutletScope((string) $row['outletid'], $outletScope)) {
+            throw new OrderNotFoundException('Orden no encontrada');
         }
+    }
+
+    /**
+     * Igual que `assertOrderInScope()` para un ítem: el alcance lo da la
+     * sucursal de la ORDEN a la que pertenece.
+     *
+     * @param list<string>|null $outletScope ver `normalizeOutletScope()`.
+     * @throws OrderNotFoundException
+     */
+    public function assertItemInScope(string $companyId, string $orderItemId, ?array $outletScope): void
+    {
+        $outletScope = self::normalizeOutletScope($outletScope);
+        $row = ncmExecute(
+            'SELECT o.outletid
+               FROM pos_order_item oi
+               JOIN pos_order o ON o.orderid = oi.orderid AND o.companyid = oi.companyid
+              WHERE oi.orderitemid = ? AND oi.companyid = ?
+              LIMIT 1',
+            [$orderItemId, $companyId]
+        );
+        if (!$row || !self::inOutletScope((string) $row['outletid'], $outletScope)) {
+            throw new OrderNotFoundException('Ítem de orden no encontrado');
+        }
+    }
+
+    /**
+     * LA semántica del parámetro `$outletScope` de todo este service.
+     *
+     *   - `null` → sin restricción. Es lo que pasan las cascadas internas
+     *     (`SpaceSessionService`, `SpaceSettlementService`), que ya operan
+     *     sobre una sesión validada por su propio endpoint.
+     *   - `[]`   → sin restricción, IGUAL que `null`. Es la convención de
+     *     `Punto\Api\Outlets\OutletScope` (usuario con cero filas en
+     *     `contact_outlet` = global) y se respeta para que un caller pueda
+     *     pasar `OutletScope::current()` tal cual. NUNCA significa "ninguna
+     *     sucursal".
+     *   - lista con ids → solo órdenes de esas sucursales.
+     *
+     * Fail-closed ante un id que no es uuid: se LANZA en vez de descartarlo,
+     * porque descartar todos los elementos de una lista no vacía la dejaría en
+     * `[]` — o sea global — y un device con la sucursal corrupta vería todo el
+     * tenant.
+     *
+     * @param list<string>|null $outletScope
+     * @return list<string>|null `null` = sin restricción; si no, lista no vacía.
+     */
+    private static function normalizeOutletScope(?array $outletScope): ?array
+    {
+        if ($outletScope === null || $outletScope === []) {
+            return null;
+        }
+        $out = [];
+        foreach ($outletScope as $id) {
+            $id = is_string($id) ? $id : '';
+            if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
+                throw new \InvalidArgumentException('Alcance por sucursal inválido');
+            }
+            $out[] = strtolower($id);
+        }
+        return array_values(array_unique($out));
+    }
+
+    /** ¿La sucursal de la orden está dentro del alcance YA normalizado? */
+    private static function inOutletScope(string $orderOutletId, ?array $normalizedScope): bool
+    {
+        if ($normalizedScope === null) {
+            return true;
+        }
+        return in_array(strtolower($orderOutletId), $normalizedScope, true);
     }
 
     /**
