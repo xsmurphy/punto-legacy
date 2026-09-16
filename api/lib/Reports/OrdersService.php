@@ -19,9 +19,13 @@ use Punto\Api\Contacts\ContactDisplayName;
  * (qty*price, excluyendo status='cancelled') en un JOIN a subquery — UNA
  * query, no N+1. `status` es string nativo de `pos_order` (ver
  * migs 79/96). `channel` se deriva de `source`: 'ecommerce' → 'ecom', el
- * resto ('counter'/'table'/'schedule') → 'local'. `dueDate` no existe en
- * `pos_order`: se devuelve null pero el campo queda en el contrato para no
- * romper al consumidor.
+ * resto ('counter'/'table'/'schedule') → 'local'.
+ *
+ * `scheduledFor` es la fecha de entrega comprometida (mig 225, context/79) y
+ * REEMPLAZA al `dueDate` que este reporte devolvía siempre en null. Ese campo
+ * era un hueco declarado —"pos_order no tiene vencimiento"— que ningún
+ * consumidor leía; ahora el dato existe de verdad y viaja con el nombre que
+ * tiene en el resto del sistema, en vez de dejar dos nombres para lo mismo.
  *
  * Tenant: $roc (companyId + outletId del JWT, lo arma el endpoint) en la
  * lectura, SIN alias de tabla (pos_order es la única tabla del FROM externo
@@ -30,7 +34,7 @@ use Punto\Api\Contacts\ContactDisplayName;
  */
 final class OrdersService
 {
-    /** @return array filas [{id, date, dueDate, orderNo, customerName, outletName, total, status, channel}] */
+    /** @return array filas [{id, date, scheduledFor, orderNo, customerName, outletName, total, status, channel}] */
     public function listOrders($from, $to, $roc, $companyId, ?string $customerId = null, HourBand $hours = new HourBand())
     {
         $customerClause = '';
@@ -47,7 +51,7 @@ final class OrdersService
         $params = array_merge($params, $hourParams);
 
         $res = ncmExecute(
-            "SELECT pos_order.orderid, created_at, ordernumber, status, source, customerid, outletid,
+            "SELECT pos_order.orderid, created_at, scheduled_for, ordernumber, status, source, customerid, outletid,
                     COALESCE(items.total, 0) AS total
              FROM pos_order
              LEFT JOIN (
@@ -78,7 +82,10 @@ final class OrdersService
             $raw[] = [
                 'id'         => (string) ($f['orderid'] ?? ''),
                 'date'       => (string) ($f['created_at'] ?? ''),
-                'dueDate'    => null,
+                // null = "para ahora" (toda orden anterior a la mig 225).
+                'scheduledFor' => isset($f['scheduled_for']) && $f['scheduled_for'] !== ''
+                    ? (string) $f['scheduled_for']
+                    : null,
                 'orderNo'    => (string) ($f['ordernumber'] ?? ''),
                 'total'      => (float)  ($f['total'] ?? 0),
                 'status'     => (string) ($f['status'] ?? 'open'),
@@ -98,7 +105,7 @@ final class OrdersService
             $rows[] = [
                 'id'           => $r['id'],
                 'date'         => $r['date'],
-                'dueDate'      => $r['dueDate'],
+                'scheduledFor' => $r['scheduledFor'],
                 'orderNo'      => $r['orderNo'],
                 'customerName' => $customers[$r['customerId']] ?? '',
                 'outletName'   => $outlets[$r['outletId']] ?? '',

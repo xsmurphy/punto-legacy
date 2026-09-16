@@ -69,6 +69,28 @@ use Punto\Api\Support\TenantClock;
  * explotar ni stock que acreditar. Se excluyen, pero se CUENTAN y se devuelve
  * el número. Esconderlas dejaría al cocinero creyendo que la pantalla trajo
  * toda la cola.
+ *
+ * ── Una fecha por lote (context/79, D2) ─────────────────────────────────────
+ *
+ * Desde que la orden puede tener fecha de entrega (`pos_order.scheduled_for`,
+ * mig 225), la cola deja de ser una sola: la del viernes no es la de hoy. El
+ * parámetro `date` elige cuál se trae, y la regla NO es simétrica:
+ *
+ *  - HOY (o sin `date`, que es lo mismo): trae las de hoy MÁS las sin fecha
+ *    —"para ahora" es todo lo que existía antes de la mig 225— MÁS las
+ *    VENCIDAS no producidas. Un pedido de ayer que nadie cocinó sigue siendo
+ *    trabajo pendiente: desaparecer de la pantalla no lo cocina.
+ *  - CUALQUIER OTRO DÍA: solo ese día exacto, sin las sin fecha. Quien pide
+ *    "el viernes" está armando la producción del viernes; sumarle la cola
+ *    suelta de hoy haría un lote que no es de ningún día y rompería lo único
+ *    que lo hace auditable ("este lote es la producción del viernes").
+ *
+ * El día se corta en la zona del COMERCIO: `scheduled_for::date` sale en hora
+ * del tenant sin `AT TIME ZONE` explícito porque `TenantClock::apply()` fija
+ * la zona de la sesión de Postgres en el embudo de auth (context/67).
+ *
+ * El rango de fechas (traer "de acá al viernes") quedó fuera a propósito —
+ * ver D2: una fecha por lote, hasta que el owner pida otra cosa.
  */
 final class OrderDemandService
 {
@@ -102,8 +124,11 @@ final class OrderDemandService
      * hace Postgres —no un N+1 por orden— y el pliegue a total por producto es
      * un `foreach` sobre esas filas ya agregadas.
      *
+     * @param ?string $date Día de entrega a traer (`YYYY-MM-DD`). null = hoy.
+     *
      * @return array{
      *   outletId: string,
+     *   date: string,
      *   takenAt: string,
      *   orderCount: int,
      *   skippedFreeText: int,
@@ -116,7 +141,7 @@ final class OrderDemandService
      *   }>
      * }
      */
-    public function pendingByItem(string $companyId, string $outletId): array
+    public function pendingByItem(string $companyId, string $outletId, ?string $date = null): array
     {
         if ($outletId === '') {
             throw new \InvalidArgumentException('outletId requerido');
@@ -128,6 +153,10 @@ final class OrderDemandService
         if (!$outlet) {
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
+
+        $today            = substr(TenantClock::now($companyId), 0, 10);
+        $effectiveDate    = self::normalizeDate($date) ?? $today;
+        [$dateSql, $dateParams] = self::scheduledFilter($effectiveDate, $today);
 
         $itemStatuses  = self::OPEN_ITEM_STATUSES;
         $orderStatuses = self::TERMINAL_ORDER_STATUSES;
@@ -165,11 +194,12 @@ final class OrderDemandService
                AND o.status NOT IN ($orderMarks)
                AND oi.status IN ($itemMarks)
                AND oi.itemid IS NOT NULL
+               AND $dateSql
              GROUP BY oi.itemid, o.orderid
              ORDER BY MIN(COALESCE(it.itemname, oi.name)) ASC, MIN(o.ordernumber) ASC NULLS LAST
              LIMIT " . (self::MAX_PAIRS + 1);
 
-        $params = array_merge([$companyId, $outletId], $orderStatuses, $itemStatuses);
+        $params = array_merge([$companyId, $outletId], $orderStatuses, $itemStatuses, $dateParams);
         $rows   = ncmRows($sql, $params);
 
         $truncated = count($rows) > self::MAX_PAIRS;
@@ -213,9 +243,15 @@ final class OrderDemandService
 
         return [
             'outletId'        => $outletId,
+            // El día que se está trayendo viaja en el payload por el mismo
+            // motivo que `takenAt` (D2): el que lee la pantalla tiene que poder
+            // ver DE QUÉ es el lote que armó, y resolverlo de nuevo en el
+            // cliente sería una segunda definición de "hoy" contra el reloj de
+            // la laptop en vez del del comercio.
+            'date'            => $effectiveDate,
             'takenAt'         => TenantClock::now($companyId),
             'orderCount'      => count($orders),
-            'skippedFreeText' => $this->countFreeTextLines($companyId, $outletId),
+            'skippedFreeText' => $this->countFreeTextLines($companyId, $outletId, $effectiveDate, $today),
             'truncated'       => $truncated,
             'lines'           => array_values($byItem),
         ];
@@ -228,15 +264,20 @@ final class OrderDemandService
      * `itemid IS NULL` colapsarían todas en un grupo que además rompería el
      * pliegue. Es un COUNT sobre los mismos índices, no un N+1.
      */
-    private function countFreeTextLines(string $companyId, string $outletId): int
+    private function countFreeTextLines(string $companyId, string $outletId, string $date, string $today): int
     {
         $itemMarks  = implode(',', array_fill(0, count(self::OPEN_ITEM_STATUSES), '?'));
         $orderMarks = implode(',', array_fill(0, count(self::TERMINAL_ORDER_STATUSES), '?'));
+        // El MISMO recorte de fecha que la query principal: si contara la cola
+        // entera, el lote del viernes avisaría de líneas sueltas que no son de
+        // ese lote y el cocinero iría a buscar un pedido que no existe.
+        [$dateSql, $dateParams] = self::scheduledFilter($date, $today);
 
         $params = array_merge(
             [$companyId, $outletId],
             self::TERMINAL_ORDER_STATUSES,
-            self::OPEN_ITEM_STATUSES
+            self::OPEN_ITEM_STATUSES,
+            $dateParams
         );
 
         $row = ncmExecute(
@@ -249,10 +290,49 @@ final class OrderDemandService
                 AND o.outletid  = ?
                 AND o.status NOT IN ($orderMarks)
                 AND oi.status IN ($itemMarks)
-                AND oi.itemid IS NULL",
+                AND oi.itemid IS NULL
+                AND $dateSql",
             $params
         );
 
         return $row ? (int) ($row['n'] ?? 0) : 0;
+    }
+
+    /**
+     * El predicado de fecha de entrega, UNA sola definición para las dos
+     * queries de esta clase. La asimetría entre "hoy" y cualquier otro día
+     * está explicada en el docblock de la clase (D2 de context/79).
+     *
+     * @return array{0:string, 1:list<string>} SQL y sus binds, en ese orden.
+     */
+    private static function scheduledFilter(string $date, string $today): array
+    {
+        if ($date === $today) {
+            // Las sin fecha ("para ahora") y las vencidas no producidas entran
+            // con las de hoy: las tres son trabajo pendiente ahora mismo.
+            return ['(o.scheduled_for IS NULL OR o.scheduled_for::date <= ?::date)', [$date]];
+        }
+
+        return ['o.scheduled_for::date = ?::date', [$date]];
+    }
+
+    /** `YYYY-MM-DD` o null. Cualquier otra cosa es un pedido mal armado. */
+    private static function normalizeDate(?string $date): ?string
+    {
+        if ($date === null) {
+            return null;
+        }
+        $value = trim($date);
+        if ($value === '') {
+            return null;
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            throw new \InvalidArgumentException('Fecha inválida (esperado AAAA-MM-DD)');
+        }
+        $d = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
+        if ($d === false || $d->format('Y-m-d') !== $value) {
+            throw new \InvalidArgumentException('Fecha inválida (esperado AAAA-MM-DD)');
+        }
+        return $value;
     }
 }

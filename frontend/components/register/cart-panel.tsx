@@ -109,6 +109,7 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 import { FulfillmentSelector } from "@/components/register/fulfillment-selector"
+import { ScheduledForChip } from "@/components/register/scheduled-for-chip"
 import { CHIP_BASE, ToggleChip } from "@/components/register/toggle-chip"
 import { DeliveryAddressDialog } from "@/components/register/delivery-address-dialog"
 
@@ -128,6 +129,8 @@ export function CartPanel() {
   const deliveryAddress = useCartStore((s) => s.deliveryAddress)
   const setFulfillment = useCartStore((s) => s.setFulfillment)
   const setDeliveryAddress = useCartStore((s) => s.setDeliveryAddress)
+  const scheduledFor = useCartStore((s) => s.scheduledFor)
+  const setScheduledFor = useCartStore((s) => s.setScheduledFor)
   const credito = useCartStore((s) => s.credito)
   const interno = useCartStore((s) => s.interno)
   const ivaRemoved = useCartStore((s) => s.ivaRemoved)
@@ -391,6 +394,9 @@ export function CartPanel() {
         })),
         customerId: customer?.id,
         note: note ?? undefined,
+        // Fecha de entrega (context/79): la línea NO lleva la key cuando el
+        // pedido es para ahora, que es el caso normal.
+        ...(scheduledFor ? { scheduledFor } : {}),
         sendNow: true,
       })
 
@@ -427,7 +433,7 @@ export function CartPanel() {
     } finally {
       setSubmittingOrder(false)
     }
-  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router, fulfillment, deliveryAddress])
+  }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router, fulfillment, deliveryAddress, scheduledFor])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
   // Vía `useOutsidePointerDown`: los modales de la línea (cantidad, vendedor,
@@ -690,6 +696,8 @@ export function CartPanel() {
         orderSubmitting={submittingOrder}
         fulfillment={fulfillment}
         onSelectFulfillment={handleSelectFulfillment}
+        scheduledFor={scheduledFor}
+        onSelectScheduledFor={setScheduledFor}
       />
         </>
       )}
@@ -1573,6 +1581,8 @@ function CartBottom({
   orderSubmitting,
   fulfillment,
   onSelectFulfillment,
+  scheduledFor,
+  onSelectScheduledFor,
 }: {
   credito: boolean
   interno: boolean
@@ -1595,6 +1605,9 @@ function CartBottom({
   orderSubmitting: boolean
   fulfillment: Fulfillment
   onSelectFulfillment: (f: Fulfillment) => void
+  /** Fecha de entrega comprometida (`YYYY-MM-DD`) o null — context/79. */
+  scheduledFor: string | null
+  onSelectScheduledFor: (d: string | null) => void
 }) {
   const totalFormatted = formatMoney(total, config)
   const ivaFormatted = formatMoney(iva, config)
@@ -1732,7 +1745,13 @@ function CartBottom({
           </>
         )}
         {cartMode === "orden-mostrador" && (
-          <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
+          <>
+            <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
+            {/* Fecha de entrega (context/79). Solo en orden-mostrador, igual
+                que el selector de fulfillment: una orden de ESPACIO se sirve
+                ahora, no hay día que comprometer. */}
+            <ScheduledForChip value={scheduledFor} onChange={onSelectScheduledFor} />
+          </>
         )}
         {/* `max-sm:hidden`: en el teléfono la fila la comparten el trigger de
             módulos, los toggles y el chip de IVA, y VACIAR —la única acción

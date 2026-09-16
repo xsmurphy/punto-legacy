@@ -42,6 +42,33 @@ describe("beginSale", () => {
     expect(useCartStore.getState().deliveryAddress).toBeNull()
   })
 
+  /**
+   * La fecha de entrega (context/79) es un atributo de la ORDEN, igual que el
+   * fulfillment: una venta directa no se entrega "el viernes". Si sobreviviera
+   * al cambio de modo, el cajero facturaría con una fecha que ya no significa
+   * nada y —peor— la siguiente orden nacería con la fecha de la anterior.
+   */
+  it("suelta la fecha de entrega al pasar a venta", () => {
+    useCartStore.getState().setPosMode("orden")
+    useCartStore.getState().setScheduledFor("2026-09-19")
+    useCartStore.getState().beginSale()
+    expect(useCartStore.getState().scheduledFor).toBeNull()
+  })
+
+  it("setPosMode('venta') suelta la fecha de entrega por el mismo camino", () => {
+    useCartStore.getState().setPosMode("orden")
+    useCartStore.getState().setScheduledFor("2026-09-19")
+    useCartStore.getState().setPosMode("venta")
+    expect(useCartStore.getState().scheduledFor).toBeNull()
+  })
+
+  it("elegir un espacio la suelta también: una mesa se sirve ahora", () => {
+    useCartStore.getState().setPosMode("orden")
+    useCartStore.getState().setScheduledFor("2026-09-19")
+    useCartStore.getState().setSelectedSpace("sess-1", "Mesa 4")
+    expect(useCartStore.getState().scheduledFor).toBeNull()
+  })
+
   it("NO toca los flags fiscales del carrito — el crédito elegido antes de cobrar sobrevive", () => {
     useCartStore.getState().toggleCredito()
     useCartStore.getState().beginSale()

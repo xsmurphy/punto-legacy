@@ -4,9 +4,10 @@
  *
  *   GET  /v1/production-batches                       → lista (filtros: status, outletId, from, to)
  *   GET  /v1/production-batches?id=<uuid>             → detalle (lote + líneas + necesidad si está en draft)
- *   GET  /v1/production-batches?resource=order-demand&outletId=<uuid>
+ *   GET  /v1/production-batches?resource=order-demand&outletId=<uuid>[&date=YYYY-MM-DD]
  *                                                     → la cola de órdenes pendientes de esa sucursal,
- *                                                       agregada por producto (alimentador del lote)
+ *                                                       agregada por producto (alimentador del lote).
+ *                                                       `date` = día de entrega (context/79); sin él, hoy.
  *   POST /v1/production-batches?resource=estimate     → necesidad consolidada (LECTURA PURA, no escribe)
  *                                                       body: outletId, locationId?, lines:[{itemId, qty}]
  *   POST /v1/production-batches                       → crea el lote en draft + sus N órdenes hijas
@@ -68,8 +69,15 @@ switch ($method) {
             if ($outletId === '') {
                 apiError('outletId es requerido', 422);
             }
+            // Día de entrega a traer (context/79, D2). Ausente = hoy, que es el
+            // comportamiento previo: la cola sin fecha más lo vencido.
+            $demandDate = trim((string) ($_GET['date'] ?? ''));
             try {
-                apiOk((new \Punto\Api\Orders\OrderDemandService())->pendingByItem($companyId, $outletId));
+                apiOk((new \Punto\Api\Orders\OrderDemandService())->pendingByItem(
+                    $companyId,
+                    $outletId,
+                    $demandDate !== '' ? $demandDate : null
+                ));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }

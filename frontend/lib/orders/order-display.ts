@@ -14,6 +14,7 @@ import {
   type OrderStatus,
 } from "@/hooks/use-orders"
 import { resolveColorBg } from "@/lib/ui/color-palette"
+import { formatDate, parseNaive } from "@/lib/format-date"
 
 /**
  * Etiquetas operativas (decisión del owner 2026-07-19). Nombran los estados
@@ -340,4 +341,49 @@ export function orderSearchHaystack(order: Order): string {
   ]
     .join(" ")
     .toLowerCase()
+}
+
+/**
+ * Día de entrega comprometido de una orden como `YYYY-MM-DD`, o null si es
+ * "para ahora" (context/79).
+ *
+ * Sale de `parseNaive`, que descarta el offset del timestamp: Postgres ya lo
+ * renderizó en la zona del COMERCIO (`TenantClock::apply()` fija la zona de la
+ * sesión), así que los componentes de pared que llegan SON el día del comercio
+ * y re-convertirlos por la zona del dispositivo los correría un día.
+ */
+export function orderScheduledDay(order: Order): string | null {
+  if (!order.scheduledFor) return null
+  const d = parseNaive(order.scheduledFor)
+  if (!d) return null
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
+/**
+ * Etiqueta de la fecha de entrega para el chip del listado ("19 sep 2026"), o
+ * null cuando la orden es para ahora — en ese caso NO se pinta nada: un
+ * "Inmediata" en cada fila sería ruido en el 99% de las órdenes.
+ */
+export function orderScheduledLabel(order: Order): string | null {
+  return order.scheduledFor ? formatDate(order.scheduledFor) : null
+}
+
+/**
+ * ¿Esta orden es para DESPUÉS de `day` (`YYYY-MM-DD`)?
+ *
+ * Es la red de seguridad del KDS (D3 de context/79): el filtro real lo hace el
+ * servidor (`scheduledUntil=today`, que corta el día con el reloj del
+ * comercio), pero al KDS también le llegan órdenes por el socket, sin pasar
+ * por esa query. Sin este chequeo, un pedido para el viernes creado en vivo
+ * aparecería en la cocina de hoy y se quedaría ahí hasta el próximo refetch.
+ *
+ * La comparación es de strings `YYYY-MM-DD`, que ordenan lexicográficamente
+ * igual que cronológicamente — sin Date de por medio no hay zona horaria que
+ * pueda correr el corte.
+ */
+export function isScheduledAfter(order: Order, day: string): boolean {
+  const scheduled = orderScheduledDay(order)
+  return scheduled !== null && scheduled > day
 }

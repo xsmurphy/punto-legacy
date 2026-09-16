@@ -19,6 +19,7 @@ import {
   RECALL_LIMIT,
   screenItems,
 } from "@/lib/kds/board"
+import { isScheduledAfter } from "@/lib/orders/order-display"
 import type { KdsMode, KdsOrderStatus } from "@/lib/kds/kds-visuals"
 import type { Order, OrderItem, OrderItemStatus } from "@/hooks/use-orders"
 import { OrderCard } from "./order-card"
@@ -107,6 +108,23 @@ import { KdsHelpDialog } from "./help-dialog"
 const ACTIVE_STATUSES = ["sent", "in_progress", "ready"] as const
 
 /**
+ * La cocina NO ve el futuro (context/79, D3): una orden con fecha de entrega
+ * posterior a hoy no entra al board hasta que llegue su día. Sin esto, el
+ * pedido de la semana que viene ensucia la cola de hoy los siete días.
+ *
+ * El corte del día lo hace el SERVIDOR: `today` es un literal que
+ * `OrderCoreService` resuelve con el reloj del comercio. Esta pantalla no
+ * conoce la zona horaria del tenant —su contexto trae sucursal y nombres, no
+ * locale— así que si mandara su propio día lo calcularía con el reloj de la
+ * tablet, y una tablet en otra zona (o pasada la medianoche de una de las dos)
+ * mostraría u ocultaría un día entero de comandas.
+ *
+ * Las sin fecha ("para ahora", que son casi todas) entran igual: el filtro las
+ * incluye explícitamente.
+ */
+const SCHEDULED_UNTIL = "today"
+
+/**
  * Ancho mínimo legible de una comanda (nº de orden + "2× Milanesa napolitana"
  * sin cortar). Por debajo de esto se muestran MENOS comandas y se pagina, nunca
  * se encogen más. Con 260px: un teléfono de 375px da 1 (pantalla completa), un
@@ -154,6 +172,15 @@ export default function KdsPage() {
   const [mode, setMode] = React.useState<KdsMode>("dark")
 
   /**
+   * Hoy según el reloj del dispositivo, `YYYY-MM-DD` — solo para la red de
+   * seguridad del corte de fecha (ver `SCHEDULED_UNTIL`). Se re-evalúa cada
+   * minuto porque esta pantalla queda abierta días: un valor calculado al
+   * montar dejaría de ser "hoy" a la medianoche y el board se quedaría sin
+   * las comandas del día nuevo hasta que alguien recargue.
+   */
+  const [deviceToday, setDeviceToday] = React.useState(localToday)
+
+  /**
    * Última acción deshacible. Es ESTADO y no un ref porque la barra inferior
    * tiene un botón "Deshacer" que se habilita con esto: toda función de la
    * pantalla existe en los tres inputs (teclado, mouse y dedo), ninguna vive
@@ -195,7 +222,9 @@ export default function KdsPage() {
     if (!token) return
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? ""
-      const qs = ACTIVE_STATUSES.map((s) => `status[]=${s}`).join("&")
+      const qs =
+        ACTIVE_STATUSES.map((s) => `status[]=${s}`).join("&") +
+        `&scheduledUntil=${SCHEDULED_UNTIL}`
       const res = await fetch(`${apiUrl}/v1/orders-core?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -272,6 +301,12 @@ export default function KdsPage() {
     return () => { closeKdsSound() }
   }, [])
 
+  /** El día del dispositivo avanza solo — ver `deviceToday`. */
+  React.useEffect(() => {
+    const t = setInterval(() => setDeviceToday(localToday()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   /** Modo claro/oscuro. En "auto" se re-evalúa sola: la pantalla no se recarga
    *  nunca, así que el cambio de turno tiene que llegarle igual. */
   React.useEffect(() => {
@@ -324,12 +359,20 @@ export default function KdsPage() {
   const visible = React.useMemo(() => {
     return Array.from(orders.values())
       .filter((o) => belongsToScreen(o, config.stationIds))
+      // Red de seguridad del corte de fecha (D3). El filtro que manda es el
+      // del servidor, pero al mapa también entran órdenes por el SOCKET, que
+      // no pasa por esa query: sin esto, un pedido para el viernes creado en
+      // vivo aparecería en la cocina de hoy hasta el próximo refetch. El día
+      // sale del reloj del dispositivo —es lo único que esta pantalla tiene—
+      // y eso alcanza porque acá el peor caso es un desfase de horas sobre un
+      // dato que el servidor ya filtró, no el corte real.
+      .filter((o) => !isScheduledAfter(o, deviceToday))
       .sort((a, b) => {
         const ta = boardTimeMs(a)
         const tb = boardTimeMs(b)
         return config.sortOrder === "newest" ? tb - ta : ta - tb
       })
-  }, [orders, config.stationIds, config.sortOrder])
+  }, [orders, config.stationIds, config.sortOrder, deviceToday])
 
   /** Lo que falta hacer. Pineadas al extremo izquierdo, en el orden en que se pinearon. */
   const board = React.useMemo(
@@ -768,4 +811,12 @@ export default function KdsPage() {
       <KdsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   )
+}
+
+/** Hoy en el reloj del dispositivo, `YYYY-MM-DD` (sin shift por TZ). */
+function localToday(): string {
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
 }

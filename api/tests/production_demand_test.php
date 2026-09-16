@@ -159,15 +159,19 @@ function mkOrder(
     string $companyId,
     string $outletId,
     string $registerId,
-    array $items
+    array $items,
+    ?string $scheduledFor = null
 ): string {
     return $orders->create($companyId, [
-        'outletId'   => $outletId,
-        'registerId' => $registerId,
-        'source'     => 'counter',
-        'channelRef' => MARK,
-        'sendNow'    => true,
-        'items'      => $items,
+        'outletId'     => $outletId,
+        'registerId'   => $registerId,
+        'source'       => 'counter',
+        'channelRef'   => MARK,
+        'sendNow'      => true,
+        'items'        => $items,
+        // Fecha de entrega (context/79). null = "para ahora", que es como
+        // nacen todas las órdenes de los casos A-J.
+        'scheduledFor' => $scheduledFor,
     ]);
 }
 
@@ -365,6 +369,53 @@ check('(I2) `orderCount` cuenta las órdenes que aportaron, no las líneas',
 check('(I3) `truncated` es false con una cola chica',
     ($d['truncated'] ?? true) === false,
     'truncated = ' . json_encode($d['truncated'] ?? null), $failures, $checks);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (K) La fecha de entrega parte la cola en varias (context/79, D2)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Se prueba contra la BD y no leyendo el SQL porque lo que puede salir mal es
+// justamente el corte: `scheduled_for` es TIMESTAMPTZ y `::date` depende de la
+// zona de la SESIÓN de Postgres. Un corte hecho en UTC manda la orden de las
+// 22:00 al día siguiente y el lote sale con platos de más.
+
+echo "\n=== (K) fecha de entrega ===\n";
+
+$hoy      = substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10);
+$manana   = (new \DateTimeImmutable($hoy))->modify('+1 day')->format('Y-m-d');
+$ayer     = (new \DateTimeImmutable($hoy))->modify('-1 day')->format('Y-m-d');
+
+// K1 — para mañana (7 milanesas), K2 — venció ayer y nadie la cocinó (5 sopas).
+mkOrder($orders, $companyId, $outletId, $registerId, [
+    ['itemId' => IT_MILANESA, 'qty' => 7],
+], $manana);
+mkOrder($orders, $companyId, $outletId, $registerId, [
+    ['itemId' => IT_SOPA, 'qty' => 5],
+], $ayer);
+
+$dHoy = $demand->pendingByItem($companyId, $outletId);
+check('(K1) el pedido de MAÑANA no ensucia la cola de hoy',
+    ($m = line($dHoy, IT_MILANESA)) !== null && near((float) $m['qty'], 6.0),
+    'milanesa hoy = ' . json_encode($m['qty'] ?? null) . ' (esperado 6, sin las 7 de mañana)', $failures, $checks);
+check('(K2) lo VENCIDO no producido sigue siendo trabajo pendiente de hoy',
+    ($sp = line($dHoy, IT_SOPA)) !== null && near((float) $sp['qty'], 7.0),
+    'sopa hoy = ' . json_encode($sp['qty'] ?? null) . ' (esperado 7 = 2 sin fecha + 5 vencidas)', $failures, $checks);
+check('(K3) la respuesta declara de qué día es el lote',
+    ($dHoy['date'] ?? null) === $hoy,
+    'date = ' . json_encode($dHoy['date'] ?? null) . " (esperado $hoy)", $failures, $checks);
+
+$dManana = $demand->pendingByItem($companyId, $outletId, $manana);
+check('(K4) pedir MAÑANA trae solo ese día — ni las sin fecha ni las vencidas',
+    ($m2 = line($dManana, IT_MILANESA)) !== null
+        && near((float) $m2['qty'], 7.0)
+        && line($dManana, IT_SOPA) === null,
+    'milanesa mañana = ' . json_encode($m2['qty'] ?? null) . ' (esperado 7) y sopa = ' . json_encode(line($dManana, IT_SOPA)), $failures, $checks);
+check('(K5) una fecha que no es fecha se rechaza, no devuelve la cola entera',
+    (static function () use ($demand, $companyId, $outletId): bool {
+        try { $demand->pendingByItem($companyId, $outletId, 'mañana'); return false; }
+        catch (\InvalidArgumentException $e) { return true; }
+    })(),
+    'pendingByItem() aceptó una fecha inválida', $failures, $checks);
 
 // Sin cola, la respuesta es vacía y honesta — no un error.
 ncmExecute('DELETE FROM pos_order WHERE channelref = ?', [MARK]);

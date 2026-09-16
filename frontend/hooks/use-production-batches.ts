@@ -79,13 +79,19 @@ export function useProductionBatchEstimate(payload: EstimateBatchPayload | null)
  * resultado", disparado por una acción explícita, sin cache que envejezca.
  *
  * Por lo mismo NO invalida nada: no escribió nada.
+ *
+ * `date` (`YYYY-MM-DD`, context/79) elige QUÉ cola se trae. Sin ella el
+ * servidor usa hoy —el comportamiento previo— y "hoy" incluye además las
+ * órdenes sin fecha y las vencidas no producidas (D2). El día se resuelve
+ * server-side con el reloj del comercio, no acá.
  */
 export function useOrderDemand() {
-  return useMutation<OrderDemand, Error, string>({
-    mutationFn: (outletId) =>
-      api.get<OrderDemand>(
-        `/v1/production-batches?resource=order-demand&outletId=${encodeURIComponent(outletId)}`,
-      ),
+  return useMutation<OrderDemand, Error, { outletId: string; date?: string | null }>({
+    mutationFn: ({ outletId, date }) => {
+      const params = new URLSearchParams({ resource: "order-demand", outletId })
+      if (date) params.set("date", date)
+      return api.get<OrderDemand>(`/v1/production-batches?${params.toString()}`)
+    },
   })
 }
 

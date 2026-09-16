@@ -15,9 +15,10 @@
  */
 
 import * as React from "react"
-import { Ban, ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-react"
+import { Ban, CalendarClock, ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -48,6 +49,7 @@ import {
   ACTOR_KIND_LABEL,
   canCancelOrderItem,
   orderDestination,
+  orderScheduledLabel,
   orderTotal,
 } from "@/lib/orders/order-display"
 
@@ -108,6 +110,7 @@ export function OrderDetailView({
   const total = orderTotal(order)
   const destination = orderDestination(order)
   const timeIso = order.sentAt ?? order.createdAt
+  const scheduled = orderScheduledLabel(order)
 
   function handleAssignCourier(courierId: string | null) {
     assignCourier.mutate(
@@ -139,6 +142,13 @@ export function OrderDetailView({
               </span>
             )}
             <OrderStatusBadge order={order} />
+            {/* Fecha de entrega comprometida (context/79) — solo si existe. */}
+            {scheduled && (
+              <Badge variant="outline" className="gap-1 font-normal">
+                <CalendarClock className="size-3.5" aria-hidden />
+                {scheduled}
+              </Badge>
+            )}
           </div>
         </div>
         {/* pr-10: el botón X del Dialog es `absolute top-4 right-4` y quedaba

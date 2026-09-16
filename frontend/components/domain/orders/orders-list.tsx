@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, ClipboardList } from "lucide-react"
+import { AlertCircle, ArrowLeft, CalendarClock, ClipboardList } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type OrderRow, type OrdersReportResponse } from "@/hooks/use-reports"
 import type { Order } from "@/hooks/use-orders"
 import { formatMoney } from "@/lib/format"
-import { formatDateTime } from "@/lib/format-date"
+import { formatDate, formatDateTime } from "@/lib/format-date"
 
 /**
  * Adapta la fila liviana del reporte (`OrderRow`) al shape completo de
@@ -54,6 +54,7 @@ function toOrderStub(row: OrderRow): Order {
     channelRef: null,
     saleTransactionId: null,
     createdAt: row.date,
+    scheduledFor: row.scheduledFor,
     sentAt: null,
     closedAt: null,
     fulfillment: "dine_in",
@@ -113,6 +114,25 @@ export function OrdersList({ backHref, customerIdFilter, embeddedRange }: Orders
           return v ? <span className="tabular-nums">{v}</span> : <span className="opacity-40">—</span>
         },
         meta: { label: "Orden", className: "tabular-nums" },
+      },
+      {
+        accessorKey: "scheduledFor",
+        header: "Entrega",
+        // Fecha de entrega comprometida (context/79). Vacía cuando el pedido
+        // es para ahora, que es el caso normal — no se escribe "Inmediata" en
+        // cada fila para decir que no pasa nada.
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? (
+            <Badge variant="outline" className="gap-1 font-normal">
+              <CalendarClock className="size-3.5" aria-hidden />
+              {formatDate(v)}
+            </Badge>
+          ) : (
+            <span className="opacity-40">—</span>
+          )
+        },
+        meta: { label: "Entrega" },
       },
       {
         accessorKey: "customerName",

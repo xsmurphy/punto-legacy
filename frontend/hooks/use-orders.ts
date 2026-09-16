@@ -164,6 +164,17 @@ export interface Order {
   channelRef: string | null
   saleTransactionId: string | null
   createdAt: string | null
+  /**
+   * Fecha de entrega comprometida (mig 225, context/79). `null` = "para
+   * ahora", que es lo que significa toda orden anterior a este slice y toda
+   * orden de mostrador/mesa que no la pide.
+   *
+   * Las comparaciones por día las hace el SERVIDOR (el KDS pide
+   * `scheduledUntil=today` y el lote manda su fecha): el reloj del comercio no
+   * es el del dispositivo, y cortar el día acá desfasaría una pantalla entera.
+   * Acá se usa para MOSTRAR y, en el KDS, como red de seguridad al renderizar.
+   */
+  scheduledFor: string | null
   sentAt: string | null
   closedAt: string | null
   /**
@@ -238,6 +249,13 @@ export interface CreateOrderInput {
   note?: string
   channelRef?: string
   sendNow?: boolean
+  /**
+   * Fecha de entrega comprometida, `YYYY-MM-DD` (context/79). Opcional: sin
+   * ella la orden es "para ahora" y el flujo no cambia en nada. El backend
+   * la guarda como la medianoche del comercio y NO rechaza fechas pasadas —
+   * un pedido cargado tarde es legítimo.
+   */
+  scheduledFor?: string
   /**
    * "Orden en venta" (cobrar primero, producir después): la orden nace YA
    * PAGADA. El backend persiste `saletransactionid` en el mismo INSERT — no

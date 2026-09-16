@@ -7,6 +7,7 @@ use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Items\AddonService;
 use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
 use Punto\Api\Services\TransactionLinkService;
+use Punto\Api\Support\TenantClock;
 
 require_once __DIR__ . '/OrderNotFoundException.php';
 
@@ -179,7 +180,7 @@ final class OrderCoreService
      *              note?:string, course?:int,
      *              selections?:list<array{optionId:string, qty:int}>}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
-     *              sendNow?:bool, transactionId?:string} $data
+     *              sendNow?:bool, transactionId?:string, scheduledFor?:string} $data
      * @return string orderId
      */
     public function create(string $companyId, array $data): string
@@ -208,6 +209,11 @@ final class OrderCoreService
         // acá solo dejamos el rastro del cobro, el status lo sigue decidiendo
         // sendNow.
         $transactionId  = !empty($data['transactionId']) ? (string) $data['transactionId'] : null;
+        // Fecha de entrega comprometida (context/79, D1). Opcional: sin ella
+        // la orden es "para ahora" y nada cambia. Se normaliza ACÁ —antes de
+        // cualquier lock— para que una fecha malformada salga 422 sin haber
+        // tocado el correlativo ni la sesión del espacio.
+        $scheduledFor   = self::normalizeScheduledFor($data['scheduledFor'] ?? null);
 
         // `fulfillment` es ORTOGONAL a `source` (context/27 §B.1) — ver mig 94.
         // Una orden de espacio SIEMPRE es dine_in (misma lógica que fuerza
@@ -413,12 +419,16 @@ final class OrderCoreService
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
                  spacesessionid, customerid, userid, note, channelref,
                  fulfillment, deliveryaddressid, deliveryaddress, deliveryreference, deliverylat, deliverylng,
-                 sent_at)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
+                 scheduled_for, sent_at)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
             [
                 $companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef,
                 $fulfillment, $deliveryAddressId, $deliveryAddress, $deliveryReference, $deliveryLat, $deliveryLng,
+                // Mismo INSERT que el resto de la cabecera (regla 2 de
+                // context/modules/11): un solo write, sin una ventana en la que
+                // la orden exista sin su fecha de entrega.
+                $scheduledFor,
             ]
         );
         if ($rs === false || $rs->EOF) {
@@ -1254,6 +1264,29 @@ final class OrderCoreService
             $where[]  = 'o.created_at <= ?';
             $params[] = (string) $filters['to'];
         }
+        // ── Fecha de entrega (context/79) ─────────────────────────────────
+        //
+        // Los dos filtros comparan por DÍA y no por instante: la fecha de
+        // entrega es "para el viernes", no "para el viernes a las 00:00". El
+        // `::date` sale en hora del COMERCIO sin `AT TIME ZONE` explícito
+        // porque `TenantClock::apply()` ya fijó la zona de la sesión de
+        // Postgres en el embudo de auth (mismo hallazgo de context/67).
+        //
+        // `scheduledUntil` = "hasta este día inclusive", e incluye las órdenes
+        // SIN fecha: un NULL significa "para ahora", así que nunca es futuro y
+        // sacarlo vaciaría la cola de cocina. Es el filtro del KDS (D3).
+        //
+        // `scheduledOn` = solo ese día, y ahí las sin fecha NO entran: quien
+        // pregunta "¿qué tengo comprometido para el viernes?" no está
+        // preguntando por lo de hoy.
+        if (!empty($filters['scheduledUntil'])) {
+            $where[]  = '(o.scheduled_for IS NULL OR o.scheduled_for::date <= ?::date)';
+            $params[] = self::resolveFilterDay((string) $filters['scheduledUntil'], $companyId);
+        }
+        if (!empty($filters['scheduledOn'])) {
+            $where[]  = 'o.scheduled_for::date = ?::date';
+            $params[] = self::resolveFilterDay((string) $filters['scheduledOn'], $companyId);
+        }
         if (!empty($filters['q'])) {
             $where[]  = '(o.note ILIKE ? OR o.channelref ILIKE ?)';
             $params[] = '%' . $filters['q'] . '%';
@@ -1440,6 +1473,81 @@ final class OrderCoreService
         if ($rs !== false && !$rs->EOF) {
             $this->recordEvent($companyId, (string) $before['outletid'], $orderId, null, null, 'order', (string) $before['status'], $newStatus);
         }
+    }
+
+    /**
+     * Normaliza la fecha de entrega recibida (context/79, D1).
+     *
+     * Acepta el día solo (`YYYY-MM-DD`, que es lo único que captura la UI hoy)
+     * y también una fecha con hora, porque el tipo de la columna la admite y
+     * el día que un canal la mande —un delivery con horario pactado— no tiene
+     * que migrar nada. El día solo se guarda como la MEDIANOCHE del comercio:
+     * la sesión de Postgres ya está en la zona del tenant cuando esto corre
+     * (`TenantClock::apply()`), así que un string naive se interpreta como
+     * hora local y no como UTC.
+     *
+     * NO se rechazan las fechas pasadas. Un pedido que se carga tarde —el que
+     * entró por teléfono ayer y recién se sienta en el sistema hoy— es
+     * legítimo, y el lote de producción lo trata explícitamente como trabajo
+     * todavía pendiente (D2). Rechazarlo obligaría al cajero a mentir con la
+     * fecha para poder cargarlo.
+     *
+     * Lo que sí se rechaza es lo que no es una fecha: el 422 sale antes de
+     * abrir la transacción, con un mensaje que dice qué se esperaba.
+     */
+    private static function normalizeScheduledFor($raw): ?string
+    {
+        if ($raw === null || $raw === '' || !is_string($raw)) {
+            return null;
+        }
+        $value = trim($raw);
+        if ($value === '') {
+            return null;
+        }
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            $d = \DateTimeImmutable::createFromFormat('Y-m-d', $value);
+            if ($d === false || $d->format('Y-m-d') !== $value) {
+                throw new \InvalidArgumentException('Fecha de entrega inválida (esperado AAAA-MM-DD)');
+            }
+            return $value . ' 00:00:00';
+        }
+
+        // Con hora: cualquier formato que PHP entienda (ISO 8601 con o sin
+        // offset). Se devuelve tal cual llegó cuando trae zona explícita —
+        // Postgres la respeta al castear a timestamptz— y normalizado a naive
+        // cuando no la trae, que es la convención de storage del proyecto.
+        try {
+            $d = new \DateTimeImmutable($value);
+        } catch (\Throwable $e) {
+            throw new \InvalidArgumentException('Fecha de entrega inválida (esperado AAAA-MM-DD)');
+        }
+        $hasOffset = preg_match('/(Z|[+-]\d{2}:?\d{2})$/', $value) === 1;
+
+        return $hasOffset ? $value : $d->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Resuelve el día de un filtro de fecha de entrega: `YYYY-MM-DD` tal cual,
+     * o el literal `today`.
+     *
+     * `today` existe para el KDS, y no es azúcar: esa pantalla no conoce la
+     * zona horaria del comercio (su contexto trae sucursal y nombres, no
+     * locale), así que si mandara su propio día calcularía el corte con el
+     * reloj del dispositivo. Un KDS con la tablet en otra zona —o pasada la
+     * medianoche de una de las dos— mostraría u ocultaría un día entero de
+     * comandas. El día del tenant lo sabe el servidor y lo resuelve acá.
+     */
+    private static function resolveFilterDay(string $value, string $companyId): string
+    {
+        $value = trim($value);
+        if ($value === 'today') {
+            return substr(TenantClock::now($companyId), 0, 10);
+        }
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            throw new \InvalidArgumentException('Fecha inválida (esperado AAAA-MM-DD)');
+        }
+        return $value;
     }
 
     /** @return list<array{stationId:string, categoryIds:list<string>}> */
@@ -1726,6 +1834,9 @@ final class OrderCoreService
             'channelRef'        => $row['channelref'] ?? null,
             'saleTransactionId' => $saleTransactionId,
             'createdAt'         => $row['created_at'] ?? null,
+            // Fecha de entrega comprometida (context/79). null = "para ahora",
+            // que es lo que significa toda orden anterior a la mig 225.
+            'scheduledFor'      => $row['scheduled_for'] ?? null,
             'sentAt'            => $row['sent_at'] ?? null,
             'closedAt'          => $row['closed_at'] ?? null,
             'fulfillment'       => (string) ($row['fulfillment'] ?? 'dine_in'),

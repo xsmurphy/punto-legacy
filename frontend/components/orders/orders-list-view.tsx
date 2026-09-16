@@ -13,14 +13,15 @@
  * re-renderice solo esta vista y no el mapa, que se mantiene montado.
  *
  * Columnas: Origen (de dónde vino) / Orden (#N) / Cliente / Ítems (oculto en
- * pantallas angostas) / Tipo (cómo se entrega) / Tiempo (relativo) / Estado /
- * Total. Origen y Tipo son dos ejes separados a propósito — ver
+ * pantallas angostas) / Tipo (cómo se entrega) / Entrega (para qué día, vacía
+ * cuando es para ahora) / Tiempo (relativo) / Estado / Total. Origen y Tipo son dos ejes separados a propósito — ver
  * `orderSourceLabel`/`orderFulfillmentLabel` en `lib/orders/order-display.ts`.
  */
 
 import * as React from "react"
-import { Search } from "lucide-react"
+import { CalendarClock, Search } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { EmptyState } from "@/components/empty-state"
 import {
@@ -41,6 +42,7 @@ import {
   STATUS_ACCENT,
   orderFulfillmentLabel,
   orderItemsSummary,
+  orderScheduledLabel,
   orderSearchHaystack,
   orderSourceLabel,
   orderTotal,
@@ -106,6 +108,7 @@ export function OrdersListView({
                 <TableHead>Cliente</TableHead>
                 <TableHead className="hidden md:table-cell">Ítems</TableHead>
                 <TableHead className="w-24">Tipo</TableHead>
+                <TableHead className="w-32">Entrega</TableHead>
                 <TableHead className="w-28">Tiempo</TableHead>
                 <TableHead className="w-32">Estado</TableHead>
                 <TableHead className="w-28 text-right">Total</TableHead>
@@ -115,6 +118,7 @@ export function OrdersListView({
               {filtered.map((order) => {
                 const accent = STATUS_ACCENT[order.status]
                 const timestamp = order.sentAt ?? order.createdAt
+                const scheduled = orderScheduledLabel(order)
                 return (
                   <TableRow
                     key={order.id}
@@ -141,6 +145,18 @@ export function OrdersListView({
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {orderFulfillmentLabel(order)}
+                    </TableCell>
+                    {/* Fecha de entrega (context/79) — vacía cuando el pedido
+                        es para ahora, que es el caso normal. */}
+                    <TableCell>
+                      {scheduled ? (
+                        <Badge variant="outline" className="gap-1 font-normal">
+                          <CalendarClock className="size-3.5" aria-hidden />
+                          {scheduled}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
                     <TableCell
                       className="tabular-nums text-muted-foreground"

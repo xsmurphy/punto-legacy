@@ -36,6 +36,15 @@
  * Si ya había líneas cargadas se PREGUNTA antes de tocarlas (reemplazar o
  * sumar): pisar en silencio el trabajo manual del operador sería la peor de
  * las dos opciones elegida por él sin enterarse.
+ *
+ * ── Una fecha por lote (context/79, D2) ─────────────────────────────────────
+ *
+ * El selector de al lado del botón elige QUÉ día se trae. Hoy (el default)
+ * suma además las órdenes sin fecha y las vencidas no producidas — todo eso es
+ * trabajo pendiente ahora mismo. Cualquier otro día trae SOLO ese día, que es
+ * lo que mantiene el lote auditable ("este lote es la producción del viernes").
+ * El corte del día lo hace el servidor con el reloj del comercio; la pantalla
+ * muestra el día que volvió en la respuesta, no el que creía haber pedido.
  */
 
 import * as React from "react"
@@ -104,8 +113,9 @@ import {
   useOrderDemand,
   useProductionBatchEstimate,
 } from "@/hooks/use-production-batches"
+import { DatePicker } from "@/components/date-picker"
 import { formatQty } from "@/lib/format-qty"
-import { formatTime } from "@/lib/format-date"
+import { formatDate, formatTime, tenantNow } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 import { printProductionBatchSheet } from "@/lib/hardware/printers/print-production-batch"
 import type { ItemKind } from "@/lib/types/item"
@@ -179,6 +189,19 @@ export default function ProductionBatchPage() {
   // La FOTO de la cola que se trajo (D2): metadatos para mostrarla y para
   // avisar de lo que quedó afuera. `null` = todavía no se trajo nada.
   const [snapshot, setSnapshot] = React.useState<OrderDemand | null>(null)
+
+  /**
+   * Día de entrega que se va a traer (context/79, D2). Arranca en HOY según el
+   * reloj del comercio —no el del navegador— y solo cambia si el operador lo
+   * elige: `null` significa "todavía no eligió", así que el default sigue
+   * siendo hoy aunque la pantalla quede abierta hasta pasada la medianoche.
+   */
+  const tenantToday = React.useMemo(
+    () => tenantNow(bootstrap?.timezone).slice(0, 10),
+    [bootstrap?.timezone],
+  )
+  const [pickedDate, setPickedDate] = React.useState<string | null>(null)
+  const demandDate = pickedDate ?? tenantToday
   const [mergeOpen, setMergeOpen] = React.useState(false)
   const [pendingDemand, setPendingDemand] = React.useState<OrderDemand | null>(null)
 
@@ -265,10 +288,10 @@ export default function ProductionBatchPage() {
   async function handleBringFromOrders() {
     if (!outletId) return
     try {
-      const demand = await orderDemand.mutateAsync(outletId)
+      const demand = await orderDemand.mutateAsync({ outletId, date: demandDate })
       if (demand.lines.length === 0) {
         setSnapshot(demand)
-        toast.info("No hay nada pendiente de cocinar en esta sucursal")
+        toast.info("No hay pedidos para esa fecha en esta sucursal")
         return
       }
       // Si el operador ya venía cargando a mano, la decisión es suya.
@@ -542,19 +565,36 @@ export default function ProductionBatchPage() {
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Platos del lote</Label>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleBringFromOrders}
-                  disabled={!outletId || orderDemand.isPending}
-                >
-                  {orderDemand.isPending ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <ListPlus className="size-4" />
-                  )}
-                  Traer de órdenes pendientes
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Qué día se trae (context/79, D2). El label va sr-only: el
+                      botón de al lado ya dice qué hace y una leyenda más en
+                      pantalla es ruido (§14 R8). `h-8` para igualar al botón
+                      `size="sm"` con el que comparte la línea — el default del
+                      picker (h-9) los dejaba desalineados. */}
+                  <Label htmlFor="lote-demand-date" className="sr-only">
+                    Día de entrega
+                  </Label>
+                  <DatePicker
+                    id="lote-demand-date"
+                    value={demandDate}
+                    onChange={(v) => setPickedDate(v || tenantToday)}
+                    className="h-8 w-40"
+                    disabled={!outletId}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleBringFromOrders}
+                    disabled={!outletId || orderDemand.isPending}
+                  >
+                    {orderDemand.isPending ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <ListPlus className="size-4" />
+                    )}
+                    Traer de órdenes pendientes
+                  </Button>
+                </div>
               </div>
 
               {/* La FOTO, declarada (D2): qué se trajo, de cuándo, y qué quedó
@@ -563,7 +603,8 @@ export default function ProductionBatchPage() {
                   hora. */}
               {snapshot && (
                 <p className="text-xs text-muted-foreground">
-                  Cola al momento de traer: {formatTime(snapshot.takenAt)} ·{" "}
+                  Entregas del {formatDate(snapshot.date)} · cola al momento de traer:{" "}
+                  {formatTime(snapshot.takenAt)} ·{" "}
                   {snapshot.orderCount === 1
                     ? "1 pedido pendiente"
                     : `${snapshot.orderCount} pedidos pendientes`}

@@ -10,8 +10,9 @@
  * `includeItems=1`), no de un fetch por card.
  */
 
-import { Clock, DollarSign, Printer, User, X } from "lucide-react"
+import { CalendarClock, Clock, DollarSign, Printer, User, X } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { formatTime } from "@/lib/format-date"
@@ -21,7 +22,12 @@ import { useOrderActions } from "@/hooks/use-order-actions"
 import { CancelOrderDialog } from "@/components/orders/cancel-order-dialog"
 import { type Order } from "@/hooks/use-orders"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
-import { orderDestination, orderItemsSummary, orderTotal } from "@/lib/orders/order-display"
+import {
+  orderDestination,
+  orderItemsSummary,
+  orderScheduledLabel,
+  orderTotal,
+} from "@/lib/orders/order-display"
 
 export function OrderCard({
   order,
@@ -43,6 +49,9 @@ export function OrderCard({
   const hasItems = (order.items?.length ?? 0) > 0
   const total = orderTotal(order)
   const destination = orderDestination(order)
+  // Fecha de entrega comprometida (context/79). Solo se pinta cuando existe:
+  // un "Inmediata" en cada card sería ruido en el 99% de las órdenes.
+  const scheduled = orderScheduledLabel(order)
 
   return (
     <div className={cn("flex flex-col gap-3 rounded-xl border border-border bg-card p-4", className)}>
@@ -59,7 +68,15 @@ export function OrderCard({
             <span>{destination.label}</span>
           </div>
         </div>
-        <OrderStatusBadge order={order} />
+        <div className="flex flex-col items-end gap-1">
+          <OrderStatusBadge order={order} />
+          {scheduled && (
+            <Badge variant="outline" className="gap-1 font-normal">
+              <CalendarClock className="size-3.5" aria-hidden />
+              {scheduled}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {order.customerName ? (

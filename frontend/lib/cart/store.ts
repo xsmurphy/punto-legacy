@@ -658,6 +658,18 @@ interface CartState {
   deliveryAddress: CustomerAddress | null
 
   /**
+   * Fecha de entrega comprometida de la orden en curso, `YYYY-MM-DD`
+   * (context/79). null = "para ahora", que es el default y lo que significa
+   * toda orden de mostrador o de mesa.
+   *
+   * Es un atributo de la ORDEN, igual que `fulfillment`: una venta directa no
+   * tiene fecha de entrega, así que se resetea en los MISMOS puntos
+   * (`setPosMode("venta")`, `beginSale()`, `setSelectedSpace()`), y por el
+   * mismo motivo — el invariante vive acá, no en la UI.
+   */
+  scheduledFor: string | null
+
+  /**
    * Cobro de un espacio completo (context/15 F2): análogo a `orderParentId`
    * pero para VARIAS órdenes a la vez. Se setea vía `loadFromSession()`
    * cuando el cajero toca "Cobrar" en el sheet de un espacio ocupado — el
@@ -900,6 +912,12 @@ interface CartState {
   setDeliveryAddress: (a: CustomerAddress | null) => void
 
   /**
+   * Fecha de entrega de la orden en curso (`YYYY-MM-DD`). null = para ahora,
+   * que es como se quita una fecha ya elegida.
+   */
+  setScheduledFor: (d: string | null) => void
+
+  /**
    * Vuelca TODAS las órdenes no cerradas/canceladas de una sesión de espacio
    * al carrito en modo venta — "cobrar el espacio" (context/15 F2). Merge de
    * líneas de todas las órdenes (mismo criterio de merge que `addLines`:
@@ -1002,6 +1020,7 @@ const initialState = {
   spaceName: null as string | null,
   fulfillment: "dine_in" as Fulfillment,
   deliveryAddress: null as CustomerAddress | null,
+  scheduledFor: null as string | null,
   sessionParentId: null as string | null,
   sessionOrderIds: [] as string[],
   settlementIntent: null as SettlementIntent | null,
@@ -1353,7 +1372,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     set(
       mode === "orden" || mode === "cotizacion"
         ? { posMode: mode, credito: false, interno: false, ivaRemoved: false }
-        : { posMode: mode, fulfillment: "dine_in", deliveryAddress: null },
+        : { posMode: mode, fulfillment: "dine_in", deliveryAddress: null, scheduledFor: null },
     )
   },
 
@@ -1363,7 +1382,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     // (credito/interno/ivaRemoved) NO se tocan — el cajero pudo prender
     // CRÉDITO antes de abrir el cobro, y perderlo acá sería peor que el modo
     // equivocado.
-    set({ posMode: "venta", fulfillment: "dine_in", deliveryAddress: null })
+    set({ posMode: "venta", fulfillment: "dine_in", deliveryAddress: null, scheduledFor: null })
   },
 
   loadFromOrder: (order) => {
@@ -1397,6 +1416,9 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       posMode: "orden",
       fulfillment: "dine_in",
       deliveryAddress: null,
+      // Una mesa se sirve ahora: no hay fecha de entrega que comprometer
+      // (context/79). Mismo criterio que el fulfillment de arriba.
+      scheduledFor: null,
     })
   },
 
@@ -1413,6 +1435,10 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setDeliveryAddress: (a) => {
     set({ deliveryAddress: a })
+  },
+
+  setScheduledFor: (d) => {
+    set({ scheduledFor: d === "" ? null : d })
   },
 
   loadFromSession: (sessionId, spaceName, orders) => {

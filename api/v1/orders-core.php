@@ -6,13 +6,16 @@
  * (aceptación de pedidos online sobre transaction type=12, dominio distinto,
  * no se toca).
  *
- *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, fulfillment, from, to, q, spaceSessionId, customerId; includeItems=1 adjunta ítems batched)
+ *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, fulfillment, from, to, q, spaceSessionId, customerId,
+ *                                                              scheduledUntil, scheduledOn; includeItems=1 adjunta ítems batched)
  *   GET  /v1/orders-core?id=<uuid>                           → detalle con ítems
  *   POST /v1/orders-core                                     → crea (body: outletId, registerId?, source?, fulfillment?, deliveryAddressId?,
  *                                                              items:[{itemId?,qty,price?,note?,course?}],
- *                                                              customerId?, note?, channelRef?, sendNow?, transactionId?)
+ *                                                              customerId?, note?, channelRef?, sendNow?, transactionId?, scheduledFor?)
  *                                                              transactionId: orden "nace pagada" (flujo Orden en venta) — deja el
  *                                                              rastro de cobro sin pasar por markPaid().
+ *                                                              scheduledFor: fecha de entrega comprometida (context/79). Opcional;
+ *                                                              sin ella la orden es "para ahora" y nada cambia.
  *   POST /v1/orders-core?id=<uuid>&action=send                → open → sent
  *   POST /v1/orders-core?id=<uuid>&action=status  {status}    → transición a nivel orden (cancel, etc — closed solo si ya está cobrada)
  *                                                              status='cancelled' exige `reason` no vacío, el permiso
@@ -244,9 +247,23 @@ switch ($method) {
             'q'              => $_GET['q'] ?? null,
             'spaceSessionId' => $_GET['spaceSessionId'] ?? null,
             'customerId'     => $_GET['customerId'] ?? null,
+            // Fecha de entrega (context/79). `scheduledUntil` acota hasta un
+            // día inclusive SUMANDO las órdenes sin fecha (es lo que pide el
+            // KDS para no ver el futuro, D3); `scheduledOn` trae un solo día.
+            // Los dos aceptan el literal `today`, que resuelve el servidor con
+            // el reloj del comercio — ver `resolveFilterDay()`.
+            'scheduledUntil' => $_GET['scheduledUntil'] ?? null,
+            'scheduledOn'    => $_GET['scheduledOn'] ?? null,
         ];
         $includeItems = ($_GET['includeItems'] ?? '') === '1';
-        apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''), $includeItems, $outletScope)]);
+        try {
+            apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''), $includeItems, $outletScope)]);
+        } catch (\Throwable $e) {
+            // Un filtro inválido (fecha malformada, fulfillment inexistente) es
+            // un pedido mal armado, no una falla del servidor: 422 con el
+            // mensaje del service, igual que todas las escrituras de acá.
+            apiError($e->getMessage(), 422);
+        }
         break;
 
     case 'POST':

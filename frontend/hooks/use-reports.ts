@@ -1116,12 +1116,14 @@ export interface SalesSummaryResponse {
  * status: union de `OrderStatus` (hooks/use-orders.ts) — pintar SIEMPRE con
  * `OrderStatusBadge` compartido, no redefinir el mapeo acá.
  * channel: 'ecom' (source='ecommerce') | 'local' (counter/table/schedule).
- * dueDate: `pos_order` no tiene vencimiento, siempre null.
+ * scheduledFor: fecha de entrega comprometida (mig 225, context/79); null =
+ * "para ahora". Reemplaza al viejo `dueDate`, que este reporte devolvía
+ * siempre en null porque el dato no existía.
  */
 export interface OrderRow {
   id: string
   date: string
-  dueDate: string | null
+  scheduledFor: string | null
   orderNo: string
   customerName: string
   outletName: string
