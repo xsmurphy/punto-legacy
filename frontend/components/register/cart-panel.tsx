@@ -1703,7 +1703,16 @@ function CartBottom({
           dentro de cada uno es constante: eso es lo que la Regla #10 exige, no
           un único valor para todos los anchos.
           VACIAR es desktop/tablet only — ver el comentario del chip. */}
-      <div className="mb-2 flex min-h-7 items-center justify-center gap-2 sm:min-h-6 lg:min-h-7">
+      {/* La fila scrollea horizontal cuando no entra (reporte del owner
+          2026-09-17: el chip de Entrega empujó a VACIAR fuera de pantalla en
+          orden-mostrador). El centrado NO puede ser `justify-center` sobre el
+          scroller: con overflow, justify-center recorta el extremo izquierdo
+          del contenido y NO se puede scrollear hasta él (bug clásico de
+          flexbox). El patrón correcto es `mx-auto w-max` en un wrapper
+          interno: centra cuando sobra espacio y deja el scroll completo
+          cuando falta. Sin barra visible — es una fila de chips, no un panel. */}
+      <div className="mb-2 flex min-h-7 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-h-6 lg:min-h-7">
+        <div className="mx-auto flex w-max items-center gap-2">
         {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo
             mobile — el owner lo pidió acá, a la izquierda de CRÉDITO
             (2026-08-01). Va FUERA del condicional de los toggles: en modo
@@ -1775,6 +1784,7 @@ function CartBottom({
             VACIAR
           </button>
         )}
+        </div>
       </div>
 
       {/* Botón cobrar/ordenar — mismo slot, mismo color que la ModeBanner
