@@ -324,20 +324,16 @@ Recomendación: **orden explícito de los conceptos**, configurado por el
 comercio. Cualquier regla implícita hace que la misma compra pueda debitar
 distinto según el día.
 
-### D5 — Cómo se autentica el titular
+### D5 — CERRADA (owner, 2026-09-16): la v1 no tiene interfaz para el titular
 
-- **(a) Identidad propia** (teléfono + verificación), con sesión real.
-  Habilita escritura: transferir, fijar topes, bloquear.
-- **(b) Acceso por link firmado**, sin sesión. Barato y sin fricción, pero un
-  link que mueve dinero o cambia límites es una credencial permanente
-  circulando por mensajería.
-- **(c) El titular no entra**: el comercio administra y le manda el resumen. La
-  wallet funciona; el control del titular, no — y el control es un tercio del
-  módulo (§1).
+En la v1 quien carga y transfiere es el **usuario del comercio**. El titular no
+entra al sistema.
 
-Recomendación: **(b) para lectura, (a) para escritura**, en ese orden. Ver
-saldo e histórico con link firmado entrega valor desde el primer día; mover
-dinero espera identidad real. **El link de lectura nunca habilita escritura.**
+**Fase posterior**: una interfaz para que el **titular y también el hijo** vean
+su saldo. Arranca solo con lectura, y el hijo ve únicamente su propio saldo,
+nunca el del titular ni el de sus hermanos. Cómo se autentica cada uno se
+define al planificar esa fase. Mover dinero o fijar topes desde esa interfaz
+sigue necesitando identidad real, no un link.
 
 ### D6 — Qué pasa cuando el consumo excede saldo o tope
 
