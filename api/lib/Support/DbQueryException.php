@@ -114,4 +114,59 @@ final class DbQueryException extends \Exception
     {
         return $this->paramCount;
     }
+
+    /**
+     * Nombre de la constraint UNIQUE violada, o `null` si este error no es un
+     * `unique_violation` (23505). Ver `uniqueViolationConstraint()`.
+     */
+    public function uniqueConstraint(): ?string
+    {
+        if ($this->sqlState !== '23505') {
+            return null;
+        }
+        return self::uniqueViolationConstraint($this->getMessage());
+    }
+
+    /**
+     * Extrae de un mensaje de PG el NOMBRE de la constraint UNIQUE violada.
+     *
+     * POR QUÉ POR NOMBRE Y NO POR "23505"
+     * -----------------------------------
+     * Todas las unicidades comparten SQLSTATE. Clasificar "cualquier 23505" como
+     * una sola cosa fue exactamente el bug de `SaleService::abortSale()` hasta
+     * 2026-09-16: CUALQUIER unique violation dentro de la venta —un satélite, un
+     * índice nuevo— se reportaba como "venta duplicada", el endpoint respondía
+     * 200 y el POS borraba de la cola una venta YA IMPRESA que nunca se guardó.
+     * Lo único que distingue una unicidad de otra es el nombre de la constraint.
+     *
+     * POR QUÉ SE PARSEA EL MENSAJE
+     * ----------------------------
+     * `pdo_pgsql` no expone los campos de diagnóstico de libpq
+     * (`PG_DIAG_CONSTRAINT_NAME`): `errorInfo` trae solo SQLSTATE, código y
+     * texto. El nombre viaja únicamente dentro del texto, entre comillas. Se
+     * parsea ACÁ, una vez, y no con `str_contains` en cada call-site: un
+     * substring suelto matchea también el nombre de la constraint dentro del
+     * CONTEXT de un trigger o dentro de otro identificador.
+     *
+     * Formato de PG (lc_messages en inglés, el de la imagen oficial):
+     *   ERROR:  duplicate key value violates unique constraint "x"
+     * Se acepta también el formato traducido al castellano (`«x»`) para que un
+     * cambio de locale del servidor no degrade la clasificación en silencio.
+     *
+     * Devuelve `null` si el mensaje no es un unique violation reconocible — el
+     * caller lo tiene que tratar como error REAL, nunca como un caso conocido.
+     */
+    public static function uniqueViolationConstraint(string $message): ?string
+    {
+        if ($message === '') {
+            return null;
+        }
+        if (preg_match('/violates unique constraint "([^"]+)"/', $message, $m) === 1) {
+            return $m[1];
+        }
+        if (preg_match('/restricción de unicidad «([^»]+)»/u', $message, $m) === 1) {
+            return $m[1];
+        }
+        return null;
+    }
 }

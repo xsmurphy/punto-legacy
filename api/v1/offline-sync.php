@@ -38,10 +38,65 @@ if (!is_array($sales) || count($sales) === 0) {
 
 $results = [];
 
+global $db;
+$uidLookup = new \Punto\Api\Sales\SaleUidLookup($db);
+
+/**
+ * Resultado de una venta que YA estaba registrada en el tenant.
+ *
+ * Contrato (2026-09-16): `transactionId` es el id REAL de la venta original.
+ * Hasta esa fecha acá viajaba el uid disfrazado de transactionId, y cualquier
+ * 23505 —no solo el del uid— terminaba en esta respuesta: el POS borraba de su
+ * cola ventas impresas que nunca se habían guardado. `duplicated` solo sale con
+ * una venta confirmada por `SaleUidLookup`.
+ */
+function offlineSyncDuplicateResult(string $tempId, \Punto\Api\Sales\ExistingSale $existing): array
+{
+    return [
+        'clientTempId'  => $tempId,
+        'ok'            => true,
+        'duplicated'    => true,
+        'transactionId' => $existing->transactionId,
+        'sale'          => $existing->toApiPayload(),
+    ];
+}
+
 foreach ($sales as $item) {
     $tempId      = $item['clientTempId'] ?? '';
     $no          = (int) ($item['invoiceNo'] ?? 0);
     $salePayload = $item['sale']          ?? [];
+
+    // Idempotencia PRIMERO — antes del número, de la tenencia y del parseo.
+    // Una venta de la cola que YA quedó registrada (el POST online sí llegó y
+    // expiró del lado del device, o un sync anterior se cortó después del
+    // commit) no está emitiendo nada: rechazarla por REGISTER_TAKEN o
+    // INVALID_INPUT la dejaría "fallida" en la caja con el comprobante hecho.
+    // El uid es el del payload de la venta (el que se persiste), no el
+    // `clientTempId` de la cola, aunque hoy coincidan.
+    $payloadUid = is_array($salePayload)
+        ? (string) ($salePayload['uid'] ?? ($salePayload['transaction']['uid'] ?? ''))
+        : '';
+    if ($payloadUid !== '') {
+        try {
+            $existing = $uidLookup->find($payloadUid, (string) $compId);
+        } catch (DbQueryException $e) {
+            error_log('[offline-sync] lookup de uid falló para ' . $tempId . ': ' . $e->getMessage()
+                . ' | SQLSTATE ' . $e->sqlState());
+            $results[] = [
+                'clientTempId' => $tempId,
+                'ok'           => false,
+                'error'        => [
+                    'code'    => 'SERVER_ERROR',
+                    'message' => 'No se pudo verificar la venta. Sigue en la cola local.',
+                ],
+            ];
+            continue;
+        }
+        if ($existing !== null) {
+            $results[] = offlineSyncDuplicateResult($tempId, $existing);
+            continue;
+        }
+    }
 
     if ($no < 1) {
         // Cliente desactualizado (bundle viejo, antes de este cambio) o
@@ -160,7 +215,6 @@ foreach ($sales as $item) {
     // por lo tanto no se marca. La marca queda solo para el reloj de device
     // corrido o la config vieja, que es lo que el POS ya debería haber
     // bloqueado localmente antes de imprimir (`lib/pos/emission-block.ts`).
-    global $db;
     $service = new SaleService(ctx: TenantContext::fromAuth($authCtx), db: $db);
 
     try {
@@ -193,12 +247,9 @@ foreach ($sales as $item) {
         ];
         continue;
     } catch (DuplicateSaleException $e) {
-        $results[] = [
-            'clientTempId' => $tempId,
-            'ok'           => true,
-            'transactionId' => $e->uid,
-            'duplicated'   => true,
-        ];
+        // Carrera: otro request del mismo uid commiteó entre el lookup de
+        // arriba y este save(). Confirmado dentro del tenant por abortSale().
+        $results[] = offlineSyncDuplicateResult($tempId, $e->existing);
         continue;
     } catch (InvalidSaleInputException $e) {
         $results[] = [

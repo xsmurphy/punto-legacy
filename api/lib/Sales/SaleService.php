@@ -59,12 +59,15 @@ final class SaleService
     /** F3 add-ons (context/41): revalidador server-side de las selecciones. */
     private AddonService $addons;
 
+    private SaleUidLookup $uidLookup;
+
     public function __construct(
         private readonly TenantContext $ctx,
         private readonly DB $db,
     ) {
-        $this->links  = new \Punto\Api\Services\TransactionLinkService();
-        $this->addons = new AddonService();
+        $this->links     = new \Punto\Api\Services\TransactionLinkService();
+        $this->addons    = new AddonService();
+        $this->uidLookup = new SaleUidLookup($db);
     }
 
     /**
@@ -76,16 +79,17 @@ final class SaleService
     public function save(SaleInput $input): SaleResult
     {
         // ── B1: idempotencia — la cola offline puede reenviar el mismo UID ────
-        // (action.php:1944) Si el UID ya existe en `transaction`, devolvemos
-        // duplicate (200); el front marca el UID como sincronizado y no reintenta.
-        // El INSERT también tiene safety-net contra race condition vía UNIQUE
-        // constraint en transactionUID (capturado en doInsertTransaction).
-        $dupRow = $this->db->Execute(
-            'SELECT transactionId FROM transaction WHERE transactionUID = ? LIMIT 1',
-            [$input->uid]
-        );
-        if ($dupRow && !$dupRow->EOF) {
-            throw new DuplicateSaleException(uid: $input->uid);
+        // Si el UID ya existe EN ESTE TENANT, la venta ya se registró: duplicate
+        // (200) con los datos de la venta ORIGINAL, para que el POS muestre esa
+        // y no la del reintento. Acotado por companyId (`SaleUidLookup`): la
+        // unicidad del uid es global, la respuesta no puede serlo.
+        //
+        // La carrera (dos requests del mismo uid que pasan este chequeo a la
+        // vez) la ataja la UNIQUE `transaction_transactionuid_key` del registry
+        // y la clasifica `abortSale()` — con la misma búsqueda.
+        $existing = $this->uidLookup->find($input->uid, (string) $this->ctx->companyId);
+        if ($existing !== null) {
+            throw new DuplicateSaleException(uid: $input->uid, existing: $existing);
         }
 
         // ── B1: validar clientId pertenece al tenant (anti-IDOR) ────────────
@@ -424,39 +428,77 @@ final class SaleService
         );
     }
 
+    /** Unicidad del uid de la venta (mig 156, sobre `transaction_registry`). */
+    public const UID_CONSTRAINT = 'transaction_transactionuid_key';
+
+    /** Unicidad fiscal del número de factura por serie (migs 145/223). */
+    public const INVOICE_NO_CONSTRAINT = 'uq_transaction_expedition_invoiceno';
+
     /**
      * Clasifica un fallo de escritura de la venta y lanza la excepción tipada
      * que corresponde. FUENTE ÚNICA: la llaman los DOS caminos que pueden
      * detectar el fallo —el `catch (DbQueryException)` del bloque de escritura
      * y la verificación post-commit— así que no pueden divergir.
      *
-     * El orden importa. `uq_transaction_expedition_invoiceno` (mig 145) y el
-     * 23505 genérico son AMBOS unique_violation y traen el mismo SQLSTATE, pero
-     * significan cosas opuestas:
+     * La clasificación es por NOMBRE de constraint
+     * (`DbQueryException::uniqueViolationConstraint()`), nunca por SQLSTATE:
+     * todas las unicidades comparten el 23505. Hasta 2026-09-16 cualquier 23505
+     * se declaraba "venta duplicada" → 200 → el POS borraba de su cola una venta
+     * YA IMPRESA que nunca se había guardado (pérdida silenciosa de un
+     * comprobante emitido).
      *
-     *   - `uq_transaction_expedition_invoiceno`: (companyId, registerId,
-     *     timbrado, invoiceNo) ya existe bajo OTRO transactionUID. Es un
-     *     comprobante duplicado REAL, nunca un "éxito silencioso" — el POS
-     *     tiene que renumerar. Se chequea PRIMERO.
-     *   - 23505 a secas: dos requests concurrentes del MISMO evento pasaron el
-     *     dupli check y el segundo chocó contra la UNIQUE de `transactionUID`.
-     *     La cola offline debe recibir 200 y marcar el UID como hecho, no 500
-     *     (si no, reintenta para siempre).
+     *   1. `transaction_transactionuid_key` o `uq_transaction_expedition_invoiceno`
+     *      con una venta de ESE uid visible en el tenant → es el mismo cobro
+     *      que llegó dos veces (carrera entre dos requests del mismo uid; cuál
+     *      de las dos unicidades salta primero es un detalle de PG) →
+     *      `DuplicateSaleException` con la venta original.
+     *   2. `uq_transaction_expedition_invoiceno` sin esa venta → el número ya lo
+     *      tiene OTRO uid: comprobante duplicado REAL, el POS tiene que
+     *      renumerar → `DuplicateInvoiceNumberException`.
+     *   3. Todo lo demás —el uid chocando sin fila visible en el tenant (otro
+     *      tenant, carrera que terminó en rollback), otra unicidad cualquiera,
+     *      cualquier otro error— es un ERROR REAL → `SaleAbortedException`. El
+     *      POS deja la venta en su cola y reintenta; nunca la da por guardada.
+     *
+     * La búsqueda corre FUERA de la transacción de la venta: el wrapper ya hizo
+     * rollback antes de propagar, y el 23505 de una carrera recién se levanta
+     * cuando la transacción ganadora COMMITEÓ, así que su fila ya es visible.
+     * Si la búsqueda misma falla, no se puede confirmar el duplicado → caso 3.
      *
      * @param string $dbError mensaje crudo de PG (de DbQueryException o de
-     *                        ErrorMsg()); trae el SQLSTATE embebido.
+     *                        ErrorMsg()).
      */
     private function abortSale(SaleInput $input, string $dbError): never
     {
-        if ($dbError !== '' && str_contains($dbError, 'uq_transaction_expedition_invoiceno')) {
+        $constraint = DbQueryException::uniqueViolationConstraint($dbError);
+
+        if ($constraint === self::UID_CONSTRAINT || $constraint === self::INVOICE_NO_CONSTRAINT) {
+            $existing = null;
+            try {
+                $existing = $this->uidLookup->find($input->uid, (string) $this->ctx->companyId);
+            } catch (DbQueryException $e) {
+                error_log('[SaleService] abortSale: no se pudo confirmar el duplicado del uid '
+                    . $input->uid . ' — se trata como error real. ' . $e->getMessage());
+            }
+            if ($existing !== null) {
+                throw new DuplicateSaleException(uid: $input->uid, existing: $existing);
+            }
+        }
+
+        if ($constraint === self::INVOICE_NO_CONSTRAINT) {
             throw new DuplicateInvoiceNumberException(
                 registerId: (string) $this->ctx->registerId,
                 invoiceNo:  $input->invoiceNo,
             );
         }
-        if ($dbError !== '' && str_contains($dbError, '23505')) {
-            throw new DuplicateSaleException(uid: $input->uid);
+
+        if ($constraint === self::UID_CONSTRAINT) {
+            // No se filtra NADA de la fila que chocó: puede ser de otro tenant.
+            error_log('[SaleService] abortSale: el uid ' . $input->uid
+                . ' choca contra ' . self::UID_CONSTRAINT . ' pero no hay venta visible en el tenant '
+                . $this->ctx->companyId . ' — NO es duplicado, se propaga como error.');
         }
+
         throw new SaleAbortedException(
             dbError: $dbError !== '' ? $dbError : null,
             message: 'Sale transaction aborted (no persistió tras commit)',
@@ -2561,13 +2603,12 @@ final class SaleService
             throw new InvalidSaleInputException('saveQuote requiere type=9');
         }
 
-        $dupRow = $this->db->Execute(
-            'SELECT transactionId FROM transaction WHERE transactionUID = ? LIMIT 1',
-            [$input->uid]
-        );
-        if ($dupRow && !$dupRow->EOF) {
+        // Acotado al tenant, igual que `save()`: devolver el id de una
+        // transacción de otro tenant por coincidir el uid era una fuga.
+        $existingQuote = $this->uidLookup->find($input->uid, (string) $this->ctx->companyId);
+        if ($existingQuote !== null) {
             return [
-                'transactionId'  => (string) $dupRow->fields['transactionid'],
+                'transactionId'  => $existingQuote->transactionId,
                 'transactionNo'  => 0,
                 'transactionDoc' => '',
                 'duplicated'     => true,
