@@ -29,10 +29,10 @@ Este artículo aplica solo a comercios en Paraguay. La facturación electrónica
 
 ## Cómo se activa en Punto
 
-1. Entrá a Configuración › Facturación electrónica.
+1. Entrá a [Configuración › Facturación electrónica](panel:/settings/facturacion-electronica).
 2. Completá los datos del emisor: RUC, razón social, actividad económica y establecimientos de tu comercio.
 3. Cargá el certificado de firma y el código de seguridad (CSC).
-4. Cargá el timbrado de cada caja que vaya a emitir comprobantes electrónicos. Esto se hace desde Sucursales › (tu sucursal) › Cajas › editar la caja: número de timbrado, establecimiento y punto de expedición, vigencia y numeración de facturas.
+4. Cargá el timbrado de cada caja que vaya a emitir comprobantes electrónicos. Esto se hace desde [Sucursales](panel:/outlets) › (tu sucursal) › Cajas › editar la caja: número de timbrado, establecimiento y punto de expedición, vigencia y numeración de facturas.
 5. Si usás distintos medios de pago (efectivo, tarjeta, transferencia, etc.), revisá el mapeo de medios de pago para que cada uno se declare con el código correcto.
 
 Mientras el emisor está en proceso de habilitación, algunas partes de la configuración (como el mapeo de medios de pago) quedan bloqueadas hasta que el alta se complete.

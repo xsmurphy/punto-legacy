@@ -13,7 +13,7 @@ Cuando tenés más de una sucursal o más de un depósito, en algún momento vas
 
 ## Cómo hacer una transferencia
 
-1. Entrá a Artículos › Transferencias.
+1. Entrá a [Artículos › Transferencias](panel:/stock-transfer).
 2. Creá una transferencia nueva.
 3. Elegí la sucursal (o depósito) de origen y la de destino. Tienen que ser distintas entre sí.
 4. Agregá los artículos y la cantidad de cada uno que vas a trasladar.

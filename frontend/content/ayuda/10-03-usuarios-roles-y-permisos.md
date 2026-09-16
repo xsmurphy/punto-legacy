@@ -13,7 +13,7 @@ Cada persona que usa Punto en tu negocio (vos, tus cajeros, tus encargados) nece
 
 ## Crear un usuario nuevo
 
-1. Entrá a Contactos › Equipo.
+1. Entrá a [Contactos › Equipo](panel:/contacts?type=0).
 2. Agregá una persona nueva con sus datos básicos (nombre y teléfono).
 3. Asignale un rol. El rol define qué va a poder hacer esa persona una vez que entre al sistema.
 4. Guardá los cambios.
@@ -28,7 +28,7 @@ Podés usar los roles que Punto trae por defecto o crear roles propios, ajustado
 
 ## Configurar roles y permisos
 
-1. Entrá a Configuración › Roles y permisos.
+1. Entrá a [Configuración › Roles y permisos](panel:/settings/roles).
 2. Elegí un rol existente para revisar o modificar sus permisos, o creá uno nuevo.
 3. Marcá qué puede hacer ese rol: por ejemplo, cobrar ventas, anular una venta, ajustar stock, ver reportes de un tema puntual, administrar usuarios, editar la configuración del negocio.
 4. Guardá los cambios. Los usuarios que tengan ese rol asignado quedan actualizados automáticamente — no hace falta tocarlos uno por uno.
@@ -49,4 +49,4 @@ El cambio aplica a todos los usuarios de ese rol de inmediato, sin que tengas qu
 Sí, se puede dar acceso a una o varias sucursales según cómo armes tu equipo. Si no se le asigna ninguna en particular, por defecto ve todas.
 
 **¿Cómo le saco el acceso a alguien que dejó de trabajar con vos?**
-Desactivá o eliminá su usuario desde Contactos › Equipo. Si esa persona también usaba un dispositivo de caja emparejado, revocá ese dispositivo desde Configuración para cerrar también esa sesión.
+Desactivá o eliminá su usuario desde [Contactos › Equipo](panel:/contacts?type=0). Si esa persona también usaba un dispositivo de caja emparejado, revocá ese dispositivo desde Configuración para cerrar también esa sesión.

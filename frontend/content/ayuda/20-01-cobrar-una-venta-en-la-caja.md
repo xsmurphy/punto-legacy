@@ -17,7 +17,7 @@ Para poder cobrar necesitás tener la caja abierta (ver [Apertura, cierre y arqu
 
 ## Pasos para cobrar
 
-1. Entrá a Caja › Hotkeys — esa es la pantalla principal de venta.
+1. Entrá a [Caja › Hotkeys](panel:/pos) — esa es la pantalla principal de venta.
 2. Agregá los productos que lleva el cliente: buscalos por nombre, código, o tocando el botón del producto si lo tenés configurado como acceso rápido.
 3. Revisá el carrito: cantidades, y si corresponde, aplicá un descuento por línea o sobre el total de la venta.
 4. Si el cliente tiene datos que necesitás asociar a la venta (por ejemplo, para una venta a crédito o para acumular puntos), seleccionalo como cliente de la venta.

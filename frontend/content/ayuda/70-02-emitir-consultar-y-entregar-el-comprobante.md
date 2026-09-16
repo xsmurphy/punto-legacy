@@ -17,7 +17,7 @@ Con la caja configurada con su timbrado, el Documento Electrónico (DE) se emite
 
 Si por algún motivo una venta quedó sin emitir (por ejemplo, quedó pendiente de proceso), se puede emitir a mano:
 
-1. Entrá al detalle de esa venta (desde Reportes › Transacciones, abrí la venta puntual).
+1. Entrá al detalle de esa venta (desde [Reportes › Transacciones](panel:/reports/sales?tab=transacciones), abrí la venta puntual).
 2. Hacé clic en "Emitir factura electrónica".
 3. El sistema intenta emitirla en el momento. Si la venta ya tenía su comprobante emitido, te lo va a avisar — no hay riesgo de duplicar por apretar el botón de más.
 
@@ -48,7 +48,7 @@ El comprobante rechazado queda igual visible en el sistema, con su motivo, para 
 No necesariamente. El ticket que sale por defecto es un comprobante de la operación; el documento fiscal es el DE, y su representación oficial (el KuDE) se descarga desde el detalle de la venta una vez emitido.
 
 **¿Qué hago si un cliente perdió su comprobante y lo necesita de nuevo?**
-Buscá la venta en Reportes › Transacciones y volvé a descargar el KuDE desde ahí — no hace falta volver a emitir nada.
+Buscá la venta en [Reportes › Transacciones](panel:/reports/sales?tab=transacciones) y volvé a descargar el KuDE desde ahí — no hace falta volver a emitir nada.
 
 **¿Puedo corregir un comprobante que ya salió con un dato mal?**
 La emisión ya hecha no se edita ni se vuelve a enviar. Las correcciones sobre una venta ya facturada se manejan con los mecanismos de anulación o nota de crédito, no reemitiendo el mismo documento.

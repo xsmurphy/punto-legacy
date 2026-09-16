@@ -13,7 +13,7 @@ Vender a crédito significa entregar la mercadería ahora y cobrarla después. P
 
 ## Habilitar crédito para un cliente
 
-Antes de poder venderle a crédito a un cliente, tenés que habilitarlo desde su ficha en Contactos › Clientes: activá la opción de crédito y, si querés, definí un tope de saldo como referencia. Un cliente sin esta opción habilitada no va a poder pagarse a crédito en la caja.
+Antes de poder venderle a crédito a un cliente, tenés que habilitarlo desde su ficha en [Contactos › Clientes](panel:/contacts?type=1): activá la opción de crédito y, si querés, definí un tope de saldo como referencia. Un cliente sin esta opción habilitada no va a poder pagarse a crédito en la caja.
 
 ## Cómo se vende a crédito
 
@@ -21,7 +21,7 @@ En la caja, al cobrar una venta, elegí crédito como medio de pago y seleccion�
 
 ## Dónde ver la deuda de tus clientes
 
-Entrá a Ventas › Cuentas por cobrar para ver el listado completo de clientes con saldo pendiente. Desde ahí también podés entrar al detalle de un cliente puntual y ver cada factura pendiente con lo que ya se le cobró de cada una.
+Entrá a [Ventas › Cuentas por cobrar](panel:/reports/open-invoices?tab=cobrar) para ver el listado completo de clientes con saldo pendiente. Desde ahí también podés entrar al detalle de un cliente puntual y ver cada factura pendiente con lo que ya se le cobró de cada una.
 
 ## Cómo cobrar una deuda
 
@@ -52,4 +52,4 @@ El tope de saldo que cargás en la ficha del cliente es una referencia informati
 Depende de los permisos de su rol. Por defecto, un cajero puede cobrar crédito pero no anular un cobro ya hecho — esa acción suele requerir un perfil con más permisos.
 
 **¿Cómo funciona del lado de mis proveedores?**
-Es el mismo mecanismo pero invertido: en vez de que te deban a vos, vos le debés al proveedor. Ver [cómo registrar una compra](40-01-registrar-una-compra.md) para el alta de la deuda, y Compras y Gastos › Cuentas por pagar para pagarla.
+Es el mismo mecanismo pero invertido: en vez de que te deban a vos, vos le debés al proveedor. Ver [cómo registrar una compra](40-01-registrar-una-compra.md) para el alta de la deuda, y [Compras y Gastos › Cuentas por pagar](panel:/reports/open-invoices?tab=pagar) para pagarla.

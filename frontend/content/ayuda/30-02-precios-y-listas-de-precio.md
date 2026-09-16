@@ -13,7 +13,7 @@ Todo artículo tiene un precio base de venta, pero muchos comercios necesitan co
 
 ## El precio base
 
-El precio base es el que cargás en la ficha del artículo, en Artículos › Catálogo. Es el precio con el que se vende cuando no hay ninguna lista de precio aplicada. Si el artículo tiene un impuesto asociado, se calcula sobre este precio.
+El precio base es el que cargás en la ficha del artículo, en [Artículos › Catálogo](panel:/items). Es el precio con el que se vende cuando no hay ninguna lista de precio aplicada. Si el artículo tiene un impuesto asociado, se calcula sobre este precio.
 
 ## Qué es una lista de precio
 
@@ -25,7 +25,7 @@ Una lista de precio es un conjunto de reglas de ajuste que se aplica sobre el pr
 
 ## Cómo crear una lista de precio
 
-1. Entrá a Configuración › Listas de precios.
+1. Entrá a [Configuración › Listas de precios](panel:/settings/price-lists).
 2. Creá una lista nueva y ponele un nombre descriptivo (por ejemplo "Mayorista" o "Sucursal Centro").
 3. Definí un ajuste general en porcentaje: negativo para descuento, positivo para recargo. Este ajuste se aplica a todos los artículos de la lista salvo que definas una excepción puntual.
 4. Si necesitás un precio distinto para un artículo en particular, agregalo como excepción dentro de la lista: podés poner un precio fijo para ese artículo o un porcentaje de ajuste propio que reemplaza al general.
@@ -44,7 +44,7 @@ Si la lista asignada no está vigente (por fecha o porque la desactivaste), el s
 
 ## Una nota sobre impuestos
 
-Además del precio, cada artículo puede tener un impuesto asociado que se calcula sobre el precio ya ajustado por la lista de precio (si corresponde). La configuración de impuestos por artículo se administra en Configuración › Catálogo, en la pestaña "Impuestos", pero para el día a día de precios y listas no necesitás tocar esa sección salvo que quieras revisar qué impuesto tiene asignado un artículo.
+Además del precio, cada artículo puede tener un impuesto asociado que se calcula sobre el precio ya ajustado por la lista de precio (si corresponde). La configuración de impuestos por artículo se administra en [Configuración › Catálogo](panel:/settings/catalog?tab=taxes), en la pestaña "Impuestos", pero para el día a día de precios y listas no necesitás tocar esa sección salvo que quieras revisar qué impuesto tiene asignado un artículo.
 
 ## Preguntas frecuentes
 

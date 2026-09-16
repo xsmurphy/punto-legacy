@@ -13,13 +13,13 @@ Cada artículo de tu catálogo puede tener un impuesto asociado (por ejemplo, el
 
 ## Crear las tasas de tu negocio
 
-1. Entrá a Configuración › Catálogo, pestaña "Impuestos".
+1. Entrá a [Configuración › Catálogo](panel:/settings/catalog?tab=taxes), pestaña "Impuestos".
 2. Cargá cada tasa que uses: un nombre (por ejemplo, "Tasa general") y el porcentaje que corresponde.
 3. Si tenés artículos que no pagan impuesto en absoluto, marcalos como exentos en lugar de ponerles una tasa del 0%. Son dos cosas distintas para el documento fiscal de tu país: un artículo con tasa 0% y uno exento no se reportan igual, aunque en el momento de la venta el cliente pague lo mismo por los dos.
 
 ## Asignar el impuesto a un artículo
 
-1. Entrá a Artículos › Catálogo y abrí el artículo.
+1. Entrá a [Artículos › Catálogo](panel:/items) y abrí el artículo.
 2. En la pestaña "Configuración", buscá la sección "Impuestos y descuentos".
 3. Elegí el impuesto que le corresponde.
 4. Indicá si el precio de venta que cargaste ya incluye el impuesto o si el impuesto se suma aparte. Esto define cómo se calcula el desglose en el ticket: con la primera opción, el impuesto se calcula "hacia adentro" del precio que ves en el catálogo; con la segunda, se suma al precio en el momento de cobrar.

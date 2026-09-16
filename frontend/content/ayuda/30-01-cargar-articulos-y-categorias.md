@@ -13,7 +13,7 @@ El catálogo es la lista de todo lo que vendés: productos con stock, servicios,
 
 ## Cómo cargar un artículo nuevo
 
-1. Entrá a Artículos › Catálogo.
+1. Entrá a [Artículos › Catálogo](panel:/items).
 2. Hacé clic en "Nuevo artículo" (o el botón equivalente de alta).
 3. Elegí el tipo de artículo. Los más comunes son:
    - **Producto**: tiene stock, lo comprás y lo vendés (una bebida, una prenda).
@@ -29,7 +29,7 @@ El catálogo es la lista de todo lo que vendés: productos con stock, servicios,
 
 Las categorías agrupan artículos por rubro (por ejemplo "Bebidas", "Panificados") y las marcas identifican al fabricante o proveedor de origen. Ambas sirven para ordenar el catálogo, filtrar en los reportes y organizar los botones de venta en la caja.
 
-Se administran desde Configuración › Catálogo, en las pestañas "Categorías" y "Marcas". Podés crear, renombrar o eliminar una categoría o marca en cualquier momento; los artículos ya cargados se actualizan solos.
+Se administran desde [Configuración › Catálogo](panel:/settings/catalog?tab=categories), en las pestañas "Categorías" y "Marcas". Podés crear, renombrar o eliminar una categoría o marca en cualquier momento; los artículos ya cargados se actualizan solos.
 
 ## Cargar varios artículos a la vez
 

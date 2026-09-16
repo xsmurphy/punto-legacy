@@ -13,13 +13,13 @@ Si tu negocio tiene mesas físicas (un salón, una barra, un patio), Espacios te
 
 ## Antes de empezar
 
-Necesitás tener el plano de tu salón armado en Configuración › Espacios, con tus mesas y sectores cargados. Una vez armado, se opera desde Caja › Espacios.
+Necesitás tener el plano de tu salón armado en [Configuración › Espacios](panel:/settings/espacios), con tus mesas y sectores cargados. Una vez armado, se opera desde [Caja › Espacios](panel:/pos/espacios).
 
 Espacios necesita conexión a internet siempre: como el estado de una mesa lo puede tocar más de una caja a la vez, sin conexión no hay forma segura de saber si otra caja ya cobró algo de esa mesa.
 
 ## Abrir una mesa y tomar pedidos
 
-1. Entrá a Caja › Espacios. Vas a ver el plano con cada mesa en su estado: libre, ocupada o con la cuenta pedida.
+1. Entrá a [Caja › Espacios](panel:/pos/espacios). Vas a ver el plano con cada mesa en su estado: libre, ocupada o con la cuenta pedida.
 2. Tocá una mesa libre para abrirla.
 3. Tomale los pedidos como una orden normal (ver [Órdenes, comandas y cocina](20-06-ordenes-comandas-y-cocina.md)) — quedan asociados a esa mesa.
 4. Podés seguir agregando pedidos nuevos mientras la mesa esté abierta, aunque ya hayan pedido la cuenta: eso no bloquea nada, solo es una señal para la caja.

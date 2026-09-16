@@ -13,7 +13,7 @@ Los clientes y proveedores son los contactos con los que tu comercio se relacion
 
 ## Cómo cargar un cliente o proveedor
 
-1. Entrá a Contactos › Clientes (para un cliente) o Contactos › Proveedores (para un proveedor).
+1. Entrá a [Contactos › Clientes](panel:/contacts?type=1) (para un cliente) o [Contactos › Proveedores](panel:/contacts?type=2) (para un proveedor).
 2. Hacé clic en "Nuevo".
 3. Cargá el nombre o razón social.
 4. Si el país lo requiere para facturación, cargá el tipo y número de documento (RUC, cédula u otro documento de identidad según corresponda).
@@ -44,4 +44,4 @@ Sí. Al darlo de baja, se archiva y deja de aparecer en las búsquedas normales,
 El sistema no bloquea esa duplicación automáticamente, así que conviene revisar antes de cargar un cliente nuevo si ya existe con ese documento.
 
 **¿Los usuarios internos del sistema (mi equipo) están en esta misma sección?**
-No. Los usuarios que operan la caja o el panel se administran aparte, en Contactos › Equipo — no son clientes ni proveedores.
+No. Los usuarios que operan la caja o el panel se administran aparte, en [Contactos › Equipo](panel:/contacts?type=0) — no son clientes ni proveedores.

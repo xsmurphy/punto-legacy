@@ -21,7 +21,7 @@ Los servicios y los artículos marcados como "sin control de stock" no generan m
 
 Usá un ajuste de stock cuando detectás una diferencia puntual entre lo que el sistema dice y lo que hay físicamente: un producto roto, vencido, robado, o un error de carga anterior. El ajuste registra el motivo y corrige el saldo en el momento.
 
-1. Entrá a Artículos › Ajustes de stock.
+1. Entrá a [Artículos › Ajustes de stock](panel:/stock-adjustment).
 2. Elegí la sucursal o depósito donde vas a ajustar.
 3. Buscá el artículo y cargá la cantidad correcta o la diferencia (según cómo esté armada la pantalla: cantidad final o cantidad a sumar/restar).
 4. Confirmá el ajuste. El movimiento queda registrado y el saldo se actualiza al instante.
@@ -30,7 +30,7 @@ Usá un ajuste de stock cuando detectás una diferencia puntual entre lo que el 
 
 El conteo de stock (también llamado toma de inventario) sirve para revisar TODO el catálogo de una sucursal de una sola vez, en vez de corregir artículo por artículo. Es el mecanismo recomendado para un relevo de turno o un cierre de período.
 
-1. Entrá a Artículos › Inventario.
+1. Entrá a [Artículos › Inventario](panel:/inventory-count).
 2. Iniciá un conteo nuevo para la sucursal (o el depósito) que vas a contar.
 3. El sistema arma una lista de los artículos que tienen presencia en esa sucursal (los que ya tuvieron stock ahí alguna vez). Si es la primera vez que contás esa sucursal y querés incluir artículos sin stock previo, hay una opción para incluirlos igual.
 4. Recorré la lista y cargá la cantidad real que contaste de cada artículo.

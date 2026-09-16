@@ -20,7 +20,7 @@ Al crear un artículo, elegís entre dos tipos dentro de la categoría "Producci
 
 ## Cargar la receta
 
-1. Entrá a Artículos › Catálogo y abrí el producto (o creá uno nuevo eligiendo "Producción directa" o "Producción previa").
+1. Entrá a [Artículos › Catálogo](panel:/items) y abrí el producto (o creá uno nuevo eligiendo "Producción directa" o "Producción previa").
 2. Andá a la pestaña "Producción".
 3. Agregá los insumos que componen el producto, con la cantidad de cada uno.
 4. Guardá. El costo del producto se calcula solo a partir del costo de sus insumos.
@@ -29,14 +29,14 @@ Una receta puede incluir, como insumo, otro producto que a su vez tiene su propi
 
 ## Fabricar un lote (producción previa)
 
-1. Entrá a Artículos › Producción.
+1. Entrá a [Artículos › Producción](panel:/produccion).
 2. Creá una nueva orden de producción: elegí el producto y la cantidad que planeás fabricar.
 3. Al completarla, el sistema descuenta los insumos de la receta y da de alta el stock del producto terminado, con su costo real.
 4. Si alguna unidad del lote salió fallada, registrala como merma con su motivo — esas unidades no entran al stock disponible.
 
 ## Registrar merma sin pasar por un lote
 
-Si necesitás dar de baja stock por una pérdida puntual (se rompió, se venció, se descartó), registrala directamente desde Artículos › Producción, indicando el producto, la cantidad y el motivo — sin necesidad de que venga de una orden de fabricación.
+Si necesitás dar de baja stock por una pérdida puntual (se rompió, se venció, se descartó), registrala directamente desde [Artículos › Producción](panel:/produccion), indicando el producto, la cantidad y el motivo — sin necesidad de que venga de una orden de fabricación.
 
 ## Preguntas frecuentes
 

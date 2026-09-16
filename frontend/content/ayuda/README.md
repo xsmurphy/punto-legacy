@@ -50,8 +50,12 @@ resumen: Una sola oración que responde de qué se trata el artículo.
 - Nada de emojis.
 - Nada hardcodeado a Paraguay fuera del bloque `70-x`: "tu moneda", "el documento fiscal de tu país", nunca "Gs" ni "RUC" como si fueran universales.
 - Estructura: título H1 → párrafo de contexto (1-3 oraciones) → pasos numerados o secciones H2 → "Preguntas frecuentes" (2-5 pares) cuando aporte.
-- Los pasos nombran la ruta de navegación completa tal como está en pantalla: "Entrá a Ventas › Transacciones".
-- 60 a 200 líneas. Si un tema no entra, se parte en dos artículos linkeados entre sí con `[texto](20-cobrar-una-venta.md)` (link relativo).
+- Los pasos nombran la ruta de navegación completa tal como está en pantalla, como link a esa sección del panel: `Entrá a [Ventas › Transacciones](panel:/reports/sales?tab=transacciones)`. El esquema `panel:` lleva la ruta del panel tal como figura en `frontend/lib/navigation/routes.ts` (`PANEL_ROUTES` / `POS_ROUTES`); el sitio la resuelve contra la URL del panel. Si la sección no tiene una ruta fija (por ejemplo, adentro de una sucursal puntual), se deja como texto. El test `frontend/lib/docs/__tests__/ayuda-integrity.test.ts` rompe si una ruta deja de existir.
+- 60 a 200 líneas. Si un tema no entra, se parte en dos artículos linkeados entre sí con `[texto](20-01-cobrar-una-venta-en-la-caja.md)` (link relativo al archivo).
+
+## Dónde se publica
+
+Esta carpeta vive en `frontend/content/ayuda/` porque el sitio de ayuda (`docs.punto.la`) se genera desde acá en el build del Front. Es la fuente única: la lee el sitio y la lee el asistente. No duplicar artículos en otro lado.
 - Sin capturas de pantalla.
 
 ## Índice

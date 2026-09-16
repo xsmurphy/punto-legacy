@@ -16,7 +16,7 @@ Dos formas de ofrecer productos armados a partir de otros:
 
 ## Adicionales: cómo configurarlos
 
-1. Entrá a Artículos › Catálogo y abrí el producto al que le querés sumar opciones.
+1. Entrá a [Artículos › Catálogo](panel:/items) y abrí el producto al que le querés sumar opciones.
 2. Andá a la pestaña "Componentes".
 3. Creá un grupo de opciones (por ejemplo "Elegí tu bebida" o "Agregados"): ponele un nombre, y definí un mínimo y un máximo de opciones que el cliente puede elegir en ese grupo.
 4. Cargá las opciones del grupo. Cada opción es un producto real de tu catálogo, con su propio precio y su propio stock.
@@ -32,7 +32,7 @@ En la caja, tocar un producto con opciones abre un selector antes de agregarlo a
 
 ## Combo: cómo armarlo
 
-1. Creá un producto nuevo en Artículos › Catálogo, con el precio al que se va a vender el combo.
+1. Creá un producto nuevo en [Artículos › Catálogo](panel:/items), con el precio al que se va a vender el combo.
 2. Entrá a su pestaña "Producción" (o "Componentes", según el tipo de producto) y cargá los productos que lo componen, con la cantidad de cada uno.
 3. Guardá. En la ficha del producto vas a ver el descuento implícito del combo: la diferencia entre lo que costaría comprar esos productos por separado y el precio fijado para el combo.
 

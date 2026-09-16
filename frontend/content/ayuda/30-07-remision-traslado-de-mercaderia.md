@@ -19,7 +19,7 @@ Si movés mercadería entre dos sucursales o depósitos que son tuyos, usá [Tra
 
 ## Cómo emitir una remisión
 
-1. Entrá a Artículos › Remisiones.
+1. Entrá a [Artículos › Remisiones](panel:/remisiones).
 2. Creá una nueva remisión.
 3. Elegí el motivo: venta, devolución a proveedor, consignación, exposición o compra (recepción de mercadería).
 4. Cargá el destino (a quién va dirigida, si corresponde) y los productos con su cantidad.

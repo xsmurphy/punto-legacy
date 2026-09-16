@@ -24,7 +24,7 @@ El sistema nunca rechaza una venta ya cobrada por falta de conexión: la guarda 
 
 Al cerrar el turno sin internet, la caja no puede pedirle el total al sistema central — así que te muestra el total según lo que ESTE dispositivo registró (sus propias ventas y movimientos desde que abrió). Si hay algo que este dispositivo no pudo ver —por ejemplo, movimientos de efectivo cargados desde el panel, o ventas de un turno que abrió otro aparato— la pantalla te lo avisa en vez de mostrar un número que podría estar incompleto.
 
-Ese total local es solo una ayuda para contar: el arqueo definitivo siempre lo termina de calcular el sistema central cuando el cierre se sincroniza. Si el total que contaste no coincide con lo que el sistema calculó al recibir el cierre, vas a ver un aviso y el turno va a quedar marcado para revisar en Reportes › Control de cajas.
+Ese total local es solo una ayuda para contar: el arqueo definitivo siempre lo termina de calcular el sistema central cuando el cierre se sincroniza. Si el total que contaste no coincide con lo que el sistema calculó al recibir el cierre, vas a ver un aviso y el turno va a quedar marcado para revisar en [Reportes › Control de cajas](panel:/reports/drawers).
 
 Si tu negocio tiene activado el control de caja a ciegas (el cajero cuenta sin ver de antemano cuánto "debería" haber), esto no cambia por estar sin conexión: seguís sin ver el total esperado, sea que estés online u offline. Y por la misma razón, el ticket del cierre no se imprime cuando el turno se cerró sin conexión.
 

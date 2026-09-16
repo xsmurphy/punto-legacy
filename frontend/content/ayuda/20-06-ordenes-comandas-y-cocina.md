@@ -34,7 +34,7 @@ Una orden cancelada necesita que se indique el motivo — queda registrado en el
 
 Cuando el pedido está listo para cobrarse (el cliente lo retira, la mesa pide la cuenta, etc.):
 
-1. Entrá a Caja › Órdenes.
+1. Entrá a [Caja › Órdenes](panel:/pos/ordenes).
 2. Buscá el pedido y elegí Cobrar.
 3. Se abre el flujo normal de cobro con los productos de la orden ya cargados (ver [Medios de pago y pagos combinados](20-02-medios-de-pago-y-pagos-combinados.md)).
 

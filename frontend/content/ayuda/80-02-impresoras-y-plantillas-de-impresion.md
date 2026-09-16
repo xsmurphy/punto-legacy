@@ -9,11 +9,11 @@ resumen: Cómo dar de alta una impresora en Punto y cómo diseñar qué se impri
 
 # Cómo configurar impresoras y plantillas de impresión
 
-Imprimir en Punto tiene dos partes separadas: qué impresora física usás y para qué documentos (Configuración › Impresoras), y qué información sale impresa en cada tipo de documento — ticket, factura, comanda (Configuración › Documentos, con su editor visual en Plantillas de impresión). Configurá primero tus impresoras y después diseñá qué imprime cada una.
+Imprimir en Punto tiene dos partes separadas: qué impresora física usás y para qué documentos ([Configuración › Impresoras](panel:/settings/printers)), y qué información sale impresa en cada tipo de documento — ticket, factura, comanda ([Configuración › Documentos](panel:/settings?section=documentos), con su editor visual en [Plantillas de impresión](panel:/settings/print-templates)). Configurá primero tus impresoras y después diseñá qué imprime cada una.
 
 ## Configurar una impresora
 
-1. Entrá a Configuración › Impresoras.
+1. Entrá a [Configuración › Impresoras](panel:/settings/printers).
 2. Elegí la caja para la que vas a configurar la impresora (cada caja tiene su propia configuración de impresoras).
 3. Hacé clic en agregar impresora y completá:
    - **Nombre**: para identificarla vos (por ejemplo, "Epson mostrador" o "Comandera cocina").
@@ -31,7 +31,7 @@ Una impresora conectada directo por USB, Bluetooth o red a la computadora de la 
 
 ## Diseñar qué se imprime (plantillas)
 
-1. Entrá a Configuración › Documentos para ver el listado de tus plantillas, agrupadas por tipo de documento (ticket, factura, presupuesto, orden de trabajo, gift card).
+1. Entrá a [Configuración › Documentos](panel:/settings?section=documentos) para ver el listado de tus plantillas, agrupadas por tipo de documento (ticket, factura, presupuesto, orden de trabajo, gift card).
 2. Desde ahí podés editar una plantilla existente, duplicarla para crear una variante, o eliminarla.
 3. El editor visual (Plantillas de impresión) te deja armar el diseño arrastrando bloques de información: nombre del negocio, datos del cliente, listado de ítems, totales, impuestos, número de comprobante, código QR, y más.
 4. Solo sale impreso lo que vos pusiste en la plantilla. Si un dato no aparece en tu ticket, es porque el bloque correspondiente no está agregado — agregalo desde el editor.

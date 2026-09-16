@@ -13,7 +13,7 @@ Cada vez que le comprás mercadería a un proveedor, registrarla en Punto hace d
 
 ## Cómo registrar una compra manualmente
 
-1. Entrá a Compras y Gastos › Registro de compras.
+1. Entrá a [Compras y Gastos › Registro de compras](panel:/purchase).
 2. Elegí el proveedor. Si todavía no lo tenés cargado, podés darlo de alta ahí mismo (ver [clientes y proveedores](50-01-clientes-y-proveedores.md)).
 3. Elegí si la compra es **al contado** o **a crédito**. Si es a crédito, vas a tener que indicar la fecha de vencimiento del pago — sin fecha de vencimiento el sistema no te deja guardar una compra a crédito, porque esa fecha es la que alimenta el reporte de cuentas por pagar.
 4. Agregá los artículos comprados, la cantidad y el costo pagado por cada uno.
@@ -31,7 +31,7 @@ El costo que se registra es el que realmente pagaste, con impuestos incluidos �
 ## Compra al contado vs. a crédito
 
 - **Al contado**: la compra queda marcada como pagada en el momento y afecta tu caja o cuenta de pago según cómo la hayas cargado.
-- **A crédito**: la compra queda pendiente de pago y aparece en Compras y Gastos › Cuentas por pagar. El pago se registra después, como una operación aparte, y puede cubrir una o varias compras pendientes del mismo proveedor a la vez. Para más detalle sobre cómo se cobra y se paga a crédito, ver [ventas a crédito y cobranzas](50-02-ventas-a-credito-y-cobranzas.md) (la misma lógica aplica, del lado proveedor).
+- **A crédito**: la compra queda pendiente de pago y aparece en [Compras y Gastos › Cuentas por pagar](panel:/reports/open-invoices?tab=pagar). El pago se registra después, como una operación aparte, y puede cubrir una o varias compras pendientes del mismo proveedor a la vez. Para más detalle sobre cómo se cobra y se paga a crédito, ver [ventas a crédito y cobranzas](50-02-ventas-a-credito-y-cobranzas.md) (la misma lógica aplica, del lado proveedor).
 
 ## Cargar una compra a partir de una foto de la factura
 

@@ -13,7 +13,7 @@ Cada turno de trabajo en la caja arranca con una apertura y termina con un cierr
 
 ## Abrir la caja
 
-1. Entrá a Caja › Hotkeys. Si la caja todavía no tiene un turno abierto, vas a ver la opción para abrir caja ahí mismo.
+1. Entrá a [Caja › Hotkeys](panel:/pos). Si la caja todavía no tiene un turno abierto, vas a ver la opción para abrir caja ahí mismo.
 2. Cargá el monto inicial con el que arrancás el turno (el efectivo que ponés en caja antes de la primera venta).
 3. Confirmá. A partir de ahí ya podés empezar a cobrar.
 
@@ -25,7 +25,7 @@ Si necesitás sacar dinero de la caja (por ejemplo, para un pago menor) o ingres
 
 ## Cerrar la caja y hacer el arqueo
 
-1. Al terminar el turno, entrá a la opción de cerrar caja dentro de Caja › Hotkeys.
+1. Al terminar el turno, entrá a la opción de cerrar caja dentro de [Caja › Hotkeys](panel:/pos).
 2. Contá el efectivo y los montos de cada medio de pago que se usó en el turno.
 3. Cargá esos montos contados. El sistema los compara contra lo que esperaba según las ventas registradas y te muestra la diferencia, si la hay.
 4. Confirmá el cierre.
@@ -34,7 +34,7 @@ Según cómo esté configurado tu negocio, es posible que el conteo se haga "a c
 
 ## Ver cierres anteriores
 
-El historial de aperturas, cierres y arqueos ya realizados se consulta desde Reportes › Control de cajas. La acción de abrir o cerrar el turno actual, en cambio, se hace siempre desde dentro de la Caja, no desde Reportes.
+El historial de aperturas, cierres y arqueos ya realizados se consulta desde [Reportes › Control de cajas](panel:/reports/drawers). La acción de abrir o cerrar el turno actual, en cambio, se hace siempre desde dentro de la Caja, no desde Reportes.
 
 ## Preguntas frecuentes
 

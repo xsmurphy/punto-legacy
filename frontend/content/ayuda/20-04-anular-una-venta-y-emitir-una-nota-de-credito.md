@@ -15,7 +15,7 @@ Una venta ya cobrada y con su comprobante emitido no se edita: si hay que correg
 
 Anular deja constancia de que esa venta no vale: no suma al total vendido, pero el número de comprobante que usó no se reutiliza ni desaparece — queda marcado como anulado. Es la opción correcta cuando la venta fue un error y todavía no pasó mucho tiempo.
 
-1. Entrá a Ventas › Transacciones.
+1. Entrá a [Ventas › Transacciones](panel:/reports/sales?tab=transacciones).
 2. Buscá la venta que necesitás anular.
 3. Abrí el detalle de la venta o usá la acción "Anular" desde el listado.
 4. Confirmá el motivo de la anulación.
@@ -28,7 +28,7 @@ Si tu negocio emite documentos fiscales electrónicos, anular la venta también 
 
 La nota de crédito es el camino cuando el cliente devuelve mercadería o hay que corregir una venta que ya pasó el plazo de anulación, o cuando la venta ya se cobró y entregó pero hay que revertir parte de ella. A diferencia de la anulación, la nota de crédito es un documento nuevo, propio, vinculado a la factura original.
 
-1. Entrá a Ventas › Transacciones.
+1. Entrá a [Ventas › Transacciones](panel:/reports/sales?tab=transacciones).
 2. Buscá la venta original y abrí su detalle.
 3. Elegí la acción "Devolución".
 4. Seleccioná qué productos y qué cantidades se devuelven — no hace falta devolver la venta completa, podés hacerlo por ítem.
