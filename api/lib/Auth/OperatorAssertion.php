@@ -73,8 +73,10 @@ final class OperatorAssertion
 
     /**
      * Emite la afirmación. SOLO debe llamarse desde un punto que YA verificó
-     * al operador contra la BD (hoy: `/v1/unlock-pin.php`, tras el match del
-     * PIN). Llamarla en cualquier otro lado convierte el token en lo que este
+     * al operador contra la BD: `/v1/unlock-pin.php` tras el match del PIN, y
+     * `/v1/unlock-sole.php` tras comprobar que la sucursal de la caja tiene un
+     * único usuario habilitado (context/72 §9.3). Los dos pasan por
+     * `OperatorUnlock::grant()`. Llamarla en cualquier otro lado convierte el token en lo que este
      * archivo existe para evitar: un dato que el cliente eligió.
      */
     public static function issue(string $companyId, string $contactId): string

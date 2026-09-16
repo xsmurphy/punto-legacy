@@ -98,64 +98,15 @@ if (!$found) {
 // él, el realm `pos-app` no distingue a los tres mozos que comparten la tablet
 // y la exclusividad de espacios (context/15) sería un `if` sobre un dato que el
 // cliente elige. Ver el docblock de OperatorAssertion.
-require_once __DIR__ . '/../lib/Auth/OperatorAssertion.php';
-require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
 $operatorId = (string) ($found['contactid'] ?? '');
 
-// ── Permisos del operador (surfacing para la UI de la caja) ──────────────────
-//
-// El backend sigue siendo la autoridad: `SpaceOwnershipGuard` y compañía
-// resuelven contra el rol del operador en CADA request. Esto es lo que le falta
-// al front para no mentir — sin ello solo puede espejar dos de las tres
-// condiciones del guard ("el espacio no tiene mozo", "el espacio es mío") y le queda
-// afuera la tercera ("soy encargado y puedo intervenir"). El resultado sin esto
-// es siempre malo: o se apagan acciones que el encargado SÍ puede ejecutar, o
-// se dejan prendidas y revientan con 403 al tocarlas.
-//
-// Por qué ACÁ y no en el roster del bootstrap (`/v1/users`): ese payload
-// proyecta a propósito id/name/pinhash y nada más —"ni rol"— porque vive para
-// siempre en el localStorage de una tablet compartida. Los permisos son la
-// capacidad de UNA persona sobre sí misma, y este es el único punto del sistema
-// donde el backend comprobó contra la BD quién es esa persona. Se entregan solo
-// a quien acaba de probar su PIN, en la misma respuesta que su afirmación.
-//
-// Filtrados al prefijo `pos.`: el resto del catálogo son permisos de PANEL
-// (reportes, ajustes, contactos). En la caja no gobiernan ninguna UI, así que
-// mandarlos solo agranda la superficie que se cachea en el dispositivo sin
-// habilitar nada.
-//
-// EXTRA_POS_PERMS es la excepción explícita a esa regla, y existe porque la
-// condición que la justifica —"no gobiernan ninguna UI de la caja"— dejó de ser
-// cierta para una clave: desde que el GET de `/v1/reports/transactions` se
-// evalúa contra el rol del OPERADOR (ver el gate en ese archivo),
-// `reports.sales.view` decide si el asistente de la caja puede contestar
-// "¿cuánto se vendió hoy?". Sin bajarla, la UI no tiene forma de saberlo y solo
-// puede hacer dos cosas, las dos malas: prometerle ventas a un cajero que va a
-// recibir 403, o callarlas también para el dueño.
-//
-// Es una ALLOWLIST de claves puntuales, no un ensanche del filtro: cada entrada
-// tiene que gatear algo que se ve o se ofrece en la caja. Sigue sin bajar el
-// catálogo de panel.
-//
-// Su contraparte del lado del front es `POS_TOOL_PERMISSION`
-// (`frontend/lib/pos/agent-tools.ts`): una clave que gatee una tool allá y no
-// esté acá NUNCA llega al dispositivo, así que la tool queda apagada para
-// todos. Se agregan juntas.
-$extraPosPerms = ['reports.sales.view'];
-$operatorRole = \Punto\Api\Auth\OperatorContext::roleOf(COMPANY_ID, $operatorId);
-$operatorPerms = $operatorRole !== null
-    ? array_values(array_filter(
-        \RoleService::getPermissions($operatorRole, COMPANY_ID),
-        static fn($perm) => str_starts_with((string) $perm, 'pos.')
-            || in_array((string) $perm, $extraPosPerms, true)
-    ))
-    : [];
-
-apiOk([
-    'user' => [
-        'id'   => $operatorId,
-        'name' => (string) ($found['contactname'] ?? ''),
-    ],
-    'operatorToken' => \Punto\Api\Auth\OperatorAssertion::issue(COMPANY_ID, $operatorId),
-    'permissions'   => $operatorPerms,
-]);
+// La respuesta (operador + afirmación firmada + permisos de caja) la arma
+// `OperatorUnlock::grant()`, compartida con `/v1/unlock-sole` (context/72 §9.3):
+// los dos caminos que verifican al operador contra la BD entregan exactamente
+// lo mismo. El porqué de los permisos que bajan está en ese archivo.
+require_once __DIR__ . '/../lib/Auth/OperatorUnlock.php';
+apiOk(\Punto\Api\Auth\OperatorUnlock::grant(
+    COMPANY_ID,
+    $operatorId,
+    (string) ($found['contactname'] ?? '')
+));

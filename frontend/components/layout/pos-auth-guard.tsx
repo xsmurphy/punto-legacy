@@ -3,6 +3,7 @@
 import * as React from "react"
 import { PosUnauthorizedSentinel } from "@/components/pos/pos-unauthorized-sentinel"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
+import { PosFirstUse } from "@/components/layout/pos-first-use"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { WifiOff } from "lucide-react"
@@ -90,8 +91,16 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     if (consumed) setRejectReason(consumed)
   }, [status, error])
 
-  // Sin token en localStorage → DeviceNotConnected inmediato, sin round-trip.
-  if (hasLocalToken === false) return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
+  // Sin token en localStorage → sin round-trip al bootstrap del POS.
+  //
+  // Nunca pareado: primer uso (context/72 §9.2). Si este navegador tiene sesión
+  // de panel con permiso, `PosFirstUse` conecta la caja sin código; si no,
+  // termina en `DeviceNotConnected` igual que antes. Con un motivo de rechazo
+  // (el admin revocó este dispositivo, o el pareo quedó incompleto) se muestra
+  // ese motivo y NO se reparea solo: esa pantalla explica algo que pasó.
+  if (hasLocalToken === false) {
+    return rejectReason ? <DeviceNotConnected reason={rejectReason} /> : <PosFirstUse />
+  }
 
   // Loading: render children optimistically — el POS tiene su propio LoadingScreen.
   if (status === "pending") {

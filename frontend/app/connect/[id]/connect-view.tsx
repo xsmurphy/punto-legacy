@@ -5,26 +5,19 @@ import { useRouter } from "next/navigation"
 import { CheckCircle2, Loader2, XCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
-import { setDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 import { InvalidLink } from "./invalid-link"
-import { setDeviceClaims } from "@/lib/auth/device-claims"
+import { getPairingSecret } from "@/lib/auth/pairing-secret"
 import {
-  clearPairingSecret,
-  getPairingSecret,
-  setPairingSecret,
-} from "@/lib/auth/pairing-secret"
+  INVITATIONS_ENDPOINT,
+  openInvitation,
+  persistRedeemedDevice,
+} from "@/lib/devices/redeem-invitation"
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
-const ENDPOINT         = "/api/v1/device_invitations.php"
+const ENDPOINT         = INVITATIONS_ENDPOINT
 
 type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired" | "consumed"
-
-/** module (string libre del invitation) → namespace tipado de device-token/claims. */
-function toDeviceModule(module: string): DeviceModule {
-  if (module === "screen" || module === "kds" || module === "display" || module === "print") return module
-  return "pos"
-}
 
 /** module → ruta de la pantalla pareada. */
 function moduleRoute(module: string): string {
@@ -35,18 +28,6 @@ function moduleRoute(module: string): string {
     case "print":   return "/print"
     default:        return "/pos"
   }
-}
-
-interface OpenData {
-  status?:        string
-  userCode?:      string
-  module?:        string
-  autoApprove?:   boolean
-  token?:         string
-  deviceId?:      string
-  companyId?:     string
-  registerId?:    string
-  pairingSecret?: string | null
 }
 
 interface StatusData {
@@ -107,21 +88,10 @@ export function ConnectView({ invitationId }: { invitationId: string }) {
   const finish = React.useCallback(
     (data: { token: string; module: string; companyId?: string; registerId?: string; deviceId?: string }) => {
       redeemed.current = true
-      const mod = toDeviceModule(data.module)
-      // Persistir el Bearer en localStorage namespaced por module
-      // (`punto.device.token.pos` / `...screen`). Sin el namespace, parear
-      // ambos tipos en el mismo browser pisaba el token del primero y rompía
-      // publish/auth — incidente 2026-06-28.
-      setDeviceToken(data.token, mod)
-      if (data.companyId && data.registerId && data.deviceId) {
-        setDeviceClaims(
-          { companyId: data.companyId, registerId: data.registerId, deviceId: data.deviceId },
-          mod,
-        )
-      }
-      // El secreto ya cumplió: la invitación está consumida y no vuelve a
-      // entregar nada. Dejarlo sería guardar una credencial muerta.
-      clearPairingSecret(invitationId)
+      // Token + claims (namespaced por module) + descarte del secreto de
+      // pairing: `persistRedeemedDevice`, el mismo que usa el pareo automático
+      // de /pos (context/72 §9.2).
+      persistRedeemedDevice(invitationId, data)
       setStatus("approved")
       setTimeout(() => router.replace(moduleRoute(data.module)), 800)
     },
@@ -134,58 +104,29 @@ export function ConnectView({ invitationId }: { invitationId: string }) {
     openedRef.current = true
 
     void (async () => {
-      const form = new URLSearchParams()
-      const stored = getPairingSecret(invitationId)
-      if (stored) form.set("pairingSecret", stored)
-
       try {
-        const res = await fetch(
-          `${ENDPOINT}?resource=open&id=${encodeURIComponent(invitationId)}`,
-          {
-            method:  "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body:    form.toString(),
-            cache:   "no-store",
-          },
-        )
-        const body = await res.json().catch(() => null)
+        // Apertura compartida con el pareo automático de /pos
+        // (`lib/devices/redeem-invitation.ts`): guarda el secreto de pairing
+        // de la primera apertura y lo presenta en las recargas.
+        const result = await openInvitation(invitationId)
 
-        if (!res.ok) {
-          // 409 = la invitación ya tiene dueño y no somos nosotros. Ese caso
-          // usa el copy dedicado ("Link ya usado" + qué hacer) en vez del
-          // mensaje crudo de la API: es el más probable y el que más necesita
-          // decir claramente que hace falta un link NUEVO.
-          setFatalError(res.status === 409 ? "in-use" : errorMessage(body) ?? "not-found")
+        if (result.kind === "error") {
+          // "in-use" (409) usa el copy dedicado ("Link ya usado" + qué hacer)
+          // en vez del mensaje crudo de la API: es el caso más probable.
+          setFatalError(result.reason)
           return
         }
-
-        const data = envelopeData<OpenData>(body)
-
-        // El secreto sale en claro UNA sola vez, en la primera apertura.
-        if (data.pairingSecret) setPairingSecret(invitationId, data.pairingSecret)
 
         // Reconnect (auto_approve): el token llega directo en open(), sin
         // userCode ni polling.
-        if (data.autoApprove && data.token && data.deviceId) {
-          finish({
-            token:      data.token,
-            module:     data.module ?? "pos",
-            companyId:  data.companyId,
-            registerId: data.registerId,
-            deviceId:   data.deviceId,
-          })
+        if (result.kind === "token") {
+          finish(result.device)
           return
         }
 
-        if (!data.userCode) {
-          setFatalError("not-found")
-          return
-        }
-        setUserCode(data.userCode)
-        setModule(data.module ?? "pos")
+        setUserCode(result.userCode)
+        setModule(result.module)
         setStatus("opened")
-      } catch {
-        setFatalError("config-error")
       } finally {
         setOpening(false)
       }

@@ -188,6 +188,13 @@ interface CatalogState {
    */
   resetActiveRegister: () => void
 
+  /**
+   * El operador acaba de elegir su código POS desde la caja
+   * (`/api/pos/operator-pin`, context/72 §9.3). El lock screen valida contra
+   * este roster SIN red, así que el hash nuevo tiene que estar acá antes del
+   * bloqueo que sigue; el snapshot offline lo trae el próximo bootstrap.
+   */
+  setUserPinhash: (userId: string, pinhash: string) => void
   /** Reset completo (logout / cambio de outlet). */
   reset: () => void
 }
@@ -326,5 +333,9 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
     set({ activeRegisterId: "" })
   },
 
+  setUserPinhash: (userId, pinhash) =>
+    set((state) => ({
+      users: state.users.map((u) => (u.id === userId ? { ...u, pinhash, pinIsDefault: false } : u)),
+    })),
   reset: () => set(initialState),
 }))

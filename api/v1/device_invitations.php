@@ -18,6 +18,12 @@
  *   POST action=deny     -- deniega una invitacion (admin)
  *   POST action=cancel   -- alias de deny
  *   GET  ?resource=list  -- lista invitaciones activas del tenant (admin)
+ *   GET  ?resource=autopair-registers -- cajas disponibles para el pareo
+ *                           automático desde /pos (context/72 §9.2)
+ *   POST action=autopair -- invitación auto-aprobada para una de esas cajas;
+ *                           devuelve SOLO el id, nunca un token de device
+ *
+ * Todo lo autenticado exige `settings.device.pair`.
  *
  * TODO: agregar rate limiting en open/status para mitigar polling abusivo.
  * TODO: registrar geo IP en open (device_geo) cuando haya servicio disponible.
@@ -96,6 +102,13 @@ if ($method === 'GET' && $resource === 'list') {
     apiOk(['invitations' => $svc->list($companyId)]);
 }
 
+// GET ?resource=autopair-registers — cajas que este usuario puede parear sin
+// código desde `/pos` (context/72 §9.2). Ya filtradas por disponibilidad y
+// por su alcance de sucursales; el criterio vive en el servicio.
+if ($method === 'GET' && $resource === 'autopair-registers') {
+    apiOk(['registers' => $svc->availableRegistersForAutoPair($companyId, $userId)]);
+}
+
 // POST -- dispatcher por action
 if ($method === 'POST') {
     $body   = $_POST;
@@ -159,6 +172,21 @@ if ($method === 'POST') {
         } catch (\RuntimeException $e) {
             $code = $e->getCode();
             apiError($e->getMessage(), in_array($code, [404, 410, 409, 422, 403], true) ? $code : 422);
+        }
+    }
+
+    // Pareo automático (context/72 §9.2). Devuelve SOLO { id, expiresAt }:
+    // el token de device lo emite el canje público de un solo uso (`open`),
+    // nunca este endpoint del panel — ver §9.4 y el docblock de
+    // `DeviceInvitationService::createAutoPair()`.
+    if ($action === 'autopair') {
+        $registerId = trim((string) ($body['registerId'] ?? ''));
+        try {
+            $result = $svc->createAutoPair($companyId, $userId, $registerId);
+            apiOk(['id' => $result['id'], 'expiresAt' => $result['expiresAt']]);
+        } catch (\RuntimeException $e) {
+            $code = $e->getCode();
+            apiError($e->getMessage(), in_array($code, [404, 409, 422, 403], true) ? $code : 422);
         }
     }
 

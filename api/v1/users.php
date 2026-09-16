@@ -49,6 +49,33 @@ if (is_string($_raw) && $_raw !== '') {
 }
 
 // ── Recurso principal ──────────────────────────────────────────────────────
+// ── Tu propio PIN, cuando todavía es el del signup (context/72 §9.3) ─────────
+//   GET  ?resource=own-pin → { required: bool }
+//   POST ?resource=own-pin { lockPass } → { ok }
+// Solo realm `panel` y siempre sobre el usuario de la SESIÓN (nunca un id del
+// request): no requiere `contacts.user.manage` porque es la persona eligiendo
+// su propio código, y el servicio lo acota a "tu PIN sigue siendo el por
+// defecto y ya hay otro usuario" — no es una edición general del perfil.
+if ($resource === 'own-pin') {
+    if (($ctx['realm'] ?? '') !== 'panel') apiError('Forbidden', 403);
+    $selfId = (string) ($ctx['userId'] ?? '');
+    if ($selfId === '') apiError('Usuario no identificado', 401);
+    if ($method === 'GET') {
+        apiOk(['required' => $svc->ownPinPromptRequired(COMPANY_ID, $selfId)]);
+    }
+    if ($method === 'POST') {
+        try {
+            $svc->setOwnDefaultPin(COMPANY_ID, $selfId, (string) ($body['lockPass'] ?? ''));
+        } catch (\InvalidArgumentException $e) {
+            apiError($e->getMessage(), 422);
+        } catch (\RuntimeException $e) {
+            apiError($e->getMessage(), $e->getCode() === 409 ? 409 : 500);
+        }
+        apiOk(['ok' => true]);
+    }
+    apiError('Method not allowed', 405);
+}
+
 switch ($method) {
     case 'GET':
         // El realm `pos-app` también lee esta lista (roster de la pantalla de

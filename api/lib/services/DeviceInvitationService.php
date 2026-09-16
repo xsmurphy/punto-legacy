@@ -263,7 +263,11 @@ class DeviceInvitationService
         if ($autoApprove) {
             $targetDeviceId = (string) ($row['device_id'] ?? '');
             if ($targetDeviceId === '') {
-                throw new \RuntimeException('Invitación auto-aprobada sin device target', 500);
+                // Auto-aprobada SIN device target = pareo automático desde una
+                // sesión de panel (context/72 §9.2): el device todavía no
+                // existe y se crea recién acá, al canjear. Ver
+                // `createAutoPair()`.
+                return $this->redeemAutoPair($id);
             }
             $consumed = ncmExecute(
                 "UPDATE device_invitation
@@ -565,6 +569,317 @@ class DeviceInvitationService
             'expiresAt'   => (string)($row['expires_at'] ?? ''),
             'autoApprove' => true,
         ];
+    }
+
+    /**
+     * Cajas que un usuario de panel puede tomar con el pareo automático
+     * (context/72 §9.2, D-P1): lo que `/pos` ofrece —sin clic si es una, con
+     * selector si son varias— a un navegador SIN token de device que sí tiene
+     * sesión de panel con `settings.device.pair`.
+     *
+     * ── Qué es una caja DISPONIBLE ──────────────────────────────────────────
+     * Las cuatro condiciones, todas server-side (ver `availabilityFilterSql()`):
+     *   1. La caja está activa (`registerStatus`) y su sucursal también.
+     *   2. La sucursal está en el alcance del usuario (`OutletScope::forUser`,
+     *      cero filas = global).
+     *   3. Nadie tiene la caja TOMADA (`register_lease` activa, context/29 §4).
+     *   4. Ningún dispositivo POS vivo está pareado a ella: un device activo
+     *      (`device.status=1`) con una sesión `pos-app` activa.
+     *
+     * La 4 es la decisión que el plan dejó abierta ("una caja con device
+     * pareado pero sin lease"), y se resolvió CONSERVADORA: esa caja NO está
+     * disponible. Una tablet de mostrador libera la tenencia cada vez que cierra
+     * la caja (§4), así que "sin lease" describe también a la caja de un
+     * cajero a la noche. Si el pareo automático la contara como libre, el
+     * dueño que abre `/pos` en su casa quedaría pareado a la caja del
+     * empleado y, al día siguiente, los dos dispositivos se disputarían la
+     * tenencia y la numeración local de la misma caja. Para sumar un segundo
+     * dispositivo a una caja que ya tiene uno sigue el link de conexión: es una
+     * decisión deliberada de administración, no algo que deba pasar solo.
+     * Un device dado de baja o sin sesión viva (revocado, "Eliminar
+     * dispositivo") no bloquea.
+     *
+     * @return list<array{registerId:string,registerName:string,outletId:string,outletName:string}>
+     */
+    public function availableRegistersForAutoPair(string $companyId, string $userId): array
+    {
+        $scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
+        $sql = 'SELECT r.registerid, r.registername, r.outletid, o.outletname
+                  FROM register r
+                  JOIN outlet o ON o.outletid = r.outletid AND o.companyid = r.companyid
+                 WHERE r.companyid = ?::uuid'
+            . self::availabilityFilterSql()
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('r.outletid', $scope)
+            . ' ORDER BY o.outletname ASC, r.registername ASC';
+
+        $out = [];
+        foreach (\ncmRows($sql, [$companyId]) as $f) {
+            $out[] = [
+                'registerId'   => (string) ($f['registerid'] ?? ''),
+                'registerName' => (string) ($f['registername'] ?? ''),
+                'outletId'     => (string) ($f['outletid'] ?? ''),
+                'outletName'   => (string) ($f['outletname'] ?? ''),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Crea la invitación YA APROBADA del pareo automático y devuelve SOLO su id
+     * (context/72 §9.2). NUNCA un token de device: la credencial la emite el
+     * canje normal de un solo uso (`open()` → `redeemAutoPair()`), que el
+     * navegador ejecuta después por el camino público — el mismo por el que
+     * pasa cualquier link de conexión. Así la sesión de panel se usa solo
+     * contra un endpoint del panel, y el POS sigue sin conocer otra credencial
+     * que su Bearer de device (mandato token-only, §9.4).
+     *
+     * Mismo patrón que `createReconnect()` (`auto_approve = true`, TTL corto),
+     * con una diferencia: acá el device no existe todavía. Crearlo ahora dejaría
+     * una fila `device` huérfana por cada navegador que abre `/pos` y no llega
+     * a canjear (pestaña cerrada, red caída). Por eso `device_id` queda NULL y
+     * el device nace dentro del canje.
+     *
+     * El TTL es de 5 minutos porque el id nunca sale de este navegador: el
+     * mismo JS que lo recibe lo canjea en el acto. No es un link para
+     * compartir, por eso tampoco se devuelve `url`.
+     *
+     * El caller (endpoint) ya exigió `settings.device.pair`. Acá se valida el
+     * resto: pertenencia al tenant, alcance por sucursal (403 afuera) y
+     * disponibilidad (409 si la caja ya no está libre).
+     *
+     * @return array{id:string,expiresAt:string}
+     */
+    public function createAutoPair(string $companyId, string $userId, string $registerId): array
+    {
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $registerId)) {
+            throw new \RuntimeException('registerId inválido', 422);
+        }
+        $reg = ncmExecute(
+            'SELECT r.registerid, r.outletid
+               FROM register r
+              WHERE r.registerid = ?::uuid AND r.companyid = ?::uuid AND r.registerstatus = TRUE',
+            [$registerId, $companyId]
+        );
+        if (!$reg) {
+            // 404 uniforme: no existe, está inactiva o es de otro tenant.
+            throw new \RuntimeException('Caja no encontrada', 404);
+        }
+        $outletId = (string) ($reg['outletid'] ?? '');
+
+        $scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
+        if (!\Punto\Api\Outlets\OutletScope::allows($scope, $outletId, $companyId)) {
+            throw new \RuntimeException('Esa caja es de una sucursal fuera de tu alcance', 403);
+        }
+
+        if (!self::registerIsAvailable($companyId, $registerId)) {
+            throw new \RuntimeException('Esa caja ya está en uso en otro dispositivo', 409);
+        }
+
+        $user = ncmExecute(
+            'SELECT contactname FROM contact WHERE contactid = ?::uuid AND companyid = ?::uuid',
+            [$userId, $companyId]
+        );
+        $userName   = trim((string) ($user['contactname'] ?? ''));
+        $deviceName = $userName !== '' ? mb_substr('Navegador de ' . $userName, 0, 120) : 'Navegador';
+
+        $row = ncmExecute(
+            "INSERT INTO device_invitation
+               (company_id, created_by, module, outlet_id, register_id, device_name, device_id, auto_approve, expires_at)
+             VALUES (?::uuid, ?::uuid, 'pos', ?::uuid, ?::uuid, ?, NULL, true, now() + interval '5 minutes')
+             RETURNING id, expires_at",
+            [$companyId, $userId, $outletId, $registerId, $deviceName]
+        );
+        if (!$row) {
+            throw new \RuntimeException('No se pudo crear la invitación', 500);
+        }
+        return [
+            'id'        => (string) ($row['id'] ?? ''),
+            'expiresAt' => (string) ($row['expires_at'] ?? ''),
+        ];
+    }
+
+    /**
+     * Canje de una invitación de pareo automático. La llama `open()` después
+     * de reclamar el `pairingSecret` (el CAS sobre `pairing_secret IS NULL`),
+     * igual que la reconexión — o sea que el cerrojo de identidad de la mig 171
+     * ya corrió cuando se llega acá.
+     *
+     * Todo pasa bajo el mismo lock por caja que usa
+     * `RegisterLeaseService::claim()` (`pg_advisory_xact_lock(hashtext(registerId))`):
+     *
+     *   1. CAS `opened → consumed` (un solo uso: de N aperturas simultáneas una
+     *      sola afecta la fila).
+     *   2. Se RE-VALIDA contra la BD lo que se validó al crear, porque entre
+     *      medio pudo cambiar: el creador sigue activo, conserva
+     *      `settings.device.pair` y la sucursal en su alcance, y la caja sigue
+     *      disponible. Si algo cayó, la invitación queda quemada y NO se emite
+     *      nada — pedir otra es gratis, emitir de más no se deshace.
+     *   3. Recién ahí nace el device y se emite su token.
+     */
+    private function redeemAutoPair(string $id): array
+    {
+        global $db;
+        $db->StartTrans();
+
+        $claim = ncmExecute(
+            "UPDATE device_invitation
+                SET status='consumed', approved_at=now(), approved_by=created_by, consumed_at=now()
+              WHERE id=?::uuid AND status='opened' AND auto_approve = true AND device_id IS NULL
+                AND module = 'pos' AND expires_at > now()
+            RETURNING company_id, outlet_id, register_id, created_by, device_name",
+            [$id]
+        );
+        if (!$claim) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \RuntimeException('La conexión automática ya se usó o venció. Volvé a entrar a la caja.', 410);
+        }
+        $companyId  = (string) ($claim['company_id'] ?? '');
+        $outletId   = (string) ($claim['outlet_id'] ?? '');
+        $registerId = (string) ($claim['register_id'] ?? '');
+        $createdBy  = (string) ($claim['created_by'] ?? '');
+
+        $closed = false;
+        try {
+            ncmExecute('SELECT pg_advisory_xact_lock(hashtext(?))', [$registerId]);
+
+            $reason = self::autoPairStillAllowed($companyId, $createdBy, $outletId, $registerId);
+            if ($reason !== null) {
+                // Se CONFIRMA el consumo (la invitación queda quemada) y no se
+                // crea nada.
+                $db->CompleteTrans();
+                $closed = true;
+                throw new \RuntimeException($reason, 409);
+            }
+
+            $created = DeviceAuth::createDevice(
+                $companyId,
+                $outletId,
+                $registerId,
+                $createdBy,
+                (string) ($claim['device_name'] ?? ''),
+                isset($_SERVER['HTTP_USER_AGENT']) ? (string) $_SERVER['HTTP_USER_AGENT'] : null,
+                null,
+                'pos',
+            );
+            $deviceId = (string) ($created['deviceId'] ?? '');
+            if ($deviceId === '') {
+                throw new \RuntimeException('No se pudo registrar el dispositivo', 500);
+            }
+            ncmExecute(
+                'UPDATE device_invitation SET device_id = ?::uuid WHERE id = ?::uuid',
+                [$deviceId, $id]
+            );
+
+            $issued = DeviceAuth::issueTokenForExistingDevice($deviceId, $companyId);
+        } catch (\Throwable $e) {
+            // La re-validación fallida ya cerró la transacción (a propósito,
+            // para quemar la invitación): cualquier otro error revierte TODO,
+            // device y consumo incluidos.
+            if (!$closed) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+            }
+            throw $e;
+        }
+
+        if ($db->HasFailedTrans()) {
+            $db->CompleteTrans();
+            throw new \RuntimeException('No se pudo completar la conexión, intentá de nuevo', 500);
+        }
+        $db->CompleteTrans();
+
+        return [
+            'id'            => $id,
+            'status'        => 'approved',
+            'userCode'      => null,
+            'autoApprove'   => true,
+            'token'         => $issued['token'],
+            'deviceId'      => $deviceId,
+            'module'        => 'pos',
+            'companyId'     => (string) ($issued['companyId']  ?? $companyId),
+            'registerId'    => (string) ($issued['registerId'] ?? $registerId),
+            'pairingSecret' => null,
+        ];
+    }
+
+    /**
+     * Re-validación del canje (paso 2 de `redeemAutoPair()`). Devuelve el
+     * motivo en palabras para la pantalla, o null si todo sigue en pie.
+     */
+    private static function autoPairStillAllowed(
+        string $companyId,
+        string $userId,
+        string $outletId,
+        string $registerId
+    ): ?string {
+        require_once dirname(__DIR__) . '/Auth/RoleService.php';
+        $user = ncmExecute(
+            'SELECT role FROM contact
+              WHERE contactid = ?::uuid AND companyid = ?::uuid AND type = 0 AND contactstatus = 1',
+            [$userId, $companyId]
+        );
+        $role = (string) ($user['role'] ?? '');
+        if ($role === '' || !\RoleService::hasPermission('settings.device.pair', $role, $companyId)) {
+            return 'Tu usuario ya no tiene permiso para conectar dispositivos.';
+        }
+        $scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
+        if (!\Punto\Api\Outlets\OutletScope::allows($scope, $outletId, $companyId)) {
+            return 'Esa caja es de una sucursal fuera de tu alcance.';
+        }
+        $reg = ncmExecute(
+            'SELECT 1 FROM register WHERE registerid = ?::uuid AND companyid = ?::uuid AND outletid = ?::uuid',
+            [$registerId, $companyId, $outletId]
+        );
+        if (!$reg || !self::registerIsAvailable($companyId, $registerId)) {
+            return 'Esa caja ya está en uso en otro dispositivo.';
+        }
+        return null;
+    }
+
+    /** ¿La caja cumple las condiciones de disponibilidad? Ver `availableRegistersForAutoPair()`. */
+    private static function registerIsAvailable(string $companyId, string $registerId): bool
+    {
+        $row = ncmExecute(
+            'SELECT 1
+               FROM register r
+               JOIN outlet o ON o.outletid = r.outletid AND o.companyid = r.companyid
+              WHERE r.companyid = ?::uuid AND r.registerid = ?::uuid'
+            . self::availabilityFilterSql(),
+            [$companyId, $registerId]
+        );
+        return (bool) $row;
+    }
+
+    /**
+     * El criterio de "caja disponible" como fragmento SQL sobre `register r` +
+     * `outlet o`, en UN solo lugar: lo usan el listado, la creación y el canje,
+     * y tres copias de un criterio de exclusividad divergen.
+     *
+     * Sin binds (todo literal) para poder concatenarlo sin correr parámetros.
+     * Tablas y columnas lowercase físico (`register_lease` y `auth_session` se
+     * normalizaron en la mig 150).
+     */
+    private static function availabilityFilterSql(): string
+    {
+        return "
+                   AND r.registerstatus = TRUE
+                   AND COALESCE(o.outletstatus, 1) = 1
+                   AND NOT EXISTS (
+                         SELECT 1 FROM register_lease rl
+                          WHERE rl.registerid = r.registerid AND rl.status = 'active'
+                       )
+                   AND NOT EXISTS (
+                         SELECT 1
+                           FROM device d
+                           JOIN auth_session s
+                             ON s.deviceid = d.deviceid AND s.realm = 'pos-app' AND s.status = 1
+                            AND (s.expiresat IS NULL OR s.expiresat > now())
+                          WHERE d.registerid = r.registerid
+                            AND d.companyid  = r.companyid
+                            AND d.status = 1
+                            AND COALESCE(d.module, 'pos') = 'pos'
+                       )";
     }
 
     public function deny(string $id, string $companyIdOfAdmin): void

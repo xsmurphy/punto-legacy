@@ -41,6 +41,8 @@ import { useCartStore } from "@/lib/cart/store"
 import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { toast } from "sonner"
+import { decideLockAction } from "@/lib/pos/lock-action"
+import { ChooseOwnPinDialog } from "@/components/pos/choose-own-pin-dialog"
 
 // Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
 // isLoading o error, el item condicional NO se muestra — evita parpadeo.
@@ -109,7 +111,15 @@ export function PosSidebar() {
   // mientras no sepamos, se muestra; solo un "apagado" explícito lo esconde.
   const stockCountEnabled =
     moduleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
-  const lock = useLockStore((s) => s.lock)
+  const lockManually = useLockStore((s) => s.lockManually)
+  // Sucursal con un solo usuario (context/72 §9.3): la caja abre sin PIN, pero
+  // "Bloquear" es un bloqueo MANUAL y sí va a pedirlo (owner 2026-09-16). Qué
+  // hace el botón lo decide `decideLockAction()`: si el PIN sigue siendo el del
+  // alta, primero se elige uno; sin red en ese caso, queda deshabilitado.
+  const soleOperatorMode = useLockStore((s) => s.soleOperator)
+  const activeOperatorId = useLockStore((s) => s.activeUser?.id ?? null)
+  const rosterUsers = useCatalogStore((s) => s.users)
+  const [choosePinOpen, setChoosePinOpen] = React.useState(false)
   // Permisos REALES del operador desbloqueado (llegan del unlock por PIN,
   // filtrados al prefijo `pos.` en el backend). Es la ÚNICA fuente válida de
   // permisos dentro de /pos — ver el comentario del item "Asistente" abajo.
@@ -117,6 +127,11 @@ export function PosSidebar() {
   const canUseAgent = operatorPermissions.includes("pos.ai.use")
   const canCountStock = operatorPermissions.includes("pos.stock.count")
   const isOnline = useOnlineStatus()
+  const lockAction = decideLockAction({
+    soleOperator: soleOperatorMode,
+    operator: rosterUsers.find((u) => u.id === activeOperatorId),
+    online: isOnline,
+  })
   const setAgentDialogOpen = usePosUIStore((s) => s.setAgentDialogOpen)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
@@ -397,12 +412,24 @@ export function PosSidebar() {
           )}
           <SidebarMenuItem>
             <SidebarMenuButton
-              tooltip="Bloquear"
+              tooltip={lockAction.kind === "blocked" ? lockAction.reason : "Bloquear"}
+              // Mismo criterio que "Asistente": `aria-disabled` para que el
+              // motivo llegue por tooltip (desktop) o toast (táctil), y el
+              // item nunca se esconde (context/14 §10).
+              aria-disabled={lockAction.kind === "blocked" || undefined}
               onClick={() => {
+                if (lockAction.kind === "blocked") {
+                  toast.error("No se puede bloquear", { description: lockAction.reason })
+                  return
+                }
                 closeMobile()
-                lock()
+                if (lockAction.kind === "choose-pin") {
+                  setChoosePinOpen(true)
+                  return
+                }
+                lockManually()
               }}
-              className={ACTION_ITEM_CLASS}
+              className={cn(ACTION_ITEM_CLASS, lockAction.kind === "blocked" && "opacity-50")}
             >
               <Lock />
               <span>Bloquear</span>
@@ -410,6 +437,17 @@ export function PosSidebar() {
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>
+      {activeOperatorId && (
+        <ChooseOwnPinDialog
+          open={choosePinOpen}
+          onOpenChange={setChoosePinOpen}
+          operatorId={activeOperatorId}
+          onSaved={() => {
+            setChoosePinOpen(false)
+            lockManually()
+          }}
+        />
+      )}
     </Sidebar>
   )
 }
