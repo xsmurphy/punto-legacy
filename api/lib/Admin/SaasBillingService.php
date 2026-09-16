@@ -205,19 +205,10 @@ final class SaasBillingService
             $transactionId = $result->transactionId;
         } catch (\Punto\Api\Sales\Exceptions\DuplicateSaleException $e) {
             // uid determinístico: ya existe (reintento tras crash post-venta,
-            // pre-INSERT saas_invoice_sale). Recuperamos el transactionId real.
-            $existingTx = ncmExecute(
-                'SELECT transactionId FROM transaction WHERE transactionUID = ? LIMIT 1',
-                [$uid]
-            );
-            if (!$existingTx || empty($existingTx['transactionid'])) {
-                throw new \RuntimeException(
-                    "SaasBillingService: venta duplicada (uid={$uid}) pero no se pudo recuperar el transactionId",
-                    0,
-                    $e
-                );
-            }
-            $transactionId = (string) $existingTx['transactionid'];
+            // pre-INSERT saas_invoice_sale). La excepción trae la venta
+            // ORIGINAL resuelta dentro del tenant emisor (SaleUidLookup) —
+            // ya no hace falta releerla por uid sin companyId.
+            $transactionId = $e->existing->transactionId;
         } catch (\Throwable $e) {
             throw new \RuntimeException('SaasBillingService: falló la venta — ' . $e->getMessage(), 0, $e);
         }

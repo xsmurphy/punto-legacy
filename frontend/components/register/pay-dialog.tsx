@@ -59,6 +59,18 @@ import {
   type RegisterConflictInfo,
 } from "@/lib/pos/register-conflict"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
+import {
+  chargeTargetFor,
+  clearPendingCharge,
+  planChargeAttempt,
+  recordAmbiguousCharge,
+  type ChargeAttemptPlan,
+  type ChargeFollowups,
+  type ChargeTarget,
+  type PendingChargeRow,
+  type RegisteredSale,
+} from "@/lib/pos/pending-charges"
+import { lookupSaleByUid, toRegisteredSale } from "@/lib/pos/sale-lookup"
 import { recordSale } from "@/lib/pos/shift-journal"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { refreshTenancy, type TenancyVerdictKind } from "@/lib/pos/register-tenancy"
@@ -242,6 +254,26 @@ async function journalSale(payload: CreateSalePayload): Promise<void> {
   })
 }
 
+/**
+ * Motivos del bloqueo por cobro pendiente (ver `lib/pos/pending-charges.ts`).
+ * Se pintan en el control que impide, como el resto de los impedimentos.
+ */
+const PENDING_CHECKING_REASON = "Verificando el cobro anterior"
+const PENDING_UNVERIFIABLE_REASON =
+  "No se pudo confirmar si el cobro anterior se registró — conectate y volvé a intentar"
+
+/** Mismo monto, con tolerancia de redondeo de centavos. */
+function sameAmount(a: number | null | undefined, b: number | null | undefined): boolean {
+  if (a == null || b == null) return false
+  return Math.abs(a - b) < 0.01
+}
+
+/**
+ * Estado de la verificación del cobro pendiente del objeto que se está
+ * cobrando. `null` = no hay nada que verificar y se puede cobrar.
+ */
+type PendingChargeCheck = { kind: "checking" } | { kind: "blocked"; reason: string } | null
+
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export function PayDialog({ open, onOpenChange }: PayDialogProps) {
@@ -324,6 +356,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
+  // Cobro online-only con resultado ambiguo pendiente de resolver sobre este
+  // mismo objeto (espacio / orden). Mientras no sea `null`, no se emite.
+  const [chargeCheck, setChargeCheck] = React.useState<PendingChargeCheck>(null)
+  // `open` al momento de resolver: una consulta que vuelve con el diálogo ya
+  // cerrado no puede pasarlo a éxito por detrás (ver `completeRegisteredCharge`).
+  const openRef = React.useRef(open)
+  React.useEffect(() => {
+    openRef.current = open
+  }, [open])
+  // Verificación de cobro pendiente en vuelo (ver `checkPendingCharge`).
+  const pendingCheckRef = React.useRef<Promise<"clear" | "handled" | "blocked"> | null>(null)
   // F5 — bloqueo por tenencia de caja (register_lease). Ver DialogPhase arriba.
   //
   // UN solo estado con las tres piezas, no tres `useState` en paralelo: se
@@ -362,6 +405,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // y la dedupe server-side (columna UNIQUE) lo atrapa. Generar un uid nuevo
   // por intento —lo que hacía buildSalePayload solo— duplicaba la venta en
   // ese escenario.
+  //
+  // Para el cobro ONLINE-ONLY (espacio / orden) la apertura no alcanza: si el
+  // resultado fue ambiguo y el cajero cierra y reabre, el uid sale del COBRO
+  // PENDIENTE persistido (`lib/pos/pending-charges.ts`), no de esta apertura.
   const saleUidRef = React.useRef<string>(crypto.randomUUID())
 
   // Resetear al abrir
@@ -418,6 +465,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         void refreshTenancy(activeRegisterId, { acquire: false })
       }
       saleUidRef.current = crypto.randomUUID()
+      // Cobro online-only con un intento ambiguo previo sobre este objeto: se
+      // resuelve YA, antes de que el cajero cargue nada. Si la venta estaba
+      // registrada, el diálogo abre directo en el éxito; si no, el uid del
+      // intento original reemplaza al recién generado.
+      setChargeCheck(null)
+      const openTarget = chargeTargetFor(useCartStore.getState())
+      if (openTarget && !block) void checkPendingCharge(openTarget)
       // autofocus al visor
       setTimeout(() => displayRef.current?.focus(), 50)
     }
@@ -464,6 +518,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setPhase("register-taken")
     })
   }, [open, phase, submitting, remaining])
+
+  // Volvió la red con un cobro pendiente sin verificar: se reintenta solo, así
+  // el cajero no tiene que adivinar que tocar un medio de pago lo destraba.
+  const isOnlineNow = useOnlineStatus()
+  React.useEffect(() => {
+    if (!open || !isOnlineNow || chargeCheck?.kind !== "blocked") return
+    const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+    if (target) void checkPendingCharge(target)
+    // Solo reacciona a la vuelta de la red; `checkPendingCharge` lee el resto.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnlineNow])
 
   // ── Confirmar venta ───────────────────────────────────────────────────────
   /**
@@ -519,6 +584,267 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       .catch((err) => console.error("[auto-print] Error:", err))
   }
 
+  /**
+   * Resuelve el cobro pendiente de `target` ANTES de emitir otro sobre él.
+   *
+   *   - `clear`   → no hay pendiente, o no estaba registrado: se puede cobrar
+   *                 (con el uid del pendiente, si lo había).
+   *   - `handled` → la venta ya estaba registrada y el diálogo pasó a su éxito.
+   *   - `blocked` → no se pudo saber: no se emite.
+   */
+  function checkPendingCharge(target: ChargeTarget): Promise<"clear" | "handled" | "blocked"> {
+    // UNA verificación a la vez. La de la apertura y la del confirm pueden
+    // pisarse (un solo toque en Efectivo cubre el total y confirma mientras la
+    // de la apertura sigue consultando): las dos encontrarían la venta
+    // registrada y correrían dos veces el cierre del espacio / la orden. La
+    // segunda espera el resultado de la primera.
+    if (!pendingCheckRef.current) {
+      pendingCheckRef.current = runPendingChargeCheck(target).finally(() => {
+        pendingCheckRef.current = null
+      })
+    }
+    return pendingCheckRef.current
+  }
+
+  async function runPendingChargeCheck(target: ChargeTarget): Promise<"clear" | "handled" | "blocked"> {
+    let plan: ChargeAttemptPlan
+    try {
+      plan = await planChargeAttempt(target, lookupSaleByUid, saleUidRef.current, (pendingUid) => {
+        // El uid del cobro pendiente reemplaza al de esta apertura desde ya:
+        // cualquier intento que salga a partir de acá es el MISMO cobro.
+        saleUidRef.current = pendingUid
+        setChargeCheck({ kind: "checking" })
+      })
+    } catch (err) {
+      // Sin IndexedDB tampoco se pudo haber registrado un pendiente.
+      console.error("[pay-dialog] no se pudo leer el cobro pendiente:", err)
+      setChargeCheck(null)
+      return "clear"
+    }
+    switch (plan.action) {
+      case "emit":
+        saleUidRef.current = plan.uid
+        setChargeCheck(null)
+        return "clear"
+      case "block":
+        setChargeCheck({ kind: "blocked", reason: PENDING_UNVERIFIABLE_REASON })
+        return "blocked"
+      case "show-registered":
+        setChargeCheck(null)
+        return completeRegisteredCharge(plan.row, plan.sale) ? "handled" : "blocked"
+    }
+  }
+
+  /**
+   * El cobro pendiente YA estaba registrado: se muestra ESA venta, con lo que
+   * se cobró entonces (payload y pasos posteriores congelados en el pendiente),
+   * y no se vuelve a cobrar.
+   *
+   * Devuelve `false` si el diálogo se cerró mientras se consultaba: el
+   * pendiente queda anotado como registrado y se resuelve sin red la próxima
+   * vez que se abra el cobro — pasar a éxito con el diálogo cerrado dejaría el
+   * carrito cargado y habilitado para un segundo cobro.
+   */
+  function completeRegisteredCharge(row: PendingChargeRow, sale: RegisteredSale): boolean {
+    if (!openRef.current) return false
+    const result: CreateSaleResult = {
+      transactionId: sale.transactionId,
+      transactionUID: sale.uid,
+      invoiceNumber: sale.invoiceNo != null ? String(sale.invoiceNo) : null,
+      total: sale.total ?? row.payload.subtotal,
+      duplicated: true,
+      einvoicePortalUrl: sale.einvoicePortalUrl,
+    }
+    const giftcardCode =
+      (row.payload.payment ?? []).find(
+        (p) => paymentMethods.find((m) => m.id === p.type)?.systemKey === "giftcard",
+      )?.identifier ?? null
+    completeConfirmedSale({
+      result,
+      payload: row.payload,
+      followups: row.followups,
+      giftcardCode,
+      changeAmount: 0,
+    })
+    void clearPendingCharge(row.target).catch((err) =>
+      console.error("[pay-dialog] no se pudo limpiar el cobro pendiente:", err),
+    )
+    return true
+  }
+
+  /**
+   * Todo lo que pasa cuando una venta QUEDÓ registrada — sea la que se acaba de
+   * emitir o una que ya existía (reintento con el mismo uid, o cobro pendiente
+   * resuelto). Una sola implementación para los dos caminos: la venta
+   * encontrada tiene que cerrar el espacio / la orden igual que la emitida.
+   *
+   * El ticket sale con el número y los datos del SERVIDOR (`result`). Si la
+   * venta registrada no coincide en monto con lo que se tiene para imprimir
+   * (el carrito cambió entre intentos), no se imprime algo que no es lo que
+   * quedó registrado.
+   */
+  function completeConfirmedSale(args: {
+    result: CreateSaleResult
+    payload: CreateSalePayload
+    followups: ChargeFollowups
+    giftcardCode: string | null
+    changeAmount: number
+  }) {
+    const { result, payload, followups, giftcardCode, changeAmount } = args
+    const { settlementIntent: fSettlement, sessionParentId: fSessionId, sessionOrderIds: fOrderIds, orderParentId: fOrderId } = followups
+
+    setSaleResult(result)
+    // Anotar la venta en el registro del turno de este dispositivo. La venta
+    // ONLINE se anota igual que la offline: el total del turno que se muestra
+    // sin red es la suma de lo que esta caja emitió, y una venta hecha con
+    // conexión no deja de haber ocurrido en esta caja. Ver `shift-journal.ts`.
+    //
+    // Sin `await`: la venta ya está confirmada y lo que sigue es imprimir el
+    // comprobante. Una escritura de contabilidad interna no se pone delante
+    // del ticket del cliente. La clave es el uid: anotar dos veces la misma
+    // venta (reintento) no la suma dos veces.
+    void journalSale(payload)
+
+    if (!result.duplicated || sameAmount(result.total, payload.subtotal)) {
+      runAutoPrint(payload, result)
+    } else {
+      toast.warning("Este cobro ya estaba registrado con otro detalle — reimprimilo desde Transacciones")
+    }
+
+    // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
+    if (giftcardCode && result.transactionId) {
+      void posApi.post("/v1/giftcards?resource=consume", {
+        code: giftcardCode,
+        transactionId: result.transactionId,
+      }).catch((err) => {
+        // El endpoint distingue no-encontrada/vencida/ya-consumida/conflicto
+        // (api/v1/giftcards.php resource=consume) — mostrar el motivo real,
+        // no un genérico: la venta YA está confirmada, así que soporte
+        // necesita saber SI HAY que reconciliar el saldo a mano.
+        const reason = err instanceof Error ? err.message : "error desconocido"
+        toast.error(`Venta confirmada — giftcard no se pudo canjear (${reason}). Avisá al soporte.`)
+      })
+    }
+
+    // Módulo de Órdenes/Espacios (O1 + context/15 F2/F3) — cuatro casos,
+    // mutuamente excluyentes, ninguno bloquea el éxito de la venta ya
+    // confirmada:
+    //
+    // 0) settlementIntent presente: esta venta es un cobro PARCIAL de una
+    //    espacio (split de cuenta, context/15 §F3). Se registra en el ledger
+    //    (`space_session_payment`) y NADA MÁS: markPaid de las órdenes y
+    //    close de la sesión los decide el SERVIDOR en la misma transacción
+    //    (`settleIfCovered`) cuando el saldo llega a 0. Si la UI cerrara
+    //    acá, la primera persona en pagar liberaría el espacio con saldo
+    //    pendiente. Va primero porque es excluyente con sessionParentId.
+    // 1) sessionParentId presente: esta venta viene de "Cobrar" un espacio
+    //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
+    //    CADA orden de la sesión con markPaid y, al terminar, cerrar la
+    //    sesión (SpaceSessionService::close) con el transactionId — el
+    //    espacio vuelve a 'free'. NO reusa el flujo de orderParentId (una
+    //    sola orden) para no perder el resto de las órdenes de la sesión.
+    // 2) orderParentId presente: esta venta viene de "Cobrar" una orden
+    //    existente (loadFromOrder en /pos/ordenes) — cerrar el rastro con
+    //    markPaid usando el transactionId recién creado.
+    // 3) Sin ninguno de los dos, con ordenEnVenta=true: venta normal en
+    //    modo venta — generar una orden espejo (sendNow=true) y cobrarla
+    //    inmediatamente, para que quede el mismo registro operativo que si
+    //    el mozo la hubiera tomado como orden primero.
+    if (fSettlement && result.transactionId) {
+      const txId = result.transactionId
+      // La venta YA está confirmada: si el registro falla no se revierte
+      // nada — se avisa para que soporte concilie el ledger a mano. El
+      // backend es idempotente por transactionId, así que un reintento del
+      // mismo cobro nunca cuenta doble.
+      void registerSessionPayment
+        .mutateAsync(
+          fSettlement.kind === "items"
+            ? {
+                sessionId: fSettlement.sessionId,
+                transactionId: txId,
+                kind: "items",
+                orderItemIds: fSettlement.orderItemIds,
+              }
+            : fSettlement.kind === "amount"
+              ? {
+                  sessionId: fSettlement.sessionId,
+                  transactionId: txId,
+                  kind: "amount",
+                  amount: fSettlement.amount,
+                }
+              : {
+                  sessionId: fSettlement.sessionId,
+                  transactionId: txId,
+                  kind: "share",
+                  shareCount: fSettlement.shareCount,
+                  shareIndex: fSettlement.shareIndex,
+                },
+        )
+        .catch((e: unknown) => {
+          // El preflight de arriba ya cubrió el caso común (espacio cobrado
+          // por otra familia, ítem ya saldado) — esto solo dispara en la
+          // ventana chica que el preflight NO cierra (ver docblock de
+          // `SpaceSettlementService::preflightPayment`): otro dispositivo
+          // cobró justo entre el preflight y este registro real. Mismo
+          // criterio que la rama `sessionParentId` de abajo — mostrar el
+          // motivo real, no un "avisá al soporte" que no dice qué pasó.
+          const reason = e instanceof Error ? e.message : ""
+          toast.error(
+            reason
+              ? `Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio: ${reason}`
+              : "Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio. Avisá al soporte.",
+          )
+        })
+    } else if (fSessionId && result.transactionId) {
+      const txId = result.transactionId
+      void Promise.all(
+        fOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
+      )
+        .then(() => closeSpaceSession.mutateAsync({ sessionId: fSessionId, transactionId: txId }))
+        .catch((e: unknown) => {
+          // El motivo importa: el servidor NO cierra un espacio con saldo
+          // pendiente (SpaceSessionService::close), y el caso realista es
+          // que otro mozo haya mandado una orden entre que se cargó el
+          // carrito y se confirmó el cobro — esa comida quedó sin facturar.
+          // "Avisá al soporte" a secas mandaba a mirar logs algo que el
+          // cajero resuelve cobrando lo que falta.
+          const reason = e instanceof Error ? e.message : ""
+          toast.error(
+            reason
+              ? `Venta confirmada — no se pudo cerrar el espacio: ${reason}`
+              : "Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.",
+          )
+        })
+    } else if (fOrderId && result.transactionId) {
+      void markOrderPaid.mutateAsync({ orderId: fOrderId, transactionId: result.transactionId })
+        .catch(() => {
+          toast.error("Venta confirmada — no se pudo cerrar la orden vinculada. Avisá al soporte.")
+        })
+    } else if (ordenEnVenta && result.transactionId) {
+      // Manual (spec owner 2026-07-31): ya no se genera la orden espejo
+      // automáticamente. Se deja el snapshot listo para el botón "Ordenar"
+      // del modal de éxito — el cajero decide si la genera.
+      setOrderDraft({
+        lines,
+        customerId: customer?.id,
+        note: payload.note,
+        transactionId: result.transactionId,
+      })
+    }
+
+    setPhase("success")
+    void posApi.post("/v1/screens?resource=publish", {
+      type: "sale-confirmed",
+      data: { total: result.duplicated ? result.total : total, change: changeAmount },
+    }).catch(() => {})
+    // Invalidar caches afectadas por la venta: dashboard (KPIs/widgets),
+    // listado de transacciones y todos los recursos del turno en curso.
+    void qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
+    void qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
+    void qc.invalidateQueries({ queryKey: ["bff", "income-chart"] })
+    invalidateDrawerQueries(qc)
+  }
+
   async function handleConfirm(
     appliedPayments: AppliedPayment[],
     changeAmount: number,
@@ -527,7 +853,29 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     setErrorMsg(null)
     setOrderDraft(null) // limpiar snapshot de "Ordenar" de una venta previa en el mismo mount
 
+    // Objeto de un cobro ONLINE-ONLY (espacio / orden / cobro parcial), o `null`
+    // en la venta simple. Congelado al confirmar junto con sus pasos
+    // posteriores, que viajan con el cobro pendiente si el resultado es ambiguo.
+    const chargeTarget = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+    const chargeFollowups: ChargeFollowups = {
+      settlementIntent,
+      sessionParentId,
+      sessionOrderIds,
+      orderParentId,
+    }
+
     try {
+      // ── Cobro pendiente, ANTES que todo lo demás ─────────────────────────
+      // Un intento anterior sobre este mismo objeto terminó sin saber si la
+      // venta quedó registrada. Antes del preflight y antes de numerar: si la
+      // venta existe no hay nada que validar ni número que consumir, y si no
+      // se puede saber, cobrar de nuevo podría ser cobrar dos veces.
+      if (chargeTarget) {
+        const outcome = await checkPendingCharge(chargeTarget)
+        if (outcome === "handled") return
+        if (outcome === "blocked") throw new Error(PENDING_UNVERIFIABLE_REASON)
+      }
+
       // Bug Control de Caja: se mandaba `name: r.method.id` — el UUID de
       // taxonomía (o el slug nativo) quedaba persistido como "nombre" del
       // medio de pago en `transactionPaymentType`, y el resumen de caja lo
@@ -739,7 +1087,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // sirve para abortar una venta que el servidor quizás estaba
         // procesando — con el espacio cargado y el servidor remoto, 5s se cumplen
         // seguido. Para esos cobros se da margen real.
-        const isOnlineOnlyCharge = Boolean(sessionParentId || orderParentId || settlementIntent)
+        const isOnlineOnlyCharge = chargeTarget !== null
         const timeoutMs = isOnlineOnlyCharge ? 20_000 : 5_000
         const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('fetch timeout')), timeoutMs)
@@ -751,12 +1099,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             uid: string
             duplicated: boolean
             einvoicePortalUrl?: string | null
+            /** Solo en el duplicado: la venta que YA estaba registrada. */
+            sale?: Parameters<typeof toRegisteredSale>[0]
           }>(
             '/v1/sales',
             apiPayload,
           ),
           timeoutPromise,
         ])
+        // Duplicado (este uid ya estaba registrado): manda la venta ORIGINAL.
+        // El número que se consumió arriba para ESTE intento no es el que
+        // quedó registrado — el ticket y la pantalla muestran el del servidor.
+        const registered = raw.duplicated === true && raw.sale ? toRegisteredSale(raw.sale) : null
         result = {
           transactionId: raw.transactionId,
           transactionUID: raw.uid,
@@ -764,8 +1118,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           // persistió tal cual (SaleInput.php:157 → SaleService.php:663).
           // Antes esto era siempre `null`: la venta online nunca mandaba
           // invoiceno y el ticket nunca mostraba comprobante (P0 fiscal).
-          invoiceNumber: String(invoiceNo),
-          total: payload.subtotal,
+          invoiceNumber: registered?.invoiceNo != null ? String(registered.invoiceNo) : String(invoiceNo),
+          total: registered?.total ?? payload.subtotal,
           duplicated: raw.duplicated === true,
           einvoicePortalUrl: raw.einvoicePortalUrl ?? null,
         }
@@ -790,7 +1144,20 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // transactionId no hay renglón de ledger, y el saldo del espacio
         // quedaría intacto con la plata ya en la caja.
         // El cajero ve el error y reintenta con conexión.
-        if (sessionParentId || orderParentId || settlementIntent) {
+        if (chargeTarget) {
+          // Resultado AMBIGUO (timeout, red o 5xx): el servidor pudo haber
+          // registrado la venta. Se persiste el cobro pendiente con ESTE uid,
+          // y el próximo intento sobre el mismo objeto —aunque el cajero
+          // cierre el diálogo o recargue— lo consulta antes de volver a
+          // cobrar. Ver `lib/pos/pending-charges.ts`.
+          await recordAmbiguousCharge({
+            target: chargeTarget,
+            uid: payload.uid,
+            payload,
+            followups: chargeFollowups,
+          }).catch((err) =>
+            console.error("[pay-dialog] no se pudo registrar el cobro pendiente:", err),
+          )
           // Un 5xx NO es falta de conexión: es un error DEL SERVIDOR, y
           // decirle "sin conexión" al cajero lo manda a reintentar para
           // siempre contra un bug. Se propaga el error real para que se vea
@@ -850,152 +1217,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         return
       }
 
-      setSaleResult(result)
-      // Anotar la venta en el registro del turno de este dispositivo. La venta
-      // ONLINE se anota igual que la offline: el total del turno que se muestra
-      // sin red es la suma de lo que esta caja emitió, y una venta hecha con
-      // conexión no deja de haber ocurrido en esta caja. Ver `shift-journal.ts`.
-      //
-      // Sin `await`: la venta ya está confirmada y lo que sigue es imprimir el
-      // comprobante. Una escritura de contabilidad interna no se pone delante
-      // del ticket del cliente.
-      void journalSale(payload)
-
-      runAutoPrint(payload, result)
-
-      // Si hubo pago con giftcard, consumirla (fire-and-forget: la venta ya está confirmada)
-      const gcPayment = appliedPayments.find((r) => r.method.systemKey === "giftcard")
-      if (gcPayment?.identifier && result?.transactionId) {
-        void posApi.post("/v1/giftcards?resource=consume", {
-          code: gcPayment.identifier,
-          transactionId: result.transactionId,
-        }).catch((err) => {
-          // El endpoint distingue no-encontrada/vencida/ya-consumida/conflicto
-          // (api/v1/giftcards.php resource=consume) — mostrar el motivo real,
-          // no un genérico: la venta YA está confirmada, así que soporte
-          // necesita saber SI HAY que reconciliar el saldo a mano.
-          const reason = err instanceof Error ? err.message : "error desconocido"
-          toast.error(`Venta confirmada — giftcard no se pudo canjear (${reason}). Avisá al soporte.`)
-        })
-      }
-
-      // Módulo de Órdenes/Espacios (O1 + context/15 F2/F3) — cuatro casos,
-      // mutuamente excluyentes, ninguno bloquea el éxito de la venta ya
-      // confirmada:
-      //
-      // 0) settlementIntent presente: esta venta es un cobro PARCIAL de una
-      //    espacio (split de cuenta, context/15 §F3). Se registra en el ledger
-      //    (`space_session_payment`) y NADA MÁS: markPaid de las órdenes y
-      //    close de la sesión los decide el SERVIDOR en la misma transacción
-      //    (`settleIfCovered`) cuando el saldo llega a 0. Si la UI cerrara
-      //    acá, la primera persona en pagar liberaría el espacio con saldo
-      //    pendiente. Va primero porque es excluyente con sessionParentId.
-      // 1) sessionParentId presente: esta venta viene de "Cobrar" un espacio
-      //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
-      //    CADA orden de la sesión con markPaid y, al terminar, cerrar la
-      //    sesión (SpaceSessionService::close) con el transactionId — el
-      //    espacio vuelve a 'free'. NO reusa el flujo de orderParentId (una
-      //    sola orden) para no perder el resto de las órdenes de la sesión.
-      // 2) orderParentId presente: esta venta viene de "Cobrar" una orden
-      //    existente (loadFromOrder en /pos/ordenes) — cerrar el rastro con
-      //    markPaid usando el transactionId recién creado.
-      // 3) Sin ninguno de los dos, con ordenEnVenta=true: venta normal en
-      //    modo venta — generar una orden espejo (sendNow=true) y cobrarla
-      //    inmediatamente, para que quede el mismo registro operativo que si
-      //    el mozo la hubiera tomado como orden primero.
-      if (settlementIntent && result?.transactionId) {
-        const txId = result.transactionId
-        // La venta YA está confirmada: si el registro falla no se revierte
-        // nada — se avisa para que soporte concilie el ledger a mano. El
-        // backend es idempotente por transactionId, así que un reintento del
-        // mismo cobro nunca cuenta doble.
-        void registerSessionPayment
-          .mutateAsync(
-            settlementIntent.kind === "items"
-              ? {
-                  sessionId: settlementIntent.sessionId,
-                  transactionId: txId,
-                  kind: "items",
-                  orderItemIds: settlementIntent.orderItemIds,
-                }
-              : settlementIntent.kind === "amount"
-                ? {
-                    sessionId: settlementIntent.sessionId,
-                    transactionId: txId,
-                    kind: "amount",
-                    amount: settlementIntent.amount,
-                  }
-                : {
-                    sessionId: settlementIntent.sessionId,
-                    transactionId: txId,
-                    kind: "share",
-                    shareCount: settlementIntent.shareCount,
-                    shareIndex: settlementIntent.shareIndex,
-                  },
-          )
-          .catch((e: unknown) => {
-            // El preflight de arriba ya cubrió el caso común (espacio cobrado
-            // por otra familia, ítem ya saldado) — esto solo dispara en la
-            // ventana chica que el preflight NO cierra (ver docblock de
-            // `SpaceSettlementService::preflightPayment`): otro dispositivo
-            // cobró justo entre el preflight y este registro real. Mismo
-            // criterio que la rama `sessionParentId` de abajo — mostrar el
-            // motivo real, no un "avisá al soporte" que no dice qué pasó.
-            const reason = e instanceof Error ? e.message : ""
-            toast.error(
-              reason
-                ? `Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio: ${reason}`
-                : "Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio. Avisá al soporte.",
-            )
-          })
-      } else if (sessionParentId && result?.transactionId) {
-        const txId = result.transactionId
-        void Promise.all(
-          sessionOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
+      // Cobro emitido con respuesta: ya no hay nada pendiente sobre este
+      // objeto. Se limpia ANTES de pasar a éxito: si quedara, el próximo cobro
+      // del mismo objeto lo consultaría y mostraría esta venta otra vez.
+      if (chargeTarget) {
+        await clearPendingCharge(chargeTarget).catch((err) =>
+          console.error("[pay-dialog] no se pudo limpiar el cobro pendiente:", err),
         )
-          .then(() => closeSpaceSession.mutateAsync({ sessionId: sessionParentId, transactionId: txId }))
-          .catch((e: unknown) => {
-            // El motivo importa: el servidor NO cierra un espacio con saldo
-            // pendiente (SpaceSessionService::close), y el caso realista es
-            // que otro mozo haya mandado una orden entre que se cargó el
-            // carrito y se confirmó el cobro — esa comida quedó sin facturar.
-            // "Avisá al soporte" a secas mandaba a mirar logs algo que el
-            // cajero resuelve cobrando lo que falta.
-            const reason = e instanceof Error ? e.message : ""
-            toast.error(
-              reason
-                ? `Venta confirmada — no se pudo cerrar el espacio: ${reason}`
-                : "Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.",
-            )
-          })
-      } else if (orderParentId && result?.transactionId) {
-        void markOrderPaid.mutateAsync({ orderId: orderParentId, transactionId: result.transactionId })
-          .catch(() => {
-            toast.error("Venta confirmada — no se pudo cerrar la orden vinculada. Avisá al soporte.")
-          })
-      } else if (ordenEnVenta && result?.transactionId) {
-        // Manual (spec owner 2026-07-31): ya no se genera la orden espejo
-        // automáticamente. Se deja el snapshot listo para el botón "Ordenar"
-        // del modal de éxito — el cajero decide si la genera.
-        setOrderDraft({
-          lines,
-          customerId: customer?.id,
-          note: payload.note,
-          transactionId: result.transactionId,
-        })
       }
 
-      setPhase("success")
-      void posApi.post("/v1/screens?resource=publish", {
-        type: "sale-confirmed",
-        data: { total, change: changeAmount },
-      }).catch(() => {})
-      // Invalidar caches afectadas por la venta: dashboard (KPIs/widgets),
-      // listado de transacciones y todos los recursos del turno en curso.
-      void qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
-      void qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
-      void qc.invalidateQueries({ queryKey: ["bff", "income-chart"] })
-      invalidateDrawerQueries(qc)
+      completeConfirmedSale({
+        result,
+        payload,
+        followups: chargeFollowups,
+        giftcardCode: appliedPayments.find((r) => r.method.systemKey === "giftcard")?.identifier ?? null,
+        changeAmount,
+      })
     } catch (err) {
       // F5 (context/29 §5.6) — 409 de tenencia de caja: el backend
       // (`api/v1/sales.php`, F3 online) rechazó ESTE número porque la
@@ -1094,6 +1331,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // del header que además solo se leía en crédito.
     if (drawerClosed) {
       toast.error("Abrí la caja antes de cobrar")
+      return
+    }
+
+    // Cobro pendiente sin resolver: no se carga plata ni se emite. Si la
+    // verificación había quedado sin respuesta, el toque la reintenta.
+    if (chargeBlockedReason) {
+      toast.info(chargeBlockedReason)
+      if (chargeCheck?.kind === "blocked") {
+        const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+        if (target) void checkPendingCharge(target)
+      }
       return
     }
 
@@ -1266,8 +1514,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // venta a crédito es igual de fiscal que una al contado (type 3, con el mismo
   // timbrado congelado), así que el impedimento se pinta también en SU control.
   // Elegir cliente o abrir la caja no lo destraba, por eso va primero.
+  // Cobro pendiente sin resolver sobre este mismo objeto: mismo lugar que el
+  // resto de los impedimentos — el control que impide dice por qué.
+  const chargeBlockedReason: string | null =
+    chargeCheck?.kind === "checking"
+      ? PENDING_CHECKING_REASON
+      : chargeCheck?.kind === "blocked"
+        ? chargeCheck.reason
+        : null
+
   const creditBlockedReason: string | null = emissionBlock?.kind === "invoice-auth"
     ? emissionBlock.reason
+    : chargeBlockedReason
+    ? chargeBlockedReason
     : !credito
     ? null
     : !customer
@@ -1288,9 +1547,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
    */
   const payBlockedHint: string | null = drawerClosed
     ? "Abrí la caja antes de cobrar"
-    : credito && remaining <= 0
-      ? "El total ya está cubierto"
-      : null
+    : chargeBlockedReason
+      ?? (credito && remaining <= 0
+        ? "El total ya está cubierto"
+        : null)
 
   function handleCreditConfirm() {
     if (!creditSaleReady) return
@@ -1493,12 +1753,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           ) : (
             <TransactionSuccessView
               title="¡Venta confirmada!"
-              amount={formatMoney(total, config)}
+              amount={formatMoney(
+                saleResult?.duplicated ? saleResult.total : total,
+                config,
+              )}
               changeAmount={change > 0 ? formatMoney(change, config) : undefined}
               badge={
                 saleResult?.duplicated ? (
                   <Badge variant="outline" className="text-[10px] opacity-70">
-                    ya guardada previamente — uid idempotente
+                    Este cobro ya estaba registrado
                   </Badge>
                 ) : undefined
               }

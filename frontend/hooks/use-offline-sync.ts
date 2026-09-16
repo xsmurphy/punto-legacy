@@ -7,21 +7,30 @@ import { isAccountBlocked } from '@/lib/pos/account-block'
 import { posApi as api } from '@/lib/api/pos-client'
 import { useCatalogStore } from '@/lib/catalog/store'
 import { ensureTenancy } from '@/lib/pos/register-tenancy'
+import { reconcilePendingCharges } from '@/lib/pos/pending-charges'
+import { lookupSaleByUid } from '@/lib/pos/sale-lookup'
 
 interface SyncResult {
   clientTempId: string
   ok: boolean
+  /** Id REAL de la venta — también cuando `duplicated` (ya estaba registrada). */
   transactionId?: string
   duplicated?: boolean
   error?: { code: string; message: string }
 }
 
-// Solo estos errores son TRANSITORIOS (se reintentan solos con backoff).
-// Cualquier otro —validaciones de negocio, STOCK_OUT, NUMBER_TAKEN— es
+// Solo estos errores son TRANSITORIOS (se reintentan solos con backoff, con
+// tope). Cualquier otro —validaciones de negocio, STOCK_OUT, NUMBER_TAKEN— es
 // TERMINAL: reintentarlo nunca va a funcionar y generaba un bucle infinito de
 // POSTs (auto-DDoS con N cajas). Los terminales quedan en 'failed' para
 // revisión manual del operador.
-const RETRYABLE_CODES = new Set(['NETWORK_ERROR', 'INTERRUPTED'])
+//
+// `SERVER_ERROR` es transitorio: es el servidor que no pudo guardar ESTA venta
+// (un error de base, una lectura que falló) y no un rechazo de la venta. Como
+// terminal, un hipo del servidor dejaba "con error" una venta impresa hasta que
+// alguien entrara a reintentarla a mano. Con el tope de intentos, un error que
+// se repite igual termina en 'failed' y visible.
+const RETRYABLE_CODES = new Set(['NETWORK_ERROR', 'INTERRUPTED', 'SERVER_ERROR'])
 const MAX_ATTEMPTS = 6
 const BASE_BACKOFF_MS = 30_000
 const MAX_BACKOFF_MS = 30 * 60_000
@@ -126,12 +135,29 @@ export function useOfflineSync() {
       const response = await api.post<{ results: SyncResult[] }>('/v1/offline-sync', body)
       const results: SyncResult[] = response?.results ?? []
 
+      // La venta sale de la cola SOLO con `ok === true`: el servidor confirmó
+      // que está registrada (creada ahora, o ya estaba — `duplicated`, que
+      // desde 2026-09-16 solo se responde con la venta confirmada en el
+      // tenant). Cualquier otra forma de respuesta la deja en la cola.
+      const answered = new Set<string>()
       for (const res of results) {
-        if (res.ok || res.duplicated) {
+        answered.add(res.clientTempId)
+        if (res.ok === true) {
           await markSynced(res.clientTempId)
-        } else if (res.error) {
+        } else {
           const attempts = toSync.find((r) => r.clientTempId === res.clientTempId)?.attempts ?? 0
-          await applyError(res.clientTempId, attempts, res.error)
+          await applyError(
+            res.clientTempId,
+            attempts,
+            res.error ?? { code: 'SERVER_ERROR', message: 'El servidor no confirmó la venta' },
+          )
+        }
+      }
+      // Una venta del lote sin resultado quedaba en 'syncing' hasta el próximo
+      // arranque de la app. Vuelve a la cola ahora, como un corte del sync.
+      for (const r of toSync) {
+        if (!answered.has(r.clientTempId)) {
+          await applyError(r.clientTempId, r.attempts, { code: 'INTERRUPTED', message: 'Sync interrumpido — reintentando' })
         }
       }
 
@@ -169,6 +195,14 @@ export function useOfflineSync() {
         await applyError(r.clientTempId, r.attempts, { code: 'NETWORK_ERROR', message: 'Error de red al sincronizar' })
       }
     } finally {
+      // Cobros online-only con resultado ambiguo (ver `pending-charges.ts`):
+      // que ninguno quede huérfano aunque el cajero no vuelva a abrir ese
+      // cobro. Corre con o sin ventas en la cola, y nunca rompe el ciclo.
+      try {
+        await reconcilePendingCharges(lookupSaleByUid)
+      } catch (err) {
+        console.error('[offline-sync] reconcilePendingCharges:', err)
+      }
       syncRef.current = false
       setIsSyncing(false)
       await refreshCounts()

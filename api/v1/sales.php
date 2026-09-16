@@ -6,8 +6,13 @@ declare(strict_types=1);
  *
  *   POST  data[]={...payload del front...}
  *     → guarda la venta y devuelve { success, transactionId, uid, duplicated }
+ *       (duplicated=true trae además `sale`: la venta ORIGINAL registrada)
+ *   GET   ?uid=<uid>
+ *     → { sale } de la venta registrada con ese uid en la empresa + sucursal
+ *       del device, o 404. Lo usa el POS para resolver un cobro ambiguo.
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
+ * Auth: token-only — Bearer del device vía `apiAuthPosContext()`, sin cookies.
+ * Envelope canónico { ok, data }. Verbos REST (§22.7).
  *
  * Strangler-fig de `app/action.php?action=processData` — ver SaleService.
  *
@@ -41,6 +46,41 @@ if (($authCtx['module'] ?? 'pos') !== 'pos') {
 // fuerza el selector de caja, pero el guard es server-side (no confiar en él).
 if (($authCtx['registerId'] ?? '') === '') {
     apiError('Seleccioná una caja antes de vender', 403);
+}
+
+/** @var DB $db */
+global $db;
+
+// ── GET ?uid= — ¿este cobro ya quedó registrado? ────────────────────────────
+//
+// Lo usa el POS para resolver un cobro de resultado AMBIGUO (timeout, caída de
+// red, 5xx) ANTES de volver a cobrar el mismo objeto (espacio / orden / cobro
+// parcial): si la venta existe, se muestra esa y no se emite otra; si no, se
+// reintenta con el MISMO uid. Ver `frontend/lib/pos/pending-charges.ts`.
+//
+// Token-only: este endpoint entra por `apiAuthPosContext()`, que acepta
+// únicamente el Bearer del device. Acotado a la empresa Y la sucursal del
+// device — el device no ve ventas de otra sucursal, y un uid de otro tenant
+// responde 404 igual que uno inexistente (no revela existencia).
+//
+// 404 significa "no existe" y NADA MÁS: el POS lo usa para decidir que puede
+// reintentar. Cualquier fallo de lectura sale como 5xx (wrapper), nunca como
+// 404 — un 404 falso haría emitir un segundo cobro.
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET') {
+    $uid = trim((string) ($_GET['uid'] ?? ''));
+    if ($uid === '' || strlen($uid) > \Punto\Api\Sales\SaleUidLookup::UID_MAX_LENGTH) {
+        apiError('uid inválido', 422);
+    }
+    $outletScope = (string) ($authCtx['outletId'] ?? '');
+    if ($outletScope === '') {
+        // Fail-closed: sin sucursal no hay alcance que aplicar.
+        apiError('Dispositivo sin sucursal asignada', 403);
+    }
+    $found = (new \Punto\Api\Sales\SaleUidLookup($db))->find($uid, (string) $authCtx['companyId'], $outletScope);
+    if ($found === null) {
+        apiError('No hay una venta registrada con ese uid', 404);
+    }
+    apiOk(['sale' => $found->toApiPayload()]);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
@@ -98,8 +138,16 @@ try {
     apiError($e->getMessage(), 422);
 }
 
-/** @var DB $db */
-global $db; // proveído por bootstrap → head.php; pasamos por DI al servicio.
+// Idempotencia ANTES de los gates de emisión (timbrado, tenencia). Un reintento
+// de un cobro que YA quedó registrado no está emitiendo nada nuevo: rechazarlo
+// con 409/422 porque la caja cambió de manos o el timbrado venció después le
+// diría al cajero que el cobro falló cuando está hecho — y lo empujaría a
+// cobrarlo otra vez. `save()` repite el chequeo (es su contrato), esto solo lo
+// adelanta.
+$alreadyRegistered = (new \Punto\Api\Sales\SaleUidLookup($db))->find($input->uid, (string) $authCtx['companyId']);
+if ($alreadyRegistered !== null) {
+    apiOk(\Punto\Api\Sales\SaleResult::duplicate($alreadyRegistered)->toApiPayload());
+}
 
 $regId    = (string) $authCtx['registerId'];
 $compId   = (string) $authCtx['companyId'];
@@ -206,17 +254,12 @@ try {
     // muestre como bloqueante en vez de tratarlo como una venta sincronizada.
     apiConflict($e->getMessage());
 } catch (DuplicateSaleException $e) {
-    // 200 con duplicated=true — el front debe marcar el UID como sincronizado.
-    // NO se marca consumedAt acá: si esta es una venta que YA se guardó en
-    // un intento previo (el mismo uid), ese intento previo ya lo marcó —
-    // volver a marcarlo es un no-op sobre la misma fila (WHERE por
-    // invoiceNo+registerId+companyId), nunca un doble-consumo de OTRO número.
-    apiOk([
-        'success'    => true,
-        'duplicated' => true,
-        'uid'        => $e->uid,
-        'message'    => 'Duplicated Entry',
-    ]);
+    // 200 con duplicated=true y la venta ORIGINAL (transactionId real, número
+    // de comprobante, link del portal): el POS muestra ESA venta. Solo llega
+    // acá un duplicado CONFIRMADO dentro del tenant — ver
+    // `SaleService::abortSale()`. NO se avanza la secuencia: el intento que
+    // registró la venta ya lo hizo.
+    apiOk(\Punto\Api\Sales\SaleResult::duplicate($e->existing)->toApiPayload());
 } catch (InvalidSaleInputException $e) {
     // Validaciones del servicio (ej: clientId no pertenece al tenant) → 422.
     apiError($e->getMessage(), 422);

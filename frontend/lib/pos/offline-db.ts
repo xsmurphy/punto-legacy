@@ -32,6 +32,12 @@
  *                            memoria propia del device, y es lo único con lo
  *                            que puede mostrar un total sin preguntarle a
  *                            nadie. Ver `shift-journal.ts`.
+ *   - `pendingCharges` (v6) — cobros ONLINE-ONLY (espacio / orden / cobro
+ *                            parcial) cuyo resultado fue AMBIGUO: timeout,
+ *                            caída de red o 5xx. El servidor pudo haber
+ *                            registrado la venta o no; hasta saberlo, el uid
+ *                            de ese cobro queda congelado y no se emite otro
+ *                            sobre el mismo objeto. Ver `pending-charges.ts`.
  *
  * Por qué `shiftJournal` es un store y no se deriva de las colas: una venta
  * SALE de `pendingSales` en cuanto sincroniza, y una venta hecha con red nunca
@@ -46,9 +52,10 @@
 
 import { openDB, deleteDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { CreateSalePayload } from '@/lib/commands/create-sale'
+import type { SettlementIntent } from '@/lib/cart/store'
 
 export const DB_NAME = 'punto-pos-offline'
-export const DB_VERSION = 5
+export const DB_VERSION = 6
 
 // ── Filas ─────────────────────────────────────────────────────────────────────
 
@@ -274,6 +281,59 @@ export interface ShiftJournalRow {
   createdAt: string
 }
 
+/**
+ * Sobre QUÉ se cobra un cobro online-only. Es la identidad del cobro pendiente:
+ * mientras haya uno sin resolver para este objeto, no se emite otro.
+ */
+export type ChargeTarget =
+  | { kind: 'space-settlement'; sessionId: string }
+  | { kind: 'space-session'; sessionId: string }
+  | { kind: 'order'; orderId: string }
+
+/**
+ * Lo que el cobro tiene que hacer DESPUÉS de que la venta existe (registrar el
+ * pago parcial, marcar pagadas las órdenes, cerrar el espacio). Se congela con
+ * el cobro: si la venta aparece registrada al reabrir, esos pasos corren con lo
+ * que se cobró entonces, no con lo que el carrito tenga ahora.
+ */
+export interface ChargeFollowups {
+  settlementIntent: SettlementIntent | null
+  sessionParentId: string | null
+  sessionOrderIds: string[]
+  orderParentId: string | null
+}
+
+/** Venta registrada, tal como la devuelve el servidor para un uid. */
+export interface RegisteredSale {
+  transactionId: string
+  uid: string
+  invoiceNo: number | null
+  invoicePrefix: string | null
+  invoiceSerie: string | null
+  total: number | null
+  einvoicePortalUrl: string | null
+}
+
+/** Fila del store `pendingCharges`. Ver `pending-charges.ts`. */
+export interface PendingChargeRow {
+  /** `chargeKey(target)` — un cobro pendiente por objeto. */
+  key: string
+  target: ChargeTarget
+  /** Uid del intento ambiguo. Se reusa en todo reintento sobre el objeto. */
+  uid: string
+  /** Payload del último intento ambiguo — para imprimir si resultó registrado. */
+  payload: CreateSalePayload
+  followups: ChargeFollowups
+  /** ISO — primer intento ambiguo. */
+  createdAt: string
+  /** ISO — último intento ambiguo. El vencimiento se mide desde acá. */
+  lastAttemptAt: string
+  /** La venta, cuando una consulta la encontró registrada. */
+  resolvedSale?: RegisteredSale
+  /** ISO — cuándo se encontró registrada. */
+  resolvedAt?: string
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 export interface PosOfflineDB extends DBSchema {
@@ -296,6 +356,10 @@ export interface PosOfflineDB extends DBSchema {
   shiftJournal: {
     key: string
     value: ShiftJournalRow
+  }
+  pendingCharges: {
+    key: string
+    value: PendingChargeRow
   }
 }
 
@@ -326,6 +390,9 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
         }
         if (!db.objectStoreNames.contains('shiftJournal')) {
           db.createObjectStore('shiftJournal', { keyPath: 'entryId' })
+        }
+        if (!db.objectStoreNames.contains('pendingCharges')) {
+          db.createObjectStore('pendingCharges', { keyPath: 'key' })
         }
       },
     })
