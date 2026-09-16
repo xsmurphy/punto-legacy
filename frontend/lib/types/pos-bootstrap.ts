@@ -498,6 +498,13 @@ export interface PosUser {
    * desbloquear la caja (el lock screen lo saltea).
    */
   pinhash?: string | null
+  /**
+   * El PIN sigue siendo el que puso el alta de la cuenta (mig 224). La caja lo
+   * usa para pedirle al único usuario que elija su código ANTES de un bloqueo
+   * manual, también sin red (context/72 §9.3). Ausente en snapshots viejos:
+   * se lee como `false`.
+   */
+  pinIsDefault?: boolean
 }
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────

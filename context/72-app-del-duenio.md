@@ -451,7 +451,17 @@ de device, y el token de device nace únicamente del canje de un solo uso.
   respuesta idéntica a `/v1/unlock-pin` vía `OperatorUnlock::grant()`. Front:
   `lib/pos/sole-operator.ts` (regla local), `lib/pos/sole-unlock.ts` (si el
   servidor responde `pin_required` la caja se bloquea y no se reabre sola en
-  esa carga), "Bloquear" queda deshabilitado en ese modo.
+  esa carga).
+- **Bloqueo manual con un solo usuario** (owner, 2026-09-16): el sin-PIN aplica
+  SOLO al abrir la caja (y al bloqueo por inactividad). "Bloquear" pide PIN y
+  deja una marca en `localStorage` (`lib/pos/manual-lock.ts`) que sobrevive la
+  recarga y solo levanta el desbloqueo CON PIN. Si el PIN del operador sigue
+  siendo el del signup (`pinIsDefault`, ahora en el roster del bootstrap), antes
+  de bloquear elige su código por `POST /v1/operator-pin` (Bearer de device +
+  `X-Operator-Token`, sobre el contacto de la afirmación, solo mientras
+  `pinisdefault`). Sin red en ese caso, "Bloquear" queda deshabilitado con
+  motivo; también si el operador no tiene ningún PIN (la marca persistente lo
+  dejaría sin salida). Decisión en `lib/pos/lock-action.ts`.
 - **PIN del signup**: columna `contact.pinisdefault` (mig 224, backfill del
   usuario `main` con `1111`); la baja toda escritura del PIN en `UsersService`.
   `GET/POST /v1/users?resource=own-pin` (solo panel, sobre el usuario de la

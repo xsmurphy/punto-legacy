@@ -45,6 +45,7 @@ import { AppCommandPalette } from "@/components/layout/app-command-palette"
 import { NotificationsMenuItem, NotificationUnreadDot } from "@/components/layout/notification-bell"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { decideLockAction } from "@/lib/pos/lock-action"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import type { NavEntry, NavGroup, NavItem, PaletteSection } from "@/lib/navigation/types"
 import { routePathname } from "@/lib/navigation/build"
@@ -371,6 +372,23 @@ function PosUserMenuContent() {
   const registers = useCatalogStore((s) => s.registers)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const lock = useLockStore((s) => s.lock)
+  const lockManually = useLockStore((s) => s.lockManually)
+  const soleOperatorMode = useLockStore((s) => s.soleOperator)
+  const activeOperatorId = useLockStore((s) => s.activeUser?.id ?? null)
+  const rosterUsers = useCatalogStore((s) => s.users)
+  // Mismo criterio que "Bloquear" de `PosSidebar` (context/72 §9.3): bloqueo
+  // MANUAL (pide PIN aunque el roster sea de uno) solo cuando el operador ya
+  // conoce su código. Este menú no tiene el diálogo para elegirlo, así que en
+  // los otros casos cae al bloqueo simple en vez de dejarlo afuera.
+  const onLock = () => {
+    const action = decideLockAction({
+      soleOperator: soleOperatorMode,
+      operator: rosterUsers.find((u) => u.id === activeOperatorId),
+      online: typeof navigator === "undefined" || navigator.onLine,
+    })
+    if (action.kind === "lock") lockManually()
+    else lock()
+  }
 
   const register = registers.find((r) => r.id === activeRegisterId) ?? null
   const company =
@@ -405,7 +423,7 @@ function PosUserMenuContent() {
         </div>
       </DropdownMenuLabel>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={lock}>
+      <DropdownMenuItem onClick={onLock}>
         <Lock />
         Bloquear
       </DropdownMenuItem>

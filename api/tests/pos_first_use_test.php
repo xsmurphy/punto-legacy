@@ -494,6 +494,70 @@ try {
     $again = ncmExecute('SELECT pinisdefault FROM contact WHERE contactid = ?', [$owner2]);
     check('(S5) editar el PIN desde Equipo también baja la marca',
         in_array($again['pinisdefault'] ?? null, [false, 'f', 0, '0'], true), json_encode($again), $failures, $checks);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    echo "\n=== (O) la caja cambia el PIN propio del operador (/v1/operator-pin) ===\n";
+    $db->Execute("UPDATE contact SET pinisdefault = true, lockpass = '1111', pinhash = ? WHERE contactid = ?", [hash('sha256', '1111'), $owner2]);
+    $usersSvc->update($employee2, $company2, ['lockPass' => '3333']);
+    $rosterMap = [];
+    foreach ($usersSvc->rosterForOutlet($company2, $outlet2) as $u) {
+        $rosterMap[$u['id']] = $u['pinIsDefault'];
+    }
+    check('(O0) el roster de la caja expone pinIsDefault por usuario',
+        ($rosterMap[$owner2] ?? null) === true && ($rosterMap[$employee2] ?? null) === false, json_encode($rosterMap), $failures, $checks);
+
+    $opPin = 'v1/operator-pin.php';
+    $callOp = static function (array $body, string $panel, string $device, string $assertion) use ($opPin): array {
+        $cmd = [
+            PHP_BINARY, '-d', 'variables_order=EGPCS',
+            '-d', 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING & ~E_NOTICE',
+            __DIR__ . '/_permission_once_cli.php', $opPin, 'POST', '', json_encode($body), $panel, $device, $assertion, '',
+        ];
+        $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, dirname(__DIR__));
+        fwrite($pipes[0], json_encode($body));
+        fclose($pipes[0]);
+        $out = (string) stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($proc);
+        $status = 0;
+        if (preg_match('/BODY:(\{.*\})\s*\nHTTP_STATUS:/s', $out, $m)) {
+            $env = json_decode($m[1], true);
+            if (is_array($env)) {
+                $status = ($env['ok'] ?? null) === true ? 200 : (int) ($env['error']['code'] ?? 0);
+                if ($status === 0 && in_array($env['code'] ?? null, ['session_revoked', 'device_incomplete'], true)) {
+                    $status = 401;
+                }
+            }
+        }
+        return ['status' => $status, 'raw' => substr($out, 0, 500)];
+    };
+    $ownerPinhash = static fn (): string => (string) (ncmExecute('SELECT pinhash FROM contact WHERE contactid = ?', [$owner2])['pinhash'] ?? '');
+
+    $r = $callOp(['lockPass' => '7777'], '', $dev2owner['token'], '');
+    check('(O1) sin afirmación de operador → 403', $r['status'] === 403 && $ownerPinhash() === hash('sha256', '1111'), $r['raw'], $failures, $checks);
+    $r = $callOp(['lockPass' => '7777'], '', $dev2owner['token'], OperatorAssertion::issue($company2, $employee2));
+    check('(O2) con la afirmación de OTRO usuario no toca el PIN del dueño', $r['status'] === 409 && $ownerPinhash() === hash('sha256', '1111'),
+        $r['raw'], $failures, $checks);
+    $r = $callOp(['lockPass' => '7777'], '', $dev2owner['token'], OperatorAssertion::issue($companyId, $uOwner));
+    check('(O2b) afirmación de otro tenant → 403', $r['status'] === 403 && $ownerPinhash() === hash('sha256', '1111'), $r['raw'], $failures, $checks);
+    $r = $callOp(['lockPass' => '7777'], $tokOwner2, '', OperatorAssertion::issue($company2, $owner2));
+    check('(O3) desde realm panel → 401', $r['status'] === 401 && $ownerPinhash() === hash('sha256', '1111'), $r['raw'], $failures, $checks);
+    $ownerAssertion = OperatorAssertion::issue($company2, $owner2);
+    $r = $callOp(['lockPass' => '12'], '', $dev2owner['token'], $ownerAssertion);
+    check('(O4a) PIN inválido → 422', $r['status'] === 422, $r['raw'], $failures, $checks);
+    $r = $callOp(['lockPass' => '3333'], '', $dev2owner['token'], $ownerAssertion);
+    check('(O4b) PIN en uso por otro usuario del tenant → 422', $r['status'] === 422 && $ownerPinhash() === hash('sha256', '1111'),
+        $r['raw'], $failures, $checks);
+    $r = $callOp(['lockPass' => '7777', 'id' => $employee2, 'contactId' => $employee2], '', $dev2owner['token'], $ownerAssertion);
+    $o = ncmExecute('SELECT pinisdefault, pinhash FROM contact WHERE contactid = ?', [$owner2]);
+    $e = ncmExecute('SELECT pinhash FROM contact WHERE contactid = ?', [$employee2]);
+    check('(O5) afirmación propia → 200, cambia SU PIN (ignora ids del body) y baja pinisdefault',
+        $r['status'] === 200 && (string) $o['pinhash'] === hash('sha256', '7777')
+        && in_array($o['pinisdefault'] ?? null, [false, 'f', 0, '0'], true) && (string) $e['pinhash'] === hash('sha256', '3333'),
+        $r['raw'] . ' ' . json_encode($o), $failures, $checks);
+    $r = $callOp(['lockPass' => '8888'], '', $dev2owner['token'], $ownerAssertion);
+    check('(O6) con el PIN ya elegido se cierra (409)', $r['status'] === 409 && $ownerPinhash() === hash('sha256', '7777'), $r['raw'], $failures, $checks);
 } catch (\Throwable $e) {
     $failures++;
     echo 'FAIL excepción no esperada: ' . get_class($e) . ': ' . $e->getMessage() . "\n" . $e->getTraceAsString() . "\n";

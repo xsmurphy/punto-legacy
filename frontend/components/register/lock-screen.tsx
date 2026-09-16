@@ -272,11 +272,14 @@ export function LockScreen() {
   // ── Sin PIN con un solo usuario (context/72 §9.3, D-P2) ────────────────────
   // Con el roster de la sucursal en UNO, la caja no muestra el bloqueo: se
   // desbloquea a nombre de ese usuario y pide la afirmación al servidor, que
-  // vuelve a contar el roster (`lib/pos/sole-unlock.ts`). Aplica también al
-  // bloqueo manual y al de inactividad: con nadie más a quien ceder la caja,
-  // bloquear no protege nada.
+  // vuelve a contar el roster (`lib/pos/sole-unlock.ts`). Aplica al abrir la
+  // caja y al bloqueo por inactividad, NUNCA a un bloqueo MANUAL (owner
+  // 2026-09-16): "Bloquear" pide PIN aunque el roster sea de uno, y la marca
+  // `manualLock` persiste en el dispositivo para que recargar no lo saltee.
   const soleOperatorDenied = useLockStore((s) => s.soleOperatorDenied)
-  const sole = catalogSettled && !soleOperatorDenied ? soleOperator(users, rosterMissing) : null
+  const manualLock = useLockStore((s) => s.manualLock)
+  const sole =
+    catalogSettled && !soleOperatorDenied && !manualLock ? soleOperator(users, rosterMissing) : null
   const soleId = sole?.id ?? null
   const soleName = sole?.name ?? ""
 

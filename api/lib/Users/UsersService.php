@@ -127,7 +127,8 @@ final class UsersService
     /**
      * Roster de la PANTALLA DE BLOQUEO del POS — proyección mínima, por sucursal.
      *
-     * Devuelve SOLO `id`, `name`, `pinhash`. Nada más: ni email, ni teléfono, ni
+     * Devuelve SOLO `id`, `name`, `pinhash` y `pinIsDefault` (booleano, mig 224:
+     * la caja lo necesita sin red, ver context/72 §9.3). Nada más: ni email, ni teléfono, ni
      * `lockPass`/`lockPassHash`, ni rol, ni sucursales. Cada campo extra sería
      * superficie filtrada a un token de device que vive para siempre en el
      * localStorage de una tablet del mostrador, así que la proyección es la
@@ -168,7 +169,7 @@ final class UsersService
      *     (`/v1/bootstrap` en realm `pos-app`) nunca lo usa, porque el device
      *     opera siempre con la sucursal fija de su pairing.
      *
-     * @return list<array{id:string,name:string,pinhash:?string}>
+     * @return list<array{id:string,name:string,pinhash:?string,pinIsDefault:bool}>
      */
     public function rosterForOutlet(string $companyId, string $outletId): array
     {
@@ -177,7 +178,8 @@ final class UsersService
         $sql = "
             SELECT c.contactId   AS id,
                    c.contactName AS name,
-                   c.pinhash     AS pinhash
+                   c.pinhash     AS pinhash,
+                   c.pinisdefault AS pinisdefault
               FROM contact c
              WHERE c.companyId = ?
                AND c.type = ?
@@ -221,6 +223,12 @@ final class UsersService
                     'id'      => (string) ($f['id'] ?? ''),
                     'name'    => (string) ($f['name'] ?? ''),
                     'pinhash' => ($pin === null || $pin === '') ? null : (string) $pin,
+                    // ¿El PIN sigue siendo el del signup? (mig 224). Lo lee la
+                    // caja para pedirle al único usuario que elija su código
+                    // ANTES de un bloqueo manual — sin red no hay forma de
+                    // preguntarlo (context/72 §9.3). Es un booleano sobre la
+                    // persona, no una credencial.
+                    'pinIsDefault' => in_array($f['pinisdefault'] ?? false, [true, 't', 1, '1', 'true'], true),
                 ];
                 $res->MoveNext();
             }

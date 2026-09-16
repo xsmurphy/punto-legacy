@@ -43,6 +43,7 @@
 
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
+import { readManualLock, writeManualLock } from "@/lib/pos/manual-lock"
 
 interface LockState {
   /**
@@ -111,7 +112,15 @@ interface LockState {
    * PIN aunque el roster local diga uno. No se persiste.
    */
   soleOperatorDenied: boolean
+  /**
+   * La caja se bloqueó A MANO y todavía nadie la desbloqueó con PIN. Mientras
+   * sea `true` no hay desbloqueo sin PIN, ni siquiera tras recargar: vive en
+   * `localStorage` (`lib/pos/manual-lock.ts`) y se lee al crear el store.
+   */
+  manualLock: boolean
   lock: () => void
+  /** "Bloquear" del menú: bloquea y deja la marca de bloqueo manual. */
+  lockManually: () => void
   /** Desbloqueo sin PIN a nombre del único usuario de la sucursal. */
   unlockAsSoleOperator: (user: { id: string; name: string }) => void
   /** Ver `soleOperatorDenied`. */
@@ -133,6 +142,7 @@ export const useLockStore = create<LockState>()(
       operatorPermissions: [],
       soleOperator: false,
       soleOperatorDenied: false,
+      manualLock: readManualLock(),
       // Bloquear TIRA la afirmación firmada del operador: es una prueba de
       // identidad de alguien que acaba de irse de la caja, y no hay ninguna
       // operación que deba poder ejecutar en su nombre mientras no vuelva a
@@ -143,17 +153,32 @@ export const useLockStore = create<LockState>()(
       // capacidad de esa misma persona, y conservarlos sin la prueba de
       // identidad solo habilitaría una UI optimista que el backend rechaza.
       lock: () => set({ locked: true, operatorToken: null, operatorPermissions: [], soleOperator: false }),
-      unlock: () => set({ locked: false, soleOperator: false }),
+      lockManually: () => {
+        writeManualLock(true)
+        set({ locked: true, operatorToken: null, operatorPermissions: [], soleOperator: false, manualLock: true })
+      },
+      // `unlock()` es el desbloqueo CON PIN (su único caller es el match del
+      // lock screen): es lo único que levanta la marca de bloqueo manual.
+      unlock: () => {
+        writeManualLock(false)
+        set({ locked: false, soleOperator: false, manualLock: false })
+      },
       // Mismo punto de partida que un PIN recién validado localmente: operador
       // identificado, sin afirmación ni permisos hasta que responda el server.
+      // Guard en el store y no solo en el lock screen: un bloqueo MANUAL se
+      // levanta únicamente con PIN, llame quien llame a esta acción.
       unlockAsSoleOperator: (user) =>
-        set({
-          locked: false,
-          soleOperator: true,
-          activeUser: user,
-          operatorToken: null,
-          operatorPermissions: [],
-        }),
+        set((s) =>
+          s.manualLock || readManualLock()
+            ? {}
+            : {
+                locked: false,
+                soleOperator: true,
+                activeUser: user,
+                operatorToken: null,
+                operatorPermissions: [],
+              },
+        ),
       denySoleOperator: () =>
         set({
           locked: true,
@@ -213,6 +238,8 @@ export const useLockStore = create<LockState>()(
         locked: true,
         soleOperator: false,
         soleOperatorDenied: false,
+        // Fuente: localStorage, nunca la sessionStorage del persist.
+        manualLock: readManualLock(),
       }),
     },
   ),
