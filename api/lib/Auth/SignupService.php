@@ -482,6 +482,11 @@ final class SignupService
             'lockPass'        => $defaultPin,
             'lockPassHash'    => password_hash($defaultPin, PASSWORD_BCRYPT),
             'pinhash'         => hash('sha256', $defaultPin),
+            // Marca de PIN por defecto (mig 224, context/72 §9.3): mientras la
+            // sucursal tenga un solo usuario la caja no lo pide; cuando se da
+            // de alta el segundo, el panel le pide al dueño elegir el suyo.
+            // La baja cualquier escritura del PIN en `UsersService`.
+            'pinIsDefault'    => 'true',
             'type'            => '0',
         ], 'table' => 'contact']);
 

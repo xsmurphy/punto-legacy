@@ -432,6 +432,9 @@ final class UsersService
             $rec['lockPass']     = $lockPass !== '' ? $lockPass : null;
             $rec['lockPassHash'] = $lockPass !== '' ? password_hash($lockPass, PASSWORD_BCRYPT) : null;
             $rec['pinhash']      = $lockPass !== '' ? hash('sha256', $lockPass) : null;
+            // Cualquier escritura del PIN lo deja de ser "el del signup"
+            // (mig 224). Ver `ownPinPromptRequired()`.
+            $rec['pinIsDefault'] = 'false';
         }
         if (array_key_exists('inCalendar', $in)) {
             $rec['contactInCalendar'] = !empty($in['inCalendar']) ? 1 : 0;
@@ -458,6 +461,61 @@ final class UsersService
             'whereParams' => [$id, $companyId],
         ]);
         return $result !== false && empty($result['error']);
+    }
+
+    /**
+     * ¿Hay que pedirle a este usuario que elija su PIN? (context/72 §9.3)
+     *
+     * Sí cuando las dos cosas son ciertas:
+     *   - su PIN sigue siendo el que puso el signup (`pinisdefault`, mig 224);
+     *   - el comercio tiene 2 o más usuarios activos.
+     *
+     * Con un solo usuario la caja no pide PIN, así que el PIN por defecto no
+     * molesta a nadie. Con dos, el bloqueo vuelve y el dueño no puede quedar
+     * frente a un PIN que no eligió. Se cuenta el tenant y no la sucursal: el
+     * aviso es para la persona, que puede operar en cualquiera de sus cajas.
+     */
+    public function ownPinPromptRequired(string $companyId, string $userId): bool
+    {
+        $row = ncmExecute(
+            'SELECT c.pinisdefault,
+                    (SELECT count(*) FROM contact o
+                      WHERE o.companyid = c.companyid AND o.type = ? AND o.contactstatus = 1) AS users
+               FROM contact c
+              WHERE c.contactid = ? AND c.companyid = ? AND c.type = ? AND c.contactstatus = 1',
+            [self::TYPE_USER, $userId, $companyId, self::TYPE_USER]
+        );
+        if (!$row) {
+            return false;
+        }
+        $flag = $row['pinisdefault'] ?? false;
+        $isDefault = $flag === true || $flag === 't' || $flag === 1 || $flag === '1' || $flag === 'true';
+        return $isDefault && (int) ($row['users'] ?? 0) >= 2;
+    }
+
+    /**
+     * El usuario elige SU PROPIO PIN, sin `contacts.user.manage`.
+     *
+     * Acotado a propósito al caso de `ownPinPromptRequired()`: es la salida de
+     * "tenés el PIN del signup", no una edición general del perfil. Con el PIN
+     * ya elegido, cambiarlo sigue siendo la ficha del usuario en Equipo, con su
+     * permiso. La validación, la unicidad y los hashes son los de `update()`.
+     *
+     * @throws \InvalidArgumentException PIN inválido o en uso.
+     * @throws \RuntimeException         (409) el PIN ya no es el por defecto.
+     */
+    public function setOwnDefaultPin(string $companyId, string $userId, string $pin): void
+    {
+        $pin = trim($pin);
+        if (!preg_match(self::LOCK_PASS_PATTERN, $pin)) {
+            throw new \InvalidArgumentException('El código POS debe tener 4 dígitos numéricos');
+        }
+        if (!$this->ownPinPromptRequired($companyId, $userId)) {
+            throw new \RuntimeException('Tu código POS ya fue elegido', 409);
+        }
+        if (!$this->update($userId, $companyId, ['lockPass' => $pin])) {
+            throw new \RuntimeException('No se pudo guardar el código', 500);
+        }
     }
 
     /** Activa (1) o desactiva (0) un empleado. */
