@@ -80,20 +80,40 @@ seteados y no toca Docker.
   "Detallado") ahora traen esa venta (antes 0 filas siempre, mismo bug del
   string sintético en el filtro SQL).
 
-## Fallas conocidas (no se ocultan — ver reporte de la tarea)
+## El payload replica al POS
 
-El exit code queda en 1 mientras estos dos bugs de impresión sigan sin
-arreglar (a propósito: el arnés reporta lo que encuentra, no lo esconde):
+`run_sale_chain.php` arma cada venta con la misma semántica que
+`buildSalePayload` (`frontend/lib/commands/create-sale.ts`): por línea,
+`total` = cantidad × precio (BRUTO, antes del descuento y sin impuesto
+añadido) y `totalDiscount` = plata del descuento; `subtotal` = Σ bruto,
+`discount` = Σ descuentos, y el pago = lo que cobra la caja
+(`selectCartTotal`). El motor grava `total − totalDiscount` (d6518932).
+Por eso `itemSoldTotal`/`transactionTotal` se esperan en bruto, mientras que
+los impuestos de `fixtures.json` (cuentas a mano) y `gross` (lo que el
+cliente debería pagar) no dependen del payload. Si el POS cambia la forma
+del payload, el arnés tiene que cambiar con él.
 
-1. **`item_discount` imprime el % de descuento como si fuera dinero**
-   (`frontend/lib/hardware/printers/blocks.ts:389`) — el campo que persiste
-   la venta en esa key es el porcentaje efectivo de la línea
-   (`frontend/lib/commands/create-sale.ts:331`), no el monto
-   (`totalDiscount`).
-2. **`formatMoney()` hardcodea `Intl.NumberFormat("es-PY", {currency:
-   "PYG"})`** (`frontend/lib/hardware/printers/blocks.ts:32-34`) — para
-   cualquier tenant `decimals=2` los centavos se pierden en el ticket
-   impreso (ej. 114.84 → "Gs. 115").
+La impresión sigue la regla del owner de 2026-08-26 (53dff8b6): la moneda va
+SOLO en el bloque `total` (`formatMoney`); todo otro importe se espera sin
+símbolo (`formatAmountOnly`).
+
+## Fallas conocidas (no se ocultan)
+
+El exit code queda en 1 mientras este bug de PRODUCCIÓN siga abierto (el
+arnés reporta lo que encuentra, no lo esconde; cada FAIL lleva una línea
+`NOTA BUG conocido`):
+
+1. **El POS no cobra el IVA AÑADIDO** (hallado 2026-09-16). `lineSubtotal`/
+   `selectCartTotal` (`frontend/lib/cart/store.ts`) suman cantidad × precio
+   − descuento y nunca agregan el impuesto de una línea con
+   `taxIncluded=false`, aunque context/38 dice "añadido: se suma al total".
+   El backend sí lo calcula y lo congela, así que la venta queda
+   inconsistente: el pago y `transactionTotal − transactionDiscount` no
+   incluyen el impuesto que `toTaxObj`, el RG90 y la factura electrónica sí
+   declaran. Se ve en 5 assertions: RG90 no cierra
+   (`grav10+grav5+exento ≠ total`), `SaleToFePyMapper` rechaza por pagos que
+   no cuadran, y el bloque `total` del ticket en los tres casos con IVA
+   añadido. Las ventas 100% IVA incluido no se ven afectadas.
 
 ## Estructura
 
