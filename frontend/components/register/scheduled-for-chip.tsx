@@ -53,7 +53,10 @@ export function ScheduledForChip({
               : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground",
           )}
         >
-          {selected ? chipLabel(selected) : "ENTREGA"}
+          {/* "FECHA" y no "ENTREGA" (owner 2026-09-17): al lado viven
+              Mostrador/Retiro/Envío, que son formas de ENTREGA — el mismo
+              sustantivo para la fecha se leía como un cuarto fulfillment. */}
+          {selected ? chipLabel(selected) : "FECHA"}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0" align="end">
