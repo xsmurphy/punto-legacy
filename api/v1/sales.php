@@ -6,8 +6,13 @@ declare(strict_types=1);
  *
  *   POST  data[]={...payload del front...}
  *     → guarda la venta y devuelve { success, transactionId, uid, duplicated }
+ *       (duplicated=true trae además `sale`: la venta ORIGINAL registrada)
+ *   GET   ?uid=<uid>
+ *     → { sale } de la venta registrada con ese uid en la empresa + sucursal
+ *       del device, o 404. Lo usa el POS para resolver un cobro ambiguo.
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
+ * Auth: token-only — Bearer del device vía `apiAuthPosContext()`, sin cookies.
+ * Envelope canónico { ok, data }. Verbos REST (§22.7).
  *
  * Strangler-fig de `app/action.php?action=processData` — ver SaleService.
  *
