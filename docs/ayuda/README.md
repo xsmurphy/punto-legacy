@@ -69,10 +69,10 @@ resumen: Una sola oración que responde de qué se trata el artículo.
 - [Apertura, cierre y arqueo de caja](20-03-apertura-cierre-y-arqueo-de-caja.md)
 - [Anular una venta y emitir una nota de crédito](20-04-anular-una-venta-y-emitir-una-nota-de-credito.md)
 - [Trabajar sin internet](20-05-trabajar-sin-internet.md)
-- *Pendiente* — Órdenes, comandas y cocina
-- *Pendiente* — Espacios y mesas
-- *Pendiente* — Cotizaciones
-- *Pendiente* — Gift cards y vales
+- [Órdenes, comandas y cocina](20-06-ordenes-comandas-y-cocina.md)
+- [Espacios y mesas](20-07-espacios-y-mesas.md)
+- [Cotizaciones](20-08-cotizaciones.md)
+- [Gift cards y vales](20-09-gift-cards-y-vales.md)
 
 ### Catálogo y stock (30-x)
 
@@ -80,10 +80,10 @@ resumen: Una sola oración que responde de qué se trata el artículo.
 - [Precios y listas de precio](30-02-precios-y-listas-de-precio.md)
 - [Control de stock y ajustes](30-03-control-de-stock-y-ajustes.md)
 - [Transferencias entre depósitos](30-04-transferencias-entre-depositos.md)
-- *Pendiente* — Combos y adicionales
-- *Pendiente* — Producción y recetas
-- *Pendiente* — Remisión (traslado de mercadería con documento)
-- *Pendiente* — Impuestos y tasas por artículo
+- [Combos y adicionales](30-05-combos-y-adicionales.md)
+- [Producción y recetas](30-06-produccion-y-recetas.md)
+- [Remisión (traslado de mercadería con documento)](30-07-remision-traslado-de-mercaderia.md)
+- [Impuestos y tasas por artículo](30-08-impuestos-y-tasas-por-articulo.md)
 
 ### Compras (40-x)
 
@@ -107,5 +107,3 @@ resumen: Una sola oración que responde de qué se trata el artículo.
 
 - [Cómo configurar sucursales y cajas](80-01-sucursales-y-cajas.md)
 - [Cómo configurar impresoras y plantillas de impresión](80-02-impresoras-y-plantillas-de-impresion.md)
-
-Los ítems marcados *Pendiente* corresponden a módulos que ya existen en Punto (ver `context/modules/_index.md`) pero todavía no tienen artículo de ayuda escrito.
