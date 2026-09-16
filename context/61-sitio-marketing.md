@@ -9,6 +9,14 @@ MISMO container que el panel — no es un subproyecto ni deploy aparte.
 `app.punto.la` sigue sirviendo el panel sin cambios. Un solo Next app, dos
 dominios.
 
+Desde 2026-09-16 hay un tercero, el sitio de ayuda (`docs.punto.la`, hosts en
+`DOCS_HOSTS`, origen canónico en `NEXT_PUBLIC_DOCS_URL`): TODA ruta de ese host
+se reescribe bajo `/ayuda` (route group `(docs)`), que genera en build una
+página estática por artículo de `frontend/content/ayuda/*.md`. En los otros
+hosts `/ayuda/*` redirige 308 al host de ayuda. El matcher del middleware dejó
+de ser solo `/`: excluye `/_next/`, `/api/` y assets por extensión (no `.xml`
+ni `.txt`, que el host de ayuda necesita reescribir).
+
 ## Estructura
 
 - `frontend/app/(site)/` — home, precios, contacto, rubros, módulos.
