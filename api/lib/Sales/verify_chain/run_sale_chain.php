@@ -142,35 +142,46 @@ foreach ($cases as $case) {
             $itemId = (string) $row->fields['itemid'];
         }
 
+        // La línea se arma EXACTAMENTE como la arma el POS
+        // (`buildSalePayload`, frontend/lib/commands/create-sale.ts, con el
+        // reparto de `allocateLineDiscounts`): el arnés prueba el camino de
+        // producción, así que el payload no puede tener una semántica propia.
+        //   - `total`         = BRUTO de la línea: cantidad × precio unitario,
+        //                       ANTES del descuento y SIN impuesto añadido
+        //                       (semántica de `itemSold.itemSoldTotal`).
+        //   - `totalDiscount` = plata del descuento de la línea.
+        //   - `discount`      = el mismo descuento como % efectivo del bruto.
+        // El motor (`SaleService::enrichWithTaxes`) grava `total −
+        // totalDiscount` y suma el impuesto añadido él mismo. Hasta 2026-09-16
+        // el arnés mandaba en `total` el importe FINAL (ya descontado y con el
+        // IVA añadido adentro): el descuento se restaba dos veces y el IVA
+        // añadido se volvía a gravar. Los impuestos esperados de fixtures.json
+        // son cuentas hechas a mano y no cambian con esto.
         $grossBase = $l['qty'] * $l['unitPrice'];
-        // `discount` (porcentaje efectivo) espeja lo que manda el front real
-        // (allocateLineDiscounts → SaleItem.discount, frontend/lib/commands/
-        // create-sale.ts:331) — NO es el monto, es el % de esa línea. El monto
-        // real es `totalDiscount`. Ver hallazgo del reporte sobre el bloque
-        // de impresión `item_discount`, que confunde estos dos campos.
-        $discountPct = $grossBase > 0 ? round($l['discount'] / $grossBase * 100, 4) : 0;
-
         $lines[] = [
             'itemId'        => $itemId,
-            'count'         => $l['qty'],
             'name'          => $l['itemSku'],
-            'uniPrice'      => $l['unitPrice'],
+            'count'         => $l['qty'],
             'price'         => $l['unitPrice'],
-            'total'         => $l['expected']['gross'],
-            'tax'           => 0,
-            'discount'      => $discountPct,
+            'total'         => $grossBase,
+            'discount'      => $grossBase > 0 ? ($l['discount'] / $grossBase) * 100 : 0,
             'totalDiscount' => $l['discount'],
-            'user'          => '',
-            'type'          => '',
-            'date'          => '',
-            'note'          => '',
-            'currency'      => '',
-            'uId'           => 0,
+            'note'          => null,
+            'tags'          => [],
         ];
     }
     if (count($lines) !== count($case['lines'])) {
         continue; // ya se contó el fallo arriba
     }
+
+    // Totales de la transacción, también como el POS: `subtotal` = Σ bruto
+    // de las líneas, `discount` = Σ descuento de las líneas (subtotal −
+    // discount = lo cobrado), `tax` = 0 (lo calcula y congela el backend).
+    // El pago es lo que cobra la caja: `selectCartTotal` del carrito
+    // (lib/cart/store.ts), el mismo número que `subtotal − discount`.
+    $grossSubtotal = saleGrossSubtotal($case);
+    $lineDiscounts = saleLineDiscounts($case);
+    $charged       = $grossSubtotal - $lineDiscounts;
 
     $uid = $case['id'] . '-' . bin2hex(random_bytes(6));
     $payload = [
@@ -178,11 +189,11 @@ foreach ($cases as $case) {
             'uid'      => $uid,
             'type'     => 0, // Cashsale
             'sale'     => $lines,
-            'subtotal' => $case['expectedTotals']['gross'],
+            'subtotal' => $grossSubtotal,
             'tax'      => 0,
-            'discount' => 0,
+            'discount' => $lineDiscounts,
             'payment'  => [
-                ['type' => 'cash', 'name' => 'Efectivo', 'total' => $case['expectedTotals']['gross']],
+                ['name' => 'Efectivo', 'type' => 'efectivo', 'total' => $charged],
             ],
             'date'      => date('Y-m-d H:i:s'),
             'timestamp' => time(),
@@ -206,7 +217,7 @@ foreach ($cases as $case) {
     //    orden de SELECT). ────────────────────────────────────────────────
     $soldRows = [];
     $rs = $db->Execute(
-        'SELECT itemId, itemSoldTotal, itemSoldTax, itemSoldUnits FROM itemSold WHERE transactionId = ?',
+        'SELECT itemId, itemSoldTotal, itemSoldTax, itemSoldUnits, itemSoldDiscount FROM itemSold WHERE transactionId = ?',
         [$transId]
     );
     while ($rs && !$rs->EOF) {
@@ -223,18 +234,20 @@ foreach ($cases as $case) {
             continue;
         }
         assertEq("línea {$i} ({$l['itemSku']}) itemSoldTax", $l['expected']['tax'], (float) $sold['itemsoldtax'], $failures);
-        assertEq("línea {$i} ({$l['itemSku']}) itemSoldTotal", $l['expected']['gross'], (float) $sold['itemsoldtotal'], $failures);
+        assertEq("línea {$i} ({$l['itemSku']}) itemSoldTotal (bruto = cantidad × precio)", $l['qty'] * $l['unitPrice'], (float) $sold['itemsoldtotal'], $failures);
+        assertEq("línea {$i} ({$l['itemSku']}) itemSoldDiscount", $l['discount'], (float) $sold['itemsolddiscount'], $failures);
         assertEq("línea {$i} ({$l['itemSku']}) itemSoldUnits (decimal)", (float) $l['qty'], (float) $sold['itemsoldunits'], $failures);
     }
 
     // ── 2. transaction: totales + unidades ──────────────────────────────
     $txRow = $db->Execute(
-        'SELECT transactionTax, transactionTotal, transactionUnitsSold FROM transaction WHERE transactionId = ?',
+        'SELECT transactionTax, transactionTotal, transactionDiscount, transactionUnitsSold FROM transaction WHERE transactionId = ?',
         [$transId]
     );
     if ($txRow && !$txRow->EOF) {
         assertEq('transaction.transactionTax', $case['expectedTotals']['tax'], (float) $txRow->fields['transactiontax'], $failures);
-        assertEq('transaction.transactionTotal', $case['expectedTotals']['gross'], (float) $txRow->fields['transactiontotal'], $failures);
+        assertEq('transaction.transactionTotal (Σ bruto de líneas)', $grossSubtotal, (float) $txRow->fields['transactiontotal'], $failures);
+        assertEq('transaction.transactionDiscount (Σ descuento de líneas)', $lineDiscounts, (float) $txRow->fields['transactiondiscount'], $failures);
         assertEq('transaction.transactionUnitsSold (decimal)', (float) $case['expectedUnitsSold'], (float) $txRow->fields['transactionunitssold'], $failures);
     } else {
         echo "  FAIL  no se encontró la fila transaction\n";
@@ -270,7 +283,7 @@ foreach ($cases as $case) {
     $sumByRateAmount = array_sum(array_column($byRate, 'amount'));
     assertEq('Σ(toTaxObj.amount) == transactionTax', $case['expectedTotals']['tax'], $sumByRateAmount, $failures);
     $sumItemSoldTotal = array_sum(array_map(static fn ($r) => (float) $r['itemsoldtotal'], $soldRows));
-    assertEq('Σ(itemSold.itemSoldTotal) == transactionTotal', $case['expectedTotals']['gross'], $sumItemSoldTotal, $failures);
+    assertEq('Σ(itemSold.itemSoldTotal) == transactionTotal', $grossSubtotal, $sumItemSoldTotal, $failures);
 
     // ── 3b. RG90 (F5, context/38 §E): la fila que genera FiscalService para
     //    ESTA venta tiene que cerrar (grav10+grav5+exento == total) y sus
@@ -279,6 +292,7 @@ foreach ($cases as $case) {
     //    tarea de F5 ("sumale un caso: generá el RG90 y verificá que cada
     //    fila cierre"). Solo en el caso multi-tasa (10/5/0%-real/exenta
     //    conviviendo) — es el que ejercita las 3 columnas de monto a la vez. ──
+    $failuresBeforeFiscal = $failures;
     if ($case['id'] === 'py-multi-rate') {
         verifyRg90($case, $companyId, $failures);
     }
@@ -286,6 +300,10 @@ foreach ($cases as $case) {
     // ── 4. Facturación electrónica (solo donde el caso lo pide) ─────────
     if (($case['checkEInvoice'] ?? 'skip') !== 'skip') {
         verifyEInvoice($case, $transId, $companyId, $failures);
+    }
+    if ($failures > $failuresBeforeFiscal && caseHasAddedTax($case)) {
+        echo "  NOTA  BUG conocido (producción): el POS no cobra el IVA AÑADIDO — el pago y el total del\n";
+        echo "        comprobante excluyen el impuesto que el RG90 y la factura sí declaran. Ver README §Fallas conocidas.\n";
     }
 
     // ── 5. Dump para el paso de impresión (Node) ─────────────────────────
@@ -312,8 +330,11 @@ foreach ($cases as $case) {
             'documentNo'             => null,
             'invoicePrefix'          => null,
             'date'                   => date('c'),
+            // `total` = transactionTotal − transactionDiscount: es lo que
+            // devuelve el detalle de transacción que reimprime el POS
+            // (api/lib/services/TransactionService.php).
             'discount'               => (float) $metaRow->fields['transactiondiscount'],
-            'total'                  => (float) $metaRow->fields['transactiontotal'],
+            'total'                  => (float) $metaRow->fields['transactiontotal'] - (float) $metaRow->fields['transactiondiscount'],
             'note'                   => null,
             'transactionDatas'       => $transactionDatas,
             'pMethods'               => array_map(
@@ -327,6 +348,29 @@ foreach ($cases as $case) {
     ];
     file_put_contents("{$outDir}/{$case['id']}.json", json_encode($dump, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
     echo "  dump escrito: {$outDir}/{$case['id']}.json\n";
+}
+
+/** Σ bruto de las líneas del caso (cantidad × precio), el `subtotal` del POS. */
+function saleGrossSubtotal(array $case): float
+{
+    return (float) array_sum(array_map(static fn ($l) => $l['qty'] * $l['unitPrice'], $case['lines']));
+}
+
+/** true si alguna línea lleva impuesto AÑADIDO distinto de cero. */
+function caseHasAddedTax(array $case): bool
+{
+    foreach ($case['lines'] as $l) {
+        if (empty($l['taxIncluded']) && (float) $l['expected']['tax'] !== 0.0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Σ descuento de las líneas del caso, el `discount` del POS. */
+function saleLineDiscounts(array $case): float
+{
+    return (float) array_sum(array_column($case['lines'], 'discount'));
 }
 
 /**
@@ -456,7 +500,9 @@ function verifyRg90(array $case, string $companyId, int &$failures): void
     $to   = date('Y-m-d 23:59:59');
     $report = (new \Punto\Api\Reports\FiscalService())->rg90($from, $to, $roc, $companyId);
 
-    $expectedTotal = round((float) $case['expectedTotals']['gross'], 6);
+    // El RG90 informa como total del comprobante `transactionTotal −
+    // transactionDiscount` (FiscalService::loadSales), o sea lo COBRADO.
+    $expectedTotal = round(saleGrossSubtotal($case) - saleLineDiscounts($case), 6);
     $row = null;
     foreach ($report['rows'] as $r) {
         if (round((float) $r['MONTO TOTAL DEL COMPROBANTE'], 6) === $expectedTotal) {

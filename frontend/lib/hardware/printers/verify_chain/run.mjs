@@ -29,7 +29,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { buildTicketDataFromTransaction } from "../build-ticket-data.ts"
-import { BLOCK_VALUE_RESOLVERS, ITEM_FIELD_RESOLVERS, groupItemsByTaxRate, formatMoney } from "../blocks.ts"
+import { BLOCK_VALUE_RESOLVERS, ITEM_FIELD_RESOLVERS, groupItemsByTaxRate, formatMoney, formatAmountOnly } from "../blocks.ts"
 
 const dumpDir = path.join(os.tmpdir(), "punto-verify-chain")
 
@@ -78,6 +78,10 @@ for (const file of files.sort()) {
   // ── Bloques por tasa: item_total_by_rate / subtotal_by_rate / iva_by_rate,
   //    y el agregado iva_total — sobre el desglose que arma groupItemsByTaxRate
   //    (espejo TS de SaleService::groupTaxByRate) a partir de TicketItem[]. ──
+  //
+  // Símbolo de moneda (decisión del owner 2026-08-26, 53dff8b6): va SOLO en
+  // el bloque `total`. Todo otro importe —ítems, subtotal, IVA por tasa— se
+  // imprime como número pelado (`formatAmountOnly`), así que se espera así.
   const buckets = groupItemsByTaxRate(data.items)
   for (const expBucket of dump.expectedByRate) {
     const bucket = buckets.find((b) => b.rate === expBucket.rate && b.kind === expBucket.kind)
@@ -100,13 +104,22 @@ for (const file of files.sort()) {
       continue
     }
     const block = { text: bucket.taxId }
-    check(`subtotal_by_rate ${label}`, formatMoney(expBucket.base, data), BLOCK_VALUE_RESOLVERS.subtotal_by_rate(data, block))
-    check(`iva_by_rate ${label}`, formatMoney(expBucket.amount, data), BLOCK_VALUE_RESOLVERS.iva_by_rate(data, block))
-    check(`item_total_by_rate ${label}`, formatMoney(expBucket.base + expBucket.amount, data), BLOCK_VALUE_RESOLVERS.item_total_by_rate(data, block))
+    check(`subtotal_by_rate ${label}`, formatAmountOnly(expBucket.base, data), BLOCK_VALUE_RESOLVERS.subtotal_by_rate(data, block))
+    check(`iva_by_rate ${label}`, formatAmountOnly(expBucket.amount, data), BLOCK_VALUE_RESOLVERS.iva_by_rate(data, block))
+    check(`item_total_by_rate ${label}`, formatAmountOnly(expBucket.base + expBucket.amount, data), BLOCK_VALUE_RESOLVERS.item_total_by_rate(data, block))
   }
-  check("iva_total", formatMoney(dump.expectedTotals.tax, data), BLOCK_VALUE_RESOLVERS.iva_total(data))
+  check("iva_total", formatAmountOnly(dump.expectedTotals.tax, data), BLOCK_VALUE_RESOLVERS.iva_total(data))
+  // `total` = lo que el cliente paga: bruto de cada línea − descuento +
+  // impuesto AÑADIDO (fixtures.json, cuentas a mano). Único bloque con moneda.
+  const failuresBeforeTotal = failures
   check("total", formatMoney(dump.expectedTotals.gross, data), BLOCK_VALUE_RESOLVERS.total(data))
-  check("subtotal", formatMoney(dump.expectedTotals.gross, data), BLOCK_VALUE_RESOLVERS.subtotal(data))
+  if (failures > failuresBeforeTotal && dump.expectedLines.some((l) => !l.taxIncluded && l.expected.tax !== 0)) {
+    console.log("  NOTA  BUG conocido (producción): el POS no cobra el IVA AÑADIDO — ver README §Fallas conocidas.")
+  }
+  // `subtotal` = Σ bruto de las líneas (cantidad × precio, antes de
+  // descuentos), igual que el `subtotal` del payload del POS.
+  const grossSubtotal = dump.expectedLines.reduce((s, l) => s + l.qty * l.unitPrice, 0)
+  check("subtotal", formatAmountOnly(grossSubtotal, data), BLOCK_VALUE_RESOLVERS.subtotal(data))
 
   // ── FIX verificado acá — formatMoney() (blocks.ts) ya NO hardcodea
   //    Intl.NumberFormat "es-PY"/PYG: sale de TicketData.currency/thousand/
@@ -118,16 +131,19 @@ for (const file of files.sort()) {
   //    se confirma que representan el monto real; si no coinciden, es
   //    pérdida de precisión, no un problema de tolerancia del test.
   if (dump.decimals === 2) {
+    // Se compara contra el total que recibió el builder (`dump.transaction.
+    // total`), no contra el esperado fiscal: este check aísla la PRECISIÓN
+    // del formateo — si el monto en sí es correcto lo prueba `total` arriba.
     const printed = BLOCK_VALUE_RESOLVERS.total(data)
     const digitsOnly = printed.replace(/[^\d.,]/g, "").replace(",", ".")
     const parsed = Number.parseFloat(digitsOnly)
     total++
-    if (Math.abs(parsed - dump.expectedTotals.gross) < 0.005) {
+    if (Math.abs(parsed - Number(dump.transaction.total)) < 0.005) {
       console.log(`  PASS  total impreso conserva los centavos (${printed})`)
     } else {
       failures++
       console.log("  FAIL  total impreso: formatMoney() sigue perdiendo precisión")
-      console.log(`        esperado (monto real): ${dump.expectedTotals.gross}`)
+      console.log(`        esperado (monto real): ${dump.transaction.total}`)
       console.log(`        impreso: "${printed}" (interpretado como ${parsed})`)
     }
   }
@@ -144,8 +160,8 @@ for (const file of files.sort()) {
     const label = `línea ${i} (${expLine.itemSku})`
     const expTaxLabel = expLine.expected.tax === 0 && item.taxKind === "exempt" ? "Exento" : `${item.taxRate}%`
     check(`${label} item_tax`, expTaxLabel, ITEM_FIELD_RESOLVERS.item_tax(item, data))
-    check(`${label} item_tax_amount`, formatMoney(expLine.expected.tax, data), ITEM_FIELD_RESOLVERS.item_tax_amount(item, data))
-    const expNetPerUnit = item.qty !== 0 ? formatMoney(expLine.expected.net / item.qty, data) : null
+    check(`${label} item_tax_amount`, formatAmountOnly(expLine.expected.tax, data), ITEM_FIELD_RESOLVERS.item_tax_amount(item, data))
+    const expNetPerUnit = item.qty !== 0 ? formatAmountOnly(expLine.expected.net / item.qty, data) : null
     check(`${label} item_price_notax`, expNetPerUnit, ITEM_FIELD_RESOLVERS.item_price_notax(item, data))
 
     // item_discount / item_discount_percent — FIX verificado acá: antes un
@@ -156,7 +172,7 @@ for (const file of files.sort()) {
     // el descuento es > 0 (antes el check ni corría si daba 0, porque 0% y
     // Gs.0 son indistinguibles y no probaban nada; ahora corre siempre para
     // que quede como resguardo permanente de regresión).
-    check(`${label} item_discount`, formatMoney(expLine.discount, data), ITEM_FIELD_RESOLVERS.item_discount(item, data))
+    check(`${label} item_discount`, formatAmountOnly(expLine.discount, data), ITEM_FIELD_RESOLVERS.item_discount(item, data))
     const grossBase = expLine.qty * expLine.unitPrice
     const expectedPercent = grossBase > 0 ? Math.round((expLine.discount / grossBase) * 100 * 10000) / 10000 : 0
     check(`${label} item_discount_percent`, `${Number(expectedPercent.toFixed(2))}%`, ITEM_FIELD_RESOLVERS.item_discount_percent(item, data))
