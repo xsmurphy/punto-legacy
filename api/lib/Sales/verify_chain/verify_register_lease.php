@@ -50,7 +50,9 @@ declare(strict_types=1);
  *   9. Liberación forzada de la tenencia de A (simulando el botón "Liberar
  *      caja" del panel, F4, no implementado todavía — mismo
  *      `RegisterLeaseService::close()`): una venta que A intenta
- *      sincronizar DESPUÉS queda rechazada con `REGISTER_NOT_HELD` — A ya
+ *      sincronizar DESPUÉS queda rechazada con `REGISTER_RELEASED` y
+ *      `details.reason='revoked'` (f7b50098: el conflicto lleva MOTIVO, así
+ *      el POS distingue "un admin liberó la caja" de "la tiene otro") — A ya
  *      no es el tenedor real, así que su cola offline no puede colarse.
  *
  * mig 145 (índice único `uq_transaction_expedition_invoiceno` + timbrado
@@ -448,16 +450,20 @@ try {
         [$statusAfterForce, $bodyAfterForce] = verifyPostOfflineSync($port, $tokenA, $PY_ITEM, 999_999, $saleUidAfterForce);
         $resultAfterForce = $bodyAfterForce['data']['results'][0] ?? null;
         $errorCode = $resultAfterForce['error']['code'] ?? null;
+        // Motivo del conflicto (f7b50098): una tenencia cerrada con status
+        // 'forced' es una liberación de ADMIN → `revoked`. Sin el motivo el
+        // POS no puede decirle al cajero por qué perdió la caja.
+        $errorReason = $resultAfterForce['error']['details']['reason'] ?? null;
 
-        if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? true) !== false || $errorCode !== 'REGISTER_NOT_HELD') {
-            $failures[] = 'Caso 9: sync offline de A tras la liberación forzada esperaba ok=false con error.code=REGISTER_NOT_HELD, llegó status=' . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
+        if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? true) !== false || $errorCode !== 'REGISTER_RELEASED' || $errorReason !== 'revoked') {
+            $failures[] = 'Caso 9: sync offline de A tras la liberación forzada esperaba ok=false con error.code=REGISTER_RELEASED y details.reason=revoked, llegó status=' . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
         } else {
             $txRow = ncmExecute('SELECT 1 FROM transaction WHERE transactionUID = ?', [$saleUidAfterForce]);
             $wasSaved = $txRow !== false && $txRow !== 0;
             if ($wasSaved) {
-                $failures[] = 'Caso 9: la venta rechazada por REGISTER_NOT_HELD no debía guardarse, pero existe en transaction';
+                $failures[] = 'Caso 9: la venta rechazada por REGISTER_RELEASED no debía guardarse, pero existe en transaction';
             } else {
-                echo "[verify_register_lease] OK caso 9: tras la liberación forzada de la tenencia de A, offline-sync.php rechaza su venta encolada con REGISTER_NOT_HELD (sin guardar) — 'una caja no tiene con quién chocar' sigue valiendo cuando la tenencia cambia de dueño\n";
+                echo "[verify_register_lease] OK caso 9: tras la liberación forzada de la tenencia de A, offline-sync.php rechaza su venta encolada con REGISTER_RELEASED, motivo 'revoked' (sin guardar) — 'una caja no tiene con quién chocar' sigue valiendo cuando la tenencia cambia de dueño\n";
             }
         }
     }
@@ -610,18 +616,23 @@ try {
     if ($statusClaimC !== 200) {
         $failures[] = 'Caso 13: setup — depende del device C de la caja 2, que no quedó disponible';
     } else {
-        // Acotado a la SERIE VIGENTE de la caja (mig 209): una caja puede
-        // tener varias filas de 'factura' —una por timbrado/punto que usó— y
-        // `docNumbers` lee solo la vigente. Sin este filtro el UPDATE tocaba
-        // todas y el arnés seguía en verde aunque el lector mirara otra fila.
+        // Sobre la SERIE VIGENTE de la caja (mig 209: serie fiscal = timbrado
+        // + punto + dSerieNum). El caso 12 acaba de cambiar el timbrado a
+        // 99999999, o sea que abrió una serie NUEVA que todavía no tiene fila
+        // en `document_sequence` — igual que en producción, donde la fila de
+        // una serie recién abierta nace con su primer número. Por eso no
+        // alcanza con un UPDATE: se resuelve la serie con el MISMO resolver
+        // que usa `docNumbers` (`DocumentSeries::forRegister`) y se hace
+        // upsert por la clave completa de la serie. Una fila de la serie
+        // anterior con padwidth=9 no puede poner este caso en verde.
+        $seriesC = \Punto\Api\Documents\DocumentSeries::forRegister($PY_REGISTER_2, $PY_COMPANY, 'factura');
         ncmExecute(
-            "UPDATE document_sequence s SET padwidth = 9
-               FROM register r
-              WHERE r.registerId = s.scopeid AND r.companyId = s.companyid
-                AND s.scopetype = 'register' AND s.scopeid = ? AND s.doctype = 'factura'
-                AND s.invoiceauth = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
-                AND s.prefix      = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')",
-            [$PY_REGISTER_2]
+            "INSERT INTO document_sequence
+                 (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie, nextnumber, padwidth)
+             VALUES (?, 'factura', 'register', ?, ?, ?, ?, 1, 9)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid, invoiceauth, prefix, serie)
+             DO UPDATE SET padwidth = 9, updated_at = now()",
+            [$PY_COMPANY, $PY_REGISTER_2, $seriesC->auth, $seriesC->prefix, $seriesC->serie]
         );
         [$statusPad, $bodyPad] = verifyGetDocNumbers($port, $tokenC);
         $padDown = $bodyPad['data']['invoicePadWidth'] ?? null;
@@ -652,12 +663,10 @@ try {
         }
         // El entero guardado no se tocó — el padding es presentación.
         $seqRow = ncmExecute(
-            "SELECT s.nextnumber, s.padwidth FROM document_sequence s
-               JOIN register r ON r.registerId = s.scopeid AND r.companyId = s.companyid
-              WHERE s.scopetype = 'register' AND s.scopeid = ? AND s.doctype = 'factura'
-                AND s.invoiceauth = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoiceAuth'), ''), '')
-                AND s.prefix      = COALESCE(NULLIF(TRIM(r.data ->> 'registerInvoicePrefix'), ''), '')",
-            [$PY_REGISTER_2]
+            "SELECT nextnumber, padwidth FROM document_sequence
+              WHERE companyid = ? AND doctype = 'factura' AND scopetype = 'register' AND scopeid = ?
+                AND invoiceauth = ? AND prefix = ? AND serie = ?",
+            [$PY_COMPANY, $PY_REGISTER_2, $seriesC->auth, $seriesC->prefix, $seriesC->serie]
         );
         $storedNext = ($seqRow !== false && $seqRow !== 0) ? (string) ($seqRow['nextnumber'] ?? '') : '';
         if ($storedNext !== '' && !ctype_digit($storedNext)) {
