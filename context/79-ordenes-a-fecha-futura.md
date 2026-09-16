@@ -1,7 +1,9 @@
 # 78 — Órdenes a fecha futura
 
-> Estado: **plan sin implementar** (2026-09-16). D1-D5 PROPUESTAS sin OK del
-> owner. Es el prerequisito concreto de la etapa A/B de `context/70-viandas.md`
+> Estado: **en implementación** (2026-09-16). D2/D3 CERRADAS por el owner
+> ("el KDS solo lista ítems del día o de hoy para atrás"); D1 elegida
+> (TIMESTAMPTZ, hora opcional, comparación por DÍA en TZ del tenant);
+> D4/D5 son "sin cambio" y se implementan así. Es el prerequisito concreto de la etapa A/B de `context/70-viandas.md`
 > (el "lote del día" de ese plan asume una agrupación por fecha que hoy no
 > existe).
 
@@ -48,7 +50,7 @@ Una columna y un filtro. Deliberadamente chico:
 5. **Vista de pedidos futuros** — el listado de órdenes filtra/agrupa por
    `scheduled_for`, para responder "¿qué tengo comprometido para el viernes?".
 
-## 4. Decisiones propuestas (sin OK del owner)
+## 4. Decisiones
 
 - **D1 — Fecha sola, hora opcional.** El caso real es "para el viernes"; la
   hora exacta importa en delivery puntual, no en producción. Propuesta:
