@@ -12,6 +12,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command"
+import { paletteScore } from "@/lib/navigation/search"
 import type { NavEntry, PaletteSection } from "@/lib/navigation/types"
 
 interface Props {
@@ -39,6 +40,11 @@ interface Props {
  * El palette sigue siendo el catch-all: cualquier ruta debe ser alcanzable
  * desde acá aunque NO esté en el sidebar (que se mantiene minimalista).
  */
+/** Identidad de un item dentro del palette. Única aunque dos títulos coincidan. */
+function itemValue(section: PaletteSection, item: PaletteSection["items"][number]): string {
+  return `${section.heading}|${item.to}|${item.title}`
+}
+
 export function AppCommandPalette({ open, onOpenChange, nav, sections }: Props) {
   const router = useRouter()
 
@@ -57,22 +63,39 @@ export function AppCommandPalette({ open, onOpenChange, nav, sections }: Props) 
     nav.forEach((entry) => {
       if ("items" in entry && Array.isArray(entry.items)) {
         entry.items.forEach((c) => {
-          const title = `${entry.title} · ${c.title}`
-          items.push({ title, to: c.to, icon: c.icon, searchValue: title })
+          items.push({ title: `${entry.title} · ${c.title}`, to: c.to, icon: c.icon, keywords: [] })
         })
       } else if ("to" in entry && typeof entry.to === "string") {
-        items.push({
-          title: entry.title,
-          to: entry.to,
-          icon: entry.icon,
-          searchValue: entry.title,
-        })
+        items.push({ title: entry.title, to: entry.to, icon: entry.icon, keywords: [] })
       }
     })
     return items.length > 0 ? [{ heading: "Navegación", items }] : []
   }, [nav])
 
   const rendered = sections ?? fallback
+
+  /**
+   * cmdk identifica cada item por su `value` y es lo único que le pasa al
+   * filtro. El título no alcanza como identificador (dos secciones pueden
+   * llamarse igual en grupos distintos), así que el `value` es la ruta y acá
+   * se resuelve de vuelta a la entrada para puntuarla con título + sinónimos.
+   */
+  const byValue = React.useMemo(() => {
+    const map = new Map<string, PaletteSection["items"][number]>()
+    rendered.forEach((section) => {
+      section.items.forEach((it) => map.set(itemValue(section, it), it))
+    })
+    return map
+  }, [rendered])
+
+  const filter = React.useCallback(
+    (value: string, search: string) => {
+      const item = byValue.get(value)
+      if (!item) return 0
+      return paletteScore(item, search)
+    },
+    [byValue],
+  )
 
   return (
     <CommandDialog
@@ -84,7 +107,7 @@ export function AppCommandPalette({ open, onOpenChange, nav, sections }: Props) 
       {/* cmdk requiere el <Command> root como contexto para CommandInput/
           List/Item. El CommandDialog del preset shadcn nuevo NO lo envuelve
           automáticamente — hay que pasarlo explícito acá. */}
-      <Command>
+      <Command filter={filter}>
         <CommandInput placeholder="Buscar sección o acción…" />
         <CommandList>
           <CommandEmpty>Sin resultados.</CommandEmpty>
@@ -96,10 +119,8 @@ export function AppCommandPalette({ open, onOpenChange, nav, sections }: Props) 
                   const Icon = it.icon
                   return (
                     <CommandItem
-                      key={`${it.to}|${it.title}`}
-                      // cmdk filtra por `value`: se le pasan título +
-                      // keywords para que encuentre el item por sinónimos.
-                      value={it.searchValue}
+                      key={itemValue(section, it)}
+                      value={itemValue(section, it)}
                       onSelect={() => go(it.to)}
                     >
                       {Icon && <Icon className="size-4" />}

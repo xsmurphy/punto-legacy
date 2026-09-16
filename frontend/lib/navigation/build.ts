@@ -126,7 +126,7 @@ export function buildPaletteSections(routes: RouteEntry[], ctx: NavContext): Pal
         title,
         to: entry.to,
         icon: entry.icon,
-        searchValue: [title, ...keywords].join(" "),
+        keywords,
       })
       continue
     }
@@ -138,7 +138,7 @@ export function buildPaletteSections(routes: RouteEntry[], ctx: NavContext): Pal
       title,
       to: entry.to,
       icon: entry.icon,
-      searchValue: [title, ...keywords].join(" "),
+      keywords,
     })
     grouped.set(entry.paletteGroup, bucket)
   }

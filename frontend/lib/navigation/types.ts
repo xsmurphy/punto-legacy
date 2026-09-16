@@ -102,7 +102,7 @@ export interface PaletteSection {
     title: string
     to: string
     icon: ComponentType<{ className?: string }>
-    /** Título + keywords concatenados — es el `value` que filtra cmdk. */
-    searchValue: string
+    /** Sinónimos de la entrada. Puntúan menos que el título — `lib/navigation/search.ts`. */
+    keywords: string[]
   }>
 }
