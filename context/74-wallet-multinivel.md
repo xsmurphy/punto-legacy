@@ -2,7 +2,8 @@
 
 > Estado: **plan sin implementar** (2026-09-16). Módulo NUEVO, diseñado desde
 > cero: no se construye sobre giftcard ni sobre el crédito interno existentes
-> (§9). La v1 es deliberadamente chica (§2). Abiertas: D6 y D11.
+> (§9). La v1 es deliberadamente chica (§2). **Todas las decisiones de la v1
+> están cerradas** (2026-09-16).
 
 ## 1. Qué es
 
@@ -158,18 +159,16 @@ lo cargado bajo A no se vuelve a facturar.
   Mover dinero desde ahí requiere login real, no un link.
 - **D7** — El cajero busca al cliente por nombre (§5).
 
-### Abiertas
+- **D6** (2026-09-16) — Si el bolsillo no alcanza, la diferencia se cobra con
+  otro medio de pago en la misma venta. El bolsillo llega a cero y no más, así
+  que el tope se respeta.
+- **D11** (2026-09-16) — Los hijos se marcan y quedan ocultos por defecto en los
+  listados de clientes, visibles con un filtro.
 
-**D6 — El bolsillo no alcanza.** ¿La diferencia se puede cobrar con otro medio
-de pago en la misma venta, o se rechaza? Recomendación: se cobra la diferencia
-con otro medio. El tope sigue en pie: el bolsillo llega a cero y no más.
+### Fuera de la v1
 
-**D11 — Los hijos en la lista de clientes.** Un colegio suma cientos de
-contactos que no son clientes comerciales. Recomendación: marcarlos y ocultarlos
-por defecto en los listados de clientes, visibles con un filtro.
-
-**D8 — Vencimiento** (fuera de la v1). Si algún día vence, en el modo A devolver
-es una nota de crédito sobre una factura ya emitida.
+**D8 — Vencimiento.** Si algún día vence, en el modo A devolver es una nota de
+crédito sobre una factura ya emitida.
 
 ## 7. Fases
 
