@@ -67,10 +67,41 @@ require_once __DIR__ . '/../lib/services/OrderCancelGate.php';
 $operator = \Punto\Api\Auth\OperatorContext::resolve($ctx);
 $svc      = new \Punto\Api\Orders\OrderCoreService($db, $operator);
 
-// pos-app: TODA operación queda scopeada al outlet del device (un POS/KDS de
-// la sucursal A no ve ni opera órdenes de la sucursal B del mismo tenant).
-$isPosApp    = ($ctx['realm'] ?? '') === 'pos-app';
-$outletScope = $isPosApp ? $outletId : null;
+// ── Alcance por sucursal: un CONJUNTO, para los dos realms ──────────────────
+//
+// TODA operación de este endpoint —lista, detalle, alta, cada transición de
+// orden y de ítem, repartidor y cobro— pasa por `$outletScope`, con la
+// semántica de `OrderCoreService::normalizeOutletScope()`: `[]` = sin
+// restricción (el tenant entero), lista con ids = solo esas sucursales.
+//
+//   pos-app → `[sucursal del device]`. La sucursal de una terminal sale del
+//             PAREO y es fija (ver `OutletScope::realmIsScoped()`); un POS/KDS
+//             de la sucursal A no ve ni opera órdenes de la B.
+//   panel   → `OutletScope::current()`: las sucursales asignadas al usuario en
+//             `contact_outlet`, o `[]` si no tiene ninguna (usuario global).
+//             Hasta 2026-09-16 este realm quedaba en `null` —sin filtro—, así
+//             que cualquier usuario del panel leía y operaba las órdenes de
+//             TODAS las sucursales aunque tuviera asignada una sola.
+//
+// Es el LÍMITE (`VIEW_OUTLET_IDS`), no la selección del dropdown del logo: el
+// `?outletId=` explícito acota dentro de él.
+$realm    = (string) ($ctx['realm'] ?? '');
+$isPosApp = $realm === 'pos-app';
+if ($isPosApp) {
+    // Sin sucursal válida no hay alcance que armar, y un `[]` acá significaría
+    // "todo el tenant". Fail-closed (context: el POS sin companyId/outletId/
+    // registerId no opera).
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', (string) $outletId)) {
+        apiError('Dispositivo sin sucursal asignada', 403);
+    }
+    $outletScope = [(string) $outletId];
+} elseif (\Punto\Api\Outlets\OutletScope::realmIsScoped($realm)) {
+    $outletScope = \Punto\Api\Outlets\OutletScope::current();
+} else {
+    // Hoy inalcanzable (`apiAuthTenant` solo acepta panel y pos-app). Si alguien
+    // suma un realm a la lista sin decidir su alcance, corta en vez de abrir.
+    apiError('Realm sin alcance por sucursal definido', 403);
+}
 $deviceModule = $isPosApp ? (string) ($ctx['module'] ?? 'pos') : null;
 
 /**
@@ -156,20 +187,55 @@ function assertPanelCanReadOrders(bool $isPosApp, ?string $id): void
     }
 }
 
+/**
+ * 404 si la orden no existe o está fuera del alcance. Mismo mensaje en los dos
+ * casos a propósito (ver `OrderNotFoundException`).
+ */
+function assertOrderInScopeOr404(\Punto\Api\Orders\OrderCoreService $svc, string $companyId, string $orderId, array $outletScope): void
+{
+    try {
+        $svc->assertOrderInScope($companyId, $orderId, $outletScope);
+    } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+        apiError($e->getMessage(), 404);
+    }
+}
+
+/** Igual que `assertOrderInScopeOr404()` para un ítem de orden. */
+function assertItemInScopeOr404(\Punto\Api\Orders\OrderCoreService $svc, string $companyId, string $orderItemId, array $outletScope): void
+{
+    try {
+        $svc->assertItemInScope($companyId, $orderItemId, $outletScope);
+    } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+        apiError($e->getMessage(), 404);
+    }
+}
+
 switch ($method) {
     case 'GET':
         assertPanelCanReadOrders($isPosApp, $id);
         if ($id !== null) {
-            $order = $svc->find($companyId, (string) $id);
+            // Fuera del alcance responde IGUAL que inexistente (404): un 403
+            // le confirmaría a un usuario acotado que ese id existe en otra
+            // sucursal.
+            $order = $svc->find($companyId, (string) $id, $outletScope);
             if ($order === null) apiError('Orden no encontrada', 404);
-            if ($outletScope !== null && $order['outletId'] !== $outletScope) {
-                apiError('Orden no encontrada', 404);
-            }
             apiOk($order);
             break;
         }
+
+        // `?outletId=` explícito:
+        //   - pos-app lo IGNORA, como siempre: la terminal lista su sucursal y
+        //     nada más, sin importar qué mande (comportamiento previo intacto).
+        //   - panel lo valida contra el alcance y corta con 403. Una sucursal
+        //     no es un secreto como un id de orden —el usuario ve el listado
+        //     de sucursales— y devolver lista vacía diría "no hubo órdenes",
+        //     que es un dato falso. Mismo contrato que `payment-orders.php`.
+        $reqOutlet = $isPosApp ? '' : trim((string) ($_GET['outletId'] ?? ''));
+        if ($reqOutlet !== '' && !\Punto\Api\Outlets\OutletScope::allows($outletScope, $reqOutlet, $companyId)) {
+            apiError('No tenés acceso a esa sucursal', 403);
+        }
         $filters = [
-            'outletId'       => $outletScope ?? ($_GET['outletId'] ?? null),
+            'outletId'       => $reqOutlet !== '' ? $reqOutlet : null,
             'status'         => $_GET['status'] ?? null,
             'source'         => $_GET['source'] ?? null,
             'fulfillment'    => $_GET['fulfillment'] ?? null,
@@ -180,7 +246,7 @@ switch ($method) {
             'customerId'     => $_GET['customerId'] ?? null,
         ];
         $includeItems = ($_GET['includeItems'] ?? '') === '1';
-        apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''), $includeItems)]);
+        apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''), $includeItems, $outletScope)]);
         break;
 
     case 'POST':
@@ -191,6 +257,9 @@ switch ($method) {
                 apiError('id (orderItemId) y status son requeridos', 422);
             }
             assertModuleCanSetStatus($deviceModule, 'item', $status);
+            // Alcance ANTES del gate de anulación: el gate lee el ítem y su
+            // 422 "fuera de ventana" confirmaría que existe en otra sucursal.
+            assertItemInScopeOr404($svc, $companyId, $orderItemId, $outletScope);
             // Anular un ítem no es una transición más: exige permiso propio
             // medido contra la PERSONA (no contra la tablet) y respeta la
             // ventana de tiempo que configuró el comercio. El gate va ACÁ,
@@ -223,6 +292,8 @@ switch ($method) {
             $reason = isset($_POST['reason']) ? (string) $_POST['reason'] : null;
             try {
                 apiOk($svc->updateItemStatus($companyId, $orderItemId, $status, $outletScope, $reason));
+            } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+                apiError($e->getMessage(), 404);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -235,6 +306,8 @@ switch ($method) {
             }
             try {
                 apiOk($svc->send($companyId, (string) $id, $outletScope));
+            } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+                apiError($e->getMessage(), 404);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -245,6 +318,8 @@ switch ($method) {
             $status = (string) ($_POST['status'] ?? '');
             if ($status === '') apiError('status requerido', 422);
             assertModuleCanSetStatus($deviceModule, 'order', $status);
+            // Alcance ANTES del gate de cancelación (mismo motivo que el ítem).
+            assertOrderInScopeOr404($svc, $companyId, (string) $id, $outletScope);
             // Cancelar exige motivo — lo valida el service (ver updateStatus),
             // no este endpoint: la regla vale para TODO cliente, no solo el POS.
             //
@@ -274,6 +349,8 @@ switch ($method) {
             $reason = isset($_POST['reason']) ? (string) $_POST['reason'] : null;
             try {
                 apiOk($svc->updateStatus($companyId, (string) $id, $status, $outletScope, $reason));
+            } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+                apiError($e->getMessage(), 404);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -288,6 +365,8 @@ switch ($method) {
             if ($transactionId === '') apiError('transactionId requerido', 422);
             try {
                 apiOk($svc->markPaid($companyId, (string) $id, $transactionId, $outletScope));
+            } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+                apiError($e->getMessage(), 404);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -302,6 +381,8 @@ switch ($method) {
             $courierId = ($courierId === '' || $courierId === null) ? null : (string) $courierId;
             try {
                 apiOk($svc->assignCourier($companyId, (string) $id, $courierId, $outletScope));
+            } catch (\Punto\Api\Orders\OrderNotFoundException $e) {
+                apiError($e->getMessage(), 404);
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -323,6 +404,15 @@ switch ($method) {
             if ($isPosApp) {
                 $data['outletId']   = $outletId;
                 $data['registerId'] = $ctx['registerId'] ?? null;
+            } else {
+                // panel: la sucursal viene del body y tiene que estar dentro
+                // del alcance del usuario. 403 y no 404: la sucursal la eligió
+                // el usuario de una lista, no es un id ajeno que haya que
+                // ocultar. Vacía sigue cayendo en el 422 del service.
+                $reqOutlet = trim((string) ($data['outletId'] ?? ''));
+                if ($reqOutlet !== '' && !\Punto\Api\Outlets\OutletScope::allows($outletScope, $reqOutlet, $companyId)) {
+                    apiError('No tenés acceso a esa sucursal', 403);
+                }
             }
             if (empty($data['userId'])) {
                 $data['userId'] = $userId;
