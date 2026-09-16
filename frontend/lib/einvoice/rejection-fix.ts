@@ -97,9 +97,9 @@ export function rejectionFix(reason: string | null | undefined): RejectionFix {
   if (isSerieRejection(reason)) {
     return {
       target: "stamp",
-      title: "La serie del punto de expedición no coincide con la registrada en SIFEN — configurala en la caja.",
+      title: "Falta la serie de esta caja",
       description:
-        "Ese punto de expedición ya emitió con serie (lo hacía el sistema de facturación anterior) y SIFEN exige la misma en cada documento. Cargala en la sucursal de esta venta, pestaña Cajas: el valor está en <dSerieNum> del XML de una factura aprobada de ese punto. Después volvé acá y reintentá: el documento sale con el mismo número y la serie nueva.",
+        "Cargá la serie de esta caja en la sucursal de esta venta, pestaña Cajas, y volvé a intentar.",
     }
   }
 

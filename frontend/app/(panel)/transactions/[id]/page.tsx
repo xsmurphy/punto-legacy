@@ -3,6 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
+import { useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, Ban, Banknote, FileCheck, Loader2, Printer, Receipt } from "lucide-react"
 import { toast } from "sonner"
 
@@ -128,6 +129,7 @@ function TransactionDetailView({
   detail: TxDetailFull
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
+  const qc = useQueryClient()
   const tx = detail.transaction
   const isReceipt = isReceiptType(tx.transactionType)
   // `void` (SaleType.Canceled) es el patrón de anulación de VENTA; el
@@ -285,6 +287,10 @@ function TransactionDetailView({
       })
     } finally {
       setIssuingEinvoice(false)
+      // Sin esto la pantalla sigue mostrando el estado viejo: el aviso de
+      // rechazo y el botón de emitir quedaban visibles sobre un documento que
+      // acababa de salir con CDC.
+      await qc.invalidateQueries({ queryKey: ["transaction-detail", id] })
     }
   }
 

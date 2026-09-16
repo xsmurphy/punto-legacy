@@ -208,6 +208,27 @@ fila de listado. Siempre pasar por un helper de formato local.
 - Empty states: 1 línea de título + 1 línea de descripción concreta de qué
   hacer ("Ajustá el rango de fechas y volvé a consultar")
 
+### Nada técnico en pantalla, y ninguna leyenda explicando el producto
+
+Regla del owner (2026-09-16), reforzada el mismo día. Dos partes:
+
+**1. Cero datos técnicos.** Al comerciante no se le muestran códigos de error
+de un proveedor, nombres de campos o etiquetas XML, tablas, columnas, endpoints
+ni el nombre del sistema del que vino. Esto es producción, no una sesión de
+debug: esa información va al comentario del código y al log, que es donde la
+mira quien puede actuar sobre ella.
+
+**2. Cero leyendas explicativas.** No se agrega texto para explicar qué es un
+campo nuevo, por qué existe o por qué se quitó algo. Los problemas de un
+comercio son puntuales: se arreglan y se previenen EN SILENCIO, sin llenar la
+interfaz de aclaraciones dirigidas al caso de uno solo. Un campo bien nombrado
+no necesita defensa; si de verdad no se entiende sin un párrafo, el problema es
+el diseño del campo, no la falta de texto.
+
+Lo único que sí se escribe es lo ACCIONABLE cuando algo falla, y en una línea:
+qué hacer y dónde ("Cargá la serie de esta caja en la sucursal de esta venta,
+pestaña Cajas, y volvé a intentar"). Nunca el porqué del mecanismo.
+
 ---
 
 ## Regla #10 — POS: posiciones estables, sin desplazamiento condicional

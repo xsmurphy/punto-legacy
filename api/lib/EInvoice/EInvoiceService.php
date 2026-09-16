@@ -3106,7 +3106,12 @@ final class EInvoiceService
                 // de SIFEN. Los parámetros nulos son no-ops por COALESCE, así
                 // que la emisión normal escribe exactamente lo de siempre.
                 "UPDATE einvoice_document
-                    SET status = 'issued', cdc = ?, document_number = ?, provider_number = ?, provider_response = ?::jsonb,
+                    -- `error_message = NULL`: el motivo del intento ANTERIOR no
+                    -- puede sobrevivir a la emisión. Un documento que salió con
+                    -- CDC y seguía arrastrando 'Serie informada incorrecta'
+                    -- hacía que la pantalla dijera a la vez que se emitió y que
+                    -- falló (reporte del owner, 2026-09-16).
+                    SET status = 'issued', error_message = NULL, cdc = ?, document_number = ?, provider_number = ?, provider_response = ?::jsonb,
                         numbering_mismatch = ?, provider_txn_id = COALESCE(provider_txn_id, ?),
                         sifen_status = COALESCE(?, sifen_status),
                         sifen_result = COALESCE(?::jsonb, sifen_result),

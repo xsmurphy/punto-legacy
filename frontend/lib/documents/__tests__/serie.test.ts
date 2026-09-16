@@ -80,8 +80,9 @@ describe("rechazo 1110 — serie informada incorrecta", () => {
   it("rutea a la caja con el mensaje para el comercio", () => {
     const fix = rejectionFix("1110 — Serie informada incorrecta")
     expect(fix.target).toBe("stamp")
-    expect(fix.title).toBe(
-      "La serie del punto de expedición no coincide con la registrada en SIFEN — configurala en la caja.",
-    )
+    expect(fix.title).toBe("Falta la serie de esta caja")
+    // El copy que ve el comerciante no lleva jerga: ni el código del rechazo
+    // ni el nombre del campo del XML (regla de context/14 §Regla #8).
+    expect(`${fix.title} ${fix.description}`).not.toMatch(/1110|dSerieNum|XML|SIFEN/)
   })
 })
