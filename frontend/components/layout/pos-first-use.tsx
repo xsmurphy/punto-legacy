@@ -182,14 +182,17 @@ export function PosFirstUse() {
                   <div className="flex w-full flex-col gap-2">
                     {/* Sin icono ni chevron: elegir una caja ES la acción
                         final, no una navegación. Dos líneas solo cuando no
-                        hubo paso de sucursal y hay que decir de cuál es. */}
+                        hubo paso de sucursal y hay que decir de cuál es.
+                        Las ocupadas se listan IGUAL (owner 2026-09-17): se
+                        puede entrar a mirar, solo no se emite hasta tener la
+                        tenencia — el badge avisa, no bloquea. */}
                     {visible.map((r) => (
                       <Button
                         key={r.registerId}
                         variant="outline"
                         size="lg"
                         className={cn(
-                          "w-full justify-start px-4 text-left",
+                          "w-full justify-between px-4 text-left",
                           outlets.length === 1 ? "h-auto py-3" : "h-14",
                         )}
                         onClick={() => void pair(r.registerId)}
@@ -200,6 +203,11 @@ export function PosFirstUse() {
                             <span className="truncate text-sm font-normal text-muted-foreground">{r.outletName}</span>
                           )}
                         </span>
+                        {r.inUse && (
+                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs font-normal text-muted-foreground">
+                            En uso
+                          </span>
+                        )}
                       </Button>
                     ))}
                     {outlets.length > 1 && (

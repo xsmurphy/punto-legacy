@@ -36,6 +36,13 @@ export interface AutoPairRegister {
   registerName: string
   outletId: string
   outletName: string
+  /**
+   * La caja tiene la tenencia tomada por otro dispositivo. Se puede parear
+   * igual (owner 2026-09-17): la exclusividad de emisión vive en
+   * `register_lease` y el claim del pareo nunca la roba — este flag existe
+   * para que el selector lo DIGA, no para filtrar.
+   */
+  inUse?: boolean
 }
 
 export type AutoPairPlan =

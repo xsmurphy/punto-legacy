@@ -578,36 +578,39 @@ class DeviceInvitationService
      * sesión de panel con `settings.device.pair`.
      *
      * ── Qué es una caja DISPONIBLE ──────────────────────────────────────────
-     * Las cuatro condiciones, todas server-side (ver `availabilityFilterSql()`):
+     * Dos condiciones, todas server-side (ver `availabilityFilterSql()`):
      *   1. La caja está activa (`registerStatus`) y su sucursal también.
      *   2. La sucursal está en el alcance del usuario (`OutletScope::forUser`,
      *      cero filas = global).
-     *   3. Nadie tiene la caja TOMADA (`register_lease` activa, context/29 §4).
-     *   4. Ningún dispositivo POS vivo está pareado a ella: un device activo
-     *      (`device.status=1`) con una sesión `pos-app` activa.
      *
-     * La 4 es la decisión que el plan dejó abierta ("una caja con device
-     * pareado pero sin lease"), y se resolvió CONSERVADORA: esa caja NO está
-     * disponible. Una tablet de mostrador libera la tenencia cada vez que cierra
-     * la caja (§4), así que "sin lease" describe también a la caja de un
-     * cajero a la noche. Si el pareo automático la contara como libre, el
-     * dueño que abre `/pos` en su casa quedaría pareado a la caja del
-     * empleado y, al día siguiente, los dos dispositivos se disputarían la
-     * tenencia y la numeración local de la misma caja. Para sumar un segundo
-     * dispositivo a una caja que ya tiene uno sigue el link de conexión: es una
-     * decisión deliberada de administración, no algo que deba pasar solo.
-     * Un device dado de baja o sin sesión viva (revocado, "Eliminar
-     * dispositivo") no bloquea.
+     * TODA caja activa se lista, TOMADA O NO — decisión del owner 2026-09-17,
+     * que REVIERTE la versión conservadora original (que además excluía las
+     * cajas con lease activa o con otro device pareado): "yo debo poder
+     * ingresar a cualquier caja, total la opción de facturar no se habilita
+     * si la caja ya está tomada". Y el modelo lo respalda: la exclusividad de
+     * EMISIÓN no vive acá sino en `register_lease` (context/29 §4) — el claim
+     * del pareo es best-effort y NUNCA le quita la tenencia a otro
+     * dispositivo, así que un segundo device pareado a una caja ocupada solo
+     * puede mirarla, no emitir. El temor original (dos devices disputándose
+     * la numeración local) no ocurre: sin la tenencia no hay grant de
+     * emisión offline.
      *
-     * @return list<array{registerId:string,registerName:string,outletId:string,outletName:string}>
+     * `inUse` (lease activa) viaja en la respuesta para que el selector lo
+     * MUESTRE — entrar a una caja ocupada es válido, hacerlo sin saberlo no.
+     *
+     * @return list<array{registerId:string,registerName:string,outletId:string,outletName:string,inUse:bool}>
      */
     public function availableRegistersForAutoPair(string $companyId, string $userId): array
     {
         $scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
-        $sql = 'SELECT r.registerid, r.registername, r.outletid, o.outletname
+        $sql = "SELECT r.registerid, r.registername, r.outletid, o.outletname,
+                       EXISTS (
+                         SELECT 1 FROM register_lease rl
+                          WHERE rl.registerid = r.registerid AND rl.status = 'active'
+                       ) AS inuse
                   FROM register r
                   JOIN outlet o ON o.outletid = r.outletid AND o.companyid = r.companyid
-                 WHERE r.companyid = ?::uuid'
+                 WHERE r.companyid = ?::uuid"
             . self::availabilityFilterSql()
             . \Punto\Api\Outlets\OutletScope::sqlFilter('r.outletid', $scope)
             . ' ORDER BY o.outletname ASC, r.registername ASC';
@@ -619,6 +622,8 @@ class DeviceInvitationService
                 'registerName' => (string) ($f['registername'] ?? ''),
                 'outletId'     => (string) ($f['outletid'] ?? ''),
                 'outletName'   => (string) ($f['outletname'] ?? ''),
+                // PDO devuelve el bool de PG como true/'t'/'f' según driver.
+                'inUse'        => in_array($f['inuse'] ?? false, [true, 't', '1', 1], true),
             ];
         }
         return $out;
@@ -672,7 +677,9 @@ class DeviceInvitationService
         }
 
         if (!self::registerIsAvailable($companyId, $registerId)) {
-            throw new \RuntimeException('Esa caja ya está en uso en otro dispositivo', 409);
+            // Con el criterio nuevo esto solo dispara por caja/sucursal
+            // inactiva — una caja tomada se parea igual (ver el docblock).
+            throw new \RuntimeException('Esa caja está inactiva', 409);
         }
 
         $user = ncmExecute(
@@ -832,7 +839,7 @@ class DeviceInvitationService
             [$registerId, $companyId, $outletId]
         );
         if (!$reg || !self::registerIsAvailable($companyId, $registerId)) {
-            return 'Esa caja ya está en uso en otro dispositivo.';
+            return 'Esa caja ya no está activa.';
         }
         return null;
     }
@@ -856,30 +863,21 @@ class DeviceInvitationService
      * `outlet o`, en UN solo lugar: lo usan el listado, la creación y el canje,
      * y tres copias de un criterio de exclusividad divergen.
      *
+     * Desde 2026-09-17 (owner — ver `availableRegistersForAutoPair()`) la
+     * disponibilidad es solo "activa": una caja TOMADA (`register_lease`) o
+     * con otro device pareado se puede parear IGUAL — el segundo dispositivo
+     * entra y mira, y la emisión sigue protegida por la tenencia, que el
+     * claim del pareo jamás roba. Las dos cláusulas NOT EXISTS que vivían acá
+     * (lease activa + device con sesión pos-app viva) se eliminaron a
+     * propósito; no reintroducirlas sin reabrir esa decisión.
+     *
      * Sin binds (todo literal) para poder concatenarlo sin correr parámetros.
-     * Tablas y columnas lowercase físico (`register_lease` y `auth_session` se
-     * normalizaron en la mig 150).
      */
     private static function availabilityFilterSql(): string
     {
         return "
                    AND r.registerstatus = TRUE
-                   AND COALESCE(o.outletstatus, 1) = 1
-                   AND NOT EXISTS (
-                         SELECT 1 FROM register_lease rl
-                          WHERE rl.registerid = r.registerid AND rl.status = 'active'
-                       )
-                   AND NOT EXISTS (
-                         SELECT 1
-                           FROM device d
-                           JOIN auth_session s
-                             ON s.deviceid = d.deviceid AND s.realm = 'pos-app' AND s.status = 1
-                            AND (s.expiresat IS NULL OR s.expiresat > now())
-                          WHERE d.registerid = r.registerid
-                            AND d.companyid  = r.companyid
-                            AND d.status = 1
-                            AND COALESCE(d.module, 'pos') = 'pos'
-                       )";
+                   AND COALESCE(o.outletstatus, 1) = 1";
     }
 
     public function deny(string $id, string $companyIdOfAdmin): void
