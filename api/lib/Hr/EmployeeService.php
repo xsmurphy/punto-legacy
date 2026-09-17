@@ -475,6 +475,11 @@ final class EmployeeService
             [
                 'uidx_employee_user'     => 'Ese usuario ya está vinculado a otro empleado',
                 'uidx_employee_document' => 'Ya hay un empleado cargado con ese documento',
+                // Sin esta traducción, elegir un PIN de marcación que ya usa
+                // otra persona salía como un error de base de datos crudo. Es
+                // el choque MÁS probable de los tres: son 4 dígitos y el dueño
+                // los elige a mano para todo el equipo.
+                'uidx_employee_markpin'  => 'Ese PIN de marcación ya lo usa otro empleado',
             ],
             'Ya existe un empleado con esos datos',
         );

@@ -175,9 +175,14 @@ final class AttendanceService
      */
     public function mark(string $companyId, array $input, ?array $photo = null): array
     {
+        // El `opId` termina siendo parte de la CLAVE del objeto en S3, así que
+        // se restringe el alfabeto además del largo. Contra la API de S3 no es
+        // explotable (las claves no se resuelven como rutas), pero es una
+        // cadena que elige el cliente construyendo una ubicación de storage:
+        // acotarla cuesta una línea.
         $opId = trim((string) ($input['opId'] ?? ''));
-        if ($opId === '' || strlen($opId) > 64) {
-            throw new \RuntimeException('Falta el identificador de la operación');
+        if ($opId === '' || strlen($opId) > 64 || !preg_match('/^[A-Za-z0-9_-]+$/', $opId)) {
+            throw new \RuntimeException('Falta el identificador de la operación (o es inválido)');
         }
 
         // ── Idempotencia PRIMERO, antes de tocar S3 ──
@@ -303,16 +308,16 @@ final class AttendanceService
 
         if ($insertedId === null) {
             // Carrera: otra request con el MISMO `opId` ganó entre el chequeo de
-            // idempotencia y este INSERT. La foto que acabamos de subir no la
-            // referencia nadie, así que se borra — un bucket con caras de
-            // empleados inalcanzables es exactamente lo que no queremos dejar.
-            if ($photoKey !== null && $this->s3 !== null) {
-                try {
-                    $this->s3->delete($photoKey);
-                } catch (\Throwable) {
-                    // La limpieza no puede tapar el resultado real.
-                }
-            }
+            // idempotencia y este INSERT.
+            //
+            // La foto que acabamos de subir NO se borra, y esto es
+            // contraintuitivo a propósito: la clave del objeto sale del `opId`
+            // (ver `storePhoto()`), así que las dos requests escribieron LA
+            // MISMA clave y la fila ganadora apunta justamente a ella. Borrarla
+            // como "huérfana" dejaría a la marcación que sí quedó registrada
+            // sin su evidencia — que es lo único que esta feature existe para
+            // guardar. No hay objeto huérfano que limpiar: hay uno solo, y
+            // tiene dueño.
             $winner = $this->findByOpId($companyId, $opId);
             if ($winner === null) {
                 throw new \RuntimeException('No se pudo registrar la marcación');
@@ -441,7 +446,7 @@ final class AttendanceService
             $rs->Close();
         }
 
-        return $this->summarize($marks);
+        return $this->summarize($companyId, $marks);
     }
 
     // ── Cálculo ─────────────────────────────────────────────────────────────
@@ -473,9 +478,9 @@ final class AttendanceService
      *
      * @param array<int, array<string,mixed>> $marks
      */
-    private function summarize(array $marks): array
+    private function summarize(string $companyId, array $marks): array
     {
-        $schedules = $this->schedulesFor(array_values(array_unique(
+        $schedules = $this->schedulesFor($companyId, array_values(array_unique(
             array_map(static fn($m) => (string) $m['employeeId'], $marks)
         )));
 
@@ -624,16 +629,22 @@ final class AttendanceService
      * @param array<int,string> $employeeIds
      * @return array<string, array<string,mixed>>
      */
-    private function schedulesFor(array $employeeIds): array
+    private function schedulesFor(string $companyId, array $employeeIds): array
     {
         $ids = array_values(array_filter($employeeIds, static fn($id) => preg_match(self::UUID_RE, $id) === 1));
         if ($ids === []) {
             return [];
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        // `companyid` explícito aunque los ids YA vengan de una lectura
+        // scopeada por tenant (§33.2): una query a una tabla de tenant sin
+        // filtro de tenant es correcta hasta el día en que alguien reusa el
+        // helper con ids que vienen de otro lado, y ese día no avisa.
         $rs = ncmExecute(
-            'SELECT employeeid, schedule FROM employee WHERE employeeid IN (' . $placeholders . ')',
-            $ids,
+            'SELECT employeeid, schedule
+               FROM employee
+              WHERE companyid = ? AND employeeid IN (' . $placeholders . ')',
+            array_merge([$companyId], $ids),
             false,
             true
         );
