@@ -1,0 +1,185 @@
+# RRHH básico + marcación de asistencia (quiosco facial)
+
+**Estado: plan sin implementar (2026-09-17). D1 y D3 cerradas por el owner; el
+resto propuestas sin su OK.**
+
+## §0 El pedido
+
+Dos pedidos del owner el 2026-09-17, que son un solo módulo:
+
+1. Un **RRHH básico para pequeñas empresas** (5-30 empleados).
+2. **Revivir la marcación de asistencia del legacy, mejorada.** El legacy era:
+   QR impreso en el local, el empleado lo escaneaba desde SU celular logueado
+   con PIN y con geolocalización activada. Falla estructural que motivó el
+   rediseño: el PIN se presta — un empleado que sí está en el local marca por
+   otro que no (buddy punching). La mejora pedida: reconocimiento facial
+   usando el celular/tablet DEL COMERCIO.
+
+Esto además destraba un pendiente del roadmap (2026-08-30): el módulo
+`attendance` figura `available` en `modules-catalog.ts` pero en el stack nuevo
+solo existe `api/v1/attendance.php` (el VERIFICADOR del token QR) — no hay UI
+ni generador. La decisión "¿se marca `soon` o se completa?" queda respondida:
+se completa con este plan, y el endpoint legacy del token derivable
+(`md5(companyId.outletId)`) se elimina con él — el modelo nuevo no usa QR.
+
+## §1 Lo que ya existe y se reusa (medio módulo está construido)
+
+- **Empleados que operan el sistema ya son `user`** con PIN, roles y permisos,
+  y sucursales asignadas (`contact_outlet`, context/25).
+- **El POS ya sabe quién trabaja**: apertura/cierre de turno de caja con
+  operador, ventas por empleado (Reportes › Equipo), auditoría con actor
+  (`AuditActor`).
+- **Egresos de caja y Finanzas** (`fin_movement`, categorías): un adelanto de
+  sueldo y el pago de la liquidación son egresos que el motor ya sabe asentar.
+- **La PWA del comercio** (context/72: una sola app instalable) con cámara vía
+  navegador y cola offline de operaciones (`pending-ops`).
+
+## §2 D1 CERRADA — alcance de la v1
+
+Incluye: **legajo**, **asistencia**, **ausencias/vacaciones**, **adelantos**,
+**liquidación simple + recibo en PDF**.
+
+Fuera de la v1: reclutamiento, evaluaciones de desempeño, organigrama, y la
+**nómina legal por país** (aportes patronales, aguinaldo, seguridad social).
+La liquidación v1 es aritmética declarada por el comercio: remuneración según
+el esquema del empleado (§5) + extras − adelantos − descuentos. El motor legal
+por país se agrega después como capa, igual que la facturación electrónica
+sobre la venta.
+
+**Esquemas de remuneración (owner 2026-09-17): conviven los tres y se
+combinan.** El legajo declara, por empleado:
+
+- **Fijo** — monto por período (mensual/quincenal/semanal).
+- **Por hora** — tarifa × horas trabajadas, y las horas salen del marcador de
+  entrada/salida (§4). Es la fase F1 alimentando a la F4: sin marcación
+  confiable no hay sueldo por hora auditable.
+- **Comisión** — % sobre las ventas atribuidas al empleado, que YA existen
+  (ventas por empleado, Reportes › Equipo). La liquidación las lee del mismo
+  lugar que el reporte — no se calcula una segunda vez.
+
+Combinables (base fija + comisión es el caso típico de vendedores). La
+liquidación muestra cada componente por separado en el recibo.
+
+## §3 D2 PROPUESTA — el empleado es entidad propia, no un flag en `user`
+
+`employee` como tabla propia, con vínculo OPCIONAL a `user`:
+
+- Hay personal que jamás toca el sistema (cocinero, limpieza) y necesita
+  legajo y marcación igual — sin inventarle un login.
+- El legajo es HISTORIAL LABORAL: sobrevive al egreso y a la desactivación del
+  usuario. Un `user` es una credencial; un empleado es una relación laboral
+  con fechas.
+- Campos v1: datos personales, documento, fecha de ingreso/egreso, puesto,
+  sucursal(es), salario acordado (monto + periodicidad), adjuntos (contrato,
+  cédula) y el registro de consentimiento biométrico (§5).
+
+## §4 D3 CERRADA (dirección) — marcación en el dispositivo DEL COMERCIO
+
+El owner cerró la inversión del modelo: la marcación deja el celular del
+empleado y pasa a un dispositivo del comercio en modo quiosco. Consecuencia
+que ordena todo: **QR y geolocalización dejan de existir en el caso
+principal** — los dos existían solo para probar presencia en el local, y un
+dispositivo fijo del comercio la prueba por sí mismo.
+
+Flujo propuesto: el empleado se para frente al equipo → el sistema lo
+identifica por la cara entre los empleados de la sucursal (1:N) → confirma
+entrada/salida en un toque. Sin tipear nada.
+
+### D4 PROPUESTA — la cara IDENTIFICA; nunca bloquea. La foto es la evidencia
+
+- El reconocimiento es la identificación primaria; el **PIN queda de
+  respaldo** (empleado sin enrolar, cámara rota, contraluz).
+- **SIEMPRE se guarda la foto del momento de marcar**, matchee o no.
+- Si la cara no matchea o se marcó por PIN, la marcación **entra igual** y
+  queda **flageada** para revisión del dueño. Fail-open: mismo principio que
+  la venta offline — nunca dejar a un empleado legítimo sin poder marcar; el
+  fraude se ataca con evidencia y auditoría, no con un portón.
+- Límite declarado (dicho al owner): un reconocedor simple puede ser engañado
+  con una foto impresa. Mitigación v1: prueba de vida básica (parpadeo) + la
+  foto guardada, que convierte el intento en evidencia con autor. Es control
+  de asistencia de pyme, no control de acceso.
+
+### D5 PROPUESTA — reconocimiento ON-DEVICE, biometría propia
+
+- La comparación corre **en el navegador del dispositivo** (embeddings
+  faciales con modelo local). Sin servicio externo: **costo cero por
+  marcación**, funciona **offline**, y la cara **no sale a terceros**.
+- Se persiste el **vector (embedding) + las fotos de enrolamiento** (3-5 tomas
+  desde el mismo quiosco al dar de alta), server-side, y bajan al dispositivo
+  como baja el catálogo. Las fotos de marcación tienen retención configurable.
+- Mecánica (para no rediscutirla): el modelo (unos MB) baja una vez y queda
+  cacheado en la PWA; convierte una cara en un vector de ~128-512 números que
+  funciona como firma — no es la foto ni se recupera la foto desde él. **La
+  fuente de verdad de los embeddings es el SERVIDOR** (alta desde cualquier
+  quiosco, reposición de un equipo roto sin re-enrolar a nadie, y el borrado
+  al egreso se propaga); el dispositivo solo CACHEA los de su sucursal, igual
+  que cachea artículos. Marcar = capturar frame → embedding local → distancia
+  contra los cacheados → menor distancia bajo umbral = identificado. Cero
+  requests en el momento; la foto de evidencia sube después (o encola, §D7).
+- **Dato sensible**: consentimiento explícito registrado en el legajo, borrado
+  de biometría al egreso, y prohibido enviarla a servicios de terceros.
+  Paraguay ya tiene ley de protección de datos personales vigente — confirmar
+  plazos/retención exigibles por país ANTES de habilitar el módulo a clientes.
+
+### D6 PROPUESTA — modo por sucursal
+
+Default: quiosco facial. Alternativa por sucursal para personal de calle
+(repartidores, vendedores externos): marcación desde el celular propio con
+geolocalización + selfie del momento (el QR no vuelve — la selfie con flag de
+revisión reemplaza al PIN prestable como evidencia).
+
+### D7 PROPUESTA — offline-first
+
+La marcación encola como operación pendiente (patrón `pending-ops` del POS) y
+sincroniza al volver la red. El reconocimiento ya es local, así que sin
+internet no cambia nada para el empleado.
+
+## §5 D8 PROPUESTA — adelantos y liquidación pasan por Finanzas, no al lado
+
+- **Adelanto** = egreso de caja que YA existe, con vínculo al empleado. Al
+  liquidar, los adelantos del período se descuentan solos.
+- **Pago de liquidación** = `fin_movement` de egreso con categoría sueldos.
+  Nada de un "libro de sueldos" paralelo que después no concilie con caja.
+- **Recibo** en PDF por empleado y período (patrón cotización-PDF,
+  context/56: `@react-pdf/renderer`, bajo demanda).
+- Las horas trabajadas salen de la marcación; las llegadas tarde y ausencias
+  del contraste contra el horario declarado en el legajo. La liquidación LEE
+  esos números pero el comercio los puede corregir a mano antes de liquidar —
+  la marcación es evidencia, no sentencia.
+
+## §6 D9 PROPUESTA — módulo `rrhh` togglable
+
+Módulo nuevo gobernado por plan (F7 de context/34). El catálogo de módulos
+deja de ofrecer `attendance` suelto: la asistencia vive dentro de RRHH.
+
+## §7 Fases
+
+| Fase | Qué entrega | Depende de |
+|---|---|---|
+| F0 | `employee` + legajo en el panel (CRUD, adjuntos, vínculo a `user`) | — |
+| F1 | Quiosco de marcación en la PWA: PIN + foto SIEMPRE + reportes de asistencia (horas, tardanzas) | F0 |
+| F2 | Enrolamiento + reconocimiento facial on-device + flags de mismatch + parpadeo | F1 |
+| F3 | Ausencias y vacaciones (solicitud, aprobación, saldo) | F0 |
+| F4 | Adelantos vinculados + liquidación + recibo PDF | F0 (F1 suma horas) |
+
+F1 antes que F2 a propósito: el quiosco con PIN+foto ya elimina el QR, ya
+junta evidencia y ya produce reportes; el facial se monta sobre un flujo
+probado en vez de estrenar hardware y modelo el mismo día.
+
+## §8 Arquitecturas rechazadas / a evitar
+
+- **Volver al QR + PIN como camino principal** — es exactamente la falla que
+  motivó el rediseño: el PIN se presta.
+- **Reconocimiento facial server-side de terceros** (Rekognition y afines) —
+  costo por marcación, no funciona offline y manda biometría de empleados de
+  cientos de tenants a un tercero. Se reabre SOLO si la precisión on-device
+  resulta insuficiente en piloto, y aun así con embeddings, no fotos.
+- **La cara como gate duro** (sin match no hay marcación) — deja empleados
+  legítimos sin marcar por luz/cámara y no reduce fraude más que el flag +
+  foto. Rechazado por el mismo principio fail-open de la venta offline.
+- **Guardar solo fotos "para revisar a mano" sin reconocimiento** — nadie
+  revisa 60 fotos por día; sin match automático el flag no existe.
+- **Un contador de sueldos paralelo a Finanzas** — todo pago y adelanto es un
+  movimiento del ledger financiero existente; un libro aparte no concilia.
+- **Meter el salario/legajo en `user`** — mezcla credencial con relación
+  laboral y deja sin legajo al personal que no opera el sistema.
