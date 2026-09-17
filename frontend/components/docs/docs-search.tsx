@@ -33,9 +33,12 @@ function isTyping(target: EventTarget | null): boolean {
 export function DocsSearch({
   entries,
   className,
+  size = "default",
 }: {
   entries: DocSearchEntry[]
   className?: string
+  /** `lg` para el buscador del inicio, donde es la acción principal. */
+  size?: "default" | "lg"
 }) {
   const router = useRouter()
   const [open, setOpen] = React.useState(false)
@@ -75,6 +78,7 @@ export function DocsSearch({
     <>
       <Button
         variant="outline"
+        size={size}
         onClick={() => setOpen(true)}
         className={cn("justify-start text-muted-foreground", className)}
       >

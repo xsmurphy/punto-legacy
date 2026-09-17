@@ -37,7 +37,28 @@ export interface DocArticle {
 export interface DocBlock {
   key: string
   title: string
+  /** Una línea que dice de qué trata la sección. Ver `BLOCK_DESCRIPTIONS`. */
+  description: string
   articles: DocArticle[]
+}
+
+/**
+ * Descripción de cada bloque, para el índice del sitio.
+ *
+ * El título sale del README de la carpeta y el orden de los nombres de archivo:
+ * la estructura del sitio siempre se deriva del contenido. Acá está lo único
+ * que los archivos no traen — una línea por sección. Un bloque nuevo sin
+ * entrada rompe el test de integridad, así que esto no se desincroniza.
+ */
+export const BLOCK_DESCRIPTIONS: Record<string, string> = {
+  "10": "Qué es Punto, cómo entrar por primera vez y quién puede hacer cada cosa.",
+  "20": "Cobrar, abrir y cerrar la caja, tomar pedidos y seguir vendiendo sin internet.",
+  "30": "Cargar lo que vendés, ponerle precio y llevar el control de las existencias.",
+  "40": "Registrar lo que le comprás a tus proveedores.",
+  "50": "Tus clientes y proveedores, y el seguimiento de lo que te deben.",
+  "60": "Qué mirar en cada reporte para entender cómo viene el negocio.",
+  "70": "Emitir comprobantes electrónicos y entregárselos a tu cliente.",
+  "80": "Sucursales, cajas, impresoras y cómo salen tus impresiones.",
 }
 
 const asString = (v: unknown) => (typeof v === "string" ? v : "")
@@ -85,7 +106,12 @@ function loadAll() {
   for (const article of articles) {
     let block = blocks.find((b) => b.key === article.blockKey)
     if (!block) {
-      block = { key: article.blockKey, title: titles.get(article.blockKey) ?? "", articles: [] }
+      block = {
+        key: article.blockKey,
+        title: titles.get(article.blockKey) ?? "",
+        description: BLOCK_DESCRIPTIONS[article.blockKey] ?? "",
+        articles: [],
+      }
       blocks.push(block)
     }
     block.articles.push(article)
