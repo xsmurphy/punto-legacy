@@ -188,7 +188,8 @@ caja. De ahí que:
 
 **Módulo activable**: `frontend/lib/modules-catalog.ts` (`MODULES_CATALOG`) +
 un allowlist en `ModulesService` del backend + `usePosModules()` + entrada en
-`frontend/components/layout/pos-sidebar.tsx`. El propio
+el Menú del POS (`frontend/components/register/pos-main-menu.tsx`, sección
+"Conteo de stock"; salió del sidebar por pedido del owner 2026-09-17). El propio
 `modules-catalog.ts:191-195` trae el checklist de cómo pasar un módulo de
 `soon` a `available`.
 
@@ -213,7 +214,7 @@ un allowlist en `ModulesService` del backend + `usePosModules()` + entrada en
     idempotencia que `setCountedQty`/`bulkSetCountedQty` no tienen hoy.
   - Lista fija (D3): resuelta con lo que `inventory_count.scope` (mig 158)
     ya ofrece — ver §Preguntas abiertas si conviene una entidad propia.
-  - Módulo activable (D4): entrada en `MODULES_CATALOG` + sidebar del POS.
+  - Módulo activable (D4): entrada en `MODULES_CATALOG` + Menú del POS.
   - Turno como dato de contexto (opcional): guardar en qué turno se hizo el
     conteo, sin que el conteo dependa de él ni lo condicione.
 

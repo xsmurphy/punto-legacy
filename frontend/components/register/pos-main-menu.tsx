@@ -35,6 +35,7 @@ import {
   Bell,
   X,
   type LucideIcon,
+  ClipboardCheck,
   CloudOff,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
@@ -91,6 +92,7 @@ import { formatMoney } from "@/lib/format-money"
 import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
 import { StatTile } from "@/components/stat-tile"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { usePosModules, posModuleEnabled } from "@/hooks/use-pos-modules"
 import {
   useDrawerStatus,
   useDrawerSummary,
@@ -174,6 +176,12 @@ interface MenuSection {
   /** Si true, el CTA se muestra deshabilitado. */
   disabled?: boolean
   /**
+   * Motivo del impedimento, en palabras del cajero. Con `disabled`, la entrada
+   * sigue en su lugar (no se oculta: correría las demás) y el motivo sale en
+   * un tooltip sobre la propia entrada.
+   */
+  disabledReason?: string
+  /**
    * Acción directa al hacer click en el sidebar: si está definido, ejecuta
    * `onSelect` en lugar de cambiar `activeKey` al content area.
    */
@@ -229,7 +237,7 @@ function TenantLogo({ className }: { className?: string }) {
 
 // Las secciones con CustomContent no necesitan description/ctaLabel.
 // Las secciones sin CustomContent usan el render default (descripción + CTA).
-const SECTIONS: Omit<MenuSection, "disabled">[] = [
+const SECTIONS: Omit<MenuSection, "disabled" | "disabledReason">[] = [
   {
     key: "drawer",
     label: "Control de Caja",
@@ -257,6 +265,19 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     label: "Pendientes",
     icon: CloudOff,
     CustomContent: SyncQueuePanel,
+  },
+  {
+    // Conteo de stock (context/63). Navega directo a /pos/conteo, como HotKeys:
+    // el conteo es una pantalla propia, no un panel dentro del menú. Se
+    // gatea en `PosMainMenu`: módulo apagado la oculta, operador sin permiso
+    // la deja deshabilitada con el motivo.
+    key: "stock-count",
+    label: "Conteo de stock",
+    icon: ClipboardCheck,
+    onSelect: ({ setOpen, router }) => {
+      setOpen(false)
+      router.push("/pos/conteo")
+    },
   },
   // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
   // construyamos esas secciones reales (hoy son previews). 2026-06-28.
@@ -364,15 +385,34 @@ export function PosMainMenu() {
   const controlCaja = registerConfigData?.config?.controlCaja ?? true
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
 
+  // Conteo de stock (context/63): doble gate con dos efectos distintos. El
+  // MÓDULO es una característica fija del comercio: apagado explícito = la
+  // entrada no existe (criterio conservador: cargando o sin red, se muestra).
+  // El PERMISO cambia entre operadores de la misma tablet, así que NO oculta:
+  // deja la entrada deshabilitada con el motivo, en su lugar, para no correr
+  // las demás. Sale del lock-store (permisos reales del operador del PIN),
+  // NUNCA de `usePermission()`, que resuelve contra el rol `device`.
+  const { data: modules, isLoading: modulesLoading, isError: modulesError } = usePosModules()
+  const stockCountEnabled =
+    posModuleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
+  const canCountStock = useLockStore((st) => st.operatorPermissions.includes("pos.stock.count"))
+
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
+    .filter((s) => s.key !== "stock-count" || stockCountEnabled)
     // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
     // espacios, se ocultan transacciones y caja del menú.
     .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))
-    .map((s) => ({
-      ...s,
-      disabled: false,
-    }))
+    .map((s) => {
+      if (s.key === "stock-count" && !canCountStock) {
+        return {
+          ...s,
+          disabled: true,
+          disabledReason: "Tu usuario no tiene permiso para contar stock",
+        }
+      }
+      return { ...s, disabled: false }
+    })
 
   const activeSection = sectionsWithState.find((s) => s.key === activeKey) ?? null
 
@@ -483,12 +523,13 @@ export function PosMainMenu() {
                 // y vuelve al padding normal.
                 className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pt-[calc(0.5rem+var(--safe-t))] sm:flex-col sm:border-b-0 sm:p-3"
               >
-                {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
+                {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled, disabledReason }) => {
                 const active = activeKey === key
                 // Items con onSelect (ej. HotKeys) no muestran content area:
                 // ejecutan la acción directo al click. Si están disabled
                 // (sin caja activa), el click no hace nada y se muestran atenuados.
                 const handleClick = () => {
+                  if (disabled) return
                   if (key === "transactions") {
                     setOpen(false)
                     setTransactionsOpen(true)
@@ -500,7 +541,7 @@ export function PosMainMenu() {
                     setActiveKey(key)
                   }
                 }
-                return (
+                const item = (
                   <button
                     key={key}
                     type="button"
@@ -518,6 +559,18 @@ export function PosMainMenu() {
                     <Icon className="size-4 shrink-0" />
                     <span>{label}</span>
                   </button>
+                )
+                // `aria-disabled` (y no `disabled`) a propósito: el botón sigue
+                // recibiendo eventos de puntero y foco, así que el tooltip con
+                // el motivo abre sobre la propia entrada sin un span extra.
+                if (!disabled || !disabledReason) return item
+                return (
+                  <Tooltip key={key}>
+                    <TooltipTrigger asChild>{item}</TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs">
+                      {disabledReason}
+                    </TooltipContent>
+                  </Tooltip>
                 )
                 })}
               </nav>
