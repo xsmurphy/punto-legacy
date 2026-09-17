@@ -497,23 +497,13 @@ cross-tenant) sin arreglar:
   ahí devuelve números incompletos que parecen correctos. Interactúa con
   `context/25` y con franquicias (`context/55`).
 
-- `api/v1/attendance.php:25-40` — token `md5(companyId.outletId)` derivable.
-  **DECIDIDO 2026-08-30 (owner)**: se reemplaza por un **secreto aleatorio por
-  sucursal, rotable** (en `outlet.data`), que el QR codifica. No derivable de
-  nada público, la UX no cambia (sigue siendo un QR impreso), y si se filtra se
-  rota desde el panel y el QR viejo muere.
-
-  **BLOQUEADO por algo más grande, encontrado el 2026-08-30**: el módulo
-  `attendance` está `status: "available"` en `modules-catalog.ts` —se le ofrece
-  al comercio— pero en el stack nuevo SOLO existe `api/v1/attendance.php`, que
-  *verifica* el token. No hay UI de asistencia en `frontend/` ni nada que
-  GENERE el QR (grep global: cero). Vivía en el panel legacy. Implementar el
-  secreto sin el generador no cierra el círculo.
-
-  **Decisión pendiente del owner**: ¿se marca el módulo `soon` hasta
-  reescribirlo (honesto: hoy no es usable), o se prioriza completarlo? Punto no
-  tiene tenants reales todavía, así que el costo de marcarlo `soon` es casi
-  nulo — pero es un módulo que hoy figura como vendible.
+- ~~`api/v1/attendance.php:25-40` — token `md5(companyId.outletId)` derivable,
+  módulo `attendance` vendible sin UI ni generador de QR~~ ✅ RESUELTO
+  2026-09-16/17: el verificador QR legacy se ELIMINÓ; la asistencia vive
+  ahora en RRHH (`context/83` F1) — quiosco de marcación PIN+foto
+  offline-nativo + reporte de asistencia, luego F2 con reconocimiento facial
+  on-device. RRHH es módulo CORE (no togglable, corrección del owner
+  2026-09-17), no queda rama vendible-pero-no-usable.
 - ~~`api/v1/devices.php:35` — 403 vs 404 es oráculo de existencia~~
   ✅ RESUELTO 2026-08-30: el `companyId` va DENTRO de la query, así que un
   device ajeno es indistinguible de uno inexistente. Se scopeó en vez de

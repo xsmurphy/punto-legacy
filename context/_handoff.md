@@ -1,87 +1,90 @@
-# Hand-off — 2026-09-15
+# Hand-off — 2026-09-17
 
 ## Objetivo
 
-Migrador ENCOM: histórico completo (F2, ventas/compras/gastos). Incidente
-real en prod (venta trabada por etiqueta a mano). Auditoría fiscal (Libro
-Ventas/RG90, KuDE, anuladas en panel). Persistencia de preferencias de
-listados por usuario.
+Serie SIFEN en la UI del panel. Buscador del panel sin falsos positivos.
+Documentación de ayuda para clientes + sitio `docs.punto.la`. Módulo RRHH
+nuevo desde cero (legajo, marcación de asistencia, reconocimiento facial).
 
 ## Estado al cerrar
 
-Todo mergeado, pusheado y deployado: Backend en `bda10aa2`, Front en
-`54a9323d`, ambos `running:healthy`. Branches/worktrees de agentes de esta
-sesión limpiados.
+Todo mergeado, pusheado y deployado: Backend y Front `running:healthy`
+(verificado con `list_applications`). Migs 229 (`rrhh_empleados`), 230
+(quiosco/asistencia) y 231 (reconocimiento facial) verificadas aplicadas en
+prod vía `psql` directo.
 
-**EN CURSO, sin mergear**: agente en branch `api/planes-sin-versionado`
-(planes SaaS editan en el lugar + re-proyección a tenants + mig que mueve 6
-tenants de plan_code 3→5). Necesita `code-reviewer` (billing + realm admin)
-antes de mergear.
+**PENDIENTE sin resolver al cierre**: `docs.punto.la` devuelve 503 "no
+available server" (Traefik) aunque el owner agregó el dominio a Punto Front
+en Coolify y el DNS de Cloudflare ya resuelve. Diagnosticado pero no
+arreglado — ver Callejones sin salida.
 
 ## Archivos y cambios
 
-- Migrador ENCOM (`context/77`): export paginado (`part=true&offset&limit=1000`,
-  fail-closed al tope 100), líneas de itemSold desde el log en bloque
-  `a_report_products?action=detailTable` (no 1 request/venta), COGS real
-  dividido por cantidad, reaper por `updated_at`. F2 histórico (ventas+compras+
-  gastos) reimportó 6.969 ventas + 248 compras en prod, tenant Don Ramon
-  (`01a081dd-742b-7847-9b66-b19670f9f4ed`).
-- `d50227f3`/`786f8542` — `SaleService::persistSaleTags` valida forma uuid y
-  resuelve-o-crea tag por nombre; `GET /v1/tags` acepta pos-app.
-- `bb021755` — `TransactionsService` lee etiquetas de la relación `toTag`,
-  no de `meta->'tags'` (mismo bug, en lectura).
-- `6753fe7b` — "Ver KuDE" del panel usa `api.getBlob`+`triggerDownload` en
-  vez de navegar al BFF token-only (daba 401).
-- `b617ed6b`/`8861a31a`/`d71942ba` — anuladas: no cuentan como contado en
-  listado, no suman en totales, detalle muestra motivo/autor/fecha.
-- `bda10aa2` — Libro Ventas/RG90 leen `transaction.invoiceauth` (congelado,
-  mig 145) en vez de reconstruir desde `register.data` vigente; arnés fiscal
-  34/34.
-- `54a9323d` (+ `346936c7`,`6e31e1f5`) — `lib/table-state`,
-  `hooks/use-persisted-table-state.ts`: orden/buscador/filtros por
-  columna/columnas visibles/filtros de dominio en localStorage por
-  empresa+usuario (caja: operador del PIN), "Restablecer vista", 16 listados
-  migrados.
-- Docs: `context/28-facturacion-electronica-plan.md` §F8 (serie SIFEN
-  `dSerieNum`), `context/46-reportes-fiscales-plan.md` punto 6 marcado
-  RESUELTO.
+- `frontend/lib/navigation/search.ts` (`07e40842`) — ranking propio del
+  buscador cmdk: palabra-prefijo + sinónimos + plural, reemplaza el match
+  por subsecuencia; items llevan `keywords`; tests de regresión contra el
+  registro real de rutas.
+- Serie SIFEN (`bd73a33a`,`1c791c69`,`1b49a58a`) — `dSerieNum` configurable
+  por punto de expedición; UI: campo solo visible con FE activa, select
+  AA..ZZ (nunca texto libre), sin leyendas ni diálogos explicativos (regla
+  de copy nueva en `context/14-ui-conventions.md` §Regla 8);
+  `error_message` se limpia al emitir y el detalle refetchea.
+- `frontend/content/ayuda/` — 28 artículos con frontmatter para RAG
+  (movidos desde `docs/ayuda/` una vez que el sitio nació ahí).
+- `frontend/middleware.ts` (`DOCS_HOSTS`), route group `(docs)` — sitio
+  `docs.punto.la` en la misma app Front, buscador reusa `paletteScore`,
+  links `panel:` resueltos contra el registro de rutas con test de
+  integridad en `frontend/lib/docs/__tests__/ayuda-integrity.test.ts`.
+  `/ayuda` en hosts del panel redirige 308.
+- `context/83-rrhh.md` (nuevo, D1-D10 cerradas por el owner) — plan RRHH.
+- `employee` (mig 229, merge `8cf0680c`) — legajo en el panel, módulo
+  togglable en F0, corregido a CORE en `3dcc502d` (regla general: módulos
+  base de todo rubro nunca son activables).
+- Quiosco de marcación (mig 230, merge `44ae7bf1`) — PIN+foto offline,
+  reporte de asistencia, muerte del verificador QR legacy
+  (`api/v1/attendance.php`) — resuelve el pendiente de `context/10-roadmap.md`.
+- Reconocimiento facial on-device (mig 231, merge `e8d99ad1`) —
+  `@vladmandic/face-api`, modelos lazy en `public/models/face`, enrolamiento
+  autorizado desde el panel.
+- `frontend/__tests__/offline-boot.test.ts` (`0c38f408`) — actualizado a
+  DB_VERSION v7 (store `opBlobs` que subió la F1 de RRHH).
+- `context/10-roadmap.md` — ítem de `api/v1/attendance.php` marcado
+  RESUELTO (tachado + fecha).
 
 ## Callejones sin salida
 
-- Atribuir la serie `AA` al default de Factomate: error — Factomate está
-  descartado, la 837 la emitió OTRO sistema del cliente en el mismo punto.
-- Endpoint en bloque de líneas de venta en `a_report_transactions`: no
-  existe (HTML entero); el log en bloque es de `a_report_products`.
-- curl_multi para 6.927 requests de detalle: descartado, no hacía falta con
-  el log en bloque.
-- Parche de `tagNames()` tratando no-uuid como nombre: revertido, las
-  etiquetas tienen id — hay que leer la relación.
+- `mcp__coolify__control` con `restart` sobre Punto Front: no regeneró las
+  labels de Traefik para `docs.punto.la` — el 503 persiste después.
+- Descartado que sea DNS o certificado: Cloudflare resuelve el dominio y la
+  API de Coolify confirma que `docs.punto.la` está en el fqdn de la app; el
+  error es específicamente "no available server" de Traefik, o sea que el
+  router no existe o no está actualizado — apunta a que hace falta un
+  REDEPLOY completo (no un restart) para que Coolify regenere los labels, o
+  que la entrada extra `www.docs.punto.la` (sub-sub-dominio) esté
+  confundiendo el matching de Traefik.
 
 ## Próximo paso
 
-Revisar el diff de `api/planes-sin-versionado` cuando el agente termine
-(`code-reviewer`, foco en la mig que mueve los 6 tenants de plan_code 3→5
-contra prod), mergear a `main` y deployar Backend + Front.
+Resolver el 503 de `docs.punto.la`: probar `mcp__coolify__deploy` (redeploy
+completo, no restart) sobre Punto Front (`nzmay2ytcdup3sgylspq39z6`) y si
+persiste, revisar si la entrada `www.docs.punto.la` en la config de dominios
+de Coolify está rompiendo el router de Traefik (probar sacándola). Después
+de eso: RRHH F3 (ausencias/vacaciones) y F4 (adelantos + liquidación +
+tarifario de comisiones D10, con congelado por línea en `SaleService`, mismo
+patrón que el costo congelado del migrador ENCOM).
 
 ## Trampas conocidas
 
-1. Balloon Party, punto 001-001: facturas 838-840 rechazadas SIFEN "1110
-   Serie informada incorrecta". `dSerieNum='AA'` confirmado consultando el
-   CDC de la 837 (endpoint nuevo FE-PY `GET /v1/tenants/{id}/consulta/de/{cdc}`).
-   NO cargar serie ni reintentar: el 001-001 lo comparten DOS emisores, 838-840
-   pueden estar ocupados por el otro sistema. Esperar confirmación del
-   cliente. El 001-002 (exclusivo Punto) aprueba sin problema.
-2. Otros 3 docs FE en error de Balloon Party (parqueados, `MAX_RETRY_ATTEMPTS=8`):
-   2 por `dTelEmi` vacío (cargar teléfono del emisor en `einvoice_account`),
-   1 NC por Idempotency-Key reusada.
-3. KuDE del motor FE-PY recorta los últimos 8 dígitos del CDC en el PDF (bug
-   del motor, otro repo); el QR sí lleva el CDC completo. Probablemente
-   afecta a todos los KuDE, no solo Balloon Party.
-4. NC en Libro Ventas/RG90: NO implementadas a propósito — falta corregir
-   signo del desglose de IVA en devoluciones (`context/46` F5.0) y validar
-   contra un RG90 real aceptado por Marangatu que incluya una NC.
-5. P1 sin hacer: `SaleService::persistSaleTags` atrapa `\Throwable` y
-   enmascara la causa real si falla el insert.
-6. Sin idempotencia de ventas: `transactionUID` sin índice único ni dedupe
-   en offline-sync.
-7. Persistencia de listados (`54a9323d`) sin probar en navegador todavía.
+1. Dos migraciones con número 229 (`229_reposicion_origen_lote` de una
+   sesión paralela + `229_rrhh_empleados` de esta): el runner trackea por
+   FILENAME, así que ambas corren sin conflicto — precedente aceptado, NO
+   renumerar ninguna de las dos si aparecen juntas en un merge futuro.
+2. Tests rojos PREEXISTENTES en `main`, no de esta sesión:
+   `no-hardcoded-paraguay` (31 literales en código de einvoice/encom).
+3. La foto de enrolamiento facial (RRHH F2) se guarda y tiene endpoint, pero
+   ninguna pantalla del panel la muestra todavía.
+4. El quiosco de marcación NO pide operador — el device pareado alcanza
+   para marcar asistencia. Es una decisión del owner, no un bug de auth.
+5. `docs.punto.la` en Coolify: agregado a mano por el owner en la UI (no en
+   git) — cualquier cambio de config de dominios para esa app está fuera
+   del repo y no queda registrado salvo acá.

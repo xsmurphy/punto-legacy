@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-09-16/17 — serie SIFEN en UI, buscador del panel sin falsos positivos, sitio docs.punto.la y RRHH F0-F2 (legajo, quiosco de marcación, reconocimiento facial)
+
+Commits `54a9323d..HEAD` (99; intercalados de sesiones paralelas: wallet D5 `a086a58a`, migs 225-228 + 229_reposicion_origen_lote, context/81 lote compartido, context/82 RAG, context/78 Fish). Highlights: serie SIFEN configurable por punto de expedición con UI de select AA..ZZ (`bd73a33a`,`1b49a58a`); fix del buscador cmdk que matcheaba por subsecuencia (`07e40842`); sitio `docs.punto.la` con 28 artículos de ayuda, mismo Front, ruteo por host (`9fae7dae`) — **PENDIENTE: host da 503 en Traefik, ver hand-off**; RRHH nuevo (`context/83`) F0 legajo, F1 quiosco PIN+foto + reporte de asistencia (mata el verificador QR legacy), F2 reconocimiento facial on-device, luego corregido a módulo CORE no togglable (`3dcc502d`). Migs 229/230/231 verificadas en prod; Backend y Front deployados `running:healthy`.
+
 ## 2026-09-15 — Migrador ENCOM histórico, incidente de venta trabada por etiqueta a mano, timbrado congelado en Libro Ventas/RG90 y listados que persisten por usuario
 
 Commits `c9481a42..54a9323d` (106; intercalados de sesión paralela: `96e737eb`,`3d4a29cd`,`663c570c`,`a339e6c3`). Highlights: migrador ENCOM F2 histórico —ventas/compras/gastos por servicios reales, COGS real por línea, log en bloque `a_report_products?action=detailTable`— reimportó 6.969 ventas + 248 compras en prod tras revertir una corrida parcial (300/6.927); incidente Balloon Party — etiqueta "Venta WhatsApp" a mano rompía `persistSaleTags` (22P02) y trababa la venta, fix resuelve-o-crea por nombre (`d50227f3`); panel: "Ver KuDE" 401 corregido, anuladas ya no se cuentan como contado ni suman en totales (`b617ed6b`,`8861a31a`); `bda10aa2` — Libro Ventas/RG90 leen el timbrado CONGELADO de la venta en vez del vigente de la caja; `54a9323d` — orden/buscador/filtros/columnas de listados persisten en localStorage por usuario. Serie SIFEN de Balloon Party (001-001) parqueada por doble emisor — ver hand-off. Agente en branch `api/planes-sin-versionado` sin mergear al cierre.
