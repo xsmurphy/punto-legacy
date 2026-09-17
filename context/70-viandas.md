@@ -225,8 +225,13 @@ La condición de pago del contacto decide qué pasa al entregar:
   máximo" (esa propuesta quedó rechazada). Ej.: mínimo 20, cantidad a reponer
   50 → al llegar a 20 se pide 50. Propuesta sin OK: mientras haya una necesidad
   ABIERTA de ese ítem en esa sucursal no se crea otra (cada venta debajo del
-  mínimo volvería a dispararla). **Sigue abierto**: si "activar" crea la orden
-  de producción en borrador o solo la necesidad con el botón de producir.
+  mínimo volvería a dispararla). **"Activar" = crear la NECESIDAD, no el
+  documento** (owner 2026-09-17, opción B): llegar al mínimo abre la necesidad
+  de reposición con su cantidad, y el encargado la cubre con "Producir" (o
+  comprar/transferir), que recién ahí crea la orden. NUNCA se crea una orden de
+  producción en borrador automáticamente: una orden consume insumos al
+  confirmarse y los borradores automáticos se acumulan sin que nadie los
+  revise (rechazado).
 - **D8 — Los DOS conteos generan necesidades** (owner 2026-09-17): el del panel
   y el de la caja. El de la caja sigue pudiendo ser ciego o no, configurable
   (ya implementado, `context/63` F2): en modo ciego el que cuenta no ve el
