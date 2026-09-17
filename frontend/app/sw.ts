@@ -165,6 +165,47 @@ const serwist: Serwist = new Serwist({
       }),
     },
     {
+      /**
+       * Modelos del reconocimiento facial del quiosco (RRHH F2, context/83 D5).
+       *
+       * CacheFirst y sin vencimiento por tiempo: son archivos INMUTABLES dentro
+       * de un deploy —`public/models/face/*`, copiados en el build desde el
+       * paquete npm con la versión fijada en el lock— así que revalidarlos no
+       * puede traer nada distinto. Un deploy con otros modelos los sirve bajo el
+       * mismo nombre, y por eso `maxAgeSeconds` de 30 días existe: es el techo
+       * que hace que una versión vieja no viva para siempre en una tablet.
+       *
+       * Deliberadamente FUERA del precache (ver `publicPrecacheEntries()` en
+       * `next.config.ts`): 6,7 MB descargados al instalar la PWA en cada caja
+       * del sistema, para una pantalla que la mayoría no abre. Acá se bajan la
+       * primera vez que alguien entra a marcar y quedan para siempre — que es lo
+       * que la D5 pide ("el modelo baja una vez y queda cacheado en la PWA") sin
+       * cobrárselo a quien no lo usa.
+       *
+       * Y esto es lo que hace que el reconocimiento funcione SIN INTERNET: sin
+       * esta ruta, un quiosco sin red no tendría con qué mirar la cámara y toda
+       * la pantalla caería al código, que es el respaldo, no el camino normal.
+       */
+      matcher: ({ url, sameOrigin }) =>
+        sameOrigin && url.pathname.startsWith("/models/face/"),
+      handler: new CacheFirst({
+        cacheName: "pos-face-models",
+        plugins: [
+          new CacheableResponsePlugin({ statuses: [0, 200] }),
+          new ExpirationPlugin({
+            // Seis archivos: tres manifiestos y tres binarios. El margen deja
+            // convivir un deploy que cambie de modelo con el anterior.
+            maxEntries: 16,
+            maxAgeSeconds: 30 * 24 * 60 * 60,
+            maxAgeFrom: "last-used",
+            // Antes que romper una escritura de la cola de ventas, que sí es
+            // dato que no se puede perder, esto se tira y se vuelve a bajar.
+            purgeOnQuotaError: true,
+          }),
+        ],
+      }),
+    },
+    {
       // Ficha de ítem del POS (`GET /api/pos/items?id=…`, product-info-dialog).
       // SWR: la ficha se abre muchas veces sobre los mismos ítems y no es dato
       // crítico de emisión.

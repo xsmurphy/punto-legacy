@@ -149,6 +149,24 @@ export interface AttendanceMarkPayload {
    * guarda tal cual como motivo de revisión y la redacción vive en el panel.
    */
   noPhotoReason: string | null
+  /**
+   * Qué pasó con el reconocimiento facial en esta marcación (F2).
+   *
+   *   'none'     → no se intentó: sin cámara, sin modelo, nadie con rostro
+   *                registrado en la sucursal
+   *   'matched'  → la cara identificó a esta persona
+   *   'mismatch' → había una cara delante de la cámara y NO era la de quien
+   *                terminó marcando con su código
+   *
+   * El último es el único que hace algo: suma un motivo de revisión. La
+   * marcación entra igual (D4 — la cara identifica, nunca bloquea), y es
+   * justamente el caso que el dueño quiere poder mirar, el que el modelo viejo
+   * —código prestado desde el celular propio— no dejaba ver.
+   *
+   * Opcional para que una marcación encolada ANTES de esta fase, que sigue en
+   * el IndexedDB de una tablet, se pueda enviar sin la clave.
+   */
+  faceOutcome?: 'none' | 'matched' | 'mismatch'
 }
 
 export interface StockCountPayload {

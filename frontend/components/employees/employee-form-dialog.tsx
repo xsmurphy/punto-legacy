@@ -40,7 +40,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { DatePicker } from "@/components/date-picker"
 import { FormSection } from "@/components/forms/form-section"
 import { PhoneInput } from "@/components/forms/phone-input"
+import { Checkbox } from "@/components/ui/checkbox"
 import { EmployeeAttachments } from "@/components/employees/employee-attachments"
+import { EmployeeFaceField } from "@/components/employees/employee-face-field"
 import { EmployeeScheduleField } from "@/components/employees/employee-schedule-field"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -107,6 +109,13 @@ const schema = z
     /** El usuario pidió BORRAR el PIN. Distinto de dejar el campo vacío. */
     markPinCleared: z.boolean(),
     schedule: scheduleSchema,
+    /**
+     * La persona aceptó identificarse con su rostro (F2).
+     *
+     * Es un dato del LEGAJO y se guarda con él, con fecha y autor. Sin esto
+     * guardado, el servidor no deja habilitar la captura ni recibirla.
+     */
+    biometricConsent: z.boolean(),
   })
   // El monto fijo y su periodicidad son un solo dato. Se valida acá y no solo
   // en el backend para que el error salga en el campo, no en un toast.
@@ -136,6 +145,7 @@ const EMPTY: FormValues = {
   markPin: "",
   markPinCleared: false,
   schedule: null,
+  biometricConsent: false,
 }
 
 export function EmployeeFormDialog({
@@ -196,6 +206,7 @@ export function EmployeeFormDialog({
             markPin: "",
             markPinCleared: false,
             schedule: employee.schedule,
+            biometricConsent: employee.biometricConsentAt !== null,
           }
         : EMPTY,
     )
@@ -226,6 +237,7 @@ export function EmployeeFormDialog({
       commissions: values.commissions,
       notes: values.notes || null,
       schedule: values.schedule,
+      biometricConsent: values.biometricConsent,
       // Los tres estados del PIN, y el orden importa. Pedir borrarlo gana sobre
       // haber tipeado uno; dejar el campo vacío NO manda la clave, así que
       // corregir un teléfono no le saca el PIN a nadie.
@@ -590,6 +602,46 @@ export function EmployeeFormDialog({
                         <FormMessage />
                       </FormItem>
                     )}
+                  />
+                </div>
+              </FormSection>
+
+              {/* Reconocimiento por rostro (F2). Va pegado a la marcación
+                  porque es la misma operación vista de otra forma: la cara
+                  reemplaza al código cuando funciona, y el código sigue estando
+                  cuando no. */}
+              <FormSection title="Reconocimiento por rostro">
+                <div className="flex flex-col gap-5">
+                  <FormField
+                    control={form.control}
+                    name="biometricConsent"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start gap-3">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={(v) => field.onChange(v === true)}
+                          />
+                        </FormControl>
+                        <div className="flex flex-col gap-1">
+                          {/* Llano, sin jerga legal ni técnica (§8 de
+                              context/14): la persona acepta algo concreto, no
+                              firma un tratado. */}
+                          <FormLabel className="font-normal">
+                            La persona aceptó que la caja la identifique por su rostro
+                          </FormLabel>
+                          <FormDescription>
+                            Se puede desmarcar cuando quiera. Al desmarcarlo, el rostro se borra.
+                          </FormDescription>
+                        </div>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <EmployeeFaceField
+                    employee={employee ?? undefined}
+                    consentChecked={form.watch("biometricConsent")}
                   />
                 </div>
               </FormSection>

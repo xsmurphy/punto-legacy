@@ -39,6 +39,11 @@ export function reviewReasonLabel(reason: AttendanceReviewReason | null): string
       return "El código no coincide con el del legajo"
     case "employee_inactive":
       return "La persona ya no figura activa"
+    case "face_mismatch":
+      // Lo que el encargado tiene que mirar es la FOTO, no una acusación: la
+      // cara puede no haberse reconocido por contraluz igual que por ser otra
+      // persona, y el reporte no puede decidir cuál de las dos fue.
+      return "La cara no coincide con quien marcó"
     default:
       return "Para revisar"
   }

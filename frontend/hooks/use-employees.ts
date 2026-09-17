@@ -55,12 +55,38 @@ export interface Employee {
   /** Horario declarado. `null` = sin horario: el reporte no mide tardanzas. */
   schedule: EmployeeSchedule | null
   biometricConsentAt: string | null
+  /**
+   * Rostro registrado (F2). `null` = esta persona no tiene.
+   *
+   * El vector NO viaja: el panel solo necesita saber si hay o no hay, y mandarle
+   * biometría a una pantalla que no la usa sería exponerla sin motivo. El que
+   * compara es el quiosco, que la recibe por otro camino y con otro gate.
+   */
+  face: EmployeeFace | null
   /** 1 = vigente, 0 = archivado. Distinto de `active`. */
   status: number
   /** Derivado del backend: no tiene fecha de egreso. */
   active: boolean
   createdAt: string | null
   updatedAt: string | null
+}
+
+/** Estado del rostro registrado de una persona (F2, mig 231). */
+export interface EmployeeFace {
+  employeeId: string
+  /** Con qué modelo se calculó. No se muestra: sirve para saber si hay que volver a registrarlo. */
+  modelVersion: string
+  /** Cuántas tomas se promediaron al registrarlo. */
+  samples: number
+  enrolledAt: string | null
+}
+
+/** La ventana abierta para que el quiosco capture un rostro. */
+export interface FaceEnrollment {
+  employeeId: string
+  outletId: string | null
+  /** ISO — a partir de acá el quiosco deja de ofrecer la captura. */
+  expiresAt: string
 }
 
 export interface EmployeeAttachment {
@@ -200,6 +226,48 @@ export function useArchiveEmployee() {
   const invalidate = useInvalidate()
   return useMutation<{ archived: boolean }, Error, string>({
     mutationFn: (id) => api.del(`/v1/employees?id=${id}`),
+    onSuccess: invalidate,
+  })
+}
+
+// ── Rostro (F2) ────────────────────────────────────────────────────────────
+//
+// El panel GOBIERNA el rostro y nunca lo captura. Habilita una ventana corta
+// para que el quiosco de la sucursal de esa persona lo registre, la cancela, o
+// borra el que ya está. La captura en sí es del dispositivo del comercio.
+//
+// Esa partición es toda la seguridad de la feature: si quien sabe un código
+// pudiera registrar su cara bajo el nombre de otro, el préstamo de identidad
+// volvería avalado por la cara todos los días siguientes.
+
+/**
+ * Habilita al quiosco a registrar el rostro de esta persona, por unos minutos.
+ *
+ * Se rechaza si el legajo no tiene registrado que la persona aceptó — ese
+ * mensaje viene del servidor y se muestra tal cual.
+ */
+export function useStartFaceEnrollment() {
+  const invalidate = useInvalidate()
+  return useMutation<{ enrollment: FaceEnrollment }, Error, string>({
+    mutationFn: (id) => api.post(`/v1/employees?id=${id}&action=face-start`, {}),
+    onSuccess: invalidate,
+  })
+}
+
+/** Cierra la ventana antes de que venza. */
+export function useCancelFaceEnrollment() {
+  const invalidate = useInvalidate()
+  return useMutation<{ enrollment: null }, Error, string>({
+    mutationFn: (id) => api.post(`/v1/employees?id=${id}&action=face-cancel`, {}),
+    onSuccess: invalidate,
+  })
+}
+
+/** Borra el rostro registrado. El legajo no se toca. */
+export function useDeleteFace() {
+  const invalidate = useInvalidate()
+  return useMutation<{ deleted: boolean }, Error, string>({
+    mutationFn: (id) => api.del(`/v1/employees?id=${id}&resource=face`),
     onSuccess: invalidate,
   })
 }

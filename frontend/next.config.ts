@@ -93,6 +93,18 @@ function publicPrecacheEntries(): { url: string; revision: string }[] {
       // auxiliar de `cacheOnNavigation`.
       if (rel === "sw.js" || rel === "sw.js.map") continue
       if (/^swe-worker-.*\.js$/.test(rel)) continue
+      // Modelos del reconocimiento facial (RRHH F2): 6,7 MB que NO van al
+      // precache.
+      //
+      // El precache se descarga ENTERO al instalar la PWA, en toda caja del
+      // sistema. Estos archivos los usa una sola pantalla —el quiosco de
+      // marcación— y solo en los comercios que activaron RRHH: precachearlos
+      // sería cobrarle a cada cajero la instalación de una función que no abre.
+      //
+      // Se cachean igual, pero cuando se usan: `app/sw.ts` los toma cache-first
+      // en runtime, así que la primera visita al quiosco los baja una vez y
+      // después ya están, con o sin internet — que es lo que la D5 pide.
+      if (rel.startsWith("models/face/")) continue
       entries.push({
         url: `/${rel}`,
         revision: crypto.createHash("md5").update(fs.readFileSync(abs)).digest("hex"),
@@ -126,6 +138,30 @@ const nextConfig: NextConfig = {
   output: "standalone",
   turbopack: {
     root: __dirname,
+  },
+  /**
+   * Silencia UNA advertencia conocida del bundle de `@vladmandic/face-api`
+   * (reconocimiento facial del quiosco, RRHH F2).
+   *
+   * TensorFlow.js —que viaja adentro de ese bundle— tiene un `require()`
+   * condicional para cargar su versión de Node cuando corre fuera del navegador.
+   * webpack no puede resolverlo estáticamente y avisa. En el navegador esa rama
+   * no se ejecuta nunca, así que la advertencia describe algo que no pasa.
+   *
+   * Se acota al módulo exacto y al texto exacto a propósito: una advertencia
+   * ignorada de más es una advertencia real que nadie va a ver. Y se silencia en
+   * vez de convivir con ella porque un build que sale con avisos permanentes
+   * entrena a no leerlos.
+   */
+  webpack: (config) => {
+    config.ignoreWarnings = [
+      ...(config.ignoreWarnings ?? []),
+      {
+        module: /@vladmandic[/\\]face-api/,
+        message: /require function is used in a way in which dependencies cannot be statically extracted/,
+      },
+    ]
+    return config
   },
   // Whitelist de hosts para next/image. DO Spaces (S3-compatible) + AWS S3 genéricos.
   // En las imágenes de items usamos `unoptimized` igual — el backend ya las redimensiona —
