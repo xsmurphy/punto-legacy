@@ -220,10 +220,13 @@ La condición de pago del contacto decide qué pasa al entregar:
   ítem llega a su mínimo (`item.itemMinStock`, mig 133 — hoy solo avisa), el
   sistema activa una necesidad de reposición; para un ítem que se produce, eso
   es una producción. Cierra la parte de P2 que decía si la necesidad existe:
-  existe y se persiste. **Sigue abierto**: cuánto reponer (propuesta: hasta
-  `itemMaxStock`, que ya existe en la mig 133; sin máximo, hasta el mínimo) y si
-  "activar" crea la orden de producción en borrador o solo la necesidad con el
-  botón de producir.
+  existe y se persiste. **Cuánto reponer: un campo propio del ítem, "cantidad a
+  reponer o producir"** (owner 2026-09-17) — cantidad FIJA, no "hasta el
+  máximo" (esa propuesta quedó rechazada). Ej.: mínimo 20, cantidad a reponer
+  50 → al llegar a 20 se pide 50. Propuesta sin OK: mientras haya una necesidad
+  ABIERTA de ese ítem en esa sucursal no se crea otra (cada venta debajo del
+  mínimo volvería a dispararla). **Sigue abierto**: si "activar" crea la orden
+  de producción en borrador o solo la necesidad con el botón de producir.
 - **D8 — Los DOS conteos generan necesidades** (owner 2026-09-17): el del panel
   y el de la caja. El de la caja sigue pudiendo ser ciego o no, configurable
   (ya implementado, `context/63` F2): en modo ciego el que cuenta no ve el
