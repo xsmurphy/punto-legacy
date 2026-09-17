@@ -15,6 +15,7 @@
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/DeviceAuth.php';
 require_once __DIR__ . '/../lib/Auth/apiAuthPosContext.php';
+require_once __DIR__ . '/../lib/Orders/OrderStatusLabels.php';
 
 // Módulos que son "pantalla" (heartbeat/context genérico, no operan el carrito).
 // KDS y pantalla de mozos (O2, context/24-orders-module-plan.md) comparten el
@@ -108,6 +109,10 @@ if ($method === 'GET' && $resource === 'context') {
         'thousand'     => ((string) ($company['settingThousandSeparator'] ?? '')) === 'comma' ? 'comma' : 'dot',
         'country'      => (string) ($company['settingCountry'] ?? ''),
         'timezone'     => (string) ($company['settingTimeZone'] ?? ''),
+        // Nombres de las etapas de las órdenes (KDS / pantalla de mozos). Mismo
+        // nombre de campo y normalizador que `/v1/bootstrap`. La pantalla lo
+        // vuelve a pedir cuando llega el evento `setting` (usePairedScreen).
+        'orderStatusLabels' => \Punto\Api\Orders\OrderStatusLabels::forJson($company['orderStatusLabels'] ?? null),
     ]);
     exit;
 }

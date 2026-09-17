@@ -8,6 +8,7 @@ use Punto\Api\Support\DbQueryException;
 use Punto\Api\Support\Slug;
 
 require_once __DIR__ . '/StockCountSettings.php';
+require_once __DIR__ . '/../Orders/OrderStatusLabels.php';
 
 /**
  * Dominio de Ajustes (Settings) — API compartida (motor ERP).
@@ -228,6 +229,12 @@ final class SettingsService
             // caja, así lo que devuelve el form es lo que el conteo va a leer.
             'stockCountLists'     => \Punto\Api\Settings\StockCountSettings::decodeLists(
                 $r['stockCountLists'] ?? null
+            ),
+            // Nombres de las etapas de las órdenes elegidos por el comercio.
+            // Solo las claves renombradas; lo ausente es el nombre de fábrica,
+            // que resuelve el front. Ver OrderStatusLabels.
+            'orderStatusLabels'   => \Punto\Api\Orders\OrderStatusLabels::forJson(
+                $r['orderStatusLabels'] ?? null
             ),
         ];
     }
@@ -466,6 +473,16 @@ final class SettingsService
         if (array_key_exists('stockCountLists', $f)) {
             $record['stockCountLists'] = json_encode(
                 \Punto\Api\Settings\StockCountSettings::decodeLists($f['stockCountLists'])
+            );
+        }
+
+        // Nombres de etapas de órdenes. Mismo normalizador que la lectura: lo
+        // que se guarda es exactamente lo que ven la caja y las pantallas. Un
+        // mapa vacío (todo restablecido) se guarda como `{}`: equivale a no
+        // tener la clave.
+        if (array_key_exists('orderStatusLabels', $f)) {
+            $record['orderStatusLabels'] = json_encode(
+                \Punto\Api\Orders\OrderStatusLabels::forJson($f['orderStatusLabels'])
             );
         }
 

@@ -216,6 +216,16 @@ if ($method === 'POST') {
         $fields['stockCountLists'] = is_array($decoded) ? $decoded : [];
     }
 
+    // Nombres de las etapas de las órdenes. Viaja como UN string JSON (mismo
+    // criterio que stockCountLists). Solo se decodifica: claves conocidas,
+    // limpieza y tope de largo viven en OrderStatusLabels::normalize(), que
+    // aplica SettingsService al guardar. JSON inválido = todo de fábrica: la
+    // key vino presente, el usuario quiso guardar algo.
+    if ($present('orderStatusLabels')) {
+        $decoded = json_decode($s('orderStatusLabels'), true);
+        $fields['orderStatusLabels'] = is_array($decoded) ? $decoded : [];
+    }
+
     // D3 de context/40 — enum cerrado, clampeado server-side (mismo criterio
     // que agentPersonality arriba): nunca texto libre del cliente llega a
     // company.config.
