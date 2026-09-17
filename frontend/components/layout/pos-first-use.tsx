@@ -19,9 +19,10 @@
  */
 
 import * as React from "react"
-import { ChevronLeft, Loader2, Store } from "lucide-react"
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { api } from "@/lib/api-client"
@@ -146,20 +147,21 @@ export function PosFirstUse() {
                     <h1 className="text-2xl font-semibold">Elegí la sucursal</h1>
                   </div>
                   <div className="flex w-full flex-col gap-2">
+                    {/* Una línea por sucursal: nombre a la izquierda, conteo +
+                        chevron a la derecha. El chevron dice "esto abre las
+                        cajas", que es lo que distingue este paso del final. */}
                     {outlets.map((o) => (
                       <Button
                         key={o.id}
                         variant="outline"
                         size="lg"
-                        className="h-auto w-full justify-start gap-3 py-3 text-left"
+                        className="h-14 w-full justify-between px-4 text-left"
                         onClick={() => setOutletChoice(o.id)}
                       >
-                        <Store className="size-4 shrink-0 text-muted-foreground" />
-                        <span className="flex min-w-0 flex-col">
-                          <span className="truncate font-medium">{o.name}</span>
-                          <span className="truncate text-sm text-muted-foreground">
-                            {o.count === 1 ? "1 caja" : `${o.count} cajas`}
-                          </span>
+                        <span className="truncate font-medium">{o.name}</span>
+                        <span className="flex shrink-0 items-center gap-1.5 text-sm font-normal text-muted-foreground">
+                          {o.count === 1 ? "1 caja" : `${o.count} cajas`}
+                          <ChevronRight className="size-4" />
                         </span>
                       </Button>
                     ))}
@@ -178,20 +180,24 @@ export function PosFirstUse() {
                     )}
                   </div>
                   <div className="flex w-full flex-col gap-2">
+                    {/* Sin icono ni chevron: elegir una caja ES la acción
+                        final, no una navegación. Dos líneas solo cuando no
+                        hubo paso de sucursal y hay que decir de cuál es. */}
                     {visible.map((r) => (
                       <Button
                         key={r.registerId}
                         variant="outline"
                         size="lg"
-                        // Alto para dos líneas y dedo en tablet.
-                        className="h-auto w-full justify-start gap-3 py-3 text-left"
+                        className={cn(
+                          "w-full justify-start px-4 text-left",
+                          outlets.length === 1 ? "h-auto py-3" : "h-14",
+                        )}
                         onClick={() => void pair(r.registerId)}
                       >
-                        <Store className="size-4 shrink-0 text-muted-foreground" />
                         <span className="flex min-w-0 flex-col">
                           <span className="truncate font-medium">{r.registerName}</span>
                           {outlets.length === 1 && (
-                            <span className="truncate text-sm text-muted-foreground">{r.outletName}</span>
+                            <span className="truncate text-sm font-normal text-muted-foreground">{r.outletName}</span>
                           )}
                         </span>
                       </Button>
