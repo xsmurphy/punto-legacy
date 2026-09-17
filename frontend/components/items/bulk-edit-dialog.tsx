@@ -100,6 +100,7 @@ function BulkEditForm({
   const [discount, setDiscount] = React.useState<string>("")
   const [uom, setUom] = React.useState<string>("")
   const [waste, setWaste] = React.useState<string>("")
+  const [replenishQty, setReplenishQty] = React.useState<string>("")
   const [commission, setCommission] = React.useState<string>("")
   const [commissionType, setCommissionType] = React.useState<"none" | "percent" | "amount">("none")
   const [ecom, setEcom] = React.useState<string>("")
@@ -139,6 +140,15 @@ function BulkEditForm({
     if (discount.trim() !== "") patch.itemDiscount = Number(discount) || null
     if (uom.trim() !== "") patch.itemUOM = uom.trim()
     if (waste.trim() !== "") patch.itemWaste = Number(waste) || 0
+    if (replenishQty.trim() !== "") {
+      const q = Number(replenishQty.replace(",", "."))
+      if (!Number.isFinite(q) || q < 0) {
+        toast.error("Cantidad a reponer inválida")
+        return
+      }
+      // 0 quita la reposición (el backend lo guarda como vacío).
+      patch.itemReplenishQty = q > 0 ? q : null
+    }
     if (commission.trim() !== "" && commissionType !== "none") {
       patch.itemComissionPercent = Number(commission) || 0
       patch.itemComissionType = commissionType === "percent" ? "0" : "1"
@@ -366,6 +376,20 @@ function BulkEditForm({
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="bulk-replenish">Cantidad a reponer o producir</Label>
+            <Input
+              id="bulk-replenish"
+              type="number"
+              min="0"
+              step="any"
+              inputMode="decimal"
+              value={replenishQty}
+              onChange={(e) => setReplenishQty(e.target.value)}
+              placeholder="No cambiar"
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <Label>Comisión</Label>
             <div className="flex gap-2">
               <Input
@@ -391,7 +415,7 @@ function BulkEditForm({
             </div>
           </div>
 
-          <div className="space-y-1.5 sm:col-span-2">
+          <div className="space-y-1.5">
             <Label>Mostrar en tienda online</Label>
             <Select value={ecom} onValueChange={setEcom}>
               <SelectTrigger>

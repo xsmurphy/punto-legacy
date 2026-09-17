@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
 /** Centro de notificaciones del panel (context/31). */
-export type NotificationKind = "check_due" | "loan_due" | "purchase_due" | "event"
+export type NotificationKind = "check_due" | "loan_due" | "purchase_due" | "replenishment" | "event"
 export type NotificationSeverity = "overdue" | "upcoming" | "info"
 
 export interface NotificationItem {

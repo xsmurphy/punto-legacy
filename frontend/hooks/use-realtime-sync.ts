@@ -156,7 +156,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // 2026-08-16: comparar contra lo que el backend puede publicar, no
   // confiar en el nombre "obvio").
   inventory_count:   [["inventory-counts"]],
-  stock_transfer:    [["stock-transfers"]],
+  // Una transferencia vinculada cubre (o al cancelarse deja de cubrir) una
+  // necesidad de reposición: lo cubierto se deriva del documento.
+  stock_transfer:    [["stock-transfers"], ["replenishment-needs"]],
+  // Necesidades de reposición (context/70 §B.5): nacen solas por stock mínimo
+  // o conteo, y se cubren/cierran desde el panel. El aviso del centro de
+  // notificaciones es derivado de ellas, así que se invalida con ellas.
+  "replenishment-need": [["replenishment-needs"], ["notifications", "feed"]],
   // pos-bootstrap: plantillas de impresión ahora viajan embebidas en el
   // bootstrap del POS (context/08 §53, hueco P0 cerrado 2026-08-16) — sin
   // esto, editar una plantilla en el panel no llegaba al dispositivo hasta
@@ -233,7 +239,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // hecha desde otra caja no refrescaba nada. Mismas keys que `transaction`:
   // es el mismo hecho, publicado por el otro camino.
   "sales-void":      [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"]],
-  production:        [["production-orders"], ["production-capacity"], ["producible-now"], ["waste-events"]],
+  production:        [["production-orders"], ["production-capacity"], ["producible-now"], ["waste-events"], ["replenishment-needs"]],
   waste:             [["waste-events"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
   // el front más allá del canje inline del carrito): no hay listado

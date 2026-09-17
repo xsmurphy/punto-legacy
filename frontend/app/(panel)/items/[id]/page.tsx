@@ -181,6 +181,9 @@ const itemSchema = z.object({
   // umbral", que NO es lo mismo que 0 ("avisame al llegar a cero").
   minStock: z.number().min(0).nullable(),
   maxStock: z.number().min(0).nullable(),
+  // Cantidad FIJA a reponer al llegar al mínimo (context/70 D7). null = no
+  // abre necesidad de reposición; 0 no es un valor válido (la base lo rechaza).
+  replenishQty: z.number().positive("Tiene que ser mayor a cero").nullable(),
   sort: z.number().int().nullable(),
   commission: z.number().min(0).nullable(),
   commissionType: z.enum(["percent", "fixed"]),
@@ -396,6 +399,7 @@ function ItemEditPageInner() {
       waste: toNum(data.itemWaste),
       minStock: toNum(data.itemMinStock),
       maxStock: toNum(data.itemMaxStock),
+      replenishQty: toNum(data.itemReplenishQty),
       sort: toNum(data.itemSort) ?? 99999,
       commission: toNum(data.itemComissionPercent),
       commissionType: data.itemComissionType === "1" ? "fixed" : "percent",
@@ -1760,7 +1764,7 @@ function StockTab({
             para no controlarlos.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <FormField
             control={form.control}
             name="minStock"
@@ -1799,6 +1803,30 @@ function StockTab({
                     inputMode="decimal"
                     className="tabular-nums"
                     placeholder="Sin máximo"
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="replenishQty"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Cantidad a reponer o producir</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    className="tabular-nums"
+                    placeholder="Sin reposición"
                     value={field.value ?? ""}
                     onChange={(e) =>
                       field.onChange(e.target.value === "" ? null : Number(e.target.value))

@@ -104,6 +104,8 @@ export interface BulkEditPatch {
   itemDiscount?: number | null
   itemUOM?: string | null
   itemWaste?: number | null
+  /** Cantidad a reponer o producir (mig 228). null = sin reposición. */
+  itemReplenishQty?: number | null
   itemComissionPercent?: number | null
   itemComissionType?: "0" | "1" | null
   itemPricePercent?: number | null
@@ -605,6 +607,7 @@ function serialize(
     // null viaja como null: es "sin umbral", no 0.
     itemMinStock: values.minStock,
     itemMaxStock: values.maxStock,
+    itemReplenishQty: values.replenishQty,
     itemComissionPercent: values.commission ?? 0,
     itemComissionType: values.commissionType === "percent" ? "0" : "1",
     itemPricePercent: values.pricePercent ?? 0,
