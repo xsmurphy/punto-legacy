@@ -18,6 +18,7 @@ import {
   KeyRound,
   ServerCog,
   ArrowRightLeft,
+  BookOpen,
 } from "lucide-react"
 import {
   Sidebar,
@@ -56,6 +57,7 @@ const adminNav: Array<{ title: string; to: string; icon: typeof LayoutDashboard;
   { title: "Planes", to: "/admin/plans", icon: CreditCard, minRole: "owner" },
   { title: "Módulos", to: "/admin/modules", icon: Blocks, minRole: "owner" },
   { title: "IA", to: "/admin/ai", icon: Sparkles, minRole: "owner" },
+  { title: "Conocimiento", to: "/admin/conocimiento", icon: BookOpen, minRole: "owner" },
   { title: "Administradores", to: "/admin/users", icon: Users, minRole: "owner" },
   { title: "Solicitudes", to: "/admin/requests", icon: FileText },
   { title: "Reportes", to: "/admin/reports", icon: BarChart3 },

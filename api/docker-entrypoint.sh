@@ -31,6 +31,21 @@ else
     echo "[entrypoint] database/migrate.php no encontrado — skip"
 fi
 
+# Migraciones de la base de conocimiento de Punto AI (base pgvector APARTE —
+# context/82 D4). Runner y tabla de tracking propios: database/migrate_rag.php
+# lee migrations/rag/ y usa las credenciales RAG_*, así que no puede tocar la
+# base de los tenants ni al revés.
+#
+# FAIL-SOFT a propósito, al revés que auto-migrate: el RAG es auxiliar (le da a
+# Punto AI el cómo se usa el producto). Si su base no está —todavía no existe,
+# está reiniciando, le falta la env var— se pierde que el asistente explique una
+# pantalla; abortar el boot por eso dejaría a todos los comercios sin facturar.
+# El script sale 0 siempre; el `||` de abajo es defensa por si algo lo mata antes.
+if [ -f /var/www/database/migrate_rag.php ]; then
+    echo "[entrypoint] corriendo migraciones de la base de conocimiento..."
+    php /var/www/database/migrate_rag.php || echo "[entrypoint] migrate_rag falló (ignorado, la API arranca igual)" >&2
+fi
+
 # Seed idempotente del super-admin de /admin (realm admin). Best-effort: lee
 # ADMIN_EMAIL/ADMIN_PASSWORD de env, crea el admin si no existe, no-op si faltan.
 # No aborta el boot si falla (a diferencia de migrate, que es fail-fast).
