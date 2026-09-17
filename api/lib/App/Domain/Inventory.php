@@ -1015,7 +1015,11 @@ final class Inventory
         // silencio en vez de fallar. Ahora el ítem se valida contra la misma
         // empresa que va a quedar escrita en la fila del ledger.
         $isStockeable = ncmExecute(
-            'SELECT itemTrackInventory FROM item WHERE itemStatus = 1 AND itemId = ? AND companyId = ? LIMIT 1',
+            // Los umbrales de reposición viajan en la MISMA query (context/70
+            // D7): el disparo de la necesidad no agrega lecturas al camino
+            // normal de la venta.
+            'SELECT itemTrackInventory, itemminstock, itemreplenishqty
+               FROM item WHERE itemStatus = 1 AND itemId = ? AND companyId = ? LIMIT 1',
             [$itemId, $company]
         );
 
@@ -1157,6 +1161,37 @@ final class Inventory
         // caso normal (movimiento al final) esto no corre.
         if ($isBackdated) {
             self::rebuildLedger($itemId, $outlet);
+        }
+
+        // ── Necesidad de reposición por stock mínimo (context/70 D7) ────────
+        // Acá y no en cada caller, por la misma razón que el aviso de tiempo
+        // real de abajo: es la única puerta de TODO movimiento.
+        //
+        // Nunca rompe el movimiento: `ReplenishmentService::trigger()` no
+        // lanza y su INSERT va por savepoint (`DB::ExecuteBestEffort()`). Y
+        // corre en la transacción del caller: si la venta hace rollback, la
+        // necesidad también. Solo toca la base cuando el ítem tiene cantidad
+        // a reponer y el saldo quedó en o debajo del mínimo.
+        //
+        // `skipReplenishment`: el conteo evalúa sus ítems por su cuenta al
+        // cerrar (D8), con origen y referencia al conteo.
+        if (empty($ops['skipReplenishment'])
+            && isset($isStockeable['itemreplenishqty'], $isStockeable['itemminstock'])
+        ) {
+            try {
+                $onHandNow = $isBackdated ? self::onHand($itemId, $outlet) : (float) $newOnHand;
+                \Punto\Api\Services\ReplenishmentService::trigger(
+                    (string) $company,
+                    (string) $outlet,
+                    (string) $itemId,
+                    $onHandNow,
+                    $isStockeable['itemminstock'],
+                    $isStockeable['itemreplenishqty'],
+                    $user ? (string) $user : null,
+                );
+            } catch (\Throwable $e) {
+                error_log('[replenishment] disparo por mínimo ignorado: ' . $e->getMessage());
+            }
         }
 
         // PG: UUID entre comillas simples (§22.5).

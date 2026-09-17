@@ -35,11 +35,13 @@ $svc = new FeedService();
 // permiso que /v1/finance/forecast.php — un usuario sin acceso a Finanzas
 // no debe ver esa información en su feed de notificaciones.
 $includeFinance = hasPermission('finance.manage');
+// Necesidades de reposición (context/70 §B.5): las ve quien puede cubrirlas.
+$includeReplenishment = hasPermission('production.manage') || hasPermission('inventory.transfer');
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
-    apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance));
+    apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance, $includeReplenishment));
 }
 
 if ($method === 'POST') {
@@ -48,7 +50,7 @@ if ($method === 'POST') {
     if ($op === 'read') {
         $alertKeys = is_array($_POST['alertKeys'] ?? null) ? $_POST['alertKeys'] : [];
         $svc->markRead($companyId, $userId, $alertKeys);
-        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance));
+        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance, $includeReplenishment));
     }
 
     if ($op === 'dismiss') {
@@ -57,12 +59,12 @@ if ($method === 'POST') {
             apiError('alertKey requerido', 400);
         }
         $svc->markDismissed($companyId, $userId, $alertKey);
-        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance));
+        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance, $includeReplenishment));
     }
 
     if ($op === 'readAll') {
-        $svc->markAllRead($companyId, $userId, $outletId, $includeFinance);
-        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance));
+        $svc->markAllRead($companyId, $userId, $outletId, $includeFinance, $includeReplenishment);
+        apiOk($svc->feed($companyId, $userId, $outletId, $includeFinance, $includeReplenishment));
     }
 
     apiError('op inválida (read|dismiss|readAll)', 400);

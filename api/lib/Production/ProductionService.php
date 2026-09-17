@@ -758,6 +758,11 @@ final class ProductionService
             throw new \RuntimeException('Fallo al completar la orden de producción (transacción abortada)');
         }
 
+        // Si la orden cubre una necesidad de reposición, lo producido cuenta
+        // ahora (context/70 §B.5). Después del commit y best-effort: no puede
+        // deshacer una orden ya completada.
+        \Punto\Api\Services\ReplenishmentService::onSourceChanged($companyId, 'production_order', $id);
+
         return $this->find($companyId, $id) ?? [];
     }
 
@@ -778,6 +783,9 @@ final class ProductionService
         if ($ok === false) {
             throw new \RuntimeException('No se pudo cancelar la orden de producción');
         }
+
+        // Una orden cancelada deja de cubrir su necesidad de reposición.
+        \Punto\Api\Services\ReplenishmentService::onSourceChanged($companyId, 'production_order', $id);
     }
 
     /**

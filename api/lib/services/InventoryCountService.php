@@ -4,6 +4,7 @@ namespace Punto\Api\Services;
 
 require_once __DIR__ . '/InventoryCountScope.php';
 require_once __DIR__ . '/../Settings/StockCountSettings.php';
+require_once __DIR__ . '/ReplenishmentService.php';
 
 use Punto\Api\Settings\StockCountSettings;
 
@@ -382,6 +383,9 @@ final class InventoryCountService
                         'note'          => "count #{$id}",
                         'date'          => date('Y-m-d H:i:s'),
                         'companyId'     => $companyId,
+                        // El conteo evalúa la reposición de TODOS sus ítems
+                        // contados al final, con su propio origen (abajo).
+                        'skipReplenishment' => true,
                     ]);
                 }
 
@@ -394,6 +398,37 @@ final class InventoryCountService
         $db->Execute(
             'UPDATE inventory_count SET "status" = 2, finishedat = NOW(), finishedby = ? WHERE inventorycountid = ?',
             [$finishedBy, $id]
+        );
+
+        // Necesidad de reposición por conteo (context/70 D8): los DOS conteos
+        // —panel y caja, ciego o no— evalúan cada ítem CONTADO contra el saldo
+        // que quedó en la sucursal. Se calcula acá, en el servidor, así que el
+        // que cuenta a ciegas no ve nada nuevo. Dentro de la transacción del
+        // conteo (si no commitea, no queda necesidad) y best-effort: un fallo
+        // del disparo nunca tira el conteo.
+        //
+        // En modo "solo registro" el ledger no se tocó y el saldo que se
+        // compara es el del ledger, igual que para cualquier otro movimiento.
+        $countedRs = ncmExecute(
+            'SELECT itemid FROM inventory_count_item WHERE inventorycountid = ? AND countedqty IS NOT NULL',
+            [$id],
+            false,
+            true
+        );
+        $countedItemIds = [];
+        if ($countedRs) {
+            while (!$countedRs->EOF) {
+                $countedItemIds[] = (string) $countedRs->fields['itemid'];
+                $countedRs->MoveNext();
+            }
+        }
+        ReplenishmentService::triggerForCount(
+            $companyId,
+            (string) $outletId,
+            $id,
+            (!empty($session['opId']) || !empty($session['registerId'])) ? 'count_register' : 'count_panel',
+            $finishedBy,
+            $countedItemIds,
         );
 
         $db->CompleteTrans();

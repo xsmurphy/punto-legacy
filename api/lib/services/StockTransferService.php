@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+require_once __DIR__ . '/ReplenishmentService.php';
+
 /**
  * StockTransferService — transferencia de stock entre outlets/depósitos.
  *
@@ -438,6 +440,18 @@ final class StockTransferService
             throw new \RuntimeException('La transferencia ya fue cancelada', 409);
         }
 
+        // El estado se marca ANTES de revertir el stock (misma transacción, el
+        // orden no cambia la atomicidad). Así la necesidad de reposición que
+        // esta transferencia cubría se reabre primero, y la reversa —que baja
+        // el saldo del destino— no abre una SEGUNDA necesidad por el mismo
+        // faltante (context/70 §B.5). El recálculo es best-effort: no puede
+        // tirar la cancelación.
+        ncmExecute(
+            'UPDATE stock_transfer SET "status" = 0 WHERE stocktransferid = ? AND companyid = ?',
+            [$id, $companyId]
+        );
+        ReplenishmentService::onSourceChanged($companyId, 'stock_transfer', $id);
+
         $itemsRs = ncmExecute(
             'SELECT itemid, "qty", unitcost FROM stock_transfer_item WHERE stocktransferid = ?',
             [$id],
@@ -485,11 +499,6 @@ final class StockTransferService
                 $itemsRs->MoveNext();
             }
         }
-
-        ncmExecute(
-            'UPDATE stock_transfer SET "status" = 0 WHERE stocktransferid = ? AND companyid = ?',
-            [$id, $companyId]
-        );
 
         } catch (\Throwable $e) {
             $db->FailTrans();
