@@ -111,6 +111,13 @@ export interface AgentChatContentProps {
   showAttachments?: boolean
   /** Botón de voz del input ("próximamente"). */
   showVoice?: boolean
+  /**
+   * Leer las respuestas con el TTS pago (`/api/agent/tts`, context/80) en vez
+   * de la voz del navegador. Solo panel: ese BFF es del realm panel y la caja
+   * no tiene esa credencial (D5). Apagado, `MessageActions` usa
+   * `speechSynthesis` como siempre.
+   */
+  remoteVoice?: boolean
   /** Banner de saldo + link a comprar créditos. Solo panel: `/history-billing` es ruta de panel. */
   showCredits?: boolean
   /** Descuenta las áreas seguras del dispositivo. Lo pide un contenedor fullscreen del POS. */
@@ -156,6 +163,7 @@ export function AgentChatContent({
   showCharts = true,
   showAttachments = true,
   showVoice = true,
+  remoteVoice = false,
   showCredits = true,
   safeArea = false,
   hasNoCredits = false,
@@ -436,7 +444,7 @@ export function AgentChatContent({
                         <MessageMarkdown content={part.text} />
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MessageActions text={part.text} />
+                        <MessageActions text={part.text} remoteVoice={remoteVoice} />
                         {ts !== undefined && (
                           <time className="text-xs text-muted-foreground">
                             {formatRelativeTime(ts)}

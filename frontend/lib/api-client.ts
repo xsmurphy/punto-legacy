@@ -291,6 +291,48 @@ function safeJson(text: string): unknown {
   }
 }
 
+/**
+ * Transporte de las respuestas BINARIAS del panel (`getBlob`/`postBlob`).
+ *
+ * No pasa por `request()` porque eso hace `res.text()` y desenvuelve el
+ * envelope JSON. Lo que sí comparte —y es el motivo de que exista en vez de
+ * un `fetch` por call-site— es la credencial: Bearer del panel explícito y
+ * `credentials: "omit"`, el invariante de realm del docblock del archivo.
+ *
+ * El ÉXITO es binario, pero el ERROR sigue siendo JSON (`{ error: "..." }` de
+ * un BFF propio, o el envelope de la API): se parsea para que el call-site
+ * reciba el mensaje real en `ApiError.message` en vez de "POST /x → 402", y el
+ * status queda en `ApiError.status` para distinguir el caso (sin créditos vs.
+ * caído) sin mirar strings.
+ */
+async function blobRequest(path: string, init: RequestInit & { method: string }): Promise<Blob> {
+  const { headers: extraHeaders, ...rest } = init
+  const headers: Record<string, string> = {
+    Accept: "*/*",
+    ...(extraHeaders as Record<string, string> | undefined),
+  }
+  const token = getPanelToken()
+  if (token) headers["Authorization"] = `Bearer ${token}`
+
+  const res = await fetch(`${baseUrl()}${path}`, {
+    ...rest,
+    cache: "no-store",
+    credentials: "omit",
+    headers,
+  })
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    const payload = text ? safeJson(text) : null
+    const envelope = payload as { error?: string | { message?: string } } | null
+    const backendMsg =
+      typeof envelope?.error === "string" ? envelope.error : envelope?.error?.message
+    throw new ApiError(res.status, payload, backendMsg ?? `${init.method} ${path} → ${res.status}`)
+  }
+
+  return res.blob()
+}
+
 export const api = {
   /**
    * `init` opcional para casos que necesitan control del fetch — hoy `signal`,
@@ -344,21 +386,23 @@ export const api = {
    * adjuntar headers, así que la descarga tiene que pasar por acá y
    * entregarse con `URL.createObjectURL`.
    */
-  getBlob: async (path: string): Promise<Blob> => {
-    const headers: Record<string, string> = { Accept: "*/*" }
-    const token = getPanelToken()
-    if (token) headers["Authorization"] = `Bearer ${token}`
-    const res = await fetch(`${baseUrl()}${path}`, {
-      method: "GET",
-      cache: "no-store",
-      credentials: "omit",
-      headers,
-    })
-    if (!res.ok) {
-      throw new ApiError(res.status, null, `GET ${path} → ${res.status}`)
-    }
-    return res.blob()
-  },
+  getBlob: (path: string): Promise<Blob> => blobRequest(path, { method: "GET" }),
+  /**
+   * POST que devuelve binario: manda JSON y recibe un Blob.
+   *
+   * Lo usa la voz del agente (`/api/agent/tts`, context/80), que manda el texto
+   * a leer y recibe un MP3. `getBlob` no sirve —el texto de una respuesta del
+   * asistente no entra en una query string— y `post` tampoco, porque
+   * `request()` asume JSON. Sin esto el único camino era `fetch` crudo, que se
+   * salta la credencial del panel: exactamente lo que el guard
+   * `lib/auth/__tests__/realm-token-separation.test.ts` prohíbe.
+   */
+  postBlob: (path: string, body?: Json): Promise<Blob> =>
+    blobRequest(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    }),
   /**
    * URL absoluta del endpoint. OJO: sirve para construir la request, NO para
    * ponerla en un `<a href>` o `window.open` esperando que descargue — el

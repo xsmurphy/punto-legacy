@@ -153,6 +153,11 @@ export function PosAgentDialog() {
           showCharts={false}
           showAttachments={false}
           showVoice={false}
+          // La lectura en voz alta se queda con la voz del navegador: el TTS
+          // pago vive en `/api/agent/tts`, realm panel, y la caja no tiene esa
+          // credencial (D5 de context/80). Voz en la caja = segundo endpoint
+          // con el Bearer del device, nunca reusar el del panel.
+          remoteVoice={false}
           showCredits={false}
           safeArea
           autoFocus

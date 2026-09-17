@@ -94,6 +94,8 @@ export function AgentChatPanel({
 
   return (
     <AgentChatContent
+      // Voz remota SOLO acá y en /chat: superficies con sesión de panel.
+      remoteVoice
       messages={messages}
       status={status}
       error={error}

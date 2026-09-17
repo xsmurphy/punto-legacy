@@ -350,7 +350,7 @@ export default function ChatPage() {
                               <MessageMarkdown content={part.text} />
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <MessageActions text={part.text} />
+                              <MessageActions text={part.text} remoteVoice />
                               {ts !== undefined && (
                                 <time className="text-xs text-muted-foreground">
                                   {formatRelativeTime(ts)}
