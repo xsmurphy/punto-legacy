@@ -394,15 +394,19 @@ mkOrder($orders, $companyId, $outletId, $registerId, [
 ], $ayer);
 
 $dHoy = $demand->pendingByItem($companyId, $outletId);
+// 5 y no 6: el padre de O6 se fue a `ready` en (E2), así que a esta altura la
+// cola viva de milanesa es O1 (2) + O2 (3). El 6 de arriba es el de la FOTO que
+// se tomó antes de ese bump. Este check nació esperando 6 y fallaba desde que
+// se escribió — lo que estaba mal era la expectativa, no el servicio.
 check('(K1) el pedido de MAÑANA no ensucia la cola de hoy',
-    ($m = line($dHoy, IT_MILANESA)) !== null && near((float) $m['qty'], 6.0),
-    'milanesa hoy = ' . json_encode($m['qty'] ?? null) . ' (esperado 6, sin las 7 de mañana)', $failures, $checks);
+    ($m = line($dHoy, IT_MILANESA)) !== null && near((float) $m['qty'], 5.0),
+    'milanesa hoy = ' . json_encode($m['qty'] ?? null) . ' (esperado 5, sin las 7 de mañana)', $failures, $checks);
 check('(K2) lo VENCIDO no producido sigue siendo trabajo pendiente de hoy',
     ($sp = line($dHoy, IT_SOPA)) !== null && near((float) $sp['qty'], 7.0),
     'sopa hoy = ' . json_encode($sp['qty'] ?? null) . ' (esperado 7 = 2 sin fecha + 5 vencidas)', $failures, $checks);
-check('(K3) la respuesta declara de qué día es el lote',
-    ($dHoy['date'] ?? null) === $hoy,
-    'date = ' . json_encode($dHoy['date'] ?? null) . " (esperado $hoy)", $failures, $checks);
+check('(K3) la respuesta declara de qué días es el lote',
+    ($dHoy['dateFrom'] ?? null) === $hoy && ($dHoy['dateTo'] ?? null) === $hoy,
+    'rango = ' . json_encode([$dHoy['dateFrom'] ?? null, $dHoy['dateTo'] ?? null]) . " (esperado $hoy-$hoy)", $failures, $checks);
 
 $dManana = $demand->pendingByItem($companyId, $outletId, $manana);
 check('(K4) pedir MAÑANA trae solo ese día — ni las sin fecha ni las vencidas',
@@ -416,6 +420,61 @@ check('(K5) una fecha que no es fecha se rechaza, no devuelve la cola entera',
         catch (\InvalidArgumentException $e) { return true; }
     })(),
     'pendingByItem() aceptó una fecha inválida', $failures, $checks);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (L) El RANGO — "mi semana" (context/70 §B.5, 2026-09-17)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Lo que puede salir mal no es el BETWEEN: es la asimetría. La regla la decide
+// el ARRANQUE del rango, así que un rango que empieza hoy tiene que seguir
+// trayendo lo vencido y lo sin fecha (si no, el lote de la semana se olvida de
+// lo que nadie cocinó ayer) y uno que empieza mañana NO (si no, el lote de la
+// semana que viene arrastra la cola suelta de hoy y deja de ser auditable).
+
+echo "\n=== (L) rango de fechas ===\n";
+
+$pasado = (new \DateTimeImmutable($hoy))->modify('+2 days')->format('Y-m-d');
+
+$dSemana = $demand->pendingByItem($companyId, $outletId, $hoy, $pasado);
+check('(L1) el rango que arranca HOY trae los días del rango',
+    ($lm = line($dSemana, IT_MILANESA)) !== null && near((float) $lm['qty'], 12.0),
+    'milanesa hoy..+2 = ' . json_encode($lm['qty'] ?? null) . ' (esperado 12 = 5 de hoy + 7 de mañana)', $failures, $checks);
+check('(L2) …y sigue trayendo las sin fecha y las vencidas (la asimetría del D2)',
+    ($ls = line($dSemana, IT_SOPA)) !== null && near((float) $ls['qty'], 7.0),
+    'sopa hoy..+2 = ' . json_encode($ls['qty'] ?? null) . ' (esperado 7 = 2 sin fecha + 5 vencidas)', $failures, $checks);
+check('(L3) la respuesta declara el rango que trajo',
+    ($dSemana['dateFrom'] ?? null) === $hoy && ($dSemana['dateTo'] ?? null) === $pasado,
+    'rango = ' . json_encode([$dSemana['dateFrom'] ?? null, $dSemana['dateTo'] ?? null]), $failures, $checks);
+
+$dFuturo = $demand->pendingByItem($companyId, $outletId, $manana, $pasado);
+check('(L4) el rango que arranca en el FUTURO no arrastra lo sin fecha ni lo vencido',
+    ($fm = line($dFuturo, IT_MILANESA)) !== null
+        && near((float) $fm['qty'], 7.0)
+        && line($dFuturo, IT_SOPA) === null,
+    'milanesa mañana..+2 = ' . json_encode($fm['qty'] ?? null) . ' (esperado 7) y sopa = ' . json_encode(line($dFuturo, IT_SOPA)), $failures, $checks);
+
+$dAyerHoy = $demand->pendingByItem($companyId, $outletId, $ayer, $hoy);
+check('(L5) un rango que arranca ANTES de hoy tampoco recorta hacia atrás',
+    ($am = line($dAyerHoy, IT_MILANESA)) !== null
+        && near((float) $am['qty'], 5.0)
+        && ($asp = line($dAyerHoy, IT_SOPA)) !== null
+        && near((float) $asp['qty'], 7.0),
+    'milanesa = ' . json_encode($am['qty'] ?? null) . ' (esperado 5), sopa = ' . json_encode($asp['qty'] ?? null) . ' (esperado 7)', $failures, $checks);
+
+check('(L6) el faltante de UN SOLO día se pide con from == to, no cambia nada',
+    (static function () use ($demand, $companyId, $outletId, $manana): bool {
+        $a = $demand->pendingByItem($companyId, $outletId, $manana);
+        $b = $demand->pendingByItem($companyId, $outletId, $manana, $manana);
+        return json_encode($a['lines']) === json_encode($b['lines']);
+    })(),
+    'pendingByItem(x) y pendingByItem(x, x) devolvieron colas distintas', $failures, $checks);
+
+check('(L7) un rango invertido se rechaza — una cola vacía se leería como "no hay nada que cocinar"',
+    (static function () use ($demand, $companyId, $outletId, $hoy, $ayer): bool {
+        try { $demand->pendingByItem($companyId, $outletId, $hoy, $ayer); return false; }
+        catch (\InvalidArgumentException $e) { return true; }
+    })(),
+    'pendingByItem() aceptó un rango invertido', $failures, $checks);
 
 // Sin cola, la respuesta es vacía y honesta — no un error.
 ncmExecute('DELETE FROM pos_order WHERE channelref = ?', [MARK]);

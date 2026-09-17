@@ -37,29 +37,48 @@
  * sumar): pisar en silencio el trabajo manual del operador sería la peor de
  * las dos opciones elegida por él sin enterarse.
  *
- * ── Una fecha por lote (context/79, D2) ─────────────────────────────────────
+ * ── Un rango de fechas por lote (context/79 D2, ampliado 2026-09-17) ────────
  *
- * El selector de al lado del botón elige QUÉ día se trae. Hoy (el default)
- * suma además las órdenes sin fecha y las vencidas no producidas — todo eso es
- * trabajo pendiente ahora mismo. Cualquier otro día trae SOLO ese día, que es
- * lo que mantiene el lote auditable ("este lote es la producción del viernes").
- * El corte del día lo hace el servidor con el reloj del comercio; la pantalla
- * muestra el día que volvió en la respuesta, no el que creía haber pedido.
+ * El selector de al lado del botón elige QUÉ días se traen: un día suelto o un
+ * rango ("mi semana"). Un rango que ARRANCA hoy o antes suma además las
+ * órdenes sin fecha y las vencidas no producidas — todo eso es trabajo
+ * pendiente ahora mismo. Uno que arranca en el futuro trae SOLO esos días, que
+ * es lo que mantiene el lote auditable ("este lote es la producción de esa
+ * semana"). El corte del día lo hace el servidor con el reloj del comercio; la
+ * pantalla muestra el rango que volvió en la respuesta, no el que creía haber
+ * pedido.
+ *
+ * ── Del faltante a la reposición (context/70 §B.5) ──────────────────────────
+ *
+ * "Generar reposición" NO crea una orden de compra: crea NECESIDADES, una por
+ * insumo que falta, y con qué cubrirlas se decide en `/reposicion`. Es la
+ * arquitectura del §B.5 —la necesidad es la entidad, comprar/transferir/
+ * producir son formas de cubrirla— y la razón por la que este botón no
+ * pregunta proveedor ni precio.
+ *
+ * La pantalla manda la COMPOSICIÓN del lote, no los kilos faltantes: el
+ * servidor vuelve a explotar las recetas y abre las necesidades por lo que
+ * calculó él. Los insumos sin control de inventario quedan afuera (D1): sin
+ * `onHand` no hay faltante.
  */
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
+  Calendar as CalendarIcon,
   Check,
   ChevronsUpDown,
   ClipboardList,
   ListPlus,
   Loader2,
+  PackagePlus,
   Plus,
   Printer,
   Trash2,
 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
+import type { DateRange } from "react-day-picker"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -99,6 +118,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { Calendar } from "@/components/ui/calendar"
+import { Separator } from "@/components/ui/separator"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 
@@ -113,7 +134,8 @@ import {
   useOrderDemand,
   useProductionBatchEstimate,
 } from "@/hooks/use-production-batches"
-import { DatePicker } from "@/components/date-picker"
+import { parseISO, toISO } from "@/components/date-picker"
+import { useCreateNeedsFromBatch } from "@/hooks/use-replenishment-needs"
 import { formatQty } from "@/lib/format-qty"
 import { formatDate, formatTime, tenantNow } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
@@ -191,17 +213,21 @@ export default function ProductionBatchPage() {
   const [snapshot, setSnapshot] = React.useState<OrderDemand | null>(null)
 
   /**
-   * Día de entrega que se va a traer (context/79, D2). Arranca en HOY según el
-   * reloj del comercio —no el del navegador— y solo cambia si el operador lo
-   * elige: `null` significa "todavía no eligió", así que el default sigue
-   * siendo hoy aunque la pantalla quede abierta hasta pasada la medianoche.
+   * Rango de días de entrega que se va a traer (context/79, D2). Arranca en HOY
+   * según el reloj del comercio —no el del navegador— y solo cambia si el
+   * operador lo elige: `null` significa "todavía no eligió", así que el default
+   * sigue siendo hoy aunque la pantalla quede abierta hasta pasada la
+   * medianoche.
    */
   const tenantToday = React.useMemo(
     () => tenantNow(bootstrap?.timezone).slice(0, 10),
     [bootstrap?.timezone],
   )
-  const [pickedDate, setPickedDate] = React.useState<string | null>(null)
-  const demandDate = pickedDate ?? tenantToday
+  const [pickedRange, setPickedRange] = React.useState<DemandRange | null>(null)
+  const demandRange = React.useMemo<DemandRange>(
+    () => pickedRange ?? { from: tenantToday, to: tenantToday },
+    [pickedRange, tenantToday],
+  )
   const [mergeOpen, setMergeOpen] = React.useState(false)
   const [pendingDemand, setPendingDemand] = React.useState<OrderDemand | null>(null)
 
@@ -262,6 +288,9 @@ export default function ProductionBatchPage() {
 
   const createBatch = useCreateProductionBatch()
   const confirmBatch = useConfirmProductionBatch()
+  const createNeeds = useCreateNeedsFromBatch()
+  const router = useRouter()
+  const [needsOpen, setNeedsOpen] = React.useState(false)
   const working = createBatch.isPending || confirmBatch.isPending
 
   // ── Selector de producto por línea ────────────────────────────────────────
@@ -288,10 +317,14 @@ export default function ProductionBatchPage() {
   async function handleBringFromOrders() {
     if (!outletId) return
     try {
-      const demand = await orderDemand.mutateAsync({ outletId, date: demandDate })
+      const demand = await orderDemand.mutateAsync({
+        outletId,
+        from: demandRange.from,
+        to: demandRange.to,
+      })
       if (demand.lines.length === 0) {
         setSnapshot(demand)
-        toast.info("No hay pedidos para esa fecha en esta sucursal")
+        toast.info("No hay pedidos para esas fechas en esta sucursal")
         return
       }
       // Si el operador ya venía cargando a mano, la decisión es suya.
@@ -466,9 +499,53 @@ export default function ProductionBatchPage() {
     [bootstrap],
   )
 
-  const shortages = (estimate?.ingredients ?? []).filter(
-    (i) => i.tracked && (i.missing ?? 0) > 0,
-  ).length
+  // D1: un insumo sin control de inventario no tiene faltante, así que no
+  // alimenta ni el contador ni la reposición.
+  const shortageIngredients = React.useMemo(
+    () => (estimate?.ingredients ?? []).filter((i) => i.tracked && (i.missing ?? 0) > 0),
+    [estimate],
+  )
+  const shortages = shortageIngredients.length
+
+  /**
+   * Del faltante a las necesidades de reposición (context/70 §B.5). Se manda la
+   * composición del lote, no los kilos: el servidor vuelve a explotar las
+   * recetas y abre las necesidades por lo que calculó él.
+   */
+  async function handleGenerateNeeds() {
+    if (!outletId) return
+    try {
+      const result = await createNeeds.mutateAsync({
+        outletId,
+        locationId: locationId === NO_LOCATION ? null : locationId,
+        lines: validLines,
+      })
+      const created = result.created.length
+      const existing = result.existing.length
+
+      if (created === 0 && existing === 0) {
+        toast.info("No quedó faltante para reponer")
+        return
+      }
+
+      // Lo que ya estaba abierto se DICE, no se pisa: alguien puede estar
+      // cubriéndolo con otra cantidad.
+      const parts: string[] = []
+      if (created > 0) {
+        parts.push(created === 1 ? "1 necesidad creada" : `${created} necesidades creadas`)
+      }
+      if (existing > 0) {
+        parts.push(existing === 1 ? "1 ya estaba abierta" : `${existing} ya estaban abiertas`)
+      }
+      toast.success(parts.join("; "), {
+        action: { label: "Ver reposición", onClick: () => router.push("/reposicion") },
+      })
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo generar la reposición")
+    } finally {
+      setNeedsOpen(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -566,19 +643,20 @@ export default function ProductionBatchPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Label>Platos del lote</Label>
                 <div className="flex items-center gap-2">
-                  {/* Qué día se trae (context/79, D2). El label va sr-only: el
-                      botón de al lado ya dice qué hace y una leyenda más en
+                  {/* Qué días se traen (context/79, D2). El label va sr-only:
+                      el botón de al lado ya dice qué hace y una leyenda más en
                       pantalla es ruido (§14 R8). `h-8` para igualar al botón
                       `size="sm"` con el que comparte la línea — el default del
                       picker (h-9) los dejaba desalineados. */}
-                  <Label htmlFor="lote-demand-date" className="sr-only">
-                    Día de entrega
+                  <Label htmlFor="lote-demand-range" className="sr-only">
+                    Días de entrega
                   </Label>
-                  <DatePicker
-                    id="lote-demand-date"
-                    value={demandDate}
-                    onChange={(v) => setPickedDate(v || tenantToday)}
-                    className="h-8 w-40"
+                  <DemandRangePicker
+                    id="lote-demand-range"
+                    value={demandRange}
+                    onChange={setPickedRange}
+                    today={tenantToday}
+                    className="h-8"
                     disabled={!outletId}
                   />
                   <Button
@@ -603,7 +681,10 @@ export default function ProductionBatchPage() {
                   hora. */}
               {snapshot && (
                 <p className="text-xs text-muted-foreground">
-                  Entregas del {formatDate(snapshot.date)} · cola al momento de traer:{" "}
+                  {snapshot.dateFrom === snapshot.dateTo
+                    ? `Entregas del ${formatDate(snapshot.dateFrom)}`
+                    : `Entregas del ${formatDate(snapshot.dateFrom)} al ${formatDate(snapshot.dateTo)}`}{" "}
+                  · cola al momento de traer:{" "}
                   {formatTime(snapshot.takenAt)} ·{" "}
                   {snapshot.orderCount === 1
                     ? "1 pedido pendiente"
@@ -669,7 +750,24 @@ export default function ProductionBatchPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle>Insumos necesarios</CardTitle>
-            {estimating && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+            <div className="flex items-center gap-2">
+              {estimating && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+              {canManage && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNeedsOpen(true)}
+                  disabled={shortages === 0 || createNeeds.isPending}
+                >
+                  {createNeeds.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <PackagePlus className="size-4" />
+                  )}
+                  Generar reposición
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -759,6 +857,37 @@ export default function ProductionBatchPage() {
               }}
             >
               Reemplazar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Generar reposición: se muestra QUÉ se va a pedir antes de pedirlo. La
+          cantidad definitiva la recalcula el servidor, así que este resumen es
+          lo que el operador está mirando, no el pedido en sí. */}
+      <AlertDialog open={needsOpen} onOpenChange={setNeedsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Generar reposición</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se abre una necesidad por cada insumo que falta. Con qué cubrirla —comprar,
+              transferir o producir— se decide en Reposición.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto text-sm">
+            {shortageIngredients.map((i) => (
+              <li key={i.itemId} className="flex items-center justify-between gap-4">
+                <span className="truncate">{i.itemName ?? "—"}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {formatQty(i.missing ?? 0, bootstrap ?? null)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleGenerateNeeds} disabled={createNeeds.isPending}>
+              Generar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -932,5 +1061,166 @@ function LineOrigin({ line }: { line: DraftLine }) {
         </TooltipContent>
       </Tooltip>
     </div>
+  )
+}
+
+/** Rango de días de entrega, `YYYY-MM-DD` (un solo día es `from === to`). */
+interface DemandRange {
+  from: string
+  to: string
+}
+
+/**
+ * Los atajos del lote. Son hacia ADELANTE —lo que todavía hay que cocinar— al
+ * revés que los presets de los reportes (`lib/date-range-presets`), que miran
+ * hacia atrás. Por eso este selector no reusa `<DateRangePicker>`: aquél
+ * resuelve sus presets contra el reloj del NAVEGADOR y acá el día lo manda el
+ * reloj del comercio, que es el mismo con el que el servidor corta la cola.
+ */
+const DEMAND_PRESETS: ReadonlyArray<{
+  id: string
+  label: string
+  resolve: (today: string) => DemandRange
+}> = [
+  { id: "today", label: "Hoy", resolve: (t) => ({ from: t, to: t }) },
+  { id: "week", label: "Esta semana", resolve: (t) => weekOf(t) },
+  { id: "next7", label: "Próximos 7 días", resolve: (t) => ({ from: t, to: addDays(t, 6) }) },
+]
+
+/** Suma días a un `YYYY-MM-DD` sin pasar por UTC (ver `parseISO`/`toISO`). */
+function addDays(iso: string, days: number): string {
+  const d = parseISO(iso)
+  if (!d) return iso
+  d.setDate(d.getDate() + days)
+  return toISO(d)
+}
+
+/**
+ * La semana CALENDARIO que contiene ese día, de lunes a domingo — la misma
+ * convención que ya usa el dashboard de ventas (`(getDay() + 6) % 7`).
+ *
+ * Arranca el lunes aunque quede en el pasado a propósito: un rango que empieza
+ * hoy o antes trae además lo vencido no producido y lo sin fecha (context/79
+ * D2), así que "esta semana" es literalmente toda la semana de trabajo, no el
+ * pedazo que queda por delante.
+ */
+function weekOf(iso: string): DemandRange {
+  const d = parseISO(iso)
+  if (!d) return { from: iso, to: iso }
+  const from = addDays(iso, -((d.getDay() + 6) % 7))
+  return { from, to: addDays(from, 6) }
+}
+
+/**
+ * Locale del ENTORNO (`undefined`), no "es-PY": el mismo criterio que
+ * documenta `components/date-picker.tsx`. El año no se muestra — el rango de un
+ * lote es de esta semana o la que viene, y repetirlo dos veces en un botón de
+ * `h-8` no entra.
+ */
+function fmtDay(d: Date): string {
+  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short" })
+}
+
+function rangeLabel(value: DemandRange): string {
+  const from = parseISO(value.from)
+  const to = parseISO(value.to)
+  if (!from || !to) return ""
+  return value.from === value.to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}`
+}
+
+/**
+ * Selector del rango de entrega. Estructura copiada de
+ * `components/date-range-picker.tsx` (presets a la izquierda, calendario de dos
+ * meses, Aplicar/Cancelar) pero sobre strings `YYYY-MM-DD` y anclado al día del
+ * comercio.
+ */
+function DemandRangePicker({
+  value,
+  onChange,
+  today,
+  id,
+  className,
+  disabled,
+}: {
+  value: DemandRange
+  onChange: (range: DemandRange) => void
+  /** Hoy según el reloj del comercio, `YYYY-MM-DD`. */
+  today: string
+  id?: string
+  className?: string
+  disabled?: boolean
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [draft, setDraft] = React.useState<DateRange | undefined>({
+    from: parseISO(value.from),
+    to: parseISO(value.to),
+  })
+
+  React.useEffect(() => {
+    setDraft({ from: parseISO(value.from), to: parseISO(value.to) })
+  }, [value.from, value.to])
+
+  const apply = () => {
+    if (!draft?.from) return
+    // Un solo día clickeado deja `to` sin definir: ese es el rango de un día,
+    // no un rango a medias.
+    onChange({ from: toISO(draft.from), to: toISO(draft.to ?? draft.from) })
+    setOpen(false)
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          className={cn("gap-2 font-normal", className)}
+        >
+          <CalendarIcon className="size-3.5 text-muted-foreground" />
+          <span className="tabular-nums">{rangeLabel(value)}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="end">
+        <div className="flex">
+          <div className="flex flex-col gap-1 border-r p-2">
+            {DEMAND_PRESETS.map((p) => (
+              <Button
+                key={p.id}
+                variant="ghost"
+                size="sm"
+                className="h-8 justify-start text-xs"
+                onClick={() => {
+                  onChange(p.resolve(today))
+                  setOpen(false)
+                }}
+              >
+                {p.label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex flex-col">
+            <Calendar
+              mode="range"
+              numberOfMonths={2}
+              defaultMonth={parseISO(value.from)}
+              selected={draft}
+              onSelect={setDraft}
+            />
+            <Separator />
+            <div className="flex items-center justify-end gap-2 p-2">
+              <Button variant="ghost" size="sm" className="h-8" onClick={() => setOpen(false)}>
+                Cancelar
+              </Button>
+              <Button size="sm" className="h-8" disabled={!draft?.from} onClick={apply}>
+                Aplicar
+              </Button>
+            </div>
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

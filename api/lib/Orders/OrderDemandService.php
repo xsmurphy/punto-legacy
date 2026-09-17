@@ -70,27 +70,33 @@ use Punto\Api\Support\TenantClock;
  * el número. Esconderlas dejaría al cocinero creyendo que la pantalla trajo
  * toda la cola.
  *
- * ── Una fecha por lote (context/79, D2) ─────────────────────────────────────
+ * ── Un RANGO de fechas por lote (context/79 D2, ampliado 2026-09-17) ────────
  *
  * Desde que la orden puede tener fecha de entrega (`pos_order.scheduled_for`,
  * mig 225), la cola deja de ser una sola: la del viernes no es la de hoy. El
- * parámetro `date` elige cuál se trae, y la regla NO es simétrica:
+ * par `from`/`to` elige cuáles se traen —un solo día es `from == to`— y la
+ * regla del D2 NO es simétrica; lo que la generaliza es el ARRANQUE del rango,
+ * no cada día suelto:
  *
- *  - HOY (o sin `date`, que es lo mismo): trae las de hoy MÁS las sin fecha
- *    —"para ahora" es todo lo que existía antes de la mig 225— MÁS las
- *    VENCIDAS no producidas. Un pedido de ayer que nadie cocinó sigue siendo
- *    trabajo pendiente: desaparecer de la pantalla no lo cocina.
- *  - CUALQUIER OTRO DÍA: solo ese día exacto, sin las sin fecha. Quien pide
- *    "el viernes" está armando la producción del viernes; sumarle la cola
- *    suelta de hoy haría un lote que no es de ningún día y rompería lo único
- *    que lo hace auditable ("este lote es la producción del viernes").
+ *  - ARRANCA HOY O ANTES (o sin fechas, que es lo mismo que hoy-hoy): trae lo
+ *    del rango MÁS las sin fecha —"para ahora" es todo lo que existía antes de
+ *    la mig 225— MÁS las VENCIDAS no producidas. Un pedido de ayer que nadie
+ *    cocinó sigue siendo trabajo pendiente: desaparecer de la pantalla no lo
+ *    cocina. Por eso el corte de abajo es `scheduled_for::date <= to` y no un
+ *    BETWEEN: el piso del rango no recorta nada hacia atrás.
+ *  - ARRANCA EN EL FUTURO: solo `BETWEEN from AND to`, sin las sin fecha.
+ *    Quien pide "de lunes a viernes" está armando la producción de esa semana;
+ *    sumarle la cola suelta de hoy haría un lote que no es de ningún día y
+ *    rompería lo único que lo hace auditable ("este lote es la producción de
+ *    esa semana").
+ *
+ * Que el rango de HOY al viernes incluya lo vencido y lo sin fecha no es un
+ * efecto colateral: es la misma frase del D2 aplicada a un rango. "Mi semana"
+ * arranca hoy, y lo que quedó sin cocinar de ayer es trabajo de esta semana.
  *
  * El día se corta en la zona del COMERCIO: `scheduled_for::date` sale en hora
  * del tenant sin `AT TIME ZONE` explícito porque `TenantClock::apply()` fija
  * la zona de la sesión de Postgres en el embudo de auth (context/67).
- *
- * El rango de fechas (traer "de acá al viernes") quedó fuera a propósito —
- * ver D2: una fecha por lote, hasta que el owner pida otra cosa.
  */
 final class OrderDemandService
 {
@@ -124,11 +130,14 @@ final class OrderDemandService
      * hace Postgres —no un N+1 por orden— y el pliegue a total por producto es
      * un `foreach` sobre esas filas ya agregadas.
      *
-     * @param ?string $date Día de entrega a traer (`YYYY-MM-DD`). null = hoy.
+     * @param ?string $from Primer día de entrega a traer (`YYYY-MM-DD`). null = hoy.
+     * @param ?string $to   Último día del rango. null = el mismo que `$from`,
+     *                      o sea un solo día.
      *
      * @return array{
      *   outletId: string,
-     *   date: string,
+     *   dateFrom: string,
+     *   dateTo: string,
      *   takenAt: string,
      *   orderCount: int,
      *   skippedFreeText: int,
@@ -141,7 +150,7 @@ final class OrderDemandService
      *   }>
      * }
      */
-    public function pendingByItem(string $companyId, string $outletId, ?string $date = null): array
+    public function pendingByItem(string $companyId, string $outletId, ?string $from = null, ?string $to = null): array
     {
         if ($outletId === '') {
             throw new \InvalidArgumentException('outletId requerido');
@@ -154,9 +163,9 @@ final class OrderDemandService
             throw new \InvalidArgumentException('outletId inválido para este tenant');
         }
 
-        $today            = substr(TenantClock::now($companyId), 0, 10);
-        $effectiveDate    = self::normalizeDate($date) ?? $today;
-        [$dateSql, $dateParams] = self::scheduledFilter($effectiveDate, $today);
+        $today                  = substr(TenantClock::now($companyId), 0, 10);
+        [$dateFrom, $dateTo]    = self::normalizeRange($from, $to, $today);
+        [$dateSql, $dateParams] = self::scheduledFilter($dateFrom, $dateTo, $today);
 
         $itemStatuses  = self::OPEN_ITEM_STATUSES;
         $orderStatuses = self::TERMINAL_ORDER_STATUSES;
@@ -243,15 +252,16 @@ final class OrderDemandService
 
         return [
             'outletId'        => $outletId,
-            // El día que se está trayendo viaja en el payload por el mismo
+            // El rango que se está trayendo viaja en el payload por el mismo
             // motivo que `takenAt` (D2): el que lee la pantalla tiene que poder
             // ver DE QUÉ es el lote que armó, y resolverlo de nuevo en el
             // cliente sería una segunda definición de "hoy" contra el reloj de
             // la laptop en vez del del comercio.
-            'date'            => $effectiveDate,
+            'dateFrom'        => $dateFrom,
+            'dateTo'          => $dateTo,
             'takenAt'         => TenantClock::now($companyId),
             'orderCount'      => count($orders),
-            'skippedFreeText' => $this->countFreeTextLines($companyId, $outletId, $effectiveDate, $today),
+            'skippedFreeText' => $this->countFreeTextLines($companyId, $outletId, $dateFrom, $dateTo, $today),
             'truncated'       => $truncated,
             'lines'           => array_values($byItem),
         ];
@@ -264,14 +274,14 @@ final class OrderDemandService
      * `itemid IS NULL` colapsarían todas en un grupo que además rompería el
      * pliegue. Es un COUNT sobre los mismos índices, no un N+1.
      */
-    private function countFreeTextLines(string $companyId, string $outletId, string $date, string $today): int
+    private function countFreeTextLines(string $companyId, string $outletId, string $from, string $to, string $today): int
     {
         $itemMarks  = implode(',', array_fill(0, count(self::OPEN_ITEM_STATUSES), '?'));
         $orderMarks = implode(',', array_fill(0, count(self::TERMINAL_ORDER_STATUSES), '?'));
         // El MISMO recorte de fecha que la query principal: si contara la cola
         // entera, el lote del viernes avisaría de líneas sueltas que no son de
         // ese lote y el cocinero iría a buscar un pedido que no existe.
-        [$dateSql, $dateParams] = self::scheduledFilter($date, $today);
+        [$dateSql, $dateParams] = self::scheduledFilter($from, $to, $today);
 
         $params = array_merge(
             [$companyId, $outletId],
@@ -300,20 +310,55 @@ final class OrderDemandService
 
     /**
      * El predicado de fecha de entrega, UNA sola definición para las dos
-     * queries de esta clase. La asimetría entre "hoy" y cualquier otro día
-     * está explicada en el docblock de la clase (D2 de context/79).
+     * queries de esta clase. La asimetría —la decide el ARRANQUE del rango, no
+     * cada día— está explicada en el docblock de la clase (D2 de context/79,
+     * generalizado a rango el 2026-09-17).
+     *
+     * Matriz de casos, con `hoy` = 17:
+     *
+     *  | from | to | SQL                              | qué entra                     |
+     *  |------|----|----------------------------------|-------------------------------|
+     *  | 17   | 17 | NULL OR <= 17                    | hoy + sin fecha + vencidas    |
+     *  | 17   | 19 | NULL OR <= 19                    | hoy..19 + sin fecha + vencidas|
+     *  | 15   | 19 | NULL OR <= 19                    | ídem (el piso no recorta)     |
+     *  | 18   | 18 | BETWEEN 18 AND 18                | solo el 18                    |
+     *  | 18   | 24 | BETWEEN 18 AND 24                | solo esa semana               |
      *
      * @return array{0:string, 1:list<string>} SQL y sus binds, en ese orden.
      */
-    private static function scheduledFilter(string $date, string $today): array
+    private static function scheduledFilter(string $from, string $to, string $today): array
     {
-        if ($date === $today) {
+        if ($from <= $today) {
             // Las sin fecha ("para ahora") y las vencidas no producidas entran
-            // con las de hoy: las tres son trabajo pendiente ahora mismo.
-            return ['(o.scheduled_for IS NULL OR o.scheduled_for::date <= ?::date)', [$date]];
+            // con las del rango: las tres son trabajo pendiente ahora mismo.
+            // Comparación de strings `YYYY-MM-DD`: el formato es lexicográfico,
+            // ya validado por `normalizeRange()`.
+            return ['(o.scheduled_for IS NULL OR o.scheduled_for::date <= ?::date)', [$to]];
         }
 
-        return ['o.scheduled_for::date = ?::date', [$date]];
+        return ['o.scheduled_for::date BETWEEN ?::date AND ?::date', [$from, $to]];
+    }
+
+    /**
+     * El rango efectivo. Sin fechas es hoy-hoy (el comportamiento de siempre);
+     * con una sola, ese día solo. Un rango al revés se rechaza en vez de
+     * devolver vacío en silencio: "del viernes al lunes" es un pedido mal
+     * armado, y una cola vacía se leería como "no hay nada que cocinar".
+     *
+     * @return array{0:string, 1:string}
+     */
+    private static function normalizeRange(?string $from, ?string $to, string $today): array
+    {
+        $f = self::normalizeDate($from);
+        $t = self::normalizeDate($to);
+
+        $f ??= $t ?? $today;
+        $t ??= $f;
+
+        if ($f > $t) {
+            throw new \InvalidArgumentException('El rango de fechas está invertido');
+        }
+        return [$f, $t];
     }
 
     /** `YYYY-MM-DD` o null. Cualquier otra cosa es un pedido mal armado. */
