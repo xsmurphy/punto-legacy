@@ -223,6 +223,19 @@ define('NCM_SMS_COMPANY_ID',     $_ENV['NCM_SMS_COMPANY_ID']    ?? '');
 // conectividad admin (context/34 F6 §2, AiAdminService::testModel()).
 define('OPENROUTER_API_KEY',     $_ENV['OPENROUTER_API_KEY']    ?? '');
 
+// Base de conocimiento de Punto AI (context/82). El índice vive en una base
+// Postgres+pgvector APARTE de la de los tenants (D4), así que su conexión NO
+// sale de POSTGRES_* — es UNA url completa, tal como la entrega Coolify.
+//
+// Vacía = todavía no se creó la base. Eso NO es un error: el backend arranca
+// igual y la pantalla de /admin avisa que falta configurarla (fail-soft — el
+// RAG es auxiliar y su caída no puede dejar sin facturar a un comercio).
+define('RAG_DATABASE_URL',       $_ENV['RAG_DATABASE_URL']      ?? '');
+// Modelo de embeddings. FIJO por índice: cambiarlo obliga a reprocesar TODO,
+// porque vectores de modelos distintos no son comparables y mezclarlos
+// devuelve resultados sin sentido sin dar ningún error (D5).
+define('RAG_EMBEDDING_MODEL',    $_ENV['RAG_EMBEDDING_MODEL']   ?? 'openai/text-embedding-3-small');
+
 // DB_THROW_ON_ERROR — kill-switch TRANSITORIO del contrato de errores del
 // wrapper PDO (api/includes/lib/DB.php). DEFAULT TRUE: ante un error de PG el
 // wrapper LANZA `Punto\Api\Support\DbQueryException` en vez de devolver

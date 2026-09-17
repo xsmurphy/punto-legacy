@@ -1304,3 +1304,139 @@ export function useAdminCreateMigration() {
     },
   })
 }
+
+// ── Base de conocimiento de Punto AI (context/82, R1) ────────────────────────
+//
+// El índice vive en una base pgvector APARTE de la de los tenants, y solo el
+// backend PHP le habla (el Front no tiene driver de base de datos ni se le
+// agrega). Desde acá es una superficie más de /admin: GET trae todo junto y
+// POST manda {action, …}, igual que ai-config.
+
+/** Documento cargado desde /admin, con el estado de su última indexación. */
+export interface AdminHelpDocument {
+  documentId: string
+  slug: string
+  title: string
+  rubros: string[]
+  isActive: boolean
+  /** Slug del artículo de ayuda del que se importó (fase R4). Hoy siempre null. */
+  fromAyuda: string | null
+  chunkCount: number
+  indexedAt: string | null
+  /** Distinto de null = el documento está cargado pero no se pudo procesar. */
+  indexError: string | null
+  updatedAt: string | null
+  createdAt: string | null
+  length: number
+  /** Solo viene al pedir un documento puntual (?slug=). */
+  body?: string
+}
+
+export interface AdminHelpKbStatus {
+  /**
+   * false = la base del índice todavía no existe. Es el estado normal hasta
+   * que se cree en Coolify, NO un error: la pantalla lo dice y deshabilita la
+   * carga, en vez de mostrarse rota.
+   */
+  configured: boolean
+  model: string
+  chunks: number
+  indexedDocuments: number
+  models: Array<{ model: string; chunks: number }>
+  /** true si hay fragmentos generados con otro modelo: hay que reprocesar todo. */
+  needsReindexAll: boolean
+  failedDocuments: number
+  providerReady: boolean
+}
+
+export interface AdminHelpKb {
+  documents: AdminHelpDocument[]
+  status: AdminHelpKbStatus
+  document?: AdminHelpDocument | null
+}
+
+export function useAdminHelpKb() {
+  return useQuery<AdminHelpKb>({
+    queryKey: ["admin", "help-kb"],
+    queryFn: () => apiAdmin.get("/help-kb.php"),
+    staleTime: 30 * 1000,
+    // Un 503 acá significa que la base del índice no está disponible: no es un
+    // fallo transitorio de red y reintentar en bucle solo agrega ruido.
+    retry: false,
+  })
+}
+
+/** Texto completo de un documento — se pide solo al abrirlo para editar. */
+export function useAdminHelpDocument(slug: string | null) {
+  return useQuery<AdminHelpKb>({
+    queryKey: ["admin", "help-kb", "doc", slug],
+    queryFn: () => apiAdmin.get(`/help-kb.php?slug=${encodeURIComponent(slug ?? "")}`),
+    enabled: !!slug,
+    retry: false,
+  })
+}
+
+export interface AdminHelpUpsertInput {
+  slug?: string
+  title: string
+  body: string
+  rubros: string[]
+  isactive?: boolean
+  [k: string]: unknown
+}
+
+export interface AdminHelpIndexResult {
+  ok: boolean
+  chunks?: number
+  embedded?: number
+  reused?: number
+  error?: string
+}
+
+export function useAdminUpsertHelpDocument() {
+  const qc = useQueryClient()
+  return useMutation<
+    { slug: string; created: boolean; index: AdminHelpIndexResult },
+    AdminApiError,
+    AdminHelpUpsertInput
+  >({
+    mutationFn: (input) => apiAdmin.post("/help-kb.php", { action: "upsertDocument", ...input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "help-kb"] }),
+  })
+}
+
+export function useAdminToggleHelpDocument() {
+  const qc = useQueryClient()
+  return useMutation<{ slug: string }, AdminApiError, { slug: string; isactive: boolean }>({
+    mutationFn: (input) => apiAdmin.post("/help-kb.php", { action: "toggleDocument", ...input }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "help-kb"] }),
+  })
+}
+
+export function useAdminDeleteHelpDocument() {
+  const qc = useQueryClient()
+  return useMutation<{ slug: string; title: string }, AdminApiError, string>({
+    mutationFn: (slug) => apiAdmin.post("/help-kb.php", { action: "deleteDocument", slug }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "help-kb"] }),
+  })
+}
+
+export function useAdminReindexHelpDocument() {
+  const qc = useQueryClient()
+  return useMutation<{ slug: string; index: AdminHelpIndexResult }, AdminApiError, string>({
+    mutationFn: (slug) => apiAdmin.post("/help-kb.php", { action: "reindexDocument", slug }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "help-kb"] }),
+  })
+}
+
+export function useAdminReindexAllHelpDocuments() {
+  const qc = useQueryClient()
+  return useMutation<
+    { ok: boolean; documents: number; indexed: number; errors: Array<{ slug: string; error: string }> },
+    AdminApiError,
+    void
+  >({
+    mutationFn: () => apiAdmin.post("/help-kb.php", { action: "reindexAll" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "help-kb"] }),
+  })
+}
