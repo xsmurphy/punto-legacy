@@ -216,6 +216,19 @@ La condición de pago del contacto decide qué pasa al entregar:
 - **D6 — Reposición y compra son conceptos distintos.** Un conteo puede
   generar ambos. Reposición es la necesidad; compra, transferencia o
   producción son cómo se cubre.
+- **D7 — El stock mínimo DISPARA la reposición** (owner 2026-09-17). Cuando un
+  ítem llega a su mínimo (`item.itemMinStock`, mig 133 — hoy solo avisa), el
+  sistema activa una necesidad de reposición; para un ítem que se produce, eso
+  es una producción. Cierra la parte de P2 que decía si la necesidad existe:
+  existe y se persiste. **Sigue abierto**: cuánto reponer (propuesta: hasta
+  `itemMaxStock`, que ya existe en la mig 133; sin máximo, hasta el mínimo) y si
+  "activar" crea la orden de producción en borrador o solo la necesidad con el
+  botón de producir.
+- **D8 — Los DOS conteos generan necesidades** (owner 2026-09-17): el del panel
+  y el de la caja. El de la caja sigue pudiendo ser ciego o no, configurable
+  (ya implementado, `context/63` F2): en modo ciego el que cuenta no ve el
+  faltante, pero la necesidad se calcula igual del lado del servidor al cerrar
+  el conteo.
 
 ## Propuestas SIN OK explícito del owner
 
@@ -226,7 +239,8 @@ La condición de pago del contacto decide qué pasa al entregar:
   documento, que es como el cliente lo piensa ("me deben agosto"). La
   alternativa se descartó (ver §Rechazadas).
 - **P2 — `necesidad de reposición` como entidad persistida** con líneas y
-  cobertura parcial (§B.5). Alternativa descartada: calcularla al vuelo y que
+  cobertura parcial (§B.5). *Que exista y se persista quedó cerrado por D7;
+  sigue como propuesta el detalle de líneas y cobertura parcial.* Alternativa descartada: calcularla al vuelo y que
   cada origen arme la compra directo.
 - **P3 — La condición de pago vive en el contacto**: `prepago | mensual |
   a cuenta de` (con `parentId` → la empresa). El cajero no decide nada por
