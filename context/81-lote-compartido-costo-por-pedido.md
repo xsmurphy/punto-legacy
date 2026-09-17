@@ -71,6 +71,17 @@ el ÍTEM, no un flag del lote.** Por eso se relaja la validación de
 Hoy el backend ya acepta receta en cualquier ítem (`ItemCompoundService::add()`
 no valida el kind); lo que cambia es la validación de producción y la UI.
 
+**¿Por qué no reusar `produccion_directa`?** (pregunta del owner 2026-09-17)
+El CONSUMO es idéntico — receta explotada, insumos descontados por
+`manageStock`, nada entra al depósito — y `proceso` reusa ese mismo camino, sin
+lógica nueva. La diferencia es QUÉ lo dispara: `produccion_directa` consume
+**al venderse** (`saleExplodesRecipe()` es true por sus flags, y es vendible);
+el proceso consume **al confirmar el lote**. Si el ítem del lote fuera
+`produccion_directa`, venderlo descontaría los insumos otra vez: el doble
+consumo de D6 quedaría librado a que nadie lo venda. Con `proceso` (no
+vendible, no aparece en la caja) el doble consumo es imposible por
+construcción. Es la única razón del tipo nuevo.
+
 ### D3 — Costos indirectos v1 = insumos sin stock con costo estándar
 "Energía por ciclo" o "Agua por ciclo" se cargan como ítems
 `insumo_sin_stock` con su costo, dentro de la receta del proceso. El costeo ya
