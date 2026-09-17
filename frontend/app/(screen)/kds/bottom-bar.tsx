@@ -1,7 +1,18 @@
 "use client"
 
 import * as React from "react"
-import { ChevronLeft, ChevronRight, Keyboard, RefreshCw, Undo2, Volume2, Wifi, WifiOff } from "lucide-react"
+import {
+  ChevronLeft,
+  ChevronRight,
+  ClipboardList,
+  Keyboard,
+  LayoutGrid,
+  RefreshCw,
+  Undo2,
+  Volume2,
+  Wifi,
+  WifiOff,
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { WsState } from "@/hooks/use-paired-screen"
 import { KDS_STATUS_VISUALS, kdsTextHex, type KdsMode, type KdsOrderStatus } from "@/lib/kds/kds-visuals"
@@ -51,6 +62,9 @@ interface BottomBarProps {
   /** false = no hay nada que deshacer (el botón queda visible pero inerte). */
   canUndo: boolean
   onUndo: () => void
+  /** Qué se está mirando: el board de comandas o el resumen del día (context/70). */
+  summaryOpen: boolean
+  onToggleSummary: () => void
   onShowHelp: () => void
   /** Triggers de los diálogos (recall, configuración). */
   children: React.ReactNode
@@ -70,6 +84,8 @@ export function KdsBottomBar({
   onUnlockSound,
   canUndo,
   onUndo,
+  summaryOpen,
+  onToggleSummary,
   onShowHelp,
   children,
 }: BottomBarProps) {
@@ -129,14 +145,35 @@ export function KdsBottomBar({
           <span className="sr-only">{wsState === "online" ? "Conectado" : "Reconectando"}</span>
         </span>
 
+        {/* Resumen del día (context/70): cuántos de cada plato hay que armar.
+            Es un TOGGLE de vista, no una pantalla aparte — se pinta el estado
+            sobre el botón (relleno + aria-pressed) y el ícono muestra a dónde
+            lleva. El LABEL no cambia con el modo a propósito: "Resumen" y
+            "Comandas" no miden lo mismo y todo lo que está a la derecha de este
+            botón se correría al alternar (Regla #10, posiciones estables). */}
+        <Button
+          type="button"
+          variant={summaryOpen ? "default" : "outline"}
+          className="h-11 gap-2"
+          aria-pressed={summaryOpen}
+          aria-label={summaryOpen ? "Volver a las comandas" : "Resumen del día"}
+          onClick={onToggleSummary}
+        >
+          {summaryOpen ? <LayoutGrid className="size-5" /> : <ClipboardList className="size-5" />}
+          <span className="hidden sm:inline">Resumen</span>
+        </Button>
+
         {/* Deshacer lo último marcado. Existe también como atajo (Z) y como
             long-press sobre la línea, pero tiene que estar VISIBLE: nadie
-            adivina un atajo cuando acaba de marcar la comanda equivocada. */}
+            adivina un atajo cuando acaba de marcar la comanda equivocada.
+            Con el resumen en pantalla queda inerte: el board no se ve, y
+            deshacer ahí es revertir a ciegas — mismo criterio que bloquea la Z
+            (ver `use-kds-hotkeys.ts`). */}
         <Button
           type="button"
           variant="outline"
           className="h-11 gap-2"
-          disabled={!canUndo}
+          disabled={!canUndo || summaryOpen}
           aria-label="Deshacer la última acción"
           onClick={onUndo}
         >

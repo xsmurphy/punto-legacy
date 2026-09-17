@@ -23,6 +23,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Z", label: "Deshacer la última acción" },
   { keys: "P", label: "Fijar / soltar la comanda a la izquierda" },
   { keys: "R", label: "Comandas que ya salieron (recall)" },
+  { keys: "S", label: "Resumen del día: cuántos de cada plato hay que armar" },
   { keys: "[ ]", label: "Página anterior / siguiente (o PgUp / PgDn)" },
   { keys: "Esc", label: "Soltar la selección" },
   { keys: "?", label: "Esta ayuda" },
@@ -42,7 +43,8 @@ export function KdsHelpDialog({ open, onOpenChange }: HelpDialogProps) {
           <DialogDescription>
             Se opera más rápido sin soltar lo que se tiene en la mano. Con un ítem seleccionado
             Enter lo marca; sin ítem, marca la comanda entera. Mantener presionada una línea con el
-            dedo también la retrocede un paso.
+            dedo también la retrocede un paso. En el resumen del día no se marca nada: se consulta
+            y se vuelve.
           </DialogDescription>
         </DialogHeader>
 

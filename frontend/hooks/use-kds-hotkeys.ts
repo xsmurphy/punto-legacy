@@ -15,6 +15,7 @@
  *   Z               deshacer la última acción de marcado
  *   P               fijar / soltar la comanda seleccionada
  *   R               abrir / cerrar el panel de recall
+ *   S               resumen del día / volver a las comandas
  *   [ ] · PgUp/PgDn página anterior / siguiente
  *   Esc             soltar la selección
  *   ?               ayuda de atajos
@@ -45,6 +46,8 @@ export interface KdsHotkeyHandlers {
   togglePin: () => void
   toggleRecall: () => void
   toggleHelp: () => void
+  /** Alterna entre el board de comandas y el resumen del día (context/70). */
+  toggleSummary: () => void
   movePage: (delta: number) => void
   clearSelection: () => void
 }
@@ -69,7 +72,7 @@ function isInteractiveTarget(el: EventTarget | null): boolean {
 
 export function useKdsHotkeys(
   handlers: KdsHotkeyHandlers,
-  state: { helpOpen: boolean; recallOpen: boolean }
+  state: { helpOpen: boolean; recallOpen: boolean; summaryOpen: boolean }
 ): void {
   const handlersRef = React.useRef(handlers)
   const stateRef = React.useRef(state)
@@ -83,7 +86,7 @@ export function useKdsHotkeys(
       if (isTypingTarget(e.target)) return
 
       const h = handlersRef.current
-      const { helpOpen, recallOpen } = stateRef.current
+      const { helpOpen, recallOpen, summaryOpen } = stateRef.current
 
       // Diálogos propios: solo su tecla los cierra (Escape lo maneja el Dialog).
       if (helpOpen) {
@@ -100,6 +103,22 @@ export function useKdsHotkeys(
         typeof document !== "undefined" &&
         document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')
       ) {
+        return
+      }
+
+      // El resumen del día es de SOLO LECTURA (context/70). Con él en pantalla
+      // el board no se ve, así que Enter/Backspace/Z marcarían una comanda a
+      // ciegas y las flechas moverían una selección invisible: lo que se
+      // bloquea no es "todo por las dudas", es todo lo que ACTÚA sobre algo que
+      // no está a la vista. Quedan las teclas que gobiernan la pantalla misma.
+      // Va DESPUÉS del guard de overlays: con Ajustes abierto el teclado sigue
+      // siendo del diálogo, esté el resumen o no.
+      if (summaryOpen) {
+        switch (e.key.toLowerCase()) {
+          case "s": e.preventDefault(); h.toggleSummary(); return
+          case "r": e.preventDefault(); h.toggleRecall(); return
+        }
+        if (e.key === "?") { e.preventDefault(); h.toggleHelp() }
         return
       }
 
@@ -125,6 +144,7 @@ export function useKdsHotkeys(
         case "z": e.preventDefault(); h.undo(); break
         case "p": e.preventDefault(); h.togglePin(); break
         case "r": e.preventDefault(); h.toggleRecall(); break
+        case "s": e.preventDefault(); h.toggleSummary(); break
       }
     }
 

@@ -19,6 +19,7 @@ import {
   RECALL_LIMIT,
   screenItems,
 } from "@/lib/kds/board"
+import { summarizeOrders } from "@/lib/kds/summary"
 import { isScheduledAfter } from "@/lib/orders/order-display"
 import type { KdsMode, KdsOrderStatus } from "@/lib/kds/kds-visuals"
 import type { Order, OrderItem, OrderItemStatus } from "@/hooks/use-orders"
@@ -27,6 +28,7 @@ import { KdsBottomBar } from "./bottom-bar"
 import { KdsConfigDialog } from "./config-dialog"
 import { KdsRecallDialog } from "./recall-dialog"
 import { KdsHelpDialog } from "./help-dialog"
+import { KdsSummaryView } from "./summary-view"
 
 /**
  * KDS — pantalla de cocina device-paired (O2, context/24-orders-module-plan.md).
@@ -56,6 +58,17 @@ import { KdsHelpDialog } from "./help-dialog"
  * posición por tiempo, no al final, porque el orden es por `sentAt`, que no
  * cambia. Qué cuenta como "terminada" —y por qué con filtro de estaciones eso
  * se decide por ítem y no por el status de la orden— vive en `lib/kds/board.ts`.
+ *
+ * DOS VISTAS SOBRE LAS MISMAS ÓRDENES
+ * -----------------------------------
+ * El board responde "qué pide la comanda 42"; el RESUMEN (context/70) responde
+ * "cuántas milanesas salen hoy", que es la pregunta de un comercio de viandas
+ * donde los platos ya están cocinados y lo que se hace es ARMAR. No es otra
+ * pantalla ni otro fetch: es una agregación en memoria de estas mismas órdenes
+ * con los mismos predicados (`lib/kds/summary.ts`), justamente para que las dos
+ * vistas no puedan decir cosas distintas. Arranca SIEMPRE en board y la
+ * preferencia no se guarda — la vista de trabajo es el board, el resumen se
+ * consulta y se vuelve.
  *
  * OVERFLOW = PAGINACIÓN, NO SCROLL. Un scroll horizontal que nadie va a tocar
  * esconde comandas para siempre. La regla de la paginación es NUNCA ESCONDER EN
@@ -166,6 +179,12 @@ export default function KdsPage() {
   const [selection, setSelection] = React.useState<KdsSelection | null>(null)
   const [recallOpen, setRecallOpen] = React.useState(false)
   const [helpOpen, setHelpOpen] = React.useState(false)
+  /**
+   * Board o resumen del día. Arranca SIEMPRE en board y no se persiste: una
+   * pantalla de cocina que reabre en una vista de consulta es una pantalla que
+   * dejó de mostrar las comandas, y nadie se dio cuenta.
+   */
+  const [view, setView] = React.useState<"board" | "summary">("board")
   // Arranca en "dark" (el default y el comportamiento previo) y se resuelve en
   // un efecto: la config vive en localStorage, así que decidir el modo durante
   // el render sería un mismatch de hidratación garantizado.
@@ -317,7 +336,17 @@ export default function KdsPage() {
     return () => clearInterval(t)
   }, [config.theme])
 
-  /** Ancho medido de la grilla — de acá sale cuántas comandas entran y el tamaño de letra. */
+  /**
+   * Ancho medido de la grilla — de acá sale cuántas comandas entran y el tamaño
+   * de letra.
+   *
+   * Depende de `view` porque en modo resumen la grilla NO está montada: el
+   * observer se cuelga de un nodo que deja de existir y al volver al board
+   * habría que re-colgarlo. Sin esta dependencia `gridWidth` quedaría congelado
+   * en el valor de antes del switch, y una rotación de pantalla (o cualquier
+   * cambio de tamaño ocurrido mientras se miraba el resumen) dejaría el board
+   * calculando columnas contra un ancho que ya no es.
+   */
   React.useEffect(() => {
     const el = gridRef.current
     if (!el || typeof ResizeObserver === "undefined") return
@@ -327,7 +356,7 @@ export default function KdsPage() {
     })
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [view])
 
   function updateConfig(next: KdsConfig) {
     registerInteraction()
@@ -342,6 +371,11 @@ export default function KdsPage() {
     const ok = await unlockKdsSound()
     setSoundState(kdsSoundState())
     if (ok) playKdsChime()
+  }
+
+  function toggleSummary() {
+    registerInteraction()
+    setView((v) => (v === "board" ? "summary" : "board"))
   }
 
   function handleTogglePin(orderId: string) {
@@ -378,6 +412,22 @@ export default function KdsPage() {
   const board = React.useMemo(
     () => applyPinOrder(visible.filter((o) => !isDoneForScreen(o, config.stationIds)), pins),
     [visible, config.stationIds, pins]
+  )
+
+  /**
+   * Consolidado del día (context/70). Sale de `visible`, o sea del MISMO
+   * pipeline del board (estaciones + corte de fecha de entrega): cualquier otra
+   * base haría que el resumen y el board cuenten distinto. Lo único que suma
+   * `summarizeOrders` es dejar afuera lo terminal, así que acá entra también lo
+   * que ya salió del board por estar armado — que es justo lo que quien arma
+   * necesita controlar.
+   *
+   * Se deriva con `useMemo`, y por eso el tiempo real sale gratis: el mismo
+   * evento del socket que actualiza una comanda actualiza el resumen.
+   */
+  const summary = React.useMemo(
+    () => summarizeOrders(visible, config.stationIds),
+    [visible, config.stationIds]
   )
 
   /** Lo que ya salió, la más reciente primero y ACOTADO — ver RECALL_LIMIT. */
@@ -535,13 +585,14 @@ export default function KdsPage() {
       togglePin: () => { if (selection) handleTogglePin(selection.orderId) },
       toggleRecall: () => { registerInteraction(); setRecallOpen((o) => !o) },
       toggleHelp: () => { registerInteraction(); setHelpOpen((o) => !o) },
+      toggleSummary,
       movePage: (delta) => {
         registerInteraction()
         setPage((p) => (p + delta + totalPages) % totalPages)
       },
       clearSelection: () => setSelection(null),
     },
-    { helpOpen, recallOpen }
+    { helpOpen, recallOpen, summaryOpen: view === "summary" }
   )
 
   // ---- Transiciones de ítems ------------------------------------------------
@@ -717,68 +768,75 @@ export default function KdsPage() {
       className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col overflow-hidden bg-background text-foreground`}
     >
       <main className="min-h-0 flex-1 p-2">
-        <div
-          ref={gridRef}
-          className="grid h-full min-h-0 gap-2"
-          onTouchStart={(e) => {
-            const t = e.touches[0]
-            swipeStartRef.current = t ? { x: t.clientX, y: t.clientY } : null
-          }}
-          onTouchEnd={(e) => {
-            const start = swipeStartRef.current
-            const t = e.changedTouches[0]
-            swipeStartRef.current = null
-            if (!start || !t || totalPages <= 1) return
-            const dx = t.clientX - start.x
-            // Solo horizontal: el gesto vertical es el scroll DENTRO de la comanda.
-            if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(t.clientY - start.y)) return
-            registerInteraction()
-            suppressClickUntilRef.current = Date.now() + 500
-            setPage((p) => (dx < 0 ? (p + 1) % totalPages : (p - 1 + totalPages) % totalPages))
-          }}
-          onClickCapture={(e) => {
-            if (Date.now() >= suppressClickUntilRef.current) return
-            suppressClickUntilRef.current = 0
-            e.preventDefault()
-            e.stopPropagation()
-          }}
-          style={{
-            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-            // Explícito: la única fila ocupa TODO el alto, así cada comanda es
-            // full-height y el scroll queda dentro de la tarjeta, nunca en la
-            // página.
-            gridAutoRows: "1fr",
-            // Ancho real de columna — las tarjetas escalan su tipografía con
-            // `clamp()` sobre esta variable (ver order-card.tsx).
-            ["--kds-col" as string]: `${colWidth}px`,
-          }}
-        >
-          {board.length === 0 ? (
-            <div
-              className="flex items-center justify-center text-muted-foreground"
-              style={{ gridColumn: "1 / -1" }}
-            >
-              <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas pendientes</p>
-            </div>
-          ) : (
-            pageOrders.map((order) => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                config={config}
-                mode={mode}
-                busy={busyIds.has(order.id)}
-                pinned={pins.includes(order.id)}
-                selected={selection?.orderId === order.id}
-                selectedItemId={selection?.orderId === order.id ? selection.itemId : null}
-                onTogglePin={handleTogglePin}
-                onBumpOrder={bumpOrder}
-                onBumpItem={bumpItem}
-                onStepBackItem={stepBackItem}
-              />
-            ))
-          )}
-        </div>
+        {/* El resumen reemplaza el ÁREA de comandas, no la pantalla: la barra
+            inferior sigue abajo, con los mismos contadores y los mismos botones
+            en el mismo lugar. */}
+        {view === "summary" ? (
+          <KdsSummaryView rows={summary} />
+        ) : (
+          <div
+            ref={gridRef}
+            className="grid h-full min-h-0 gap-2"
+            onTouchStart={(e) => {
+              const t = e.touches[0]
+              swipeStartRef.current = t ? { x: t.clientX, y: t.clientY } : null
+            }}
+            onTouchEnd={(e) => {
+              const start = swipeStartRef.current
+              const t = e.changedTouches[0]
+              swipeStartRef.current = null
+              if (!start || !t || totalPages <= 1) return
+              const dx = t.clientX - start.x
+              // Solo horizontal: el gesto vertical es el scroll DENTRO de la comanda.
+              if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(t.clientY - start.y)) return
+              registerInteraction()
+              suppressClickUntilRef.current = Date.now() + 500
+              setPage((p) => (dx < 0 ? (p + 1) % totalPages : (p - 1 + totalPages) % totalPages))
+            }}
+            onClickCapture={(e) => {
+              if (Date.now() >= suppressClickUntilRef.current) return
+              suppressClickUntilRef.current = 0
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            style={{
+              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+              // Explícito: la única fila ocupa TODO el alto, así cada comanda es
+              // full-height y el scroll queda dentro de la tarjeta, nunca en la
+              // página.
+              gridAutoRows: "1fr",
+              // Ancho real de columna — las tarjetas escalan su tipografía con
+              // `clamp()` sobre esta variable (ver order-card.tsx).
+              ["--kds-col" as string]: `${colWidth}px`,
+            }}
+          >
+            {board.length === 0 ? (
+              <div
+                className="flex items-center justify-center text-muted-foreground"
+                style={{ gridColumn: "1 / -1" }}
+              >
+                <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas pendientes</p>
+              </div>
+            ) : (
+              pageOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  config={config}
+                  mode={mode}
+                  busy={busyIds.has(order.id)}
+                  pinned={pins.includes(order.id)}
+                  selected={selection?.orderId === order.id}
+                  selectedItemId={selection?.orderId === order.id ? selection.itemId : null}
+                  onTogglePin={handleTogglePin}
+                  onBumpOrder={bumpOrder}
+                  onBumpItem={bumpItem}
+                  onStepBackItem={stepBackItem}
+                />
+              ))
+            )}
+          </div>
+        )}
       </main>
 
       <KdsBottomBar
@@ -786,8 +844,12 @@ export default function KdsPage() {
         counts={counts}
         mode={mode}
         page={safePage}
-        totalPages={totalPages}
-        hiddenCount={board.length - pageOrders.length}
+        // La paginación es del BOARD: el resumen es una lista que scrollea y no
+        // esconde nada, así que declara una sola página y cero comandas fuera de
+        // pantalla. El bloque de paginación ya reserva su lugar aunque no
+        // muestre nada, así que la barra no se mueve al alternar de vista.
+        totalPages={view === "summary" ? 1 : totalPages}
+        hiddenCount={view === "summary" ? 0 : board.length - pageOrders.length}
         onPage={(p) => { registerInteraction(); setPage(p) }}
         loading={loading}
         wsState={wsState}
@@ -795,6 +857,8 @@ export default function KdsPage() {
         onUnlockSound={() => void handleUnlockSound()}
         canUndo={lastAction !== null}
         onUndo={() => { void undoLast() }}
+        summaryOpen={view === "summary"}
+        onToggleSummary={toggleSummary}
         onShowHelp={() => setHelpOpen(true)}
       >
         <KdsRecallDialog
