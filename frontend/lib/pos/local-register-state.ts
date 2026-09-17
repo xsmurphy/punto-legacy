@@ -112,6 +112,45 @@ export interface PrinterBindingDeletePayload {
  * Solo se usa si el dueño borró la lista mientras la operación esperaba en la
  * cola — ahí es esto o tirar un recuento físico que ya ocurrió.
  */
+/**
+ * Una marcación de asistencia encolada (context/83 F1).
+ *
+ * Lo que NO viaja acá: la SUCURSAL, la CAJA y el APARATO. Los resuelve el
+ * servidor del contexto del dispositivo — misma convención que el conteo, y acá
+ * pesa más: la marcación es la prueba de que alguien estuvo EN un lugar, y
+ * dejar que el cliente nombre ese lugar la vacía de contenido.
+ *
+ * Tampoco viaja la FOTO: vive en el store `opBlobs` bajo el mismo `opId` (ver
+ * `offline-db.ts`). `photoPending` dice si hay que ir a buscarla, así el
+ * transporte no consulta el store binario por cada marcación que nunca tuvo
+ * foto.
+ */
+export interface AttendanceMarkPayload {
+  /** A quién corresponde el PIN que se tipeó, resuelto contra el caché local. */
+  employeeId: string
+  /** Nombre congelado al marcar — para poder describir la operación en la cola. */
+  employeeName: string
+  /**
+   * El hash del PIN tipeado. Viaja para que el SERVIDOR pueda verificar el par
+   * (empleado, PIN) en vez de creerle al match que hizo el browser. No es un
+   * gate: si no coincide, la marcación entra igual y queda flageada — el
+   * porqué está en el docblock de `AttendanceService`.
+   */
+  markPinHash: string
+  kind: 'in' | 'out'
+  /** Momento en que la persona marcó (ISO). NUNCA el de la sincronización. */
+  markedAt: string
+  /** 'pin' en la F1. 'face' cuando llegue el reconocimiento facial (F2). */
+  method: 'pin' | 'face'
+  /** Hay una foto esperando en `opBlobs` con este mismo `opId`. */
+  photoPending: boolean
+  /**
+   * Por qué NO hay foto, cuando no la hay. Código, no texto: el servidor lo
+   * guarda tal cual como motivo de revisión y la redacción vive en el panel.
+   */
+  noPhotoReason: string | null
+}
+
 export interface StockCountPayload {
   /**
    * Ni la sucursal ni la caja viajan acá: las resuelve el servidor del

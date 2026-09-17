@@ -248,6 +248,16 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // `/v1/employees?resource=attachments`, que publica la misma entity— y así
   // el legajo abierto en otra pantalla ve el archivo nuevo sin recargar.
   employee:          [["employees"]],
+  // attendance (attendance.php, context/83 F1). La entity la deriva el
+  // publisher del path `/v1/attendance` — "attendance" no tiene plural que
+  // singularizar, así que sale tal cual.
+  //
+  // Dos keys porque la marcación afecta dos cosas distintas: el reporte de
+  // asistencia abierto en el panel (`["attendance", ...]`) y el LEGAJO, que
+  // muestra el estado de cada persona. El evento lo publica cada marcación del
+  // quiosco, incluidas las que llegan de la cola offline horas después — que es
+  // justamente cuando nadie está mirando la pantalla para refrescarla a mano.
+  attendance:        [["attendance"], ["employees"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
   // el front más allá del canje inline del carrito): no hay listado
   // cacheado con react-query — issue/validate/consume son llamadas directas

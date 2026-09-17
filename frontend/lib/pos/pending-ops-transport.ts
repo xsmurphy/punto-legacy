@@ -31,6 +31,12 @@
  *   su propia fila y devuelve la misma. Edición y baja son idempotentes por
  *   naturaleza (asignación y borrado por id).
  *
+ * - **Marcación de asistencia** lleva su identidad encima por el mismo motivo
+ *   que el conteo: insertar una fila y nada más no es idempotente, y dos envíos
+ *   serían dos entradas a la misma hora (que después el reporte aparea como si
+ *   la persona hubiera entrado dos veces). El `opId` es columna con índice
+ *   único por comercio y el INSERT va con `ON CONFLICT DO NOTHING` (mig 230).
+ *
  * - **Conteo de stock** es la primera que NO puede volverse idempotente sola:
  *   crear la sesión inserta una fila y consume un correlativo, y finalizarla
  *   mueve el ledger — dos envíos serían dos conteos y el doble del ajuste. Se
@@ -46,6 +52,7 @@
  */
 
 import { posFetch } from '@/lib/api/pos-fetch'
+import { getOpBlob } from '@/lib/pos/pending-ops'
 import { peekAll } from '@/lib/pos/offline-queue'
 import { posApi } from '@/lib/api/pos-client'
 import { ApiError } from '@/lib/api-client'
@@ -57,6 +64,7 @@ import {
 } from '@/lib/pos/account-block'
 import type { PendingOpRow } from '@/lib/pos/pending-ops'
 import type {
+  AttendanceMarkPayload,
   DrawerOpPayload,
   HotkeysPayload,
   PosConfigPatch,
@@ -247,6 +255,56 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         const { id } = row.payload as PrinterBindingDeletePayload
         await posApi.post('/v1/printer_binding', { action: 'delete', id })
         return
+      }
+
+      case 'attendanceMark': {
+        const payload = row.payload as AttendanceMarkPayload
+
+        // `FormData` y no JSON porque la foto es un binario: mandarla en base64
+        // dentro de un JSON la infla un 33% y obliga a decodificarla del otro
+        // lado para volver a tener los mismos bytes. El endpoint la recibe como
+        // un upload normal (`$_FILES`), igual que los adjuntos del legajo.
+        //
+        // OJO con el `Content-Type`: NO se setea a mano. `multipart/form-data`
+        // lleva un `boundary` que genera el browser al serializar el FormData;
+        // escribir la cabecera sin él deja un body que el servidor no puede
+        // partir y `$_POST` llega VACÍO — sin error, sin nada.
+        const form = new FormData()
+        form.set('employeeId', payload.employeeId)
+        form.set('markPinHash', payload.markPinHash)
+        form.set('kind', payload.kind)
+        form.set('markedAt', payload.markedAt)
+        form.set('method', payload.method)
+
+        // La foto se lee recién ACÁ, al enviar, y no al encolar: es lo que hace
+        // que leer la cola siga siendo barato (ver `opBlobs` en `offline-db.ts`).
+        const photo = payload.photoPending ? await getOpBlob(row.opId) : null
+        if (photo) {
+          form.set('photo', photo, 'marcacion.jpg')
+        } else {
+          // Sin foto la marcación sale IGUAL (D4: fail-open). Lo que cambia es
+          // que viaja el motivo, y el servidor la guarda flageada para revisión.
+          //
+          // `photo_lost` cuando el payload decía que había una y el store no la
+          // tiene: no es el motivo que declaró la pantalla (ahí no hubo cámara o
+          // el permiso estaba denegado) sino otro distinto —la foto existió y se
+          // perdió en el camino—, y confundirlos le haría creer al dueño que esa
+          // tablet no tiene cámara.
+          form.set(
+            'noPhotoReason',
+            payload.photoPending ? 'photo_lost' : (payload.noPhotoReason ?? 'photo_failed'),
+          )
+        }
+
+        // `X-Punto-Op-Id` es la condición de corrección, no rastreo: el backend
+        // inserta con `ON CONFLICT (companyid, opid) DO NOTHING`, así que un
+        // reenvío encuentra su propia marcación en vez de registrar una segunda
+        // entrada a la misma hora (mig 230).
+        return await posBff('/api/v1/attendance', {
+          method: 'POST',
+          headers: { 'X-Punto-Op-Id': row.opId },
+          body: form,
+        })
       }
 
       case 'stockCount': {

@@ -30,7 +30,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosCategory, PosBrand, PosUser, PaymentMethodConfig, PosPrintTemplate } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosCategory, PosBrand, PosUser, PosEmployee, PaymentMethodConfig, PosPrintTemplate } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -59,6 +59,21 @@ interface CatalogState {
    * problema de sesión (lockout 2026-08-25).
    */
   rosterMissing: boolean
+  /**
+   * Empleados habilitados para marcar asistencia en esta sucursal
+   * (context/83 F1). Viene del bootstrap, así que vive en el snapshot y el
+   * quiosco valida el PIN sin red.
+   */
+  employees: PosEmployee[]
+  /**
+   * El bootstrap que hidrató este store NO traía la clave `employees`.
+   *
+   * Igual que `rosterMissing` y por el mismo motivo: `[]` es el comercio
+   * diciendo "todavía nadie tiene PIN de marcación cargado" y esto dice "acá no
+   * hay marcación" (módulo apagado, o `/api` anterior a la feature). El quiosco
+   * necesita el distingo para no acusar de PIN incorrecto a quien tipeó bien.
+   */
+  attendanceRosterMissing: boolean
   /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
   activeRegisterId: string
   /**
@@ -134,6 +149,8 @@ interface CatalogState {
      * es lo mismo que `[]` y `hydrate` no los colapsa.
      */
     users: PosUser[] | null | undefined
+    /** `null`/ausente = el bootstrap no traía el roster de marcación. */
+    employees?: PosEmployee[] | null
     activeRegisterId: string
     /**
      * Opcionales: un bootstrap cacheado ANTES de F2b (service worker /
@@ -211,6 +228,8 @@ const initialState = {
   paymentMethods: [] as PaymentMethodConfig[],
   users: [] as PosUser[],
   rosterMissing: false,
+  employees: [] as PosEmployee[],
+  attendanceRosterMissing: false,
   activeRegisterId: "",
   taxes: [] as PosTaxRate[],
   outletTaxIncluded: true,
@@ -250,6 +269,8 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       // verdad sobre por qué no tiene PINs contra los que validar.
       users: data.users ?? [],
       rosterMissing: data.users == null,
+      employees: data.employees ?? [],
+      attendanceRosterMissing: data.employees == null,
       activeRegisterId: data.activeRegisterId,
       // Bootstrap cacheado viejo sin estos campos (ver JSDoc de `hydrate`) →
       // degradación: [] hace que toda línea sin tasa conocida caiga a

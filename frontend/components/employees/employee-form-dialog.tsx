@@ -20,6 +20,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -40,6 +41,7 @@ import { DatePicker } from "@/components/date-picker"
 import { FormSection } from "@/components/forms/form-section"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { EmployeeAttachments } from "@/components/employees/employee-attachments"
+import { EmployeeScheduleField } from "@/components/employees/employee-schedule-field"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useOutlets } from "@/hooks/use-outlets"
@@ -49,6 +51,7 @@ import {
   useUpdateEmployee,
   type Employee,
   type EmployeeFormValues,
+  type EmployeeSchedule,
   type FixedPeriod,
 } from "@/hooks/use-employees"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
@@ -70,6 +73,16 @@ const PERIOD_LABEL: Record<FixedPeriod, string> = {
   weekly: "Por semana",
 }
 
+/**
+ * El horario es un objeto que arma `<EmployeeScheduleField>`, no campos del
+ * form. `z.custom` y no un `z.object` detallado a propósito: la forma ya la
+ * garantiza el componente que lo produce, el backend la NORMALIZA igual al
+ * guardar (descarta días sin hora de entrada, recorta la tolerancia), y
+ * duplicar acá esa validación sería dos definiciones de lo mismo que se
+ * separan con el primer cambio.
+ */
+const scheduleSchema = z.custom<EmployeeSchedule | null>(() => true)
+
 const schema = z
   .object({
     fullName: z.string().min(1, "El nombre es requerido"),
@@ -87,6 +100,13 @@ const schema = z
     hourlyRate: z.number().nullable(),
     commissions: z.boolean(),
     notes: z.string(),
+    // PIN de marcación en claro. Vacío = no se toca (ver `onSubmit`).
+    markPin: z.string().refine((v) => v === "" || /^\d{4}$/.test(v), {
+      message: "Tiene que ser de 4 dígitos",
+    }),
+    /** El usuario pidió BORRAR el PIN. Distinto de dejar el campo vacío. */
+    markPinCleared: z.boolean(),
+    schedule: scheduleSchema,
   })
   // El monto fijo y su periodicidad son un solo dato. Se valida acá y no solo
   // en el backend para que el error salga en el campo, no en un toast.
@@ -113,6 +133,9 @@ const EMPTY: FormValues = {
   hourlyRate: null,
   commissions: false,
   notes: "",
+  markPin: "",
+  markPinCleared: false,
+  schedule: null,
 }
 
 export function EmployeeFormDialog({
@@ -167,6 +190,12 @@ export function EmployeeFormDialog({
             hourlyRate: employee.hourlyRate,
             commissions: employee.commissions,
             notes: employee.notes ?? "",
+            // Vacío SIEMPRE al abrir, tenga PIN o no: el campo es "poné uno
+            // nuevo", no "acá está el que tiene". El que tiene no se muestra —
+            // ni el backend lo manda.
+            markPin: "",
+            markPinCleared: false,
+            schedule: employee.schedule,
           }
         : EMPTY,
     )
@@ -196,6 +225,15 @@ export function EmployeeFormDialog({
       hourlyRate: values.hourlyRate,
       commissions: values.commissions,
       notes: values.notes || null,
+      schedule: values.schedule,
+      // Los tres estados del PIN, y el orden importa. Pedir borrarlo gana sobre
+      // haber tipeado uno; dejar el campo vacío NO manda la clave, así que
+      // corregir un teléfono no le saca el PIN a nadie.
+      ...(values.markPinCleared
+        ? { markPin: null }
+        : values.markPin !== ""
+          ? { markPin: values.markPin }
+          : {}),
     }
 
     try {
@@ -473,6 +511,83 @@ export function EmployeeFormDialog({
                         <FormControl>
                           <Switch checked={field.value} onCheckedChange={field.onChange} />
                         </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </FormSection>
+
+              {/* Marcación de asistencia (context/83 F1). Va DESPUÉS de la
+                  remuneración y antes de las notas porque el horario es lo que
+                  hace medible la tardanza, y el sueldo por hora se liquida
+                  contra las horas que sale de acá. */}
+              <FormSection title="Marcación de asistencia">
+                <div className="flex flex-col gap-6">
+                  <FormField
+                    control={form.control}
+                    name="markPin"
+                    render={({ field }) => (
+                      <FormItem className="max-w-xs">
+                        <FormLabel>
+                          {employee?.hasMarkPin ? "Cambiar el código" : "Código de marcación"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            inputMode="numeric"
+                            maxLength={4}
+                            placeholder={employee?.hasMarkPin ? "••••" : "4 dígitos"}
+                            {...field}
+                            onChange={(e) => {
+                              // Tipear cancela el borrado: son dos intenciones
+                              // opuestas y la última gana.
+                              form.setValue("markPinCleared", false)
+                              field.onChange(e.target.value.replace(/\D/g, "").slice(0, 4))
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {employee?.hasMarkPin
+                            ? form.watch("markPinCleared")
+                              ? "Se va a quitar al guardar: esta persona no va a poder marcar."
+                              : "Dejalo vacío para no cambiarlo."
+                            : "Con este código la persona marca su entrada y salida en la caja."}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {employee?.hasMarkPin && !form.watch("markPinCleared") && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-fit -mt-3 text-muted-foreground"
+                      onClick={() => {
+                        form.setValue("markPinCleared", true)
+                        form.setValue("markPin", "")
+                      }}
+                    >
+                      Quitar el código
+                    </Button>
+                  )}
+
+                  <FormField
+                    control={form.control}
+                    name="schedule"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Horario</FormLabel>
+                        <FormDescription>
+                          Sin horario cargado, el reporte muestra las horas trabajadas pero no
+                          las llegadas tarde.
+                        </FormDescription>
+                        <FormControl>
+                          <EmployeeScheduleField
+                            value={field.value}
+                            onChange={field.onChange}
+                          />
+                        </FormControl>
+                        <FormMessage />
                       </FormItem>
                     )}
                   />

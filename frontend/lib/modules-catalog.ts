@@ -27,7 +27,6 @@
 import type { ComponentType } from "react"
 import {
   Globe,
-  Clock,
   Heart,
   MessageCircle,
   CalendarDays,
@@ -173,28 +172,19 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     status: "soon",
   },
   {
-    key: "attendance",
-    kind: "module",
-    title: "Control de Asistencia",
-    description: "Llevá el control de las horas trabajadas de tu staff.",
-    icon: Clock,
-    category: "Operativos",
-    configKind: "none",
-    status: "available",
-  },
-  {
-    // RRHH (context/83, D9). La F0 entrega el LEGAJO; la asistencia, las
-    // ausencias y la liquidación llegan en las fases siguientes y viven
-    // dentro de este mismo módulo.
+    // RRHH (context/83, D9). La F0 entregó el LEGAJO y la F1 la ASISTENCIA
+    // (quiosco de marcación + reporte de horas y tardanzas); las ausencias y
+    // la liquidación llegan después, dentro de este mismo módulo.
     //
-    // `attendance` sigue acá arriba y NO se toca: muere recién en la F1,
-    // cuando el quiosco de marcación exista y la asistencia pase a vivir
-    // adentro de RRHH. Apagarlo antes dejaría sin nada al comercio que hoy
-    // lo tiene prendido.
+    // `attendance` —el módulo suelto de Control de Asistencia— salió del
+    // catálogo acá: nunca tuvo UI ni generador de QR en el stack nuevo, y su
+    // reemplazo vive adentro de RRHH desde la F1. Se apagó recién ahora, con
+    // el reemplazo construido, que era la condición.
     key: "rrhh",
     kind: "module",
     title: "RRHH",
-    description: "Legajo de tu personal: datos, puesto, remuneración y archivos.",
+    description:
+      "Legajo de tu personal y marcación de asistencia: horas trabajadas y llegadas tarde.",
     icon: IdCard,
     category: "Operativos",
     configKind: "none",

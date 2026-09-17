@@ -368,6 +368,39 @@ final class EmployeeService
             $rec['commissions'] = self::boolOf($data['commissions']);
         }
 
+        // ── PIN de marcación (F1) ──
+        //
+        // Entra en CLARO (4 dígitos, lo tipea el dueño en el legajo) y se guarda
+        // HASHEADO — nunca se persiste el PIN plano. Cadena vacía o null lo
+        // BORRA, que es como se le saca a alguien la posibilidad de marcar sin
+        // tocar el resto del legajo.
+        //
+        // SHA-256 sin sal, exactamente como `contact.pinhash`: el quiosco valida
+        // sin red contra el hash que bajó en el bootstrap, y eso exige que el
+        // hash sea determinístico. El porqué completo está en la mig 230.
+        //
+        // A diferencia de `contact.lockPass`, acá NO se guarda una copia en
+        // claro para mostrarla en pantalla. El legajo dice si la persona TIENE
+        // PIN, no cuál es: un PIN olvidado se reemplaza en dos toques, y
+        // guardar el código de marcación de todo el personal en una columna
+        // legible no compra nada a cambio.
+        if (array_key_exists('markPin', $data)) {
+            $pin = self::textOrNull($data['markPin']);
+            if ($pin === null) {
+                $rec['markpinhash'] = null;
+            } else {
+                if (!preg_match('/^\d{4}$/', $pin)) {
+                    throw new \RuntimeException('El PIN de marcación tiene que ser de 4 dígitos');
+                }
+                $rec['markpinhash'] = hash('sha256', $pin);
+            }
+        }
+
+        // ── Horario declarado (F1) ──
+        if (array_key_exists('schedule', $data)) {
+            $rec['schedule'] = self::scheduleOrNull($data['schedule']);
+        }
+
         // ── Consentimiento biométrico (se usa en F2) ──
         //
         // Se registra como un HECHO con fecha y autor: "consintió". Retirarlo
@@ -442,6 +475,11 @@ final class EmployeeService
             [
                 'uidx_employee_user'     => 'Ese usuario ya está vinculado a otro empleado',
                 'uidx_employee_document' => 'Ya hay un empleado cargado con ese documento',
+                // Sin esta traducción, elegir un PIN de marcación que ya usa
+                // otra persona salía como un error de base de datos crudo. Es
+                // el choque MÁS probable de los tres: son 4 dígitos y el dueño
+                // los elige a mano para todo el equipo.
+                'uidx_employee_markpin'  => 'Ese PIN de marcación ya lo usa otro empleado',
             ],
             'Ya existe un empleado con esos datos',
         );
@@ -477,6 +515,13 @@ final class EmployeeService
             'hourlyRate'         => self::floatOrNull($f['hourlyrate'] ?? null),
             'commissions'        => self::boolOf($f['commissions'] ?? false),
             'notes'              => self::strOrNull($f['notes'] ?? null),
+            // Si esta persona puede MARCAR, no con qué. El hash tampoco sale:
+            // es SHA-256 sin sal de 4 dígitos, o sea el PIN mismo para quien
+            // tenga cinco minutos. Al quiosco baja por otro camino y con otro
+            // gate (realm `pos-app` + device que es una caja, ver el roster del
+            // bootstrap); acá, en el legajo del panel, no hace falta.
+            'hasMarkPin'         => self::strOrNull($f['markpinhash'] ?? null) !== null,
+            'schedule'           => self::decodeSchedule($f['schedule'] ?? null),
             'biometricConsentAt' => self::strOrNull($f['biometricconsentat'] ?? null),
             'status'             => (int) ($f['status'] ?? 1),
             // Derivado y no columna: "activo" es no tener egreso. Guardarlo
@@ -488,6 +533,92 @@ final class EmployeeService
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
+
+    /** Días válidos del horario declarado, en el orden de `EXTRACT(ISODOW)`. */
+    private const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+
+    /**
+     * Horario declarado → JSON para la columna, o `null`.
+     *
+     * Se NORMALIZA en vez de guardarse tal cual: es un JSONB, o sea que la base
+     * acepta cualquier cosa que sea JSON válido. Sin normalizar, un día con la
+     * clave mal escrita o una hora en un formato raro entra sin ruido y
+     * reaparece meses después como una tardanza que nadie sabe explicar.
+     *
+     * Forma de salida — la única que el reporte sabe leer:
+     *   { "days": { "mon": {"in":"08:00","out":"17:00"}, ... },
+     *     "toleranceMinutes": 10 }
+     *
+     * Un día sin entrada válida se DESCARTA (no es laborable). Sin ningún día
+     * válido, el horario entero es `null`: un horario vacío y la ausencia de
+     * horario significan lo mismo —no hay contra qué medir— y tener dos formas
+     * de decirlo obligaría a chequear las dos en cada lectura.
+     */
+    private static function scheduleOrNull(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        $raw = is_string($value) ? json_decode($value, true) : $value;
+        if (!is_array($raw)) {
+            throw new \RuntimeException('El horario no es válido');
+        }
+
+        $days = is_array($raw['days'] ?? null) ? $raw['days'] : [];
+        $out  = [];
+        foreach (self::WEEKDAYS as $day) {
+            $entry = $days[$day] ?? null;
+            if (!is_array($entry)) {
+                continue;
+            }
+            $in    = self::timeOrNull($entry['in']  ?? null);
+            $leave = self::timeOrNull($entry['out'] ?? null);
+            if ($in === null) {
+                // Sin hora de entrada no hay tardanza que medir ni turno que
+                // declarar: ese día no es laborable, diga lo que diga el resto.
+                continue;
+            }
+            $out[$day] = ['in' => $in, 'out' => $leave];
+        }
+
+        if ($out === []) {
+            return null;
+        }
+
+        // Tolerancia: los minutos de gracia antes de contar una llegada como
+        // tarde. Vive en el horario y no en un ajuste del comercio porque es
+        // parte del acuerdo con esa persona. Techo de 4 horas: más que eso no
+        // es tolerancia, es otro horario.
+        $tolerance = (int) ($raw['toleranceMinutes'] ?? 0);
+        $tolerance = max(0, min(240, $tolerance));
+
+        return json_encode(['days' => $out, 'toleranceMinutes' => $tolerance]);
+    }
+
+    /** Columna JSONB → array para la API. */
+    private static function decodeSchedule(mixed $raw): ?array
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $decoded = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
+        return (is_array($decoded) && !empty($decoded['days'])) ? $decoded : null;
+    }
+
+    /** 'H:MM' / 'HH:MM' → 'HH:MM'. `null` si no es una hora del día. */
+    private static function timeOrNull(mixed $v): ?string
+    {
+        $s = trim((string) ($v ?? ''));
+        if ($s === '' || !preg_match('/^(\d{1,2}):(\d{2})$/', $s, $m)) {
+            return null;
+        }
+        $h = (int) $m[1];
+        $i = (int) $m[2];
+        if ($h > 23 || $i > 59) {
+            return null;
+        }
+        return sprintf('%02d:%02d', $h, $i);
+    }
 
     private static function strOrNull(mixed $v): ?string
     {

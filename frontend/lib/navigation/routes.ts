@@ -55,6 +55,7 @@ import {
   Tag,
   TrendingUp,
   Truck,
+  UserCheck,
   UserCog,
   Users,
   Wallet,
@@ -391,6 +392,37 @@ export const PANEL_ROUTES: RouteEntry[] = [
       "salario",
       "employees",
       "hr",
+    ],
+  },
+
+  {
+    // Asistencia (context/83 F1). Va bajo Contactos, al lado de Empleados, y
+    // no bajo Reportes: la pregunta que responde —quién vino, quién llegó
+    // tarde— es del día a día del personal, y quien la hace todos los días
+    // entra por acá, no por el hub de reportes.
+    //
+    // Doblemente gateado, igual que Empleados: módulo prendido Y permiso, que a
+    // propósito no está en ningún rol por default.
+    to: "/reports/attendance",
+    title: "Asistencia",
+    icon: UserCheck,
+    surface: "sidebar",
+    sidebarGroup: "contactos",
+    requires: "hr.attendance.view",
+    requiresModule: "rrhh",
+    keywords: [
+      "asistencia",
+      "marcacion",
+      "marcación",
+      "marcaciones",
+      "horas",
+      "horas trabajadas",
+      "tardanzas",
+      "llegadas tarde",
+      "reloj",
+      "fichaje",
+      "presentismo",
+      "attendance",
     ],
   },
 
@@ -1087,6 +1119,30 @@ export const POS_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Operaciones",
     requiresModule: "stockCount",
+  },
+  {
+    // Quiosco de marcación (context/83 F1). Igual que el conteo: no va en el
+    // sidebar de la caja, se entra desde el Menú del POS. No lleva `requires`
+    // porque no hay permiso de OPERADOR que evaluar — el quiosco atiende a
+    // gente que no tiene usuario del sistema, y quién marca lo dice su PIN de
+    // marcación propio (ver el docblock de la pantalla).
+    to: "/pos/marcacion",
+    title: "Marcación",
+    paletteTitle: "Menú del POS · Marcación de asistencia",
+    icon: UserCheck,
+    surface: "palette",
+    paletteGroup: "Operaciones",
+    requiresModule: "rrhh",
+    keywords: [
+      "marcacion",
+      "marcación",
+      "asistencia",
+      "fichar",
+      "fichaje",
+      "entrada",
+      "salida",
+      "reloj",
+    ],
   },
   {
     to: "/pos/guardadas",

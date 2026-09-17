@@ -38,6 +38,7 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { sha256Hex } from "@/lib/pos/pin-hash"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
@@ -133,11 +134,11 @@ export function LockScreen() {
   React.useEffect(() => {
     if (pin.length !== PIN_LENGTH) return
     const id = setTimeout(async () => {
-      // SHA-256 via Web Crypto API — sync feel, sub-ms compute
-      const enc = new TextEncoder().encode(pin)
-      const buf = await crypto.subtle.digest("SHA-256", enc)
-      const hashArr = Array.from(new Uint8Array(buf))
-      const pinHash = hashArr.map(b => b.toString(16).padStart(2, "0")).join("")
+      // El cálculo vive en `lib/pos/pin-hash.ts` desde que el quiosco de
+      // marcación (context/83 F1) necesitó el MISMO hash: dos copias del
+      // snippet de Web Crypto eran dos lugares donde cambiar el esquema y
+      // olvidarse de uno.
+      const pinHash = await sha256Hex(pin)
 
       let matched: { id: string; name: string } | null = null
       for (const u of users) {
