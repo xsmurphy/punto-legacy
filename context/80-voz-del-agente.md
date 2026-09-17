@@ -1,13 +1,11 @@
 # 80 — Voz del agente (TTS por OpenRouter)
 
 > Estado: **implementado** (2026-09-17, commit `71ceb677`, mig 226). D1-D6
-> CERRADAS. La D2 cambió en vuelo: el default NO es Kokoro — el owner frenó
-> ("creo que kokoro no tiene español", verificado: 3 voces es-* con G2P
-> débil) y el default es **Gemini Flash TTS**
-> (`google/gemini-3.1-flash-tts-preview`). OJO con el slug `-preview`: si
-> Google lo gradúa y OpenRouter lo renombra, se actualiza por `/admin` o con
-> una mig nueva de UPDATE (patrón mig 98) — NUNCA editando la seed 226, que
-> ya corrió en prod.
+> CERRADAS. La D2 giró DOS veces el mismo día — leerla abajo: el default
+> terminó siendo **Kokoro con voz `ef_dora`** (mig 227), porque Gemini
+> resultó inusable por latencia, no por calidad. Los modelos se cambian por
+> `/admin` o con una mig nueva de UPDATE (patrón mig 98/227) — NUNCA
+> editando la seed 226, que ya corrió en prod.
 
 ## 1. El pedido (owner)
 
@@ -50,15 +48,23 @@ Un BFF nuevo `app/api/agent/tts/route.ts` (realm panel):
 ## 4. Decisiones
 
 - **D1 — CERRADA (owner)**: se cobra del crédito IA del tenant.
-- **D2 — Modelo default: Gemini Flash TTS** (corregida en vuelo por el
-  owner). La propuesta original era Kokoro 82M por precio, pero su español
-  es flojo (3 voces es-*, G2P débil fuera del inglés) y el motivo de la
-  feature es justamente que la voz actual es mala. Default seedeado en la
-  mig 226 (`google/gemini-3.1-flash-tts-preview`, capability `tts` en
-  `ai_model_config`, `ON CONFLICT DO NOTHING` — lo que `/admin` ya
-  configuró gana). Kokoro queda como alternativa barata seleccionable.
-  Sin la fila de capability, `debit.php` corta 422 y —como el débito es
-  best-effort— la voz saldría GRATIS en silencio: la seed no es opcional.
+- **D2 — Modelo default: Kokoro 82M, voz `ef_dora`** (mig 227 — tercera
+  vuelta de esta decisión, las tres el 2026-09-17). Historia completa
+  porque explica el criterio: (1) Kokoro se propuso por precio y se
+  descartó por español flojo; (2) Gemini Flash TTS entró por calidad… y
+  duró UN día en producción: su latencia es errática y escala con el largo
+  (medido contra el endpoint real: 200 chars ≈ 6s, 300 llegó a 45s, 1100 ≈
+  144s, TTFB al final de la generación) — ni streaming ni el troceo del
+  cliente la salvan; (3) el owner decidió Kokoro: genera lo mismo en 1-2s,
+  y una voz que llega tarde no es una voz. **La latencia es requisito de
+  admisión de cualquier modelo TTS futuro, antes que la calidad.** Gemini
+  queda seleccionable desde `/admin` si algún día se arregla. Regla
+  aprendida el mismo día: en OpenRouter TODOS los proveedores TTS exigen
+  `voice` explícita, y cada familia tiene su contrato (Gemini solo emite
+  PCM → el BFF lo envuelve en WAV; Kokoro/Aura-2 dan mp3) — el mapa vive
+  en `ttsRequestParams` del route. Sin la fila de capability, `debit.php`
+  corta 422 y —como el débito es best-effort— la voz saldría GRATIS en
+  silencio: la seed 226 no es opcional.
 - **D3 — Unidad de cobro.** El TTS cobra por CARACTERES de entrada, no por
   tokens de salida. `debitAiUsage` recibe tokens; se mapea caracteres→"tokens
   equivalentes" (chars/4, el estándar) para no bifurcar el ledger. El

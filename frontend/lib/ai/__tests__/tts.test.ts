@@ -187,21 +187,25 @@ describe("POST /api/agent/tts", () => {
     expect(sent.input).toBe("Las ventas de hoy fueron 500.")
   })
 
-  it("usa el modelo del catálogo de /admin cuando está configurado — y mp3 sin voz fuera de Gemini", async () => {
+  it("usa el modelo del catálogo de /admin cuando está configurado — Kokoro va en mp3 con su voz en español", async () => {
     ttsConfig = { model: "hexgrad/kokoro-82m", creditsperktoken: 1 }
     const res = await postTts({ text: "hola" })
     expect(res.headers.get("Content-Type")).toBe("audio/mpeg")
-    const sent = speechCalls()[0].body as Record<string, unknown>
-    expect(sent).toMatchObject({ model: "hexgrad/kokoro-82m", response_format: "mp3" })
-    expect(sent.voice).toBeUndefined()
+    // TODOS los proveedores exigen voz explícita en OpenRouter (verificado
+    // 2026-09-17) — un request sin `voice` es un 400 garantizado.
+    expect(speechCalls()[0].body).toMatchObject({
+      model: "hexgrad/kokoro-82m",
+      response_format: "mp3",
+      voice: "ef_dora",
+    })
     expect(debitCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m" })
   })
 
-  it("sin capability configurada cae al default y sigue funcionando", async () => {
+  it("sin capability configurada cae al default (Kokoro, mig 227) y sigue funcionando", async () => {
     ttsConfig = null
     const res = await postTts({ text: "hola" })
     expect(res.status).toBe(200)
-    expect(speechCalls()[0].body).toMatchObject({ model: "google/gemini-3.1-flash-tts-preview" })
+    expect(speechCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m", voice: "ef_dora" })
   })
 
   it("un fallo del proveedor devuelve 502 y no debita", async () => {

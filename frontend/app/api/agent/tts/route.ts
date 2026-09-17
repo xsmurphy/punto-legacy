@@ -36,19 +36,17 @@ const TTS_CAPABILITY = "tts"
  * Modelo por defecto si `/v1/ai/config` no responde o no tiene la capability
  * `tts` configurada.
  *
- * D2 del plan, REVISADA por el owner el 2026-09-17: la propuesta original era
- * Kokoro 82M por precio, y se cayó por calidad — su español es flojo (pocas
- * voces, G2P débil fuera del inglés) y el motivo entero de la feature es que
- * la voz actual suena mal. Cambiar una voz mala por otra mala no arregla nada.
- * El default pasa a Gemini Flash TTS, que cubre 70+ idiomas. Kokoro sigue
- * siendo la alternativa BARATA si el costo llega a molestar: se cambia desde
- * /admin (es un select, no un deploy), no tocando este archivo.
- *
- * El slug lleva `-preview` porque así lo publica OpenRouter hoy; cuando salga
- * de preview el id cambia y este default deja de resolver. Es otra razón para
- * que la fuente real sea el catálogo de /admin y esto solo el paracaídas.
+ * D2 del plan, revisada DOS veces el 2026-09-17: Kokoro se descartó primero
+ * por calidad de español, Gemini lo reemplazó… y duró un día. Su latencia lo
+ * hace inusable: la generación escala con el largo de forma errática (medido:
+ * 200 chars ≈ 6s, 300 llegó a 45s, 1100 ≈ 144s) y el primer byte llega al
+ * FINAL, así que ni streaming ni troceo la salvan. Kokoro genera lo mismo en
+ * 1-2 segundos — la voz es más plana, pero una voz que llega tarde no es una
+ * voz. Vuelve como default (mig 227, decisión del owner) y Gemini queda como
+ * alternativa de calidad si su latencia algún día se arregla. La fuente real
+ * es el catálogo de /admin; esto es solo el paracaídas, alineado a la seed.
  */
-const DEFAULT_TTS_MODEL = "google/gemini-3.1-flash-tts-preview"
+const DEFAULT_TTS_MODEL = "hexgrad/kokoro-82m"
 
 /**
  * Params de la request por FAMILIA de modelo. OpenRouter no los normaliza:
@@ -56,19 +54,22 @@ const DEFAULT_TTS_MODEL = "google/gemini-3.1-flash-tts-preview"
  * ENTERA — y como el cliente cae a la voz del navegador ante cualquier falla,
  * el síntoma es "la voz nueva nunca se escucha" sin error visible.
  *
- * Gemini (verificado contra el endpoint real 2026-09-17):
- * - EXIGE `voice` explícita ("An explicit voice is required for this TTS
- *   provider"). `Kore` es una de sus voces prebuilt, multilingüe.
- * - SOLO emite `pcm` (pedir mp3 devuelve 400) — el PCM se envuelve en WAV
- *   acá abajo antes de responder.
- * Resto (Kokoro et al.): mp3 sin voz — el modelo usa su default.
+ * Verificado contra el endpoint real 2026-09-17:
+ * - TODOS los proveedores exigen `voice` explícita ("An explicit voice is
+ *   required for this TTS provider") — no existe el "usa tu default".
+ * - Kokoro: español con `ef_dora` (f) / `em_alex` / `em_santa` (m), mp3 ok.
+ * - Gemini: `Kore` multilingüe, y SOLO emite `pcm` (mp3 devuelve 400) — el
+ *   PCM se envuelve en WAV acá abajo antes de responder.
+ * - Aura-2 (Deepgram): `aura-2-celeste-es` / `aura-2-estrella-es`, mp3 ok.
  *
- * Si /admin configura un modelo de otra familia con contrato propio, el lugar
- * de su tratamiento es esta función, no un if en el handler.
+ * Un modelo de familia desconocida configurado en /admin va a fallar acá por
+ * la voz faltante: el lugar de su alta es esta función, no un if en el
+ * handler.
  */
 function ttsRequestParams(modelId: string): { voice?: string; format: "mp3" | "pcm" } {
   if (modelId.startsWith("google/")) return { voice: "Kore", format: "pcm" }
-  return { format: "mp3" }
+  if (modelId.startsWith("deepgram/")) return { voice: "aura-2-celeste-es", format: "mp3" }
+  return { voice: "ef_dora", format: "mp3" }
 }
 
 export async function POST(req: Request) {
