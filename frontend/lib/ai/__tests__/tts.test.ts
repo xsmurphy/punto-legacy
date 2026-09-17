@@ -196,7 +196,7 @@ describe("POST /api/agent/tts", () => {
     expect(speechCalls()[0].body).toMatchObject({
       model: "hexgrad/kokoro-82m",
       response_format: "mp3",
-      voice: "ef_dora",
+      voice: "em_alex",
     })
     expect(debitCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m" })
   })
@@ -205,7 +205,7 @@ describe("POST /api/agent/tts", () => {
     ttsConfig = null
     const res = await postTts({ text: "hola" })
     expect(res.status).toBe(200)
-    expect(speechCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m", voice: "ef_dora" })
+    expect(speechCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m", voice: "em_alex" })
   })
 
   it("un fallo del proveedor devuelve 502 y no debita", async () => {

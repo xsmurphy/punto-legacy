@@ -323,12 +323,23 @@ export function orderScheduledDay(order: Order): string | null {
 }
 
 /**
- * Etiqueta de la fecha de entrega para el chip del listado ("19 sep 2026"), o
- * null cuando la orden es para ahora — en ese caso NO se pinta nada: un
- * "Inmediata" en cada fila sería ruido en el 99% de las órdenes.
+ * Etiqueta de la fecha de entrega para el chip del listado ("19 sep 2026" /
+ * "19 sep 2026 12:00"), o null cuando la orden es para ahora — en ese caso NO
+ * se pinta nada: un "Inmediata" en cada fila sería ruido en el 99% de las
+ * órdenes.
+ *
+ * La hora aparece solo si el pedido la tiene (owner 2026-09-17: los pedidos
+ * se agrupan por FRANJA — mediodía no es cena). `00:00` es lo que el backend
+ * escribe cuando la orden se tomó sin franja, así que no se muestra.
  */
 export function orderScheduledLabel(order: Order): string | null {
-  return order.scheduledFor ? formatDate(order.scheduledFor) : null
+  if (!order.scheduledFor) return null
+  const day = formatDate(order.scheduledFor)
+  const d = parseNaive(order.scheduledFor)
+  if (!d || (d.getHours() === 0 && d.getMinutes() === 0)) return day
+  const hh = String(d.getHours()).padStart(2, "0")
+  const mi = String(d.getMinutes()).padStart(2, "0")
+  return `${day} ${hh}:${mi}`
 }
 
 /**

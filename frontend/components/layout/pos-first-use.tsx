@@ -19,7 +19,7 @@
  */
 
 import * as React from "react"
-import { Loader2, Store } from "lucide-react"
+import { ChevronLeft, Loader2, Store } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -61,6 +61,14 @@ type Phase =
 
 export function PosFirstUse() {
   const [phase, setPhase] = React.useState<Phase>({ kind: "checking" })
+  /**
+   * Paso "elegí la sucursal" (owner 2026-09-17): con 20 sucursales de 3 cajas
+   * la lista plana son 60 opciones. Con MÁS de una sucursal se elige primero
+   * la sucursal y después la caja; con una sola, directo a las cajas — dos
+   * pasos para el caso chico sería puro trámite. `null` = paso sucursal (o
+   * único paso, si hay una sola).
+   */
+  const [outletChoice, setOutletChoice] = React.useState<string | null>(null)
   // StrictMode monta los efectos dos veces en dev: sin esto, el caso de una
   // sola caja crearía dos invitaciones.
   const started = React.useRef(false)
@@ -118,29 +126,91 @@ export function PosFirstUse() {
           <PuntoLogo variant="mark" className="size-12" />
 
           {phase.kind === "choose" ? (
-            <>
-              <div className="space-y-2">
-                <h1 className="text-2xl font-semibold">Elegí la caja</h1>
-              </div>
-              <div className="flex w-full flex-col gap-2">
-                {phase.registers.map((r) => (
-                  <Button
-                    key={r.registerId}
-                    variant="outline"
-                    size="lg"
-                    // Alto para dos líneas (caja + sucursal) y dedo en tablet.
-                    className="h-auto w-full justify-start gap-3 py-3 text-left"
-                    onClick={() => void pair(r.registerId)}
-                  >
-                    <Store className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="flex min-w-0 flex-col">
-                      <span className="truncate font-medium">{r.registerName}</span>
-                      <span className="truncate text-sm text-muted-foreground">{r.outletName}</span>
-                    </span>
-                  </Button>
-                ))}
-              </div>
-            </>
+            (() => {
+              // Sucursales en el orden en que aparecen sus cajas, sin duplicar.
+              const outlets: { id: string; name: string; count: number }[] = []
+              for (const r of phase.registers) {
+                const found = outlets.find((o) => o.id === r.outletId)
+                if (found) found.count++
+                else outlets.push({ id: r.outletId, name: r.outletName, count: 1 })
+              }
+              const showOutletStep = outlets.length > 1 && outletChoice === null
+              const visible =
+                outlets.length > 1
+                  ? phase.registers.filter((r) => r.outletId === outletChoice)
+                  : phase.registers
+
+              return showOutletStep ? (
+                <>
+                  <div className="space-y-2">
+                    <h1 className="text-2xl font-semibold">Elegí la sucursal</h1>
+                  </div>
+                  <div className="flex w-full flex-col gap-2">
+                    {outlets.map((o) => (
+                      <Button
+                        key={o.id}
+                        variant="outline"
+                        size="lg"
+                        className="h-auto w-full justify-start gap-3 py-3 text-left"
+                        onClick={() => setOutletChoice(o.id)}
+                      >
+                        <Store className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium">{o.name}</span>
+                          <span className="truncate text-sm text-muted-foreground">
+                            {o.count === 1 ? "1 caja" : `${o.count} cajas`}
+                          </span>
+                        </span>
+                      </Button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <h1 className="text-2xl font-semibold">Elegí la caja</h1>
+                    {/* Con el paso previo, el subtítulo dice DÓNDE estoy parado
+                        y las tarjetas ya no repiten la sucursal en cada fila. */}
+                    {outlets.length > 1 && (
+                      <p className="text-sm text-muted-foreground">
+                        {outlets.find((o) => o.id === outletChoice)?.name}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex w-full flex-col gap-2">
+                    {visible.map((r) => (
+                      <Button
+                        key={r.registerId}
+                        variant="outline"
+                        size="lg"
+                        // Alto para dos líneas y dedo en tablet.
+                        className="h-auto w-full justify-start gap-3 py-3 text-left"
+                        onClick={() => void pair(r.registerId)}
+                      >
+                        <Store className="size-4 shrink-0 text-muted-foreground" />
+                        <span className="flex min-w-0 flex-col">
+                          <span className="truncate font-medium">{r.registerName}</span>
+                          {outlets.length === 1 && (
+                            <span className="truncate text-sm text-muted-foreground">{r.outletName}</span>
+                          )}
+                        </span>
+                      </Button>
+                    ))}
+                    {outlets.length > 1 && (
+                      <Button
+                        variant="ghost"
+                        size="lg"
+                        className="w-full"
+                        onClick={() => setOutletChoice(null)}
+                      >
+                        <ChevronLeft className="size-4" />
+                        Otra sucursal
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )
+            })()
           ) : (
             <>
               <div className="space-y-2">
