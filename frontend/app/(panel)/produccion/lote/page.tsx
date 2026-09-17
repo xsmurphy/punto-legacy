@@ -1,10 +1,16 @@
 "use client"
 
 /**
- * Lote de producción multi-plato (context/70-viandas.md, etapa B).
+ * Lote de producción multi-producto (context/70-viandas.md, etapa B).
+ *
+ * OJO al escribir copy acá: producción NO es un módulo de gastronomía. Se
+ * fabrican muebles, se arman kits, se envasa cosmética. Todo término de
+ * cocina en pantalla ("plato", "comanda", "menú") es un bug de producto —
+ * regla multi-vertical, context/20 §6. El caso de las viandas es el que
+ * originó la pantalla, no el que la define.
  *
  * Responde la pregunta del negocio en una sola pantalla: cargás
- * {plato, cantidad} × N y ves, EN VIVO mientras editás, cuánto de cada insumo
+ * {producto, cantidad} × N y ves, EN VIVO mientras editás, cuánto de cada insumo
  * hace falta EN TOTAL, cuánto hay en el depósito y cuánto falta.
  *
  * Dos decisiones de UI que vale explicar:
@@ -22,7 +28,7 @@
  * ── Traer de órdenes pendientes ─────────────────────────────────────────────
  *
  * El botón "Traer de órdenes pendientes" es el atajo del negocio: en vez de
- * tipear los platos del turno, se precargan desde la cola del KDS ya sumados
+ * tipear lo que hay que producir, se precarga desde la cola del KDS ya sumado
  * ("no 100 g de pollo en una comanda y 150 en otra: 250 g para toda la cola").
  *
  * Es una FOTO, no un vivo (D2 de context/70). Lo que llega es la cola del
@@ -355,7 +361,7 @@ export default function ProductionBatchPage() {
       }
 
       // Sumar: si el producto ya estaba cargado, se acumula sobre esa línea en
-      // vez de dejar dos filas del mismo plato — el lote agrega por producto,
+      // vez de dejar dos filas del mismo producto — el lote agrega por producto,
       // y dos líneas de milanesa serían el mismo número contado en dos lugares
       // para el operador que lo mira.
       const merged = prev.filter((l) => !isBlank(l)).map((l) => ({ ...l }))
@@ -553,7 +559,7 @@ export default function ProductionBatchPage() {
         <div>
           <h1 className="text-2xl font-semibold">Lote de producción</h1>
           <p className="text-sm text-muted-foreground">
-            Cargá los platos del turno y mirá cuánto de cada insumo hace falta en total.
+            Cargá lo que vas a producir y mirá cuánto de cada insumo hace falta en total.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -641,7 +647,7 @@ export default function ProductionBatchPage() {
 
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Label>Platos del lote</Label>
+                <Label>Productos del lote</Label>
                 <div className="flex items-center gap-2">
                   {/* Qué días se traen (context/79, D2). El label va sr-only:
                       el botón de al lado ya dice qué hace y una leyenda más en
@@ -721,7 +727,7 @@ export default function ProductionBatchPage() {
                 onClick={() => setLines((prev) => [...prev, newLine()])}
               >
                 <Plus className="size-4" />
-                Agregar plato
+                Agregar producto
               </Button>
             </div>
 
@@ -731,7 +737,7 @@ export default function ProductionBatchPage() {
                 id="lote-note"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Opcional: indicaciones para la cocina."
+                placeholder="Opcional: indicaciones para quien produce."
                 rows={2}
               />
             </div>
@@ -801,7 +807,7 @@ export default function ProductionBatchPage() {
                 <EmptyState
                   icon={ClipboardList}
                   title="Todavía no hay nada que calcular"
-                  description="Agregá al menos un plato con su cantidad y la necesidad aparece acá."
+                  description="Agregá al menos un producto con su cantidad y la necesidad aparece acá."
                   showMarquee={false}
                   className="border-0 py-6"
                 />
@@ -826,7 +832,7 @@ export default function ProductionBatchPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Ya hay platos cargados</AlertDialogTitle>
+            <AlertDialogTitle>Ya hay productos cargados</AlertDialogTitle>
             <AlertDialogDescription>
               La cola tiene{" "}
               {pendingDemand?.lines.length === 1
@@ -917,7 +923,7 @@ export default function ProductionBatchPage() {
   )
 }
 
-/** Una línea {plato, cantidad}. Extraída para que el picker no se re-monte. */
+/** Una línea {producto, cantidad}. Extraída para que el picker no se re-monte. */
 function LineRow({
   line,
   items,
@@ -1002,7 +1008,7 @@ function LineRow({
 
       <LineOrigin line={line} />
 
-      <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Quitar plato">
+      <Button variant="ghost" size="icon" onClick={onRemove} aria-label="Quitar producto">
         <Trash2 className="size-4" />
       </Button>
     </div>

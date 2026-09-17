@@ -241,8 +241,8 @@ function ProduccionPageInner() {
         </div>
         {canManage && (
           <div className="flex items-center gap-2">
-            {/* La entrada al lote multi-plato vive acá y no en el sidebar: es
-                la misma tarea, para varios platos a la vez. */}
+            {/* La entrada al lote multi-producto vive acá y no en el sidebar: es
+                la misma tarea, para varios productos a la vez. */}
             <Button variant="outline" asChild>
               <Link href="/produccion/lote">
                 <ClipboardList className="size-4" />
