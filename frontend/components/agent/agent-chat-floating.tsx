@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { AgentChatPanel } from "./agent-chat-panel"
 import { useAgentChatStore } from "@/lib/agent/store"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 interface Props {
   companyName: string
@@ -19,6 +20,7 @@ interface Props {
 export function AgentChatFloating({ companyName, viewOutletId, viewOutletName, showFab = true }: Props) {
   const open = useAgentChatStore((s) => s.open)
   const setOpen = useAgentChatStore((s) => s.setOpen)
+  const isMobile = useIsMobile()
 
   return (
     <>
@@ -44,10 +46,27 @@ export function AgentChatFloating({ companyName, viewOutletId, viewOutletName, s
             adentro del header, en fila con las demás, y recibe `onClose` para
             eso. Es lo que el POS ya hacía desde que se armó su diálogo; acá
             faltaba. */}
+        {/* En DESKTOP el clic afuera NO cierra el chat (reporte del owner,
+            2026-09-17). El caso que lo motiva es el que vuelve útil al
+            asistente: le preguntás cómo editar un artículo, te da los pasos, y
+            al tocar el artículo para seguirlos el chat desaparecía —
+            justamente cuando más lo necesitás a la vista.
+
+            `modal={false}` y `overlay={false}` ya permitían operar el panel
+            con el chat abierto, pero no alcanzaban: Radix descarta la capa al
+            primer pointer-down afuera aunque no sea modal. Hay que prevenir
+            el evento; no hay prop que lo desactive.
+
+            En MOBILE se conserva: ahí el chat ocupa 95vw y el margen visible
+            es la forma natural de cerrarlo (ver la nota de ancho de abajo).
+            Seguir una guía mientras se navega es un flujo de pantalla grande;
+            en el teléfono el chat tapa el contenido igual. La X del header
+            cierra en las dos. */}
         <SheetContent
           side="right"
           overlay={false}
           showCloseButton={false}
+          onInteractOutside={isMobile ? undefined : (e) => e.preventDefault()}
           className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md"
         >
           <SheetTitle className="sr-only">Asistente</SheetTitle>
