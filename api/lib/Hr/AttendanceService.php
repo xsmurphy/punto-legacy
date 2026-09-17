@@ -77,7 +77,23 @@ final class AttendanceService
         'photo_lost',        // la foto viajó pero no se pudo archivar
         'pin_stale',         // el hash del PIN no coincide con el del legajo
         'employee_inactive', // el legajo ya no está vigente
+        // F2: había una cara delante de la cámara, el quiosco la comparó y NO
+        // era la de quien terminó marcando por código. No bloquea nada (D4) y
+        // no acusa a nadie: es el caso que el dueño quiere mirar, y es
+        // exactamente el que el modelo viejo —QR + PIN prestado— no dejaba ver.
+        'face_mismatch',
     ];
+
+    /**
+     * Qué pasó con el reconocimiento facial en esta marcación. Lo informa el
+     * quiosco; el servidor no reconoce a nadie (D5: el modelo corre en el
+     * dispositivo).
+     *
+     *   'none'     → no se intentó (sin cámara, sin modelo, nadie enrolado)
+     *   'matched'  → la cara identificó a esta persona
+     *   'mismatch' → había una cara y no era la de quien marcó
+     */
+    public const FACE_OUTCOMES = ['none', 'matched', 'mismatch'];
 
     /** Días de la semana del horario declarado, en el orden de `date('N')` - 1. */
     private const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -168,7 +184,8 @@ final class AttendanceService
      * @param array{
      *   opId:string, employeeId:string, kind:string, markedAt:string,
      *   markPinHash?:?string, method?:?string, outletId?:?string,
-     *   registerId?:?string, deviceId?:?string, noPhotoReason?:?string
+     *   registerId?:?string, deviceId?:?string, noPhotoReason?:?string,
+     *   faceOutcome?:?string
      * } $input
      * @param array|null $photo fila de `$_FILES` con la foto del momento, o null
      * @return array{mark:array<string,mixed>, duplicate:bool}
@@ -241,6 +258,27 @@ final class AttendanceService
         $offeredHash = strtolower(trim((string) ($input['markPinHash'] ?? '')));
         if ($method === 'pin' && ($storedHash === null || $offeredHash === '' || !hash_equals($storedHash, $offeredHash))) {
             $reasons[] = 'pin_stale';
+        }
+
+        // Reconocimiento facial (F2). Solo agrega un MOTIVO de revisión: no
+        // rechaza, no confirma y no cambia el `method`.
+        //
+        // El caso que importa es `mismatch` con marcación por código: alguien se
+        // paró frente a la cámara, la cara no era la de la persona cuyo código
+        // se tipeó, y la marcación entró igual (D4 — la cara identifica, nunca
+        // bloquea). Eso es justo lo que el dueño necesita poder mirar.
+        //
+        // `matched` con `method='pin'` no se contradice y no se flagea: la
+        // persona puede haber preferido el código aunque la cámara la haya
+        // reconocido. Y un `mismatch` declarado junto a `method='face'` sería un
+        // cliente incoherente —marcó POR la cara que dice que no matcheó—, así
+        // que se ignora el dato en vez de escribir un flag que no describe nada.
+        $faceOutcome = strtolower(trim((string) ($input['faceOutcome'] ?? 'none')));
+        if (!in_array($faceOutcome, self::FACE_OUTCOMES, true)) {
+            $faceOutcome = 'none';
+        }
+        if ($faceOutcome === 'mismatch' && $method !== 'face') {
+            $reasons[] = 'face_mismatch';
         }
 
         $isActive = ((int) ($employee['status'] ?? 1)) === 1 && ($employee['enddate'] ?? null) === null;

@@ -4,8 +4,13 @@
  *
  *   POST   /v1/attendance                       ← realm `pos-app` (el QUIOSCO)
  *          multipart: employeeId, markPinHash, kind=in|out, markedAt,
- *                     noPhotoReason?, photo (archivo)
+ *                     noPhotoReason?, faceOutcome?, photo (archivo)
  *          header:    X-Punto-Op-Id  (idempotencia de la cola del POS)
+ *
+ *   GET    /v1/attendance?resource=faces&modelVersion=<m>  ← realm `pos-app`
+ *          → { modelVersion, faces, enrollment }
+ *   POST   /v1/attendance?action=face-enroll               ← realm `pos-app`
+ *          multipart: employeeId, modelVersion, samples (JSON), photo
  *
  *   GET    /v1/attendance?from=&to=[&employeeId=][&outletId=][&needsReview=1]
  *                                              ← realm `panel`
@@ -82,17 +87,104 @@ $requirePanel = static function () use ($realm): void {
     }
 };
 
-// ── ALTA desde el quiosco ──────────────────────────────────────────────────
-if ($method === 'POST' && $action !== 'review') {
+/**
+ * El device tiene que ser una CAJA, no cualquier aparato pareado.
+ *
+ * Una pantalla de cliente, un KDS o la estación de impresión autentican con el
+ * MISMO realm (`device.module`). Solo una caja es un quiosco — mismo
+ * discriminante que usa `unlock-pin.php` y el roster del bootstrap.
+ *
+ * Se extrajo acá porque ahora lo necesitan tres caminos (marcar, bajar rostros,
+ * registrar un rostro) y tres copias de un gate son tres lugares donde el día
+ * que cambie alguien se olvida de uno.
+ */
+$requireKiosk = static function () use ($ctx, $realm): void {
     if ($realm !== 'pos-app') {
-        apiError('La marcación se registra desde el dispositivo del comercio', 403);
+        apiError('Esta acción se hace desde el dispositivo del comercio', 403);
     }
-    // Una pantalla de cliente, un KDS o la estación de impresión autentican con
-    // ESTE MISMO realm (`device.module`). Solo una caja es un quiosco —  mismo
-    // discriminante que usa `unlock-pin.php` y el roster del bootstrap.
     if ((string) ($ctx['module'] ?? 'pos') !== 'pos') {
         apiError('Este dispositivo no puede registrar marcaciones', 403);
     }
+};
+
+/** El service del rostro comparte el S3 con el de la marcación. */
+$faces = new \Punto\Api\Hr\EmployeeFaceService(
+    new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX)
+);
+
+// ── Rostros que este quiosco puede reconocer ───────────────────────────────
+//
+// Se sirve por un endpoint propio y NO dentro del bootstrap del POS, que es
+// donde baja el roster de PINes de la F1. Tres razones, y ninguna es de estilo:
+//
+//   1. El bootstrap lo pide TODA caja al arrancar. Los vectores solo los
+//      necesita la pantalla de marcación, y sumarlos ahí sería carga muerta en
+//      cada apertura de turno de cada comercio, use o no la marcación.
+//   2. La biometría se manda a quien la va a usar, cuando la va a usar. Bajarla
+//      "por las dudas" a cada dispositivo es exactamente lo que la D5 evita.
+//   3. Cambia con otra frecuencia: un rostro se registra una vez y el roster de
+//      PINes se toca seguido.
+//
+// El alcance sale del CONTEXTO DEL DEVICE (su sucursal), nunca del query string:
+// dejar que el cliente pida "los rostros de la sucursal X" sería dejarle elegir
+// contra quién compara.
+if ($method === 'GET' && $resource === 'faces') {
+    $requireKiosk();
+
+    // La versión del modelo SÍ la declara el cliente, y tiene que ser así: es
+    // SU modelo el que va a comparar. El servidor no la interpreta, la usa para
+    // no mandarle vectores de otra versión — que no fallarían, darían números
+    // sin sentido.
+    $modelVersion = trim((string) ($_GET['modelVersion'] ?? ''));
+    $outletId     = (string) ($ctx['outletId'] ?? '');
+
+    apiOk([
+        'modelVersion' => $modelVersion,
+        'faces'        => $faces->facesForOutlet($companyId, $outletId, $modelVersion),
+        // La ventana de registro abierta desde el panel, si le toca a este
+        // quiosco. Viaja con los rostros y no por un endpoint aparte porque es
+        // la misma pregunta —"¿qué tengo que hacer con la cámara?"— y una sola
+        // respuesta no puede quedar desfasada de sí misma.
+        'enrollment'   => $faces->pendingEnrollment($companyId, $outletId),
+    ]);
+}
+
+// ── Registro del rostro desde el quiosco ───────────────────────────────────
+//
+// Lo AUTORIZA el panel (`employees.php`, acción `face-start`) y lo CAPTURA acá.
+// Este endpoint no elige a quién enrola: recibe un `employeeId` y el service lo
+// contrasta contra la ventana vigente, que dice a quién y en qué sucursal. Un
+// device comprometido no puede darse de alta como nadie.
+//
+// A diferencia de marcar, esto NO es fail-open y no debe serlo: un registro
+// fallido no deja a nadie sin poder fichar —el código sigue estando— y en cambio
+// un vector malo reconoce mal todos los días hasta que alguien lo note.
+if ($method === 'POST' && $action === 'face-enroll') {
+    $requireKiosk();
+
+    $samplesRaw = (string) ($_POST['samples'] ?? '');
+    $samples    = json_decode($samplesRaw, true);
+    if (!is_array($samples)) {
+        apiError('Las capturas no llegaron completas. Volvé a intentar', 422);
+    }
+
+    try {
+        apiOk(['face' => $faces->enroll(
+            $companyId,
+            (string) ($_POST['employeeId']   ?? ''),
+            $samples,
+            (string) ($_POST['modelVersion'] ?? ''),
+            (string) ($ctx['outletId']       ?? ''),
+            !empty($_FILES['photo']['tmp_name']) ? $_FILES['photo'] : null
+        )], 201);
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 422);
+    }
+}
+
+// ── ALTA desde el quiosco ──────────────────────────────────────────────────
+if ($method === 'POST' && $action !== 'review') {
+    $requireKiosk();
 
     $opId = trim((string) ($_SERVER['HTTP_X_PUNTO_OP_ID'] ?? ''));
     if ($opId === '' || strlen($opId) > 64) {
@@ -114,6 +206,10 @@ if ($method === 'POST' && $action !== 'review') {
                 'markedAt'      => (string) ($_POST['markedAt']      ?? ''),
                 'method'        => (string) ($_POST['method']        ?? 'pin'),
                 'noPhotoReason' => (string) ($_POST['noPhotoReason'] ?? ''),
+                // Qué pasó con la cámara desde el punto de vista del
+                // reconocimiento (F2). Solo puede AGREGAR un motivo de revisión;
+                // nunca rechaza la marcación.
+                'faceOutcome'   => (string) ($_POST['faceOutcome']   ?? 'none'),
                 'outletId'      => (string) ($ctx['outletId']   ?? ''),
                 'registerId'    => (string) ($ctx['registerId'] ?? ''),
                 'deviceId'      => (string) ($ctx['deviceId']   ?? ''),

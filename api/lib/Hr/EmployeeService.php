@@ -37,6 +37,24 @@ final class EmployeeService
     /** Filtro de estado laboral del listado. */
     public const STATES = ['active', 'terminated', 'all'];
 
+    /**
+     * El rostro registrado (F2, mig 231), inyectado.
+     *
+     * Se inyecta y no se construye acá porque necesita el cliente S3 para poder
+     * borrar la FOTO de enrolamiento junto con el vector, y el S3 se arma en el
+     * endpoint como en todo el resto del proyecto. Sin él, el egreso borraría la
+     * fila pero dejaría la cara en el bucket — que es media promesa de la D5.
+     *
+     * `null` = este llamador no maneja biometría (un CLI, un test del legajo).
+     * El legajo funciona igual; lo que no hace es limpiar lo que no conoce.
+     */
+    private ?EmployeeFaceService $faces;
+
+    public function __construct(?EmployeeFaceService $faces = null)
+    {
+        $this->faces = $faces;
+    }
+
     // ── Lectura ─────────────────────────────────────────────────────────────
 
     /**
@@ -92,6 +110,35 @@ final class EmployeeService
             }
             $rs->Close();
         }
+        return $this->withFaces($companyId, $rows);
+    }
+
+    /**
+     * Pega el estado del rostro (F2) a un lote de legajos ya leídos.
+     *
+     * Una consulta para todo el listado y no una por fila: el panel muestra
+     * "sin rostro / registrado" en cada renglón, y resolverlo dentro de
+     * `shape()` sería un N+1 que crece con el equipo.
+     *
+     * Ausente del mapa = sin rostro registrado. Esa es la única lectura posible,
+     * y por eso la clave queda en `null` en vez de omitirse: el front distingue
+     * "no tiene" de "esta versión del backend no sabe del tema".
+     *
+     * @param array<int, array<string,mixed>> $rows
+     * @return array<int, array<string,mixed>>
+     */
+    private function withFaces(string $companyId, array $rows): array
+    {
+        if ($rows === [] || $this->faces === null) {
+            return $rows;
+        }
+        $status = $this->faces->statusForMany(
+            $companyId,
+            array_map(static fn($r) => (string) $r['id'], $rows)
+        );
+        foreach ($rows as $i => $row) {
+            $rows[$i]['face'] = $status[(string) $row['id']] ?? null;
+        }
         return $rows;
     }
 
@@ -109,7 +156,10 @@ final class EmployeeService
               LIMIT 1',
             [$id, $companyId]
         );
-        return $row ? $this->shape($row) : null;
+        if (!$row) {
+            return null;
+        }
+        return $this->withFaces($companyId, [$this->shape($row)])[0];
     }
 
     // ── Escritura ───────────────────────────────────────────────────────────
@@ -179,6 +229,16 @@ final class EmployeeService
 
         $this->guardUnique(static fn() => ncmExecute($sql, $params));
 
+        // Retirar el consentimiento BORRA la cara registrada.
+        //
+        // Sin esto el consentimiento sería decorativo: se retira la autorización
+        // y el dato sigue ahí, sirviéndose a los quioscos todos los días. Que
+        // "retiré el permiso" y "el dato se fue" sean la misma operación es lo
+        // que hace que la casilla del legajo signifique algo.
+        if (array_key_exists('biometricconsentat', $records) && $records['biometricconsentat'] === null) {
+            $this->faces?->deleteFor($companyId, $id);
+        }
+
         $row = $this->find($id, $companyId);
         if (!$row) {
             throw new \RuntimeException('No se pudo releer el empleado actualizado');
@@ -221,6 +281,16 @@ final class EmployeeService
             [$date, self::textOrNull($reason), self::uuidOrNull($actorId), $id, $companyId]
         );
 
+        // La biometría se borra CON el egreso (D5). No se difiere a un job ni se
+        // deja para una limpieza posterior: "se borra al irse" tiene que ser
+        // cierto el día que alguien lo pregunta, y una tarea programada es algo
+        // que puede no haber corrido.
+        //
+        // El legajo, en cambio, SOBREVIVE — es historial laboral. Lo que
+        // desaparece es solo la cara: el dato que se guardó para reconocer a
+        // alguien que ya no viene a trabajar.
+        $this->faces?->deleteFor($companyId, $id);
+
         $row = $this->find($id, $companyId);
         if (!$row) {
             throw new \RuntimeException('No se pudo releer el empleado');
@@ -241,6 +311,8 @@ final class EmployeeService
             'UPDATE employee SET status = 0, updatedat = now() WHERE employeeid = ? AND companyid = ?',
             [$id, $companyId]
         );
+        // Una fila archivada es una que no debería existir. Su biometría tampoco.
+        $this->faces?->deleteFor($companyId, $id);
     }
 
     // ── Normalización y validación ──────────────────────────────────────────
