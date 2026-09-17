@@ -55,6 +55,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import { GroupItemsDialog } from "@/components/register/group-items-dialog"
 import { ProductInfoDialog } from "@/components/register/product-info-dialog"
+import { HotkeyTooltip } from "@/components/register/hotkey-tooltip"
 import { useImageFallback } from "@/components/pos/item-image"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
@@ -386,18 +387,20 @@ export function ProductArea() {
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex px-3">
           <div className="pointer-events-auto flex w-full items-center gap-2 rounded-full bg-[#22252A] py-1.5 pl-1.5 pr-3 shadow-lg">
             {/* Botón circular back: vuelve a hotkeys cuando hay drill-in. */}
-            <button
-              type="button"
-              onClick={() => setCategoryId(null)}
-              disabled={categoryId === null}
-              aria-label="Volver a hotkeys"
-              className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors",
-                categoryId !== null ? "hover:bg-white/20" : "opacity-40",
-              )}
-            >
-              <ChevronLeft className="size-5" />
-            </button>
+            <HotkeyTooltip label="Volver a hotkeys">
+              <button
+                type="button"
+                onClick={() => setCategoryId(null)}
+                disabled={categoryId === null}
+                aria-label="Volver a hotkeys"
+                className={cn(
+                  "flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors",
+                  categoryId !== null ? "hover:bg-white/20" : "opacity-40",
+                )}
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+            </HotkeyTooltip>
             {/* Lista scrolleable de categorías — crece para llenar el ancho restante. */}
             <div
               className="flex flex-1 items-center gap-1 overflow-x-auto whitespace-nowrap"
@@ -459,18 +462,20 @@ export function ProductArea() {
  */
 function TileInfoButton({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label={`Ver ficha de ${label}`}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      className="absolute right-0.5 top-0.5 z-10 text-white/75 hover:bg-white/20 hover:text-white"
-    >
-      <Info />
-    </Button>
+    <HotkeyTooltip label={`Ver ficha de ${label}`}>
+      <Button
+        variant="ghost"
+        size="icon"
+        aria-label={`Ver ficha de ${label}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          onClick()
+        }}
+        className="absolute right-0.5 top-0.5 z-10 text-white/75 hover:bg-white/20 hover:text-white"
+      >
+        <Info />
+      </Button>
+    </HotkeyTooltip>
   )
 }
 
@@ -570,15 +575,17 @@ function HotkeyTile({
       {editing && (
         <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/30">
           {/* Botón eliminar (arriba-derecha) */}
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onRemove() }}
-            aria-label="Quitar"
-            className="pointer-events-auto absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
-          >
-            <X className="size-3" />
-          </button>
+          <HotkeyTooltip label="Quitar">
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onRemove() }}
+              aria-label="Quitar"
+              className="pointer-events-auto absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
+            >
+              <X className="size-3" />
+            </button>
+          </HotkeyTooltip>
           {/* Selector de color: pill centrado con fondo oscuro (no pisa el título) */}
           <div
             className="pointer-events-auto absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center"
@@ -764,20 +771,22 @@ function DroppableEmptySlot({ pos, onAdd }: { pos: number; onAdd: () => void }) 
   const { setNodeRef, isOver } = useDroppable({ id: dropId(pos) })
 
   return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      onClick={onAdd}
-      aria-label="Agregar hotkey"
-      className={cn(
-        "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
-        "flex items-center justify-center bg-sidebar transition-colors",
-        "hover:border-muted-foreground/60 hover:bg-muted/40",
-        // Señal de destino: solo cambia color, no dimensiones (regla #10).
-        isOver && "border-solid border-primary bg-muted/60",
-      )}
-    >
-      <Plus className="size-4 text-muted-foreground/50" />
-    </button>
+    <HotkeyTooltip label="Agregar hotkey">
+      <button
+        ref={setNodeRef}
+        type="button"
+        onClick={onAdd}
+        aria-label="Agregar hotkey"
+        className={cn(
+          "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
+          "flex items-center justify-center bg-sidebar transition-colors",
+          "hover:border-muted-foreground/60 hover:bg-muted/40",
+          // Señal de destino: solo cambia color, no dimensiones (regla #10).
+          isOver && "border-solid border-primary bg-muted/60",
+        )}
+      >
+        <Plus className="size-4 text-muted-foreground/50" />
+      </button>
+    </HotkeyTooltip>
   )
 }

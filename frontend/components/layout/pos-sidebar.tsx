@@ -41,6 +41,7 @@ import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { toast } from "sonner"
 import { decideLockAction } from "@/lib/pos/lock-action"
 import { ChooseOwnPinDialog } from "@/components/pos/choose-own-pin-dialog"
+import { HotkeyTooltipLabel } from "@/components/register/hotkey-tooltip"
 
 // DEUDA: este sidebar y `posNav` en panel-auth-guard.tsx son DOS fuentes de
 // verdad para la nav del POS (panel-auth-guard nunca se renderiza en /pos,
@@ -221,7 +222,13 @@ export function PosSidebar() {
                   <SidebarMenuButton
                     asChild
                     isActive={pathname.startsWith("/pos/ordenes")}
-                    tooltip="Órdenes"
+                    // El rail del POS está SIEMPRE colapsado
+                    // (`pos-sidebar-provider.tsx`), así que este tooltip es lo
+                    // único que nombra el ícono en desktop — y el único lugar
+                    // donde el atajo O puede anunciarse sin ocupar pantalla.
+                    tooltip={{
+                      children: <HotkeyTooltipLabel label="Órdenes" hotkey="O" />,
+                    }}
                     className={NAV_ITEM_CLASS}
                   >
                     <Link href="/pos/ordenes" onClick={closeMobile}>
