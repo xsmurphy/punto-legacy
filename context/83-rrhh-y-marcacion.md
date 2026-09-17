@@ -53,12 +53,27 @@ combinan.** El legajo declara, por empleado:
 - **Por hora** — tarifa × horas trabajadas, y las horas salen del marcador de
   entrada/salida (§4). Es la fase F1 alimentando a la F4: sin marcación
   confiable no hay sueldo por hora auditable.
-- **Comisión** — % sobre las ventas atribuidas al empleado, que YA existen
-  (ventas por empleado, Reportes › Equipo). La liquidación las lee del mismo
-  lugar que el reporte — no se calcula una segunda vez.
+- **Comisión** — NO es un % plano por empleado: casos reales de ex clientes
+  del legacy (owner 2026-09-17) — comisión porcentual POR PRODUCTO, monto fijo
+  en moneda POR PRODUCTO, y el mismo producto comisionando distinto según el
+  empleado. Es un TARIFARIO, y el molde ya existe: las listas de precio.
 
 Combinables (base fija + comisión es el caso típico de vendedores). La
 liquidación muestra cada componente por separado en el recibo.
+
+**Tarifario de comisiones (D10 PROPUESTA)** — patrón lista de precios:
+
+- `commission_scheme` con reglas por alcance: default del esquema → categoría
+  → producto; cada regla es `%` o `monto fijo por unidad`. Empleados asignados
+  a un esquema, con reglas PROPIAS que pisan las del esquema (mismo producto,
+  comisión distinta por persona). Resolución: la más específica gana, igual
+  que resuelve precios el POS.
+- **La comisión se CONGELA en la línea de venta** al vender, con la regla
+  vigente del vendedor de la línea — mismo patrón que el IVA y el COGS
+  congelados. La liquidación SUMA lo congelado, no recalcula; una devolución
+  la revierte con el mecanismo que ya revierte el costo (`flipOnReturn`).
+  Contracara asumida: cambiar una regla NO re-liquida ventas pasadas — lo
+  vendido comisionó con la regla de su día.
 
 ## §3 D2 PROPUESTA — el empleado es entidad propia, no un flag en `user`
 
@@ -140,8 +155,14 @@ internet no cambia nada para el empleado.
   liquidar, los adelantos del período se descuentan solos.
 - **Pago de liquidación** = `fin_movement` de egreso con categoría sueldos.
   Nada de un "libro de sueldos" paralelo que después no concilie con caja.
-- **Recibo** en PDF por empleado y período (patrón cotización-PDF,
-  context/56: `@react-pdf/renderer`, bajo demanda).
+- **Documentos impresos (owner 2026-09-17)**: el **recibo de dinero** del
+  adelanto (el empleado firma que recibió) sale por la impresora de la caja
+  como plantilla del sistema de impresión existente — lo que se imprime lo
+  decide la PLANTILLA, regla vigente de context/18, y "Recibo" como doctype ya
+  existe. La **liquidación de salarios** es documento A4 por empleado y
+  período (patrón cotización-PDF, context/56: `@react-pdf/renderer`, bajo
+  demanda), imprimible y descargable, con cada componente por separado (base,
+  horas, comisiones, adelantos, descuentos) y espacio de firma.
 - Las horas trabajadas salen de la marcación; las llegadas tarde y ausencias
   del contraste contra el horario declarado en el legajo. La liquidación LEE
   esos números pero el comercio los puede corregir a mano antes de liquidar —
