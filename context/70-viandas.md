@@ -404,3 +404,6 @@ números de factura hoy.
 - `context/27-delivery-sla-plan.md` — reparto (F5).
 - `context/53-orden-y-stock-reserva.md` — "comprometido" derivado de órdenes
   abiertas; relación con el lote del día si se materializa.
+- `context/81-lote-compartido-costo-por-pedido.md` — el lote de la etapa B
+  generalizado (2026-09-17): persiste los pedidos que atiende y reparte su costo
+  entre ellos; lo comparte con la lavandería.
