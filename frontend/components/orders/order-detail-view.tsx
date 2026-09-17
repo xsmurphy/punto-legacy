@@ -44,7 +44,8 @@ import {
   type Order,
   type OrderItem,
 } from "@/hooks/use-orders"
-import { eventStatusLabel } from "@/lib/orders/order-event-label"
+import { eventTransitionLabel } from "@/lib/orders/order-event-label"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 import {
   ACTOR_KIND_LABEL,
   canCancelOrderItem,
@@ -63,6 +64,7 @@ export function OrderDetailView({
   onAfterAction?: () => void
 }) {
   const config = useCatalogStore((s) => s.config)
+  const statusLabels = useOrderStatusLabels()
   const assignCourier = useAssignCourier()
   const [courierPickerOpen, setCourierPickerOpen] = React.useState(false)
   // Mismas acciones que la card de la vista Cuadros — `useOrderActions` es la
@@ -321,9 +323,7 @@ export function OrderDetailView({
               <div key={idx} className="py-2 text-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span>
-                    {ev.fromStatus
-                      ? `${eventStatusLabel(ev.scope, ev.fromStatus)} → ${eventStatusLabel(ev.scope, ev.toStatus)}`
-                      : eventStatusLabel(ev.scope, ev.toStatus)}
+                    {eventTransitionLabel(ev, statusLabels.labels)}
                   </span>
                   {ev.createdAt && (
                     <span

@@ -6,8 +6,8 @@ import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { usePairedScreen } from "@/hooks/use-paired-screen"
 import { getDeviceToken } from "@/lib/auth/device-token"
-import type { Order, OrderItem, OrderStatus } from "@/hooks/use-orders"
-import { STATUS_LABEL } from "@/lib/orders/order-display"
+import type { Order, OrderItem } from "@/hooks/use-orders"
+import { orderStatusLabel } from "@/lib/orders/order-status-labels"
 import { loadScreenTheme, resolveScreenMode, saveScreenTheme, type ScreenTheme } from "@/lib/screens/theme"
 import { ScreenThemeToggle } from "@/components/screens/screen-theme-toggle"
 import { DisplayColumn } from "./display-column"
@@ -27,7 +27,7 @@ import { DisplayColumn } from "./display-column"
  * ---------------------------------------------------------------
  * Antes esta pantalla solo mostraba órdenes con algún ítem `ready` — quien
  * despacha no veía lo que venía en camino. Ahora muestra las tres etapas
- * (`sent`/`in_progress`/`ready`, labels de `STATUS_LABEL`) para dar
+ * (`sent`/`in_progress`/`ready`, con los nombres de etapa del comercio) para dar
  * visibilidad de todo el flujo, pero SOLO la columna "Listo" es accionable:
  * el backend únicamente permite a module=display la transición a `delivered`
  * (`assertModuleCanSetStatus` en orders-core.php). Las otras dos son
@@ -235,7 +235,7 @@ export default function DisplayPage() {
             <TabsList className="w-fit">
               {COLUMNS.map((c) => (
                 <TabsTrigger key={c.status} value={c.status}>
-                  {STATUS_LABEL[c.status as OrderStatus]}
+                  {orderStatusLabel(c.status, ctx?.orderStatusLabels)}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -256,7 +256,7 @@ export default function DisplayPage() {
           {visibleColumns.map((c) => (
             <DisplayColumn
               key={c.status}
-              label={STATUS_LABEL[c.status as OrderStatus]}
+              label={orderStatusLabel(c.status, ctx?.orderStatusLabels)}
               orders={byStatus.get(c.status) ?? []}
               interactive={c.interactive}
               busyIds={busyIds}

@@ -7,6 +7,8 @@
  * impresión. Una sola fila por tenant.
  */
 
+import type { OrderStatusLabels } from "@/lib/orders/order-status-labels"
+
 export interface SettingsGeneral {
   // Perfil empresa
   /** URL del logo (endpoint de resize con cache-bust `?v=`). null si la
@@ -133,6 +135,13 @@ export interface SettingsGeneral {
    * marcado como dato: ver `lib/agent/business-context.ts`.
    */
   agentBusinessContext: string
+  /**
+   * Nombres de las etapas de las órdenes que el comercio renombró. Solo las
+   * claves renombradas; lo ausente es el nombre de fábrica
+   * (`lib/orders/order-status-labels.ts`). Validado server-side en
+   * `OrderStatusLabels` (api).
+   */
+  orderStatusLabels: OrderStatusLabels
 }
 
 /** Lo que el form de frontend manda al backend. Mismo shape que el GET,

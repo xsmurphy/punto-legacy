@@ -24,6 +24,7 @@ require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/RoleService.php';
 require_once __DIR__ . '/../lib/Users/UsersService.php';
 require_once __DIR__ . '/../lib/Settings/StockCountSettings.php';
+require_once __DIR__ . '/../lib/Orders/OrderStatusLabels.php';
 
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 
@@ -79,6 +80,9 @@ $row = ncmExecute(
         -- config de caja hereda context/51: viaja en el bootstrap, sobrevive
         -- offline y el panel es el único escritor.
         config->>'agentBusinessContext'     AS agentbusinesscontext,
+        -- Nombres de las etapas de las órdenes (Ajustes). Baja a panel y caja
+        -- por acá; la caja lo conserva offline con el resto del snapshot.
+        config->>'orderStatusLabels'        AS orderstatuslabels,
         -- moduleData NO es una columna de company: vive DENTRO del JSONB
         -- config (ruteo de ncmUpdate/Schema::split), igual que los settingX de
         -- arriba. Pedirla como columna daba SQLSTATE 42703 y, desde que el
@@ -353,6 +357,10 @@ $payload = [
         0,
         \Punto\Api\Settings\SettingsService::MAX_AGENT_BUSINESS_CONTEXT
     ),
+    // Nombres de las etapas de las órdenes elegidos por el comercio. Solo las
+    // claves renombradas; el nombre de fábrica lo resuelve el front
+    // (lib/orders/order-status-labels.ts). Ver OrderStatusLabels.
+    'orderStatusLabels' => \Punto\Api\Orders\OrderStatusLabels::forJson($row['orderstatuslabels'] ?? null),
     // Razón social/RUC/email/sitio del tenant — ticket impreso (flujo NO-FE).
     'companyBillingName' => $row['companybillingname'] ?? '',
     'companyTin'         => $row['companytin'] ?? '',

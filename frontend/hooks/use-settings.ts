@@ -163,6 +163,16 @@ function serialize(values: Partial<SettingsFormValues>): Record<string, unknown>
   for (const key of SERIALIZE_BOOL_FIELDS) {
     if (values[key] !== undefined) out[key] = values[key] ? 1 : 0
   }
+  // Nombres de etapas de órdenes: viajan como UN string JSON con solo los
+  // renombrados. Vacío = nombre de fábrica, así que no se manda.
+  if (values.orderStatusLabels !== undefined) {
+    const renamed = Object.fromEntries(
+      Object.entries(values.orderStatusLabels)
+        .map(([k, v]) => [k, (v ?? "").trim()] as const)
+        .filter(([, v]) => v !== ""),
+    )
+    out.orderStatusLabels = JSON.stringify(renamed)
+  }
   if (values.social) {
     const { facebook, instagram, youtube, twitter } = values.social
     if (facebook !== undefined) out.facebook = facebook

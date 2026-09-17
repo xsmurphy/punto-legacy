@@ -24,6 +24,7 @@ import { isScheduledAfter } from "@/lib/orders/order-display"
 import type { KdsMode, KdsOrderStatus } from "@/lib/kds/kds-visuals"
 import type { Order, OrderItem, OrderItemStatus } from "@/hooks/use-orders"
 import { OrderCard } from "./order-card"
+import { OrderStatusLabelsProvider } from "@/components/orders/order-status-labels-provider"
 import { KdsBottomBar } from "./bottom-bar"
 import { KdsConfigDialog } from "./config-dialog"
 import { KdsRecallDialog } from "./recall-dialog"
@@ -764,116 +765,120 @@ export default function KdsPage() {
   }
 
   return (
-    <div
-      className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col overflow-hidden bg-background text-foreground`}
-    >
-      <main className="min-h-0 flex-1 p-2">
-        {/* El resumen reemplaza el ÁREA de comandas, no la pantalla: la barra
-            inferior sigue abajo, con los mismos contadores y los mismos botones
-            en el mismo lugar. */}
-        {view === "summary" ? (
-          <KdsSummaryView rows={summary} />
-        ) : (
-          <div
-            ref={gridRef}
-            className="grid h-full min-h-0 gap-2"
-            onTouchStart={(e) => {
-              const t = e.touches[0]
-              swipeStartRef.current = t ? { x: t.clientX, y: t.clientY } : null
-            }}
-            onTouchEnd={(e) => {
-              const start = swipeStartRef.current
-              const t = e.changedTouches[0]
-              swipeStartRef.current = null
-              if (!start || !t || totalPages <= 1) return
-              const dx = t.clientX - start.x
-              // Solo horizontal: el gesto vertical es el scroll DENTRO de la comanda.
-              if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(t.clientY - start.y)) return
-              registerInteraction()
-              suppressClickUntilRef.current = Date.now() + 500
-              setPage((p) => (dx < 0 ? (p + 1) % totalPages : (p - 1 + totalPages) % totalPages))
-            }}
-            onClickCapture={(e) => {
-              if (Date.now() >= suppressClickUntilRef.current) return
-              suppressClickUntilRef.current = 0
-              e.preventDefault()
-              e.stopPropagation()
-            }}
-            style={{
-              gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-              // Explícito: la única fila ocupa TODO el alto, así cada comanda es
-              // full-height y el scroll queda dentro de la tarjeta, nunca en la
-              // página.
-              gridAutoRows: "1fr",
-              // Ancho real de columna — las tarjetas escalan su tipografía con
-              // `clamp()` sobre esta variable (ver order-card.tsx).
-              ["--kds-col" as string]: `${colWidth}px`,
-            }}
-          >
-            {board.length === 0 ? (
-              <div
-                className="flex items-center justify-center text-muted-foreground"
-                style={{ gridColumn: "1 / -1" }}
-              >
-                <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas pendientes</p>
-              </div>
-            ) : (
-              pageOrders.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  config={config}
-                  mode={mode}
-                  busy={busyIds.has(order.id)}
-                  pinned={pins.includes(order.id)}
-                  selected={selection?.orderId === order.id}
-                  selectedItemId={selection?.orderId === order.id ? selection.itemId : null}
-                  onTogglePin={handleTogglePin}
-                  onBumpOrder={bumpOrder}
-                  onBumpItem={bumpItem}
-                  onStepBackItem={stepBackItem}
-                />
-              ))
-            )}
-          </div>
-        )}
-      </main>
-
-      <KdsBottomBar
-        name={config.name || ctx?.outletName || "Preparación"}
-        counts={counts}
-        mode={mode}
-        page={safePage}
-        // La paginación es del BOARD: el resumen es una lista que scrollea y no
-        // esconde nada, así que declara una sola página y cero comandas fuera de
-        // pantalla. El bloque de paginación ya reserva su lugar aunque no
-        // muestre nada, así que la barra no se mueve al alternar de vista.
-        totalPages={view === "summary" ? 1 : totalPages}
-        hiddenCount={view === "summary" ? 0 : board.length - pageOrders.length}
-        onPage={(p) => { registerInteraction(); setPage(p) }}
-        loading={loading}
-        wsState={wsState}
-        needsSoundUnlock={config.soundOnNew && soundState !== "ready"}
-        onUnlockSound={() => void handleUnlockSound()}
-        canUndo={lastAction !== null}
-        onUndo={() => { void undoLast() }}
-        summaryOpen={view === "summary"}
-        onToggleSummary={toggleSummary}
-        onShowHelp={() => setHelpOpen(true)}
+    // Nombres de etapas del comercio, desde el contexto del device: la tarjeta,
+    // la barra y el recall los leen con useOrderStatusLabels().
+    <OrderStatusLabelsProvider labels={ctx?.orderStatusLabels}>
+      <div
+        className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col overflow-hidden bg-background text-foreground`}
       >
-        <KdsRecallDialog
-          open={recallOpen}
-          onOpenChange={setRecallOpen}
-          orders={recall}
-          stationIds={config.stationIds}
-          busyIds={busyIds}
-          onRecall={(order) => { void handleRecall(order) }}
-        />
-        <KdsConfigDialog config={config} stations={stations} onChange={updateConfig} />
-      </KdsBottomBar>
+        <main className="min-h-0 flex-1 p-2">
+          {/* El resumen reemplaza el ÁREA de comandas, no la pantalla: la barra
+              inferior sigue abajo, con los mismos contadores y los mismos botones
+              en el mismo lugar. */}
+          {view === "summary" ? (
+            <KdsSummaryView rows={summary} />
+          ) : (
+            <div
+              ref={gridRef}
+              className="grid h-full min-h-0 gap-2"
+              onTouchStart={(e) => {
+                const t = e.touches[0]
+                swipeStartRef.current = t ? { x: t.clientX, y: t.clientY } : null
+              }}
+              onTouchEnd={(e) => {
+                const start = swipeStartRef.current
+                const t = e.changedTouches[0]
+                swipeStartRef.current = null
+                if (!start || !t || totalPages <= 1) return
+                const dx = t.clientX - start.x
+                // Solo horizontal: el gesto vertical es el scroll DENTRO de la comanda.
+                if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) <= Math.abs(t.clientY - start.y)) return
+                registerInteraction()
+                suppressClickUntilRef.current = Date.now() + 500
+                setPage((p) => (dx < 0 ? (p + 1) % totalPages : (p - 1 + totalPages) % totalPages))
+              }}
+              onClickCapture={(e) => {
+                if (Date.now() >= suppressClickUntilRef.current) return
+                suppressClickUntilRef.current = 0
+                e.preventDefault()
+                e.stopPropagation()
+              }}
+              style={{
+                gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+                // Explícito: la única fila ocupa TODO el alto, así cada comanda es
+                // full-height y el scroll queda dentro de la tarjeta, nunca en la
+                // página.
+                gridAutoRows: "1fr",
+                // Ancho real de columna — las tarjetas escalan su tipografía con
+                // `clamp()` sobre esta variable (ver order-card.tsx).
+                ["--kds-col" as string]: `${colWidth}px`,
+              }}
+            >
+              {board.length === 0 ? (
+                <div
+                  className="flex items-center justify-center text-muted-foreground"
+                  style={{ gridColumn: "1 / -1" }}
+                >
+                  <p style={{ fontSize: "clamp(1rem, 1.5vw, 1.5rem)" }}>Sin comandas pendientes</p>
+                </div>
+              ) : (
+                pageOrders.map((order) => (
+                  <OrderCard
+                    key={order.id}
+                    order={order}
+                    config={config}
+                    mode={mode}
+                    busy={busyIds.has(order.id)}
+                    pinned={pins.includes(order.id)}
+                    selected={selection?.orderId === order.id}
+                    selectedItemId={selection?.orderId === order.id ? selection.itemId : null}
+                    onTogglePin={handleTogglePin}
+                    onBumpOrder={bumpOrder}
+                    onBumpItem={bumpItem}
+                    onStepBackItem={stepBackItem}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </main>
 
-      <KdsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
-    </div>
+        <KdsBottomBar
+          name={config.name || ctx?.outletName || "Preparación"}
+          counts={counts}
+          mode={mode}
+          page={safePage}
+          // La paginación es del BOARD: el resumen es una lista que scrollea y no
+          // esconde nada, así que declara una sola página y cero comandas fuera de
+          // pantalla. El bloque de paginación ya reserva su lugar aunque no
+          // muestre nada, así que la barra no se mueve al alternar de vista.
+          totalPages={view === "summary" ? 1 : totalPages}
+          hiddenCount={view === "summary" ? 0 : board.length - pageOrders.length}
+          onPage={(p) => { registerInteraction(); setPage(p) }}
+          loading={loading}
+          wsState={wsState}
+          needsSoundUnlock={config.soundOnNew && soundState !== "ready"}
+          onUnlockSound={() => void handleUnlockSound()}
+          canUndo={lastAction !== null}
+          onUndo={() => { void undoLast() }}
+          summaryOpen={view === "summary"}
+          onToggleSummary={toggleSummary}
+          onShowHelp={() => setHelpOpen(true)}
+        >
+          <KdsRecallDialog
+            open={recallOpen}
+            onOpenChange={setRecallOpen}
+            orders={recall}
+            stationIds={config.stationIds}
+            busyIds={busyIds}
+            onRecall={(order) => { void handleRecall(order) }}
+          />
+          <KdsConfigDialog config={config} stations={stations} onChange={updateConfig} />
+        </KdsBottomBar>
+
+        <KdsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
+      </div>
+    </OrderStatusLabelsProvider>
   )
 }
 

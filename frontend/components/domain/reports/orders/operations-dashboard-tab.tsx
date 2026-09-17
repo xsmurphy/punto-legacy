@@ -44,6 +44,7 @@ import type { OperationsReport, OperationsStages } from "@/hooks/use-reports"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
 import { CoverageNote, coveragePct } from "./coverage-note"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Debajo de este porcentaje de órdenes marcadas de punta a punta, los tiempos
@@ -264,14 +265,15 @@ function StageTimesCard({
   stages: OperationsStages
   bootstrap: Bootstrap | undefined
 }) {
+  const { label } = useOrderStatusLabels()
   const cov = stages.coverage
   const samples = cov.stageSamples
   const trackedPct = coveragePct(cov.fullyTracked, cov.total)
 
   const data = [
-    { label: "Espera", detail: "Enviada → En proceso", minutes: stages.avgToProgress, n: samples.toProgress },
-    { label: "Proceso", detail: "En proceso → Lista", minutes: stages.avgProgressToReady, n: samples.progressToReady },
-    { label: "Entrega", detail: "Lista → Entregada", minutes: stages.avgReadyToDelivered, n: samples.readyToDelivered },
+    { label: "Espera", detail: `${label("sent")} → ${label("in_progress")}`, minutes: stages.avgToProgress, n: samples.toProgress },
+    { label: "Proceso", detail: `${label("in_progress")} → ${label("ready")}`, minutes: stages.avgProgressToReady, n: samples.progressToReady },
+    { label: "Entrega", detail: `${label("ready")} → ${label("delivered")}`, minutes: stages.avgReadyToDelivered, n: samples.readyToDelivered },
   ].map((d) => ({ ...d, value: d.minutes ?? 0 }))
 
   const anyStage = data.some((d) => d.minutes !== null)
@@ -295,7 +297,7 @@ function StageTimesCard({
           {formatInt(cov.total, bootstrap)} órdenes ({trackedPct.toFixed(0)}%).{" "}
           {cov.skipped > 0 && (
             <>
-              {formatInt(cov.skipped, bootstrap)} pasaron a Entregada sin marcar
+              {formatInt(cov.skipped, bootstrap)} pasaron a {label("delivered")} sin marcar
               las etapas intermedias y no aportan a las barras.{" "}
             </>
           )}
@@ -346,7 +348,7 @@ function StageTimesCard({
           <EmptyState
             icon={Timer}
             title="Ninguna orden tiene las etapas marcadas"
-            description="Los tiempos aparecen cuando las órdenes se pasan a En proceso y a Lista mientras se trabajan, no todas juntas al final."
+            description={`Los tiempos aparecen cuando las órdenes se pasan a ${label("in_progress")} y a ${label("ready")} mientras se trabajan, no todas juntas al final.`}
             showMarquee={false}
             className="border-0 p-0"
           />
@@ -373,9 +375,9 @@ function StageTimesCard({
           />
         </StatsRow>
         <p className="text-sm text-muted-foreground">
-          El total va de Enviada a Entregada sobre {formatInt(samples.total, bootstrap)} órdenes
+          El total va de {label("sent")} a {label("delivered")} sobre {formatInt(samples.total, bootstrap)} órdenes
           entregadas; la mediana no se mueve por una orden olvidada abierta. Las
-          vueltas a proceso son órdenes que estaban Listas y volvieron a
+          vueltas a proceso son órdenes que ya estaban en {label("ready")} y volvieron a
           trabajarse: se cuentan aparte y no inflan los promedios de arriba.
         </p>
       </CardContent>

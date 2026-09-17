@@ -42,7 +42,8 @@ import { cn } from "@/lib/utils"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order } from "@/hooks/use-orders"
-import { STATUS_VARIANT, orderTotal, statusLabelFor } from "@/lib/orders/order-display"
+import { STATUS_VARIANT, orderTotal } from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 import { formatRelativeShort, parseNaive } from "@/lib/format-date"
 import { KDS_TIER_ACCENT } from "@/lib/kds/kds-visuals"
 import type { ElapsedTier } from "@/hooks/use-elapsed"
@@ -94,6 +95,7 @@ export function OrdersMapView({
   const isDark = resolvedTheme === "dark"
   const config = useCatalogStore((s) => s.config)
   const outlet = useCatalogStore((s) => s.outlet)
+  const { labelFor } = useOrderStatusLabels()
 
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const mapRef = React.useRef<MapLibreMap | null>(null)
@@ -246,6 +248,9 @@ export function OrdersMapView({
           <OrderMapPopup
             order={order}
             total={formatMoney(orderTotal(order), config)}
+            // El popup es otra raíz de React (createRoot): no ve el provider
+            // de nombres de etapas, así que el nombre viaja resuelto.
+            statusLabel={labelFor(order)}
             onOpen={() => {
               popup.remove()
               onOpenOrderRef.current(order)
@@ -282,7 +287,7 @@ export function OrdersMapView({
     return () => {
       cancelled = true
     }
-  }, [withCoords, mapReady, outletLat, outletLng, outlet?.name, config])
+  }, [withCoords, mapReady, outletLat, outletLng, outlet?.name, config, labelFor])
 
   return (
     <div className="flex h-full flex-col gap-3">
@@ -339,7 +344,7 @@ export function OrdersMapView({
                         {order.customerName ?? "Sin cliente"}
                       </span>
                     </span>
-                    <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
+                    <Badge variant={STATUS_VARIANT[order.status]}>{labelFor(order)}</Badge>
                   </Button>
                 ))}
               </div>
@@ -373,10 +378,12 @@ const STORE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" heigh
 function OrderMapPopup({
   order,
   total,
+  statusLabel,
   onOpen,
 }: {
   order: Order
   total: string
+  statusLabel: string
   onOpen: () => void
 }) {
   const number = order.orderNumber !== null ? `#${order.orderNumber}` : "#—"
@@ -405,7 +412,7 @@ function OrderMapPopup({
       </p>
 
       <div className="flex items-center justify-between gap-2">
-        <Badge variant={STATUS_VARIANT[order.status] ?? "secondary"}>{statusLabelFor(order)}</Badge>
+        <Badge variant={STATUS_VARIANT[order.status] ?? "secondary"}>{statusLabel}</Badge>
         <span className="text-sm font-semibold tabular-nums">{total}</span>
       </div>
 

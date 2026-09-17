@@ -18,11 +18,17 @@
  *    mientras el WS estuvo caído).
  *  - Evento `revoked` (canal `${module}:${deviceId}`) o 401 en heartbeat →
  *    limpia token/claims y vuelve a `unpaired`.
+ *  - Config del tenant en vivo: se suscribe también a `{companyId}:invalidate`
+ *    y, cuando el comercio guarda Ajustes (evento `setting`) o el socket se
+ *    reconecta, vuelve a pedir el contexto. Así un cambio de configuración
+ *    (ej. los nombres de las etapas de las órdenes) llega a la pantalla sin
+ *    recargarla. Ese canal no se reenvía al `onEvent` del caller.
  */
 
 import * as React from "react"
 import { getDeviceToken, clearDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 import { getDeviceClaims, clearDeviceClaims } from "@/lib/auth/device-claims"
+import type { OrderStatusLabels } from "@/lib/orders/order-status-labels"
 
 const HEARTBEAT_INTERVAL = 30_000
 
@@ -33,6 +39,8 @@ export interface PairedScreenContext {
   outletName: string
   registerName: string
   logoUrl: string
+  /** Nombres de etapas de órdenes renombradas por el comercio (mismo campo que el bootstrap). */
+  orderStatusLabels?: OrderStatusLabels
 }
 
 export type PairState = "unpaired" | "connecting" | "ready"
@@ -63,6 +71,8 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
   const reconnectRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   const heartbeatRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
   const activeRef = React.useRef(true)
+  /** ¿Ya abrió el socket alguna vez? Distingue la primera conexión de una reconexión. */
+  const hasOpenedRef = React.useRef(false)
   const onEventRef = React.useRef(onEvent)
   const onOpenRef = React.useRef(onOpen)
   onEventRef.current = onEvent
@@ -83,7 +93,31 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     if (heartbeatRef.current) clearInterval(heartbeatRef.current)
   }
 
-  function connectWs(token: string, wsChannels: string[]) {
+  /**
+   * GET del contexto del device. `null` = no se pudo (red, contexto
+   * incompleto); un 401 olvida el device. Lo usan el arranque y el refresco.
+   */
+  async function fetchContext(token: string): Promise<PairedScreenContext | null> {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? ""
+    const res = await fetch(`${apiUrl}/v1/screens?resource=context`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.status === 401) { forgetDevice(); return null }
+    if (!res.ok) return null
+    const body = (await res.json()) as { data?: PairedScreenContext }
+    if (!body.data?.companyId || !body.data?.outletId) return null
+    return body.data
+  }
+
+  /** Refresco best-effort: si falla, la pantalla sigue con lo último que sabía. */
+  async function refreshContext(token: string) {
+    try {
+      const next = await fetchContext(token)
+      if (next && activeRef.current) setCtx(next)
+    } catch { /* best-effort */ }
+  }
+
+  function connectWs(token: string, wsChannels: string[], invalidateChannel: string) {
     if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:3001"
     const ws = new WebSocket(wsUrl)
@@ -91,15 +125,26 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     let backoff = 1000
 
     ws.onopen = () => {
-      for (const ch of wsChannels) ws.send(JSON.stringify({ action: "subscribe", channel: ch }))
+      for (const ch of [...wsChannels, invalidateChannel]) {
+        ws.send(JSON.stringify({ action: "subscribe", channel: ch }))
+      }
       backoff = 1000
       setWsState("online")
+      // En la primera conexión el contexto se acaba de pedir en el arranque;
+      // en una reconexión pudo haberse perdido un cambio de Ajustes.
+      if (hasOpenedRef.current) void refreshContext(token)
+      hasOpenedRef.current = true
       onOpenRef.current?.()
     }
     ws.onmessage = (ev) => {
       try {
-        const msg = JSON.parse(ev.data as string) as { event: string; data: unknown }
+        const msg = JSON.parse(ev.data as string) as { event: string; channel?: string; data: unknown }
         if (msg.event === "revoked") { forgetDevice(); return }
+        if (msg.channel === invalidateChannel) {
+          const entity = (msg.data as { entity?: string } | null)?.entity
+          if (entity === "setting") void refreshContext(token)
+          return
+        }
         onEventRef.current(msg.event, msg.data)
       } catch { /* ignore */ }
     }
@@ -109,7 +154,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
         setWsState("offline")
         reconnectRef.current = setTimeout(() => {
           backoff = Math.min(backoff * 2, 30000)
-          connectWs(token, wsChannels)
+          connectWs(token, wsChannels, invalidateChannel)
         }, backoff)
       }
     }
@@ -133,6 +178,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
 
   React.useEffect(() => {
     activeRef.current = true
+    hasOpenedRef.current = false
     let cancelled = false
 
     async function boot() {
@@ -140,21 +186,17 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
       if (!token) { setPairState("unpaired"); return }
       setPairState("connecting")
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? ""
-        const res = await fetch(`${apiUrl}/v1/screens?resource=context`, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (res.status === 401) { forgetDevice(); return }
-        if (!res.ok) throw new Error("context fetch failed")
-        const body = (await res.json()) as { data?: PairedScreenContext }
-        if (!body.data?.companyId || !body.data?.outletId) throw new Error("context incompleto")
+        const context = await fetchContext(token)
+        // Un 401 ya olvidó el device dentro de fetchContext (estado `unpaired`).
+        if (!getDeviceToken(module)) return
+        if (!context) throw new Error("context fetch failed")
         if (cancelled) return
 
-        setCtx(body.data)
+        setCtx(context)
         const claims = getDeviceClaims(module)
         const deviceId = claims?.deviceId ?? ""
-        const wsChannels = [...channels(body.data), `${module}:${deviceId}`]
-        connectWs(token, wsChannels)
+        const wsChannels = [...channels(context), `${module}:${deviceId}`]
+        connectWs(token, wsChannels, `${context.companyId}:invalidate`)
         startHeartbeat(token)
         setPairState("ready")
       } catch {

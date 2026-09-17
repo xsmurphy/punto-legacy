@@ -53,6 +53,7 @@ import { formatMoney } from "@/lib/format"
 import { formatDateTime, parseNaive } from "@/lib/format-date"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import { eventActorLabel, eventTransitionLabel } from "@/lib/orders/order-event-label"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 import {
   orderDestination,
   orderFulfillmentLabel,
@@ -278,6 +279,7 @@ function ItemRow({
 function TimelineCard({ order, bootstrap }: { order: Order; bootstrap: Bootstrap }) {
   const events = React.useMemo(() => order.events ?? [], [order.events])
   const durations = orderStageDurations(events, order.createdAt)
+  const { labels, label } = useOrderStatusLabels()
 
   const itemNames = React.useMemo(
     () => new Map((order.items ?? []).map((i) => [i.id, i.name])),
@@ -317,7 +319,8 @@ function TimelineCard({ order, bootstrap }: { order: Order; bootstrap: Bootstrap
         </StatsRow>
         {durations.skipped && (
           <p className="text-sm text-muted-foreground">
-            Esta orden pasó a Entregada sin marcar En proceso o Lista: tiene total
+            Esta orden pasó a {label("delivered")} sin marcar {label("in_progress")} o{" "}
+            {label("ready")}: tiene total
             pero no demoras por etapa, y en el dashboard cuenta entre las que
             saltaron etapas.
           </p>
@@ -344,7 +347,7 @@ function TimelineCard({ order, bootstrap }: { order: Order; bootstrap: Bootstrap
                   <div className="min-w-0 flex-1">
                     <p className={cn("text-sm", isItem ? "text-muted-foreground" : "font-medium")}>
                       {isItem && `${(ev.orderItemId && itemNames.get(ev.orderItemId)) || "Ítem"}: `}
-                      {eventTransitionLabel(ev)}
+                      {eventTransitionLabel(ev, labels)}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {eventActorLabel(ev)}

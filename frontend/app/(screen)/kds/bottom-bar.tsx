@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button"
 import type { WsState } from "@/hooks/use-paired-screen"
 import { KDS_STATUS_VISUALS, kdsTextHex, type KdsMode, type KdsOrderStatus } from "@/lib/kds/kds-visuals"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Barra inferior fija del KDS. Reemplaza lo único que aportaban las columnas
@@ -89,6 +90,7 @@ export function KdsBottomBar({
   onShowHelp,
   children,
 }: BottomBarProps) {
+  const { label } = useOrderStatusLabels()
   return (
     <footer
       className="flex h-16 shrink-0 items-center gap-3 overflow-hidden border-t bg-card px-2 sm:gap-4 sm:px-4"
@@ -102,6 +104,7 @@ export function KdsBottomBar({
       <div className="flex shrink-0 items-center gap-3 sm:gap-4">
         {COUNTER_ORDER.map((status) => {
           const visual = KDS_STATUS_VISUALS[status]
+          const name = label(status)
           return (
             <span key={status} className="flex items-center gap-1.5 whitespace-nowrap sm:gap-2">
               <span
@@ -112,10 +115,10 @@ export function KdsBottomBar({
               />
               <span className="font-bold tabular-nums">{counts[status]}</span>
               <span className="hidden text-muted-foreground sm:inline">
-                {visual.label.toLowerCase()}
+                {name.toLowerCase()}
               </span>
               {/* El label completo siempre disponible para lectores de pantalla. */}
-              <span className="sr-only">{visual.label}</span>
+              <span className="sr-only">{name}</span>
             </span>
           )
         })}

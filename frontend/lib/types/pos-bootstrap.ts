@@ -9,6 +9,7 @@
  */
 
 import type { DocumentTemplateRow } from "@/lib/types/print-template"
+import type { OrderStatusLabels } from "@/lib/orders/order-status-labels"
 
 // ── Método de pago configurable ───────────────────────────────────────────────
 
@@ -70,6 +71,13 @@ export interface PosConfig {
    * caja-vs-panel que resolver (regla de context/51 §5).
    */
   agentBusinessContext?: string
+  /**
+   * Nombres de etapas de órdenes renombradas por el comercio (Ajustes). Viaja
+   * en el snapshot, así que la caja los conserva sin red. Opcional: un
+   * snapshot guardado antes de este campo se rehidrata sin la clave y sale
+   * todo con los nombres de fábrica.
+   */
+  orderStatusLabels?: OrderStatusLabels
   /** URL del logo del tenant (S3, público). null/undefined si no hay logo cargado. */
   companyLogo?: string | null
   /** Base URL de screens standalone (impresión, KDS, etc). */

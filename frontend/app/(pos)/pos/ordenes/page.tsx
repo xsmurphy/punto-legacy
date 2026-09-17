@@ -35,7 +35,8 @@ import { OrderCard } from "@/components/orders/order-card"
 import { OrderDetailView } from "@/components/orders/order-detail-view"
 import { OrdersListView } from "@/components/orders/orders-list-view"
 import { OrdersMapView } from "@/components/orders/orders-map-view"
-import { FILTERABLE_STATUSES, STATUS_LABEL } from "@/lib/orders/order-display"
+import { FILTERABLE_STATUSES } from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 import { usePersistedView } from "@/lib/ui/use-persisted-view"
 import { useActiveOrders, type Order, type OrderStatus } from "@/hooks/use-orders"
 
@@ -67,6 +68,7 @@ export default function PosOrdenesPage() {
     "cards",
   )
 
+  const { label: statusLabel } = useOrderStatusLabels()
   const [statusFilter, setStatusFilter] = React.useState<OrderStatus | typeof ALL_STATUSES>(
     ALL_STATUSES,
   )
@@ -208,7 +210,7 @@ export default function PosOrdenesPage() {
             {FILTERABLE_STATUSES.map((s) => (
               <StatusPill
                 key={s}
-                label={STATUS_LABEL[s]}
+                label={statusLabel(s)}
                 active={statusFilter === s}
                 onClick={() => setStatusFilter(s)}
               />

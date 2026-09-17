@@ -12,6 +12,7 @@ import { PosTouchScope } from "@/components/pos/pos-touch-scope"
 import { PosKeyboardInset } from "@/components/pos/keyboard-inset"
 import { SafeAreaCalibrator } from "@/components/pos/safe-area-calibrator"
 import { PosConfigSync } from "@/lib/pos/config-sync"
+import { PosOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Layout del POS — auth con el Bearer del DEVICE (`lib/auth/device-token.ts`,
@@ -58,95 +59,97 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosSidebarProvider>
       <PosAuthGuard>
-        <ChunkErrorListener />
-        {/* Marca `<html>` mientras el POS está montado. De ahí cuelgan TODAS
-            las reglas propias de la caja (typography de los campos y mínimo
-            táctil, en `app/globals.css`): una clase en el shell no alcanzaba
-            porque lo que se portalea —diálogos, drawers, dropdowns, toasts—
-            cuelga del `<body>`, fuera de ese árbol, y justo el cobro y el menú
-            principal quedaban sin las reglas. */}
-        <PosTouchScope />
-        {/* Publica la ventana visible del viewport mientras el teclado virtual
-            está abierto (`--kb-top` / `--kb-bottom` / `--kb-inset`) para que
-            los modales con búsqueda no queden ni detrás del teclado ni fuera
-            de pantalla por arriba en el teléfono. Ver el docblock de
-            `components/pos/keyboard-inset.tsx`. */}
-        <PosKeyboardInset />
-        {/* Anula `--safe-t`/`--safe-b` cuando el viewport NO cubre la pantalla:
-            ahí el chrome del sistema ya reservó esa franja y descontarla otra
-            vez la cuenta dos veces (ver docblock del componente). */}
-        <SafeAreaCalibrator />
-        <PosConfigSync />
-        <PosSidebar />
-        {/* Áreas seguras del dispositivo — ver la regla completa en
-            `app/globals.css` (§ "Áreas seguras del dispositivo").
+        <PosOrderStatusLabels>
+          <ChunkErrorListener />
+          {/* Marca `<html>` mientras el POS está montado. De ahí cuelgan TODAS
+              las reglas propias de la caja (typography de los campos y mínimo
+              táctil, en `app/globals.css`): una clase en el shell no alcanzaba
+              porque lo que se portalea —diálogos, drawers, dropdowns, toasts—
+              cuelga del `<body>`, fuera de ese árbol, y justo el cobro y el menú
+              principal quedaban sin las reglas. */}
+          <PosTouchScope />
+          {/* Publica la ventana visible del viewport mientras el teclado virtual
+              está abierto (`--kb-top` / `--kb-bottom` / `--kb-inset`) para que
+              los modales con búsqueda no queden ni detrás del teclado ni fuera
+              de pantalla por arriba en el teléfono. Ver el docblock de
+              `components/pos/keyboard-inset.tsx`. */}
+          <PosKeyboardInset />
+          {/* Anula `--safe-t`/`--safe-b` cuando el viewport NO cubre la pantalla:
+              ahí el chrome del sistema ya reservó esa franja y descontarla otra
+              vez la cuenta dos veces (ver docblock del componente). */}
+          <SafeAreaCalibrator />
+          <PosConfigSync />
+          <PosSidebar />
+          {/* Áreas seguras del dispositivo — ver la regla completa en
+              `app/globals.css` (§ "Áreas seguras del dispositivo").
 
-            El shell se queda con el eje SUPERIOR y los LATERALES: es el
-            elemento más externo que pinta fondo contra esos bordes, y sin él
-            la toolbar del carrito queda debajo del reloj y la batería en un
-            iPhone instalado como PWA.
+              El shell se queda con el eje SUPERIOR y los LATERALES: es el
+              elemento más externo que pinta fondo contra esos bordes, y sin él
+              la toolbar del carrito queda debajo del reloj y la batería en un
+              iPhone instalado como PWA.
 
-            El eje INFERIOR ya NO se descuenta acá. Lo hacía (commit 0d14f91b,
-            `safe-area` en los cuatro lados) y se sumaba al `p-2` propio de la
-            barra del CTA: el botón de cobrar terminaba flotando ~42px sobre el
-            borde en vez de apoyar en el límite del área segura, que es lo que
-            el owner reportó como "demasiado arriba". El inferior vive ahora en
-            `CartBottom` (`components/register/cart-panel.tsx`), que es el
-            elemento que realmente apoya en ese borde, y lo combina con su
-            propio padding vía `max()` — así en desktop y en tablets sin notch,
-            donde el inset es 0, la geometría no cambia ni un pixel.
+              El eje INFERIOR ya NO se descuenta acá. Lo hacía (commit 0d14f91b,
+              `safe-area` en los cuatro lados) y se sumaba al `p-2` propio de la
+              barra del CTA: el botón de cobrar terminaba flotando ~42px sobre el
+              borde en vez de apoyar en el límite del área segura, que es lo que
+              el owner reportó como "demasiado arriba". El inferior vive ahora en
+              `CartBottom` (`components/register/cart-panel.tsx`), que es el
+              elemento que realmente apoya en ese borde, y lo combina con su
+              propio padding vía `max()` — así en desktop y en tablets sin notch,
+              donde el inset es 0, la geometría no cambia ni un pixel.
 
-            En `md` el shell es una tarjeta flotante (`m-2` del primitive):
-            su FONDO puede quedar debajo del status bar sin problema —
-            justamente eso es lo que se ve como app— y el mismo padding
-            alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
-            (desktop, tablets sin notch) las tres declaraciones valen 0 y no
-            cambia nada. */}
-        {/* ALTO DEL SHELL — el teclado virtual se descuenta ACÁ.
+              En `md` el shell es una tarjeta flotante (`m-2` del primitive):
+              su FONDO puede quedar debajo del status bar sin problema —
+              justamente eso es lo que se ve como app— y el mismo padding
+              alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
+              (desktop, tablets sin notch) las tres declaraciones valen 0 y no
+              cambia nada. */}
+          {/* ALTO DEL SHELL — el teclado virtual se descuenta ACÁ.
 
-            Este consumidor DIMENSIONA, así que usa `--kb-inset` (el total
-            tapado) y no el par `--kb-top`/`--kb-bottom`: el alto visible es
-            `layout - total tapado`, sin importar cómo se reparta entre arriba
-            y abajo. La POSICIÓN ya la resuelve el body fijado de
-            `globals.css`, que es de quien el shell cuelga en flujo normal.
+              Este consumidor DIMENSIONA, así que usa `--kb-inset` (el total
+              tapado) y no el par `--kb-top`/`--kb-bottom`: el alto visible es
+              `layout - total tapado`, sin importar cómo se reparta entre arriba
+              y abajo. La POSICIÓN ya la resuelve el body fijado de
+              `globals.css`, que es de quien el shell cuelga en flujo normal.
 
-            Hace falta igual porque `dvh` mide el viewport de LAYOUT y el
-            teclado no lo achica (en iOS se dibuja encima; ver el docblock de
-            `keyboard-inset.tsx`): achicar el body no cambia cuánto mide
-            `100dvh`. Sin esta resta el shell seguiría midiendo la pantalla
-            entera y su mitad de abajo quedaría fuera del área visible — que es
-            exactamente el síntoma que el owner vio "en muchas cosas del POS"
-            (2026-08-30).
+              Hace falta igual porque `dvh` mide el viewport de LAYOUT y el
+              teclado no lo achica (en iOS se dibuja encima; ver el docblock de
+              `keyboard-inset.tsx`): achicar el body no cambia cuánto mide
+              `100dvh`. Sin esta resta el shell seguiría midiendo la pantalla
+              entera y su mitad de abajo quedaría fuera del área visible — que es
+              exactamente el síntoma que el owner vio "en muchas cosas del POS"
+              (2026-08-30).
 
-            Repetir el descuento acá NO es el doble-descuento que prohíbe la
-            regla de áreas seguras: no son dos restas encadenadas sobre la
-            misma caja, son dos cajas —la lámina del documento y el shell—
-            midiendo el mismo espacio visible. Encadenarlo sería que un hijo
-            del shell volviera a restar; eso no pasa: los demás consumidores
-            (dialog, drawer, sheet, lock screen, los command palettes) se
-            posicionan `fixed` contra el viewport, fuera de este árbol de
-            layout.
+              Repetir el descuento acá NO es el doble-descuento que prohíbe la
+              regla de áreas seguras: no son dos restas encadenadas sobre la
+              misma caja, son dos cajas —la lámina del documento y el shell—
+              midiendo el mismo espacio visible. Encadenarlo sería que un hijo
+              del shell volviera a restar; eso no pasa: los demás consumidores
+              (dialog, drawer, sheet, lock screen, los command palettes) se
+              posicionan `fixed` contra el viewport, fuera de este árbol de
+              layout.
 
-            Con el teclado cerrado las variables valen `0px` y las dos
-            expresiones colapsan a lo de siempre. */}
-        <SidebarInset className="h-[calc(100dvh-var(--kb-inset))] overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem-var(--kb-inset))]">
-          {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
-              abajo a la derecha. Se movió al extremo izquierdo del toolbar del
-              carrito (CartToolbar), junto al botón del menú principal, por
-              pedido del owner (2026-08-01). Se movió, no se duplicó: dos
-              triggers para la misma nav es ruido en una pantalla de teléfono.
-              Todas las rutas del grupo (pos) cuelgan de /pos y montan el
-              CartPanel, así que el trigger sigue presente en todas. */}
-          {children}
-          {/* Selector de modo — montado en el layout (no en el sidebar) para
-              sobrevivir al cierre del Sheet mobile que contiene su trigger. */}
-          <PosModeDialog />
-          {/* Asistente IA de la caja (context/59) — montado acá por el MISMO
-              motivo que PosModeDialog: su trigger es un item del footer del
-              sidebar, que en mobile es un drawer y se desmonta al tocarlo. */}
-          <PosAgentDialog />
-          <InstallPrompt />
-        </SidebarInset>
+              Con el teclado cerrado las variables valen `0px` y las dos
+              expresiones colapsan a lo de siempre. */}
+          <SidebarInset className="h-[calc(100dvh-var(--kb-inset))] overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem-var(--kb-inset))]">
+            {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
+                abajo a la derecha. Se movió al extremo izquierdo del toolbar del
+                carrito (CartToolbar), junto al botón del menú principal, por
+                pedido del owner (2026-08-01). Se movió, no se duplicó: dos
+                triggers para la misma nav es ruido en una pantalla de teléfono.
+                Todas las rutas del grupo (pos) cuelgan de /pos y montan el
+                CartPanel, así que el trigger sigue presente en todas. */}
+            {children}
+            {/* Selector de modo — montado en el layout (no en el sidebar) para
+                sobrevivir al cierre del Sheet mobile que contiene su trigger. */}
+            <PosModeDialog />
+            {/* Asistente IA de la caja (context/59) — montado acá por el MISMO
+                motivo que PosModeDialog: su trigger es un item del footer del
+                sidebar, que en mobile es un drawer y se desmonta al tocarlo. */}
+            <PosAgentDialog />
+            <InstallPrompt />
+          </SidebarInset>
+        </PosOrderStatusLabels>
       </PosAuthGuard>
     </PosSidebarProvider>
   )

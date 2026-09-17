@@ -1,3 +1,5 @@
+import type { OrderStatusLabels } from "@/lib/orders/order-status-labels"
+
 /**
  * Shape de `GET /v1/bootstrap` — mismo contract que `panel/API/v1/bootstrap.php`,
  * preservado al portarlo a `/api/v1/bootstrap.php`. El front depende del
@@ -21,6 +23,12 @@ export interface Bootstrap {
   companyId: string | number
   /** URL del logo del tenant (S3, público). '' si no hay logo cargado. */
   logoUrl: string
+  /**
+   * Nombres de etapas de órdenes renombradas por el comercio. Solo las claves
+   * renombradas; ausente = `/api` anterior o nada renombrado. Se resuelven con
+   * `lib/orders/order-status-labels.ts`.
+   */
+  orderStatusLabels?: OrderStatusLabels
   /** Base URL de screens standalone (links de impresión, KDS, etc). */
   publicUrl: string
   user: {

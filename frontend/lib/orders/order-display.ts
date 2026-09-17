@@ -16,49 +16,10 @@ import {
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { formatDate, parseNaive } from "@/lib/format-date"
 
-/**
- * Etiquetas operativas (decisión del owner 2026-07-19). Nombran los estados
- * desde la óptica del mostrador, no de la cocina:
- *   open        → "Pendiente"  (se está armando, todavía no salió a preparar)
- *   sent        → "En espera"  (ya salió a preparar, esperando ser tomada)
- *   in_progress → "En proceso"
- *   ready       → "Enviado" (delivery) / "Listo" (el resto)
- * Los estados de la máquina NO cambian — esto es solo presentación.
- *
- * `STATUS_LABEL.ready` queda fijo en "Listo" — usalo solo cuando no hay
- * `order` a mano (ej. un status suelto). Para una orden completa, usá
- * `statusLabelFor(order)`, que resuelve "Enviado" para delivery.
- */
-export const STATUS_LABEL: Record<OrderStatus, string> = {
-  open: "Pendiente",
-  sent: "En espera",
-  in_progress: "En proceso",
-  ready: "Listo",
-  out_for_delivery: "En camino",
-  delivered: "Entregada",
-  closed: "Cobrada",
-  cancelled: "Cancelada",
-}
-
-/**
- * Label de estado de una orden completa — igual a `STATUS_LABEL[status]`
- * salvo `ready` + `fulfillment==='delivery'`, que es "Enviado" (decisión del
- * owner: una orden delivery lista para el cadete se dice distinto de una
- * lista para retirar en mostrador).
- *
- * ⚠ TENSIÓN sin resolver (2026-07-28, F-D-1): con `out_for_delivery` ya
- * existiendo, "Enviado" (ready+delivery) y "En camino" (out_for_delivery)
- * quedan MUY cerca semánticamente — "Enviado" hoy en realidad significa
- * "listo, esperando que el cadete lo retire", no que ya salió. No se tocó
- * esta función por decisión propia: el label "Enviado" lo fijó el owner el
- * 2026-07-19, antes de que existiera este estado. Pendiente de que el owner
- * decida si "Enviado" debería renombrarse (ej. "Listo para envío") para
- * despejar la ambigüedad con "En camino".
- */
-export function statusLabelFor(order: Order): string {
-  if (order.status === "ready" && order.fulfillment === "delivery") return "Enviado"
-  return STATUS_LABEL[order.status]
-}
+// Los NOMBRES de las etapas no viven acá: el comercio puede renombrarlas y la
+// única fuente es `lib/orders/order-status-labels.ts` (en React,
+// `useOrderStatusLabels()`). Este archivo conserva lo que NO cambia por
+// comercio: variante del badge, color, transiciones y resúmenes.
 
 export const STATUS_VARIANT: Record<OrderStatus, "default" | "secondary" | "outline"> = {
   open: "outline",
@@ -222,8 +183,8 @@ export const STATUS_ACCENT: Record<OrderStatus, string | null> = {
 }
 
 /**
- * Estados filtrables desde la barra flotante: Pendiente / En espera / En
- * proceso / Enviado / En camino (más el pill "Todos"). `delivered` quedó
+ * Estados filtrables desde la barra flotante: open / sent / in_progress /
+ * ready / out_for_delivery (más el pill "Todos"). `delivered` quedó
  * FUERA por decisión del owner — una orden entregada no se consulta
  * operativamente; se llega a ella desde el menú principal y el listado de
  * transacciones. `closed`/`cancelled` tampoco aparecen: el listado del POS
