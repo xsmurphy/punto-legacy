@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest"
 import {
   AYUDA_DIR,
   getArticles,
+  getBlocks,
   listArticleFiles,
   readBlockTitles,
 } from "@/lib/docs/content"
@@ -67,6 +68,12 @@ describe("content/ayuda", () => {
     const titles = readBlockTitles()
     for (const a of articles) {
       expect(titles.get(a.blockKey), `${a.file}: bloque ${a.blockKey}`).toBeTruthy()
+    }
+  })
+
+  it("cada bloque tiene su descripción para el índice del sitio", () => {
+    for (const block of getBlocks()) {
+      expect(block.description, `bloque ${block.key}: falta en BLOCK_DESCRIPTIONS`).toBeTruthy()
     }
   })
 
