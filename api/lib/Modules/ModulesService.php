@@ -43,17 +43,19 @@ final class ModulesService
      * tusfacturas, newton, osWidget, extraUsers) y "soon" (campaigns, reminder).
      */
     private const NATIVE_KEYS = [
-        'ecom', 'attendance', 'priceCheck',
+        // `attendance` salió de esta lista en la F1 de context/83: la asistencia
+        // dejó de ser un módulo suelto y vive dentro de `rrhh`. Sacarlo de acá
+        // lo deja de reportar como toggleable — la columna/`moduleData` del
+        // tenant no se toca (nadie la lee más) y el reemplazo YA existe, que era
+        // la condición para apagarlo.
+        'ecom', 'priceCheck',
         'loyalty', 'feedback', 'crm',
         'calendar', 'tables', 'production', 'kds', 'cds', 'cos', 'ordersPanel',
         // Conteo de stock en la caja (context/63 D4): opcional por comercio,
         // como Órdenes y Espacios. Un comercio que no lo necesita no lo ve.
         'stockCount',
-        // RRHH (context/83 D9): legajo en la F0; asistencia, ausencias y
-        // liquidación en las fases siguientes, dentro del mismo módulo.
-        // `attendance` sigue en esta lista a propósito hasta la F1 — el
-        // comercio que hoy lo tiene prendido no se puede quedar sin él antes
-        // de que exista su reemplazo.
+        // RRHH (context/83 D9): legajo en la F0, asistencia en la F1; ausencias
+        // y liquidación en las fases siguientes, dentro del mismo módulo.
         'rrhh',
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
         'einvoicePy',

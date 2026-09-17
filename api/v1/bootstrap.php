@@ -64,6 +64,12 @@ $row = ncmExecute(
         -- company.moduleData.bancard. El POS necesita los dos para saber si
         -- ofrecer el QR y si mostrar la config del terminal físico.
         config->>'bancard'                  AS bancard,
+        -- RRHH (context/83 F1). El flat key es lo que escribe el toggle del
+        -- módulo; `ModuleState::enabled()` lo lee de acá y cae a moduleData si
+        -- no está. Sin esta columna en el SELECT, un comercio con el módulo
+        -- prendido por el toggle se vería apagado y la caja no bajaría a los
+        -- empleados que pueden marcar.
+        config->>'rrhh'                     AS rrhh,
         -- D3/D2 de context/40-anulacion-y-nota-credito.md: el POS necesita
         -- estos dos para el flujo de devolución — settingReturnRefund decide
         -- si pregunta 'cash'/'credit' o los ofrece los dos ('ask', default);
@@ -497,6 +503,35 @@ if ($isRegisterDevice) {
     // lo arma el operador contra el catálogo que el device ya tiene, así que
     // la caja no necesita que nadie le mande una lista.
     $payload['stockCountFromRegister'] = $countSettings->fromRegister();
+
+    // ── Quiénes pueden marcar asistencia en esta sucursal (context/83 F1) ──
+    //
+    // Mismo gate que el roster del lock screen —device que ES una caja— y por
+    // la misma razón: la lista lleva `markPinHash`, que es SHA-256 sin sal de 4
+    // dígitos. Una pantalla de cliente o un KDS no tienen por qué recibirla, y
+    // el panel menos.
+    //
+    // Baja en el BOOTSTRAP y no por un endpoint propio porque la marcación es
+    // offline-nativa (D7): el quiosco valida el PIN localmente contra estos
+    // hashes, exactamente como el lock screen valida el del operador. Un dato
+    // que la caja necesita SIN RED tiene que viajar en el snapshot, no en una
+    // llamada que va a fallar justo cuando hace falta.
+    //
+    // `lastKind`/`lastMarkedAt` viajan para que el quiosco pueda PROPONER
+    // entrada o salida sin preguntar. Es una sugerencia, no una regla: el
+    // empleado la puede cambiar de un toque, porque sin red el dato es viejo
+    // por definición (marcó en la otra tablet hace una hora) y hacerlo
+    // vinculante convertiría un dato desactualizado en una marcación mal
+    // tipificada.
+    //
+    // A diferencia del roster de operadores, ESTA lista sí depende del módulo:
+    // `rrhh` apagado = el comercio no tiene marcación, y mandarle la lista a la
+    // caja solo lograría que aparezca una pantalla que no va a usar. El ALTA,
+    // en cambio, no mira el módulo — ver el docblock de `v1/attendance.php`.
+    if (\Punto\Api\Modules\ModuleState::enabled($row, 'rrhh')) {
+        $payload['employees'] = (new \Punto\Api\Hr\AttendanceService())
+            ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
+    }
 }
 
 apiOk($payload);

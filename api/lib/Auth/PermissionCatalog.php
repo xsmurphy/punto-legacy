@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 10;
+    public const CURRENT_VERSION = 11;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -224,6 +224,29 @@ final class PermissionCatalog
             // aceptable.
             ['id' => 'hr.employees.view',        'label' => 'Ver legajos',            'group' => 'RRHH', 'since' => 10],
             ['id' => 'hr.employees.manage',      'label' => 'Gestionar legajos',      'group' => 'RRHH', 'since' => 10],
+
+            // ── RRHH (context/83, F1: asistencia) ────────────────────────────
+            //
+            // `since` = 11 y claves NUEVAS: el caso seguro del backfill (nunca
+            // estuvieron guardadas, así que no se le devuelven a ningún tenant
+            // — ver la advertencia del docblock de since()).
+            //
+            // Separadas del legajo y entre sí, y las tres divisiones importan:
+            //
+            //   - de `hr.employees.*`, porque la asistencia se mira todos los
+            //     días (quién llegó, quién faltó) y el legajo tiene sueldos y
+            //     documentos. Un encargado de turno necesita lo primero y no
+            //     tiene por qué tener lo segundo.
+            //   - `review` de `view`, porque revisar es DECIDIR: dar por buena
+            //     una marcación sin foto, o una que no pudo probar quién la
+            //     hizo. Es la contracara del fail-open — el flag no sirve de
+            //     nada si cualquiera que mira el reporte puede apagarlo.
+            //
+            // Igual que las del legajo, NO van a ningún seed de
+            // `RoleService::SEED_PERMISSIONS`: el Dueño las tiene por serlo y
+            // el resto las recibe cuando un admin las tilda.
+            ['id' => 'hr.attendance.view',       'label' => 'Ver asistencia',         'group' => 'RRHH', 'since' => 11],
+            ['id' => 'hr.attendance.review',     'label' => 'Revisar marcaciones',    'group' => 'RRHH', 'since' => 11],
 
             ['id' => 'reports.sales.view',       'label' => 'Reportes de ventas',     'group' => 'Reportes'],
             ['id' => 'reports.drawers.view',     'label' => 'Reportes de cajas',      'group' => 'Reportes'],
