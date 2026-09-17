@@ -1,7 +1,8 @@
 # 80 — Voz del agente (TTS por OpenRouter)
 
-> Estado: **plan sin implementar** (2026-09-17). D1 cerrada por el owner (la
-> voz se cobra del crédito IA del tenant). D2-D6 propuestas SIN su OK.
+> Estado: **en implementación** (2026-09-17). D1-D6 CERRADAS — el owner
+> aprobó las propuestas tal cual (Kokoro default, cobro por caracteres con
+> reason propio, fallback a voz nativa, v1 solo panel, blob sin streaming).
 
 ## 1. El pedido (owner)
 
