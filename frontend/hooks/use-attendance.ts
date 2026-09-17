@@ -23,6 +23,10 @@ export type AttendanceReviewReason =
   | "photo_lost"
   | "pin_stale"
   | "employee_inactive"
+  // F2: había una cara delante de la cámara y no era la de quien terminó
+  // marcando con su código. La marcación entró igual — la cara identifica, no
+  // autoriza (D4) — y este es el caso que el dueño quiere poder mirar.
+  | "face_mismatch"
 
 export interface AttendanceMarkRow {
   id: string

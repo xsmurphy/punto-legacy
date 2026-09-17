@@ -247,6 +247,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // el detalle y los adjuntos. Los adjuntos entran igual —se suben por
   // `/v1/employees?resource=attachments`, que publica la misma entity— y así
   // el legajo abierto en otra pantalla ve el archivo nuevo sin recargar.
+  //
+  // Desde la F2 el QUIOSCO también cuelga de acá: los rostros que baja para
+  // reconocer viven en `["employees", "faces", outletId]`
+  // (`use-attendance-faces.ts`). No hizo falta sumar una entidad — hizo falta
+  // elegir bien la clave. Es lo que hace que habilitar un registro desde el
+  // panel encienda el modo de captura en la caja sin que nadie la toque, y que
+  // un egreso le saque el rostro cacheado en el momento.
   employee:          [["employees"]],
   // attendance (attendance.php, context/83 F1). La entity la deriva el
   // publisher del path `/v1/attendance` — "attendance" no tiene plural que

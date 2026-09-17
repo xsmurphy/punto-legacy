@@ -100,6 +100,9 @@ export function useSubmitAttendanceMark() {
       form.set("kind", payload.kind)
       form.set("markedAt", payload.markedAt)
       form.set("method", payload.method)
+      // Ver `AttendanceMarkPayload.faceOutcome`: solo puede sumar un motivo de
+      // revisión, nunca rechazar la marcación.
+      form.set("faceOutcome", payload.faceOutcome ?? "none")
       if (photo) {
         form.set("photo", photo, "marcacion.jpg")
       } else {

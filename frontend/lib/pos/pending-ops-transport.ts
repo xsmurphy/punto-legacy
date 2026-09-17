@@ -275,6 +275,9 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         form.set('kind', payload.kind)
         form.set('markedAt', payload.markedAt)
         form.set('method', payload.method)
+        // Qué vio la cámara (F2). Una marcación encolada antes de esa fase no
+        // trae la clave: 'none' es exactamente lo que significa su ausencia.
+        form.set('faceOutcome', payload.faceOutcome ?? 'none')
 
         // La foto se lee recién ACÁ, al enviar, y no al encolar: es lo que hace
         // que leer la cola siga siendo barato (ver `opBlobs` en `offline-db.ts`).

@@ -31,6 +31,23 @@
  * revise. Dejar a alguien que sí fue a trabajar sin poder registrarlo es un
  * daño concreto; el fraude se ataca con la evidencia y la revisión.
  *
+ * ── El rostro es un ATAJO, nunca un portón (F2, D4) ────────────────────────
+ *
+ * Con la cara registrada, la persona se para enfrente, parpadea y confirma. Sin
+ * ella —modelo que no cargó, contraluz, nadie enrolado, una tablet sin cámara—
+ * la pantalla es EXACTAMENTE la de la F1: el teclado, el código, la foto. No hay
+ * un solo camino en el que el reconocimiento impida marcar; lo único que hace es
+ * ahorrar cuatro dígitos cuando funciona.
+ *
+ * Por eso el teclado está siempre, en el mismo lugar, con o sin reconocimiento
+ * (§10 de context/14): la persona que marca todos los días no tiene que
+ * averiguar en qué modo está la pantalla hoy.
+ *
+ * Y si alguien se paró frente a la cámara, no se lo reconoció, y terminó
+ * marcando con un código: la marcación entra y queda para revisar. Ese caso —el
+ * código de otro— es justo el que el modelo viejo, con el QR y el celular
+ * propio, no dejaba ver.
+ *
  * ── Reglas del POS que gobiernan el layout ─────────────────────────────────
  *
  * - Posiciones estables (§10 de context/14): el teclado, los cuatro círculos
@@ -46,7 +63,7 @@
  */
 
 import * as React from "react"
-import { Camera, CameraOff, Check, Delete, LogIn, LogOut, UserCheck } from "lucide-react"
+import { Camera, CameraOff, Check, Delete, LogIn, LogOut, ScanFace, UserCheck } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -54,6 +71,7 @@ import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
+import { FaceEnrollment } from "@/components/pos/face-enrollment"
 import { cn } from "@/lib/utils"
 
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -68,6 +86,8 @@ import {
 import { peekOpsByStream } from "@/lib/pos/pending-ops"
 import type { AttendanceMarkPayload } from "@/lib/pos/local-register-state"
 import { useSubmitAttendanceMark } from "@/hooks/use-attendance-mark"
+import { useAttendanceFaces, useEnrollFace } from "@/hooks/use-attendance-faces"
+import { resolveFaceOutcome, useFaceRecognition } from "@/hooks/use-face-recognition"
 import type { PosEmployee } from "@/lib/types/pos-bootstrap"
 
 const PIN_LENGTH = 4
@@ -84,10 +104,16 @@ export default function MarcacionPage() {
 
   const [pin, setPin] = React.useState("")
   const [error, setError] = React.useState(false)
-  /** La persona identificada, esperando confirmar entrada o salida. */
+  /**
+   * La persona identificada, esperando confirmar entrada o salida.
+   *
+   * `via` dice CÓMO se la identificó. No cambia lo que se ve —los dos botones
+   * son los mismos— pero sí lo que se informa al registrar la marcación.
+   */
   const [matched, setMatched] = React.useState<{
     employee: PosEmployee
     proposed: AttendanceKind
+    via: "pin" | "face"
   } | null>(null)
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -166,6 +192,71 @@ export default function MarcacionPage() {
     }
   }, [])
 
+  // ── Reconocimiento facial (F2) ────────────────────────────────────────────
+  //
+  // Los rostros bajan por su propio endpoint y no en el bootstrap: son biometría
+  // y una sola pantalla los usa (ver `use-attendance-faces.ts`). Sin conexión
+  // salen del caché local, así que reconocer sigue andando sin internet.
+  const outletId = outlet?.id ?? ""
+  // Solo se piden cuando hay cámara: sin ella no hay nada que comparar, y pedir
+  // vectores faciales que nadie va a usar es exponer biometría sin motivo.
+  const faces = useAttendanceFaces(outletId, camera?.ok === true)
+  const enrollFace = useEnrollFace(outletId)
+
+  /**
+   * Un registro que este quiosco decidió no atender ahora.
+   *
+   * El quiosco NO puede cancelar la habilitación —la abrió el panel y solo el
+   * panel la cierra— así que "Ahora no" la aparta de ESTA pantalla y nada más.
+   * Vence sola en unos minutos. Fingir que la cancela sería mentirle a quien la
+   * abrió, que seguiría viendo "esperando al quiosco" en la ficha.
+   */
+  const [dismissedEnrollment, setDismissedEnrollment] = React.useState<string | null>(null)
+  const openEnrollment = faces.data?.enrollment ?? null
+  const pendingEnrollment =
+    openEnrollment && openEnrollment.employeeId !== dismissedEnrollment ? openEnrollment : null
+
+  /**
+   * Alguien quedó identificado por la cara.
+   *
+   * Se busca en el roster que ya bajó en el bootstrap —el mismo del código— y no
+   * en otra lista: el rostro aporta el ID, todo lo demás (nombre, puesto, última
+   * marcación) sale de donde salía antes. Si esa persona no está en el roster
+   * (se le borró el código, cambió de sucursal) no se propone nada: el
+   * reconocimiento nunca puede habilitar a alguien que la pantalla no habilitaría
+   * igual por código.
+   */
+  const identifyByFace = React.useCallback(
+    (employeeId: string) => {
+      const found = employees.find((e) => e.id === employeeId)
+      if (!found) return
+      const last = lastKnownMark(found.lastKind, found.lastMarkedAt, queued, found.id)
+      setPin("")
+      setError(false)
+      setMatched({ employee: found, proposed: proposedKind(last), via: "face" })
+    },
+    [employees, queued],
+  )
+
+  const face = useFaceRecognition({
+    videoRef,
+    candidates: faces.data?.faces ?? [],
+    // Sin cámara no hay nada que mirar, y sin nadie registrado tampoco: así el
+    // comercio que no usa el rostro no baja los 8 MB del modelo.
+    //
+    // La excepción es el REGISTRO: el primero de un comercio ocurre justamente
+    // cuando la lista está vacía, y sin esta condición el modelo nunca cargaría
+    // y el botón de capturar quedaría deshabilitado para siempre.
+    enabled:
+      camera?.ok === true &&
+      ((faces.data?.faces.length ?? 0) > 0 || pendingEnrollment !== null),
+    // Con la confirmación abierta o en pleno registro de un rostro, el bucle se
+    // detiene: seguir proponiendo nombres mientras la persona decide sería
+    // pisarle la pantalla debajo del dedo.
+    paused: matched !== null || pendingEnrollment !== null,
+    onIdentified: identifyByFace,
+  })
+
   // ── Identificación por PIN ────────────────────────────────────────────────
   //
   // Local y sin red, contra los hashes del snapshot. Mismo mecanismo que el
@@ -187,7 +278,7 @@ export default function MarcacionPage() {
       const last = lastKnownMark(found.lastKind, found.lastMarkedAt, queued, found.id)
       setError(false)
       setPin("")
-      setMatched({ employee: found, proposed: proposedKind(last) })
+      setMatched({ employee: found, proposed: proposedKind(last), via: "pin" })
     }, 80)
 
     return () => {
@@ -237,6 +328,13 @@ export default function MarcacionPage() {
         ? camera.reason
         : "photo_failed"
 
+    // Qué vio la cámara. Se resuelve ACÁ, al confirmar, porque depende de quién
+    // terminó marcando: la misma cara vista treinta segundos antes significa
+    // cosas distintas según el código que se haya tipeado. Ver
+    // `resolveFaceOutcome()`.
+    const method = matched.via
+    const faceOutcome = resolveFaceOutcome(method, face.lastSighting.current, employee.id)
+
     try {
       const result = await submit.mutateAsync({
         employeeId: employee.id,
@@ -246,9 +344,10 @@ export default function MarcacionPage() {
         // La hora del DISPOSITIVO, en el momento de marcar. Nunca la del envío:
         // esta marcación puede sincronizar mañana.
         markedAt: new Date().toISOString(),
-        method: "pin",
+        method,
         photoPending: photo !== null,
         noPhotoReason,
+        faceOutcome,
         photo,
         registerId: activeRegisterId,
       })
@@ -267,9 +366,23 @@ export default function MarcacionPage() {
       }
 
       setMatched(null)
+      // Se olvida lo visto: el parpadeo de quien acaba de marcar no puede
+      // acreditar a la persona que venga después.
+      face.reset()
       void refreshQueued()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo registrar la marcación")
+    }
+  }
+
+  /** Guarda el rostro capturado y avisa. No se encola: ver `useEnrollFace`. */
+  async function submitEnrollment(samples: number[][], photo: Blob | null) {
+    if (!pendingEnrollment) return
+    try {
+      await enrollFace.mutateAsync({ employeeId: pendingEnrollment.employeeId, samples, photo })
+      toast.success(`Listo — ${pendingEnrollment.name} ya se puede identificar con su rostro`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo registrar el rostro")
     }
   }
 
@@ -305,8 +418,37 @@ export default function MarcacionPage() {
   const cameraBadge: { label: string; reason: string } = camera === null
     ? { label: "Preparando cámara", reason: "Estamos activando la cámara del dispositivo." }
     : camera.ok
-      ? { label: "Cámara lista", reason: "Se guarda una foto en el momento de marcar." }
+      ? {
+          label: "Cámara lista",
+          reason:
+            face.status === "ready"
+              ? "Te reconoce por tu rostro, y se guarda una foto al marcar."
+              : "Se guarda una foto en el momento de marcar.",
+        }
       : { label: "Sin cámara", reason: `${camera.message} La marcación queda para revisar.` }
+
+  /**
+   * La línea de ayuda del reconocimiento.
+   *
+   * Existe SIEMPRE con la misma altura, aunque esté vacía (§10 de context/14):
+   * un renglón que aparece y desaparece movería el teclado varios pixeles según
+   * si en ese instante hay una cara delante de la cámara, y el teclado es lo que
+   * la persona busca con el dedo sin mirar.
+   *
+   * Vacía cuando no hay nada que decir — sin cámara, sin nadie registrado, con
+   * el modelo que no cargó. En todos esos casos la pantalla es la de la F1 y no
+   * hace falta explicar por qué: se marca con el código, como siempre.
+   */
+  const faceHint =
+    matched !== null
+      ? ""
+      : face.status === "loading"
+        ? "Preparando el reconocimiento"
+        : face.awaitingBlink
+          ? "Parpadeá para confirmar"
+          : face.status === "ready" && face.facePresent
+            ? "Mirá a la cámara"
+            : ""
 
   return (
     <div className="flex h-full flex-col">
@@ -368,9 +510,39 @@ export default function MarcacionPage() {
               <CameraOff className="size-8 text-muted-foreground" />
             </div>
           )}
+          {/* Anillo de reconocimiento: se pinta SOBRE el visor que ya existe, no
+              se agrega un bloque al lado. La señal de estado va encima de un
+              elemento fijo (§10) — así nada se desplaza cuando aparece una cara. */}
+          {face.facePresent && !matched && (
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-0 rounded-full ring-4 transition-colors",
+                face.awaitingBlink ? "ring-primary" : "ring-foreground/30",
+              )}
+            />
+          )}
         </div>
 
-        {matched ? (
+        {/* Altura fija aunque esté vacía: ver `faceHint`. */}
+        <p className="flex h-5 items-center gap-1.5 text-sm text-muted-foreground">
+          {faceHint && <ScanFace className="size-4" />}
+          {faceHint}
+        </p>
+
+        {pendingEnrollment ? (
+          // ── Registro de un rostro ──
+          // Lo habilitó el panel para ESTA persona. La pantalla no elige a quién
+          // registra: ver el docblock de `<FaceEnrollment>`.
+          <FaceEnrollment
+            enrollment={pendingEnrollment}
+            videoRef={videoRef}
+            readOnce={face.readOnce}
+            ready={face.status === "ready"}
+            submitting={enrollFace.isPending}
+            onSubmit={submitEnrollment}
+            onCancel={() => setDismissedEnrollment(pendingEnrollment.employeeId)}
+          />
+        ) : matched ? (
           // ── Confirmación ──
           // La persona ya está identificada: lo único que queda es decir si
           // entra o sale. Los dos botones son grandes y del mismo tamaño, con el
@@ -411,7 +583,12 @@ export default function MarcacionPage() {
               variant="ghost"
               className="h-12 w-full"
               disabled={submit.isPending}
-              onClick={() => setMatched(null)}
+              onClick={() => {
+                setMatched(null)
+                // Se olvida lo visto: si no era esa persona, el parpadeo que se
+                // contó tampoco era suyo.
+                face.reset()
+              }}
             >
               No soy yo
             </Button>

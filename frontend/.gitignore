@@ -41,3 +41,7 @@ pnpm-debug.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Modelos del reconocimiento facial: los copia `prebuild` desde node_modules
+# (scripts/copy-face-models.mjs). Binarios versionados por package-lock, no por git.
+/public/models
