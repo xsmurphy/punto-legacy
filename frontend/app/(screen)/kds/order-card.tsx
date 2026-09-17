@@ -18,6 +18,7 @@ import {
   type KdsOrderStatus,
 } from "@/lib/kds/kds-visuals"
 import { orderDestination } from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Tarjeta de comanda del KDS — flujo horizontal (rediseño 2026-07-27).
@@ -91,6 +92,7 @@ export function OrderCard({
   onBumpItem,
   onStepBackItem,
 }: OrderCardProps) {
+  const statusLabels = useOrderStatusLabels()
   const elapsed = useElapsed(order.sentAt ?? order.createdAt, {
     warnMin: config.warnMin,
     lateMin: config.lateMin,
@@ -106,7 +108,9 @@ export function OrderCard({
 
   const destination = orderDestination(order)
   const bumpable = items.filter((i) => i.status === "pending" || i.status === "preparing")
-  const status = KDS_STATUS_VISUALS[order.status as KdsOrderStatus] ?? KDS_STATUS_VISUALS.sent
+  const kdsStatus: KdsOrderStatus = order.status in KDS_STATUS_VISUALS ? (order.status as KdsOrderStatus) : "sent"
+  const status = KDS_STATUS_VISUALS[kdsStatus]
+  const statusName = statusLabels.label(kdsStatus)
   /**
    * El acento SÓLIDO (franja, borde, etiqueta) va en el tono del modo: los hex
    * de la paleta están pensados para brillar sobre fondo oscuro y sobre blanco
@@ -160,7 +164,7 @@ export function OrderCard({
     <div
       role="button"
       tabIndex={0}
-      aria-label={`Comanda ${order.orderNumber ?? ""} — ${status.label}`}
+      aria-label={`Comanda ${order.orderNumber ?? ""} — ${statusName}`}
       aria-disabled={busy || bumpable.length === 0}
       aria-current={selected ? "true" : undefined}
       onClick={bumpAll}
@@ -237,7 +241,7 @@ export function OrderCard({
               {destination.label}
             </Badge>
             <span className="shrink-0 font-semibold uppercase tracking-wide" style={{ color: accent }}>
-              {status.label}
+              {statusName}
             </span>
             {order.customerName && (
               <span className="truncate text-muted-foreground">{order.customerName}</span>

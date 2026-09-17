@@ -17,7 +17,8 @@ import type { Order } from "@/hooks/use-orders"
 import { doneAtIso, recallBlockReason, RECALL_LIMIT, screenItems } from "@/lib/kds/board"
 import { KDS_ITEM_VISUALS, kdsTint } from "@/lib/kds/kds-visuals"
 import { formatTime } from "@/lib/format-date"
-import { orderDestination, statusLabelFor } from "@/lib/orders/order-display"
+import { orderDestination } from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Panel de comandas que ya SALIERON del board (recall).
@@ -58,6 +59,7 @@ export function KdsRecallDialog({
   busyIds,
   onRecall,
 }: RecallDialogProps) {
+  const { labelFor } = useOrderStatusLabels()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -96,7 +98,7 @@ export function KdsRecallDialog({
                           <span className="text-lg font-bold tabular-nums">
                             #{order.orderNumber ?? "—"}
                           </span>
-                          <Badge variant="secondary">{statusLabelFor(order)}</Badge>
+                          <Badge variant="secondary">{labelFor(order)}</Badge>
                           <span className="text-sm text-muted-foreground tabular-nums">
                             {doneIso ? formatTime(doneIso) : "—"}
                           </span>

@@ -2,6 +2,7 @@ import { cookies } from "next/headers"
 
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { PanelAuthGuard } from "@/components/layout/panel-auth-guard"
+import { PanelOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 
 /**
  * Layout del panel.
@@ -34,12 +35,14 @@ export default async function PanelLayout({
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <PanelAuthGuard>
-        <SidebarInset>
-          <SidebarTrigger className="fixed left-[calc(0.75rem+var(--safe-l))] top-[calc(0.75rem+var(--safe-t))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
-          <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+var(--safe-t))] pb-[calc(6rem+var(--safe-b))] md:p-6 md:pt-6 md:pb-[calc(6rem+var(--safe-b))]">
-            {children}
-          </main>
-        </SidebarInset>
+        <PanelOrderStatusLabels>
+          <SidebarInset>
+            <SidebarTrigger className="fixed left-[calc(0.75rem+var(--safe-l))] top-[calc(0.75rem+var(--safe-t))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
+            <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+var(--safe-t))] pb-[calc(6rem+var(--safe-b))] md:p-6 md:pt-6 md:pb-[calc(6rem+var(--safe-b))]">
+              {children}
+            </main>
+          </SidebarInset>
+        </PanelOrderStatusLabels>
       </PanelAuthGuard>
     </SidebarProvider>
   )

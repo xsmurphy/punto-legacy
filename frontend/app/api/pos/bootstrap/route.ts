@@ -36,6 +36,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server"
+import { normalizeOrderStatusLabels } from "@/lib/orders/order-status-labels"
 import type {
   PosBootstrap,
   PosConfig,
@@ -135,6 +136,8 @@ interface UpstreamBootstrap {
    * el prompt de la caja simplemente no lleva el bloque.
    */
   agentBusinessContext?: string
+  /** Nombres de etapas de órdenes renombradas. Ausente = `/api` anterior a la feature. */
+  orderStatusLabels?: unknown
   logoUrl?: string
   publicUrl: string
   user: { id: string | number; role: number }
@@ -454,6 +457,7 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     // ['panel','api'] y el BFF del asistente de la caja es token-only. Como
     // toda config de caja (context/51), viaja acá y sobrevive offline.
     agentBusinessContext: bs.agentBusinessContext ?? "",
+    orderStatusLabels: normalizeOrderStatusLabels(bs.orderStatusLabels),
     companyLogo: bs.logoUrl || null,
     publicUrl: bs.publicUrl ?? "",
     companyBillingName: bs.companyBillingName || null,

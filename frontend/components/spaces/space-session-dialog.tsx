@@ -61,7 +61,8 @@ import {
 } from "@/hooks/use-orders"
 import { CancelOrderItemDialog } from "@/components/orders/cancel-order-item-dialog"
 import { useLockStore } from "@/lib/pos/lock-store"
-import { canCancelOrderItem, orderTotal, statusLabelFor } from "@/lib/orders/order-display"
+import { canCancelOrderItem, orderTotal } from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
 import { cancelSessionDescription, countActiveOrders } from "@/lib/spaces/cancel-session-copy"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
@@ -94,6 +95,7 @@ export function SpaceSessionDialog({
 }: Props) {
   const config = useCatalogStore((s) => s.config)
   const users = useCatalogStore((s) => s.users)
+  const statusLabels = useOrderStatusLabels()
   const sessionId = table?.session?.id ?? null
   const { data, isLoading } = useOrdersBySession(sessionId)
   const orders = data?.orders ?? []
@@ -184,7 +186,7 @@ export function SpaceSessionDialog({
                       >
                         Orden #{o.orderNumber ?? "—"}
                       </span>
-                      <Badge variant="outline">{statusLabelFor(o)}</Badge>
+                      <Badge variant="outline">{statusLabels.labelFor(o)}</Badge>
                     </div>
                     {(o.items?.length ?? 0) > 0 && (
                       <ul className="mt-1.5 flex flex-col gap-0.5 border-t border-border/60 pt-1.5">

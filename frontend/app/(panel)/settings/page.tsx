@@ -71,6 +71,12 @@ import {
 } from "@/lib/settings/sections"
 import { CountryFlag } from "@/components/ui/country-flag"
 import { COUNTRY_LOCALE as TENANT_COUNTRY_LOCALE } from "@/lib/tenant-locale"
+import {
+  DEFAULT_ORDER_STATUS_LABELS,
+  ORDER_STATUS_LABEL_KEYS,
+  ORDER_STATUS_LABEL_MAX,
+  type OrderStatusLabelKey,
+} from "@/lib/orders/order-status-labels"
 
 // Zonas horarias (IANA) — el usuario elige de una lista en vez de tipear el
 // formato exacto. Foco LatAm + las comunes; el value es el IANA tz real.
@@ -202,7 +208,30 @@ const settingsSchema = z.object({
   // El tope también se aplica server-side (SettingsService::MAX_AGENT_BUSINESS_CONTEXT):
   // el largo es costo de CADA request del chat, así que no puede depender del form.
   agentBusinessContext: z.string().max(AGENT_BUSINESS_CONTEXT_MAX, `Máximo ${AGENT_BUSINESS_CONTEXT_MAX} caracteres`),
+  // Nombres de etapas de órdenes. Vacío = nombre de fábrica. Mismo tope y
+  // misma limpieza que OrderStatusLabels (api), que es quien manda.
+  orderStatusLabels: z.object(
+    Object.fromEntries(
+      ORDER_STATUS_LABEL_KEYS.map((key) => [
+        key,
+        z
+          .string()
+          .max(ORDER_STATUS_LABEL_MAX, `Máximo ${ORDER_STATUS_LABEL_MAX} caracteres`)
+          .refine((v) => !/[<>]/.test(v), "Sin los signos < ni >")
+          .optional(),
+      ]),
+    ) as Record<OrderStatusLabelKey, z.ZodOptional<z.ZodString>>,
+  ),
 })
+
+/** Una fila por etapa, con "" en las que usan el nombre de fábrica. */
+function orderStatusLabelsFormValue(
+  labels: Partial<Record<OrderStatusLabelKey, string>> | null | undefined,
+): Record<OrderStatusLabelKey, string> {
+  return Object.fromEntries(
+    ORDER_STATUS_LABEL_KEYS.map((key) => [key, labels?.[key] ?? ""]),
+  ) as Record<OrderStatusLabelKey, string>
+}
 
 // Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
 // matchee "Módulos", etc. Mismo patrón que components/modules/module-catalog-panel.tsx
@@ -254,6 +283,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "stockCountBlind", "stockCountRecordOnly", "stockCountFromRegister",
     "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
+    "orderStatusLabels",
   ],
   apariencia: [],
   // D4 de context/69 — los tres campos del asistente en un solo lugar. Sin
@@ -444,6 +474,7 @@ function SettingsPageInner() {
       agentName: data.agentName ?? "",
       agentPersonality: data.agentPersonality ?? "professional",
       agentBusinessContext: data.agentBusinessContext ?? "",
+      orderStatusLabels: orderStatusLabelsFormValue(data.orderStatusLabels),
     })
   }, [data, form])
 
@@ -1005,6 +1036,8 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
         />
       </Section>
 
+      <OrderStatusLabelsSection form={form} />
+
       <Section title="Cajas y arqueo">
         <ToggleField
           form={form}
@@ -1211,6 +1244,56 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
  * El usuario puede tocar las dos cosas y guardar cada una con su propio botón
  * para evitar pisar uno con el otro.
  */
+/**
+ * Nombres de las etapas de las órdenes. Solo renombra: no agrega, quita ni
+ * reordena etapas. Vacío = nombre de fábrica (el placeholder). "Restablecer"
+ * vacía todas; se guarda con el Guardar de la sección, como el resto.
+ */
+function OrderStatusLabelsSection({ form }: { form: UseFormReturn<SettingsFormValues> }) {
+  const values = form.watch("orderStatusLabels")
+  const anyRenamed = ORDER_STATUS_LABEL_KEYS.some((key) => (values?.[key] ?? "").trim() !== "")
+
+  function resetAll() {
+    for (const key of ORDER_STATUS_LABEL_KEYS) {
+      form.setValue(`orderStatusLabels.${key}`, "", { shouldDirty: true, shouldValidate: true })
+    }
+  }
+
+  return (
+    <Section title="Etapas de las órdenes">
+      {ORDER_STATUS_LABEL_KEYS.map((key) => (
+        <FormField
+          key={key}
+          control={form.control}
+          name={`orderStatusLabels.${key}`}
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>{DEFAULT_ORDER_STATUS_LABELS[key]}</FormLabel>
+              <FormControl>
+                <Input
+                  placeholder={DEFAULT_ORDER_STATUS_LABELS[key]}
+                  maxLength={ORDER_STATUS_LABEL_MAX}
+                  name={field.name}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  value={field.value ?? ""}
+                  onChange={field.onChange}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      ))}
+      <div>
+        <Button type="button" variant="outline" size="sm" onClick={resetAll} disabled={!anyRenamed}>
+          Restablecer
+        </Button>
+      </div>
+    </Section>
+  )
+}
+
 function MonedasTab() {
   const { data, isLoading, error } = useSettingsCurrencies()
   const update = useUpdateCurrencies()
@@ -1686,5 +1769,6 @@ function emptyValues(): SettingsFormValues {
     agentName: "",
     agentPersonality: "professional",
     agentBusinessContext: "",
+    orderStatusLabels: orderStatusLabelsFormValue(null),
   }
 }

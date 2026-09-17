@@ -20,12 +20,8 @@ import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { ActionMenu } from "@/components/ui/action-menu"
 import { useUpdateOrderStatus, type Order } from "@/hooks/use-orders"
-import {
-  STATUS_LABEL,
-  STATUS_VARIANT,
-  manualStatusOptions,
-  statusLabelFor,
-} from "@/lib/orders/order-display"
+import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
+import { STATUS_VARIANT, manualStatusOptions } from "@/lib/orders/order-display"
 
 export function OrderStatusBadge({
   order,
@@ -40,17 +36,18 @@ export function OrderStatusBadge({
   interactive?: boolean
 }) {
   const updateStatus = useUpdateOrderStatus()
+  const { label, labelFor } = useOrderStatusLabels()
   const statusOptions = interactive ? manualStatusOptions(order) : []
 
   if (statusOptions.length === 0) {
-    return <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
+    return <Badge variant={STATUS_VARIANT[order.status]}>{labelFor(order)}</Badge>
   }
 
   function handleStatusChange(status: Order["status"]) {
     updateStatus.mutate(
       { orderId: order.id, status },
       {
-        onSuccess: () => toast.success(`Orden #${order.orderNumber} → ${STATUS_LABEL[status]}`),
+        onSuccess: () => toast.success(`Orden #${order.orderNumber} → ${label(status)}`),
         // El error real del server, no uno genérico — la whitelist del front
         // es solo un espejo, el backend revalida y puede rechazar igual.
         onError: (err) => toast.error("No se pudo cambiar el estado", { description: err.message }),
@@ -83,12 +80,12 @@ export function OrderStatusBadge({
             variant={STATUS_VARIANT[order.status]}
             className="relative cursor-pointer gap-0.5 pr-1 after:absolute after:-inset-2 after:content-['']"
           >
-            {statusLabelFor(order)}
+            {labelFor(order)}
             <ChevronDown className="size-3" aria-hidden />
           </Badge>
         }
         actions={statusOptions.map((s) => ({
-          label: STATUS_LABEL[s],
+          label: label(s),
           onSelect: () => handleStatusChange(s),
         }))}
       />

@@ -8,10 +8,11 @@
  * import circular que rompe en la inicialización del módulo.
  */
 
-import type { OrderEvent, OrderStatus } from "@/hooks/use-orders"
+import type { OrderEvent } from "@/hooks/use-orders"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import { DEVICE_KIND_LABELS, type DeviceKind } from "@/lib/devices/connected-device"
-import { ACTOR_KIND_LABEL, STATUS_LABEL } from "@/lib/orders/order-display"
+import { ACTOR_KIND_LABEL } from "@/lib/orders/order-display"
+import { orderStatusLabel, type OrderStatusLabels } from "@/lib/orders/order-status-labels"
 
 /**
  * Etiqueta legible de un extremo de la transición. El historial mezcla eventos
@@ -19,20 +20,27 @@ import { ACTOR_KIND_LABEL, STATUS_LABEL } from "@/lib/orders/order-display"
  * máquinas de estado distintas, así que se resuelve contra el mapa que
  * corresponda según el `scope` del evento. Sin esto se imprimía el valor crudo
  * de la BD ("open → sent"), que no le dice nada a quien atiende.
+ *
+ * Los de orden salen con los nombres de etapa del comercio (`labels`, de
+ * `useOrderStatusLabels()`); los de ítem no se renombran.
  */
-export function eventStatusLabel(scope: OrderEvent["scope"], status: string | null): string {
+export function eventStatusLabel(
+  scope: OrderEvent["scope"],
+  status: string | null,
+  labels?: OrderStatusLabels | null,
+): string {
   if (!status) return ""
   if (scope === "item") {
     return KDS_ITEM_VISUALS[status as keyof typeof KDS_ITEM_VISUALS]?.label ?? status
   }
-  return STATUS_LABEL[status as OrderStatus] ?? status
+  return orderStatusLabel(status, labels)
 }
 
-/** "Enviada → En proceso", o solo el destino en el evento de creación. */
-export function eventTransitionLabel(ev: OrderEvent): string {
+/** "En espera → En proceso", o solo el destino en el evento de creación. */
+export function eventTransitionLabel(ev: OrderEvent, labels?: OrderStatusLabels | null): string {
   return ev.fromStatus
-    ? `${eventStatusLabel(ev.scope, ev.fromStatus)} → ${eventStatusLabel(ev.scope, ev.toStatus)}`
-    : eventStatusLabel(ev.scope, ev.toStatus)
+    ? `${eventStatusLabel(ev.scope, ev.fromStatus, labels)} → ${eventStatusLabel(ev.scope, ev.toStatus, labels)}`
+    : eventStatusLabel(ev.scope, ev.toStatus, labels)
 }
 
 /**

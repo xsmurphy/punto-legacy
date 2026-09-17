@@ -20,7 +20,7 @@
 
 import type { OrderItemStatus, OrderStatus } from "@/hooks/use-orders"
 import type { ElapsedTier } from "@/hooks/use-elapsed"
-import { STATUS_LABEL, STATUS_ACCENT } from "@/lib/orders/order-display"
+import { STATUS_ACCENT } from "@/lib/orders/order-display"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 
 /** Gris neutro de emergencia — nunca debería usarse (ver comentario abajo). */
@@ -57,8 +57,9 @@ export interface KdsVisual {
  * que el modo Orden del carrito y `occupied` en el plano de espacios — mismo
  * color para el mismo concepto en todo el producto.
  *
- * Los labels salen de `STATUS_LABEL` (lib/orders/order-display.ts) — fuente
- * única con /pos/ordenes: quien opera y el cajero nombran igual los estados.
+ * El NOMBRE de la etapa no vive acá: el comercio lo puede renombrar y sale de
+ * `useOrderStatusLabels()` (misma fuente que /pos/ordenes: quien opera y el
+ * cajero nombran igual los estados).
  *
  * El color sale de `STATUS_ACCENT` (mismo archivo) — fuente única de estado→
  * color para toda la app, incluida la vista lista de /pos/ordenes. Acá solo
@@ -73,10 +74,10 @@ function statusAccent(status: KdsOrderStatus): string {
   return accent
 }
 
-export const KDS_STATUS_VISUALS: Record<KdsOrderStatus, KdsVisual> = {
-  sent: { accent: statusAccent("sent"), label: STATUS_LABEL.sent },
-  in_progress: { accent: statusAccent("in_progress"), label: STATUS_LABEL.in_progress },
-  ready: { accent: statusAccent("ready"), label: STATUS_LABEL.ready },
+export const KDS_STATUS_VISUALS: Record<KdsOrderStatus, Pick<KdsVisual, "accent">> = {
+  sent: { accent: statusAccent("sent") },
+  in_progress: { accent: statusAccent("in_progress") },
+  ready: { accent: statusAccent("ready") },
 }
 
 /**
