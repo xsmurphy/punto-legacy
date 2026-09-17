@@ -48,16 +48,15 @@ impresora de cocina?" hoy no tiene de dónde responder.
 
 El asistente del panel y de la caja, no el agente de atención.
 
-### D2 — Una sola burbuja: Punto AI, siempre activa. Soporte va al menú de usuario. **Cerrada (2026-09-17).**
+### D2 — Una sola burbuja: Punto AI. El soporte del CRM queda FUERA de alcance. **Cerrada (2026-09-17).**
 
-El CRM de soporte (IA + humanos) tiene su propio snippet JS con burbuja. Dos
-burbujas en la misma pantalla no. Punto AI conserva la burbuja; soporte se
-abre desde el menú de usuario del sidebar.
+Punto AI conserva la burbuja y es lo único que se construye acá.
 
-⚠ Al integrarlo: los snippets de webchat suelen inyectar su propio botón
-flotante al cargar. Hay que usar la opción del snippet para ocultar el lanzador
-y abrirlo por API desde el ítem del menú; si el snippet no la tiene, la
-integración se frena ahí, no se tapa el botón con CSS.
+El CRM de soporte (IA + humanos) es otro sistema, con su propio RAG ya hecho,
+y **no se integra todavía**. Nada de este plan depende de él ni lo prepara: si
+más adelante entra, se decide ahí dónde vive su acceso. Lo único que queda
+dicho es la regla que lo motivó — dos burbujas flotantes en la misma pantalla,
+no.
 
 ### D3 — La fuente es `frontend/content/ayuda/`, no una carga en /admin. **Cerrada (2026-09-17).**
 
@@ -126,15 +125,17 @@ dentro del texto embebido y además en un `tsvector` en la misma base: búsqueda
 **híbrida**, vector + texto, para que un término exacto ("timbrado") no pierda
 contra algo que solo se le parece.
 
-### D9 — Tool `search_punto_help`, con umbral y salida a soporte. *(propuesta)*
+### D9 — Tool `search_punto_help`, con umbral. *(propuesta)*
 
 En el catálogo compartido `frontend/lib/agent/read-tools.ts`. Devuelve los 3-5
 fragmentos más relevantes que pasen un umbral de similitud, con el link al
 artículo.
 
 Regla en el prompt: el CÓMO se responde con lo que devuelve la tool, citando
-el artículo. Si nada pasa el umbral, se dice que no está documentado y se
-indica el soporte del menú de usuario (D2) — nunca se inventa un paso.
+el artículo. Si nada pasa el umbral, se dice que no está documentado — nunca
+se inventa un paso, y nunca se afirma que la función no existe (el artículo
+puede faltar aunque la función esté). No se nombra ningún canal de soporte:
+mientras el CRM esté fuera de alcance (D2), no hay uno que ofrecer desde acá.
 
 ⚠ El agente de la caja usa ALLOWLIST (`lib/pos/agent-tools.ts`): la tool hay
 que sumarla ahí a propósito.
@@ -188,7 +189,6 @@ tenants y no debe tocar esta ni la otra por error.
 | **R2** | Endpoint de búsqueda híbrida + tool `search_punto_help` + regla en el prompt del panel |
 | **R3** | Sumarla al agente de la caja |
 | **R4** | Botón Reindexar + estado en `/admin`, y registro de búsquedas sin resultado |
-| **S1** | Soporte en el menú de usuario (D2) — independiente, puede ir antes |
 
 R4 convierte el RAG en algo que mejora: las preguntas sin respuesta son la
 lista de artículos pendientes de escribir.
@@ -206,9 +206,10 @@ lista de artículos pendientes de escribir.
 - **Re-embeber todo en cada deploy.** Ver D7.
 - **Mezclar modelos de embedding en el mismo índice.** Resultados sin sentido,
   sin error. Ver D5.
-- **Dos burbujas.** Ver D2.
-- **Tapar el lanzador del snippet de soporte con CSS.** Se rompe cuando el
-  proveedor cambie su markup. Ver D2.
+- **Dos burbujas flotantes.** Ver D2.
+- **Dejar ganchos preparados para el CRM de soporte.** Está fuera de alcance
+  (D2) y tiene su propio RAG: código de integración escrito "por las dudas"
+  envejece sin que nadie lo ejercite.
 - **Reusar `content/sitio/*.md`.** Contenido comercial para otro bot.
 - **Inyectar la base entera en el system prompt.** Costo en cada request y
   pérdida de relevancia.
