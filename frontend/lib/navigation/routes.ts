@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  PackagePlus,
   Ban,
   Banknote,
   BarChart3,
@@ -233,6 +234,17 @@ export const PANEL_ROUTES: RouteEntry[] = [
     sidebarGroup: "articulos",
     requires: "inventory.transfer",
     keywords: ["remision", "nota de remision", "traslado", "despacho"],
+  },
+  {
+    // Necesidades de reposición (context/70 §B.5): nacen al llegar al stock
+    // mínimo o en un conteo y se cubren produciendo o transfiriendo.
+    to: "/reposicion",
+    title: "Reposición",
+    icon: PackagePlus,
+    surface: "sidebar",
+    sidebarGroup: "articulos",
+    requires: "inventory.item.view",
+    keywords: ["reposicion", "stock minimo", "reponer", "faltante", "necesidad", "reabastecer"],
   },
   {
     to: "/produccion",

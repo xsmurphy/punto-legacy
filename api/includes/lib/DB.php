@@ -371,6 +371,77 @@ class DB
         }
     }
 
+    /** Contador para nombrar savepoints únicos dentro del proceso. */
+    private int $bestEffortSeq = 0;
+
+    /**
+     * Ejecuta UNA sentencia cuyo fallo NO puede afectar a la transacción del
+     * caller. Devuelve el resultado, o `null` si la sentencia falló (el error
+     * queda en el log, no se propaga).
+     *
+     * Existe para los efectos SECUNDARIOS que corren dentro de un camino de
+     * dinero — hoy, el disparo de la necesidad de reposición dentro de
+     * `Inventory::manageStock()`, que corre en la transacción de la venta.
+     * `Execute()` no sirve para eso por diseño: ante cualquier error hace
+     * `failTransaction()` (rollback de la transacción ENTERA) y lanza. En
+     * Postgres además un error deja la transacción abortada (25P02) aunque
+     * PHP lo atrape. La única forma correcta de aislar el fallo es un
+     * SAVEPOINT: si la sentencia falla se vuelve al savepoint y lo que el
+     * caller ya escribió (el movimiento de stock) queda intacto.
+     *
+     * Fuera de transacción no hace falta savepoint: en autocommit la
+     * sentencia fallida no arrastra a nadie.
+     *
+     * Lo que NO hace: no toca `transOk`, `lastError` ni `firstError` — un
+     * efecto secundario fallido no convierte en fallida la operación
+     * principal. Si el ROLLBACK TO SAVEPOINT mismo falla, la conexión está en
+     * un estado que no se puede recuperar y ahí sí se trata como un error del
+     * wrapper: `handleQueryFailure()` revierte la transacción entera y lanza
+     * `DbQueryException`. Los callers de efectos secundarios la PROPAGAN
+     * (ver `ReplenishmentService`) — tragarla dejaría al caller escribiendo
+     * en autocommit sobre una transacción que ya no existe.
+     */
+    public function ExecuteBestEffort(string $sql, array $params = []): ?DBResult
+    {
+        foreach ($params as $i => $v) {
+            if (is_bool($v)) $params[$i] = $v ? 'true' : 'false';
+        }
+
+        $inTx      = $this->pdo !== null && $this->pdo->inTransaction();
+        $savepoint = null;
+
+        try {
+            if ($inTx) {
+                $savepoint = 'best_effort_' . (++$this->bestEffortSeq);
+                $this->pdo->exec('SAVEPOINT ' . $savepoint);
+            }
+
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
+            $trimmed  = ltrim($sql);
+            $hasRows  = stripos($trimmed, 'SELECT') === 0
+                || stripos($trimmed, 'WITH') === 0
+                || (bool) preg_match('/\bRETURNING\b/i', $sql);
+            $result = new DBResult($hasRows ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
+
+            if ($savepoint !== null) {
+                $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+            }
+            return $result;
+        } catch (PDOException $e) {
+            error_log('[DB] ExecuteBestEffort (ignorado) error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
+            if ($savepoint !== null) {
+                try {
+                    $this->pdo->exec('ROLLBACK TO SAVEPOINT ' . $savepoint);
+                    $this->pdo->exec('RELEASE SAVEPOINT ' . $savepoint);
+                } catch (PDOException $rollbackError) {
+                    $this->handleQueryFailure($rollbackError, 'ROLLBACK TO SAVEPOINT ' . $savepoint, 0, 'ExecuteBestEffort');
+                }
+            }
+            return null;
+        }
+    }
+
     // ─── Manejo de errores de query ────────────────────────────────────────
 
     /**

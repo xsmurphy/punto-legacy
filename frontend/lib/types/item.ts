@@ -165,6 +165,9 @@ export interface ItemListItem {
   itemMinStock?: number | null
   /** Umbral de sobrestock. NULL = no se controla por máximo. */
   itemMaxStock?: number | null
+  /** Cantidad fija a reponer o producir al llegar al mínimo (mig 228).
+   *  NULL = llegar al mínimo no abre una necesidad de reposición. */
+  itemReplenishQty?: number | null
   /** True si este item es un grupo (itemIsParent). */
   itemIsParent?: boolean | number | null
   /** Si es hijo de un grupo, apunta al grupo padre. */
@@ -278,6 +281,8 @@ export interface ItemFormValues {
   minStock: number | null
   /** Umbral de sobrestock. null = no se controla por máximo. */
   maxStock: number | null
+  /** Cantidad a reponer o producir al llegar al mínimo. null = no repone. */
+  replenishQty: number | null
   sort: number | null
   commission: number | null
   commissionType: "percent" | "fixed"
@@ -610,6 +615,7 @@ export function emptyItemValues(): ItemFormValues {
     waste: null,
     minStock: null,
     maxStock: null,
+    replenishQty: null,
     sort: 99999,
     commission: null,
     commissionType: "percent",

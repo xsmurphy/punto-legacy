@@ -13,7 +13,7 @@ namespace Punto\Api\Items;
  * Headers esperados (case-insensitive, sin acentos):
  *   KIND, NOMBRE, SKU, MARCA, CATEGORIA, ETIQUETAS, DESCRIPCION, COSTO,
  *   PRECIO, IMPUESTO, SUCURSAL, DESCUENTO_PCT, UOM, MERMA_PCT, COMISION_PCT,
- *   STOCK_MINIMO, STOCK_MAXIMO, STOCK_INICIAL
+ *   STOCK_MINIMO, STOCK_MAXIMO, CANTIDAD_A_REPONER, STOCK_INICIAL
  *
  * STOCK_INICIAL solo se aplica en ALTAS y necesita SUCURSAL en la fila: un
  * saldo vive en una sucursal concreta. Se registra como movimiento de ajuste
@@ -39,19 +39,19 @@ final class ItemImporter
     public const HEADERS = [
         'KIND', 'NOMBRE', 'SKU', 'MARCA', 'CATEGORIA', 'ETIQUETAS', 'DESCRIPCION',
         'COSTO', 'PRECIO', 'IMPUESTO', 'SUCURSAL', 'DESCUENTO_PCT', 'UOM',
-        'MERMA_PCT', 'COMISION_PCT', 'STOCK_MINIMO', 'STOCK_MAXIMO', 'STOCK_INICIAL',
+        'MERMA_PCT', 'COMISION_PCT', 'STOCK_MINIMO', 'STOCK_MAXIMO', 'CANTIDAD_A_REPONER', 'STOCK_INICIAL',
     ];
 
     public const TEMPLATE_EXAMPLES = [
         [
             'producto', 'Café Espresso', 'CAF-001', 'Nespresso', 'Bebidas',
             'Artesanal,Premium', 'Café espresso doble', '5000', '12000', '10', '', '0',
-            'unidad', '0', '0', '5', '80', '20',
+            'unidad', '0', '0', '5', '80', '40', '20',
         ],
         [
             'servicio', 'Corte de cabello', 'SRV-001', '', 'Servicios',
             '', 'Corte y peinado', '0', '25000', '10', 'Central', '0',
-            '', '0', '10', '', '', '',
+            '', '0', '10', '', '', '', '',
         ],
     ];
 
@@ -201,6 +201,9 @@ final class ItemImporter
             'PERC_COMISION'    => 'COMISION_PCT',
             'STOCK_MIN'        => 'STOCK_MINIMO',
             'STOCK_MAX'        => 'STOCK_MAXIMO',
+            'REPONER'          => 'CANTIDAD_A_REPONER',
+            'CANTIDAD_REPONER' => 'CANTIDAD_A_REPONER',
+            'A_REPONER'        => 'CANTIDAD_A_REPONER',
             'STOCK'            => 'STOCK_INICIAL',
             'CANTIDAD'         => 'STOCK_INICIAL',
             'EXISTENCIA'       => 'STOCK_INICIAL',
@@ -286,6 +289,9 @@ final class ItemImporter
             // este umbral"), que no es lo mismo que 0.
             'itemMinStock'          => $this->numOrNull($get('STOCK_MINIMO')),
             'itemMaxStock'          => $this->numOrNull($get('STOCK_MAXIMO')),
+            // Cantidad a reponer o producir al llegar al mínimo (mig 228).
+            // Vacío o cero = no dispara reposición (NULL).
+            'itemReplenishQty'      => ($rq = $this->numOrNull($get('CANTIDAD_A_REPONER'))) !== null && $rq > 0 ? $rq : null,
             'brandId'               => $brandId,
             'categoryId'            => $categoryId,
             'taxId'                 => $taxId,

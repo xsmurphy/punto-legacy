@@ -39,6 +39,7 @@ const KIND_LABELS: Record<NotificationKind, string> = {
   check_due: "Cheque",
   loan_due: "Cuota",
   purchase_due: "Compra",
+  replenishment: "Reposición",
   event: "Evento",
 }
 
@@ -46,6 +47,7 @@ const KIND_BADGE_VARIANT: Record<NotificationKind, "outline" | "secondary" | "de
   check_due: "outline",
   loan_due: "secondary",
   purchase_due: "default",
+  replenishment: "secondary",
   event: "outline",
 }
 
@@ -68,7 +70,7 @@ export default function NotificacionesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Notificaciones</h1>
           <p className="text-sm text-muted-foreground">
-            Vencimientos financieros y eventos del negocio. Descartá los que ya resolviste.
+            Vencimientos, reposición y eventos del negocio. Descartá los que ya resolviste.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -81,6 +83,7 @@ export default function NotificacionesPage() {
               <SelectItem value="check_due">Cheques</SelectItem>
               <SelectItem value="loan_due">Cuotas de crédito</SelectItem>
               <SelectItem value="purchase_due">Compras</SelectItem>
+              <SelectItem value="replenishment">Reposición</SelectItem>
               <SelectItem value="event">Eventos</SelectItem>
             </SelectContent>
           </Select>

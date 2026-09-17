@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Punto\Api\Notifications;
 
 use Punto\Api\Finance\ObligationsService;
+use Punto\Api\Outlets\OutletScope;
+use Punto\Api\Services\ReplenishmentService;
 
 /**
  * Centro de notificaciones del panel (context/31-centro-de-notificaciones.md
@@ -16,11 +18,15 @@ use Punto\Api\Finance\ObligationsService;
  *      con /v1/finance/forecast.php) — vencidas sin límite hacia atrás +
  *      próximas a vencer (≤7 días). Si la obligación se resuelve, el aviso
  *      desaparece solo en el próximo fetch.
+ *   3. Necesidades de reposición ABIERTAS (context/70 §B.5), derivadas en vivo
+ *      de `ReplenishmentService` con el alcance por sucursal del usuario: si
+ *      se cubre o se cierra, el aviso se va solo.
  *
  * Lo único persistido es el ESTADO por usuario (`notification_state`,
  * mig 103), identificado por una `alertKey` determinística:
  *   - `notify:<notifyId>`         para eventos
  *   - `due:<tipo>:<id>:<duedate>` para vencimientos derivados
+ *   - `replenishment:<needId>`    para necesidades de reposición
  *
  * Leído (readat) atenúa; descartado (dismissedat) saca el item del feed.
  * NO usa el watermark legacy del POS (contact.contactLastNotificationSeen) —
@@ -34,9 +40,9 @@ final class FeedService
     /**
      * @return array{items: array<int, array<string, mixed>>, unreadCount: int}
      */
-    public function feed(string $companyId, string $userId, string $outletId, bool $includeFinance): array
+    public function feed(string $companyId, string $userId, string $outletId, bool $includeFinance, bool $includeReplenishment = false): array
     {
-        $items = $this->buildItems($companyId, $userId, $outletId, $includeFinance);
+        $items = $this->buildItems($companyId, $userId, $outletId, $includeFinance, $includeReplenishment);
 
         $visible = array_values(array_filter($items, static fn (array $i): bool => !$i['dismissed']));
         $unreadCount = 0;
@@ -81,9 +87,9 @@ final class FeedService
     }
 
     /** Marca como leídos TODOS los items visibles (no descartados) hoy. */
-    public function markAllRead(string $companyId, string $userId, string $outletId, bool $includeFinance): void
+    public function markAllRead(string $companyId, string $userId, string $outletId, bool $includeFinance, bool $includeReplenishment = false): void
     {
-        $items = $this->buildItems($companyId, $userId, $outletId, $includeFinance);
+        $items = $this->buildItems($companyId, $userId, $outletId, $includeFinance, $includeReplenishment);
         $keys = [];
         foreach ($items as $i) {
             if (!$i['dismissed']) {
@@ -100,7 +106,7 @@ final class FeedService
      *
      * @return array<int, array<string, mixed>>
      */
-    private function buildItems(string $companyId, string $userId, string $outletId, bool $includeFinance): array
+    private function buildItems(string $companyId, string $userId, string $outletId, bool $includeFinance, bool $includeReplenishment = false): array
     {
         $today = date('Y-m-d');
         $horizon = date('Y-m-d', strtotime('+' . self::UPCOMING_DAYS . ' days'));
@@ -171,6 +177,30 @@ final class FeedService
                     'link'     => (string) $o['link'],
                     'severity' => $overdue ? 'overdue' : 'upcoming',
                     'sortDate' => $dueDateOnly,
+                ];
+            }
+        }
+
+        // ── Necesidades de reposición abiertas. Gateadas por quien puede
+        // CUBRIRLAS (producir o transferir) y acotadas a las sucursales del
+        // usuario (`contact_outlet`, vacío = global).
+        if ($includeReplenishment) {
+            $scope = OutletScope::forUser($companyId, $userId);
+            $needs = (new ReplenishmentService())->openForNotifications($companyId, $scope === [] ? null : $scope);
+            foreach ($needs as $n) {
+                $createdAt = (string) $n['createdAt'];
+                $items[] = [
+                    'alertKey' => 'replenishment:' . (string) $n['needId'],
+                    'kind'     => 'replenishment',
+                    'title'    => (string) $n['itemName'],
+                    'message'  => (string) $n['outletName'],
+                    'date'     => $createdAt,
+                    'dueDate'  => null,
+                    'amount'   => null,
+                    'quantity' => (float) $n['pending'],
+                    'link'     => '/reposicion',
+                    'severity' => 'info',
+                    'sortDate' => $createdAt,
                 ];
             }
         }

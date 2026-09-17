@@ -151,6 +151,32 @@ sigue abierta. Una necesidad puede cubrirse en partes por caminos distintos
 (20 kg: 12 del depósito central, 8 al proveedor) — eso sale solo si es una
 entidad con líneas y no un botón.
 
+**Implementado 2026-09-17 (D7/D8, branch `api/reposicion-por-minimo`, mig 228)**:
+
+- `item.itemreplenishqty` (cantidad FIJA, NULL = no repone; ficha, editor
+  masivo e importador `CANTIDAD_A_REPONER`). `replenishment_need` (una ABIERTA
+  por tenant+sucursal+ítem, índice único parcial; origen `min_stock` |
+  `count_panel` | `count_register`; cierre manual con motivo obligatorio en la
+  BD) y `replenishment_need_coverage` (documento + cantidad planeada; lo
+  EFECTIVO se deriva: orden completada → lo producido, transferencia vigente →
+  lo transferido, cancelado → 0).
+- Disparo en `Inventory::manageStock()` con los umbrales leídos en la misma
+  query del ítem; el INSERT va por `DB::ExecuteBestEffort()` (savepoint): un
+  fallo nunca tira la venta y un rollback de la venta se lleva la necesidad.
+  `ON CONFLICT DO NOTHING` contra el índice parcial resuelve dos cajas a la vez.
+- Conteos: el ajuste pasa `skipReplenishment` y al cerrar se evalúan TODOS los
+  ítems contados (aunque no tengan diferencia). En modo "solo registro" se
+  compara el saldo del ledger, no lo contado.
+- Cobertura desde `/reposicion`: Producir (borrador vinculado, solo con
+  receta), Transferir (se aplica al crearse, cubre en el momento) y Cerrar.
+  `onSourceChanged()` recalcula open↔covered al completar/cancelar una orden y
+  al cancelar una transferencia — esta última ANTES de revertir el stock, para
+  que la reversa no abra un duplicado. Aviso derivado en el centro de
+  notificaciones (quien tiene `production.manage` o `inventory.transfer`, con
+  `OutletScope`). Arnés `run_replenishment_need_test.sh`.
+- Pendiente: la orden de compra como tercera cobertura (D5) y el faltante del
+  lote de producción como origen.
+
 **Orden de compra** (D5), el flujo completo:
 
 1. Se genera desde la necesidad (o a mano). Se imprime o se manda por

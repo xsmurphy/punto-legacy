@@ -55,6 +55,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'variantcount'        => 'variantCount',
         'itemminstock'        => 'itemMinStock',
         'itemmaxstock'        => 'itemMaxStock',
+        'itemreplenishqty'    => 'itemReplenishQty',
         'stockonhand'         => 'stockOnHand',
         'hasaddons'           => 'hasAddons',
         'addongroups'         => 'addonGroups',
@@ -107,7 +108,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
     if (array_key_exists('stockOnHand', $out)) {
         $out['stockOnHand'] = (float) $out['stockOnHand'];
     }
-    foreach (['itemMinStock', 'itemMaxStock'] as $umbral) {
+    foreach (['itemMinStock', 'itemMaxStock', 'itemReplenishQty'] as $umbral) {
         if (array_key_exists($umbral, $out)) {
             $out[$umbral] = $out[$umbral] === null ? null : (float) $out[$umbral];
         }
@@ -198,7 +199,7 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                    i.itemIsParent, i.itemParentId,
                    i.variantParentId, i.hasVariants, i.variantAttributes,
                    i.categoryId, i.brandId, i.outletId, i.data,
-                   i.itemMinStock, i.itemMaxStock,
+                   i.itemMinStock, i.itemMaxStock, i.itemReplenishQty,
                    COALESCE(st.onhand, 0) AS stockOnHand,
                    cat.taxonomyName AS categoryName,
                    brand.taxonomyName AS brandName,

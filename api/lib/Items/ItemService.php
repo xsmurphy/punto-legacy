@@ -157,6 +157,14 @@ final class ItemService
             $patch['barcode'] = ($bc === '' || $bc === false) ? null : $bc;
         }
 
+        // Cantidad a reponer (mig 228, context/70 D7): vacío, cero o negativo
+        // significan "no dispara reposición" = NULL. La columna tiene CHECK > 0,
+        // así que un 0 del form o de la planilla reventaría el UPDATE entero.
+        if (array_key_exists('itemReplenishQty', $patch)) {
+            $rq = $patch['itemReplenishQty'];
+            $patch['itemReplenishQty'] = (is_numeric($rq) && (float) $rq > 0) ? (float) $rq : null;
+        }
+
         // Sucursales (`item_outlet`, mig 170): NO son una columna de `item`, así
         // que se sacan del patch ANTES de que llegue al writer genérico —
         // `ncmUpdate` intentaría un `SET outletIds = ...` contra una columna que
@@ -330,6 +338,8 @@ final class ItemService
         'itemSessions', 'itemDuration',
         'itemEcom', 'itemFeatured',
         'itemKind', 'itemType', 'itemCanSale', 'itemTrackInventory', 'itemProduction',
+        // Cantidad a reponer o producir (mig 228). Se normaliza en update().
+        'itemReplenishQty',
     ];
 
     /**
