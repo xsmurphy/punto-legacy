@@ -76,33 +76,73 @@ export type PendingChargeResolution =
 export function chargeTargetFor(cart: {
   settlementIntent: SettlementIntent | null
   sessionParentId: string | null
-  orderParentId: string | null
+  orderParentIds: string[]
 }): ChargeTarget | null {
   if (cart.settlementIntent) {
     return { kind: 'space-settlement', sessionId: cart.settlementIntent.sessionId }
   }
   if (cart.sessionParentId) return { kind: 'space-session', sessionId: cart.sessionParentId }
-  if (cart.orderParentId) return { kind: 'order', orderId: cart.orderParentId }
+  if (cart.orderParentIds.length > 0) return { kind: 'order', orderIds: cart.orderParentIds }
   return null
 }
 
 /**
- * Clave del cobro pendiente. El cobro parcial y el total de una MISMA sesión
- * comparten clave a propósito: son cobros sobre el mismo saldo, y uno pendiente
- * tiene que resolverse antes de cobrar cualquier otra parte.
+ * Claves del cobro pendiente — una por OBJETO cobrado.
+ *
+ * El cobro parcial y el total de una MISMA sesión comparten clave a propósito:
+ * son cobros sobre el mismo saldo, y uno pendiente tiene que resolverse antes
+ * de cobrar cualquier otra parte.
+ *
+ * Una venta que cubre VARIAS órdenes sueltas devuelve una clave por orden, y se
+ * escribe una fila por cada una con el mismo uid. Es lo que mantiene en pie el
+ * invariante que da sentido a todo el mecanismo: si el cobro de las órdenes A+B
+ * quedó ambiguo, cobrar A sola —o A+C— también tiene que frenarse hasta saber
+ * qué pasó. Una sola clave compuesta por el conjunto dejaría pasar ese cobro y
+ * podría emitir dos veces el mismo documento fiscal.
  */
-export function chargeKey(target: ChargeTarget): string {
+export function chargeKeys(target: ChargeTarget): string[] {
   switch (target.kind) {
     case 'space-settlement':
     case 'space-session':
-      return `space:${target.sessionId}`
+      return [`space:${target.sessionId}`]
     case 'order':
-      return `order:${target.orderId}`
+      return target.orderIds.map((orderId) => `order:${orderId}`)
   }
 }
 
 function isIdbAvailable(): boolean {
   return typeof indexedDB !== 'undefined'
+}
+
+/**
+ * Filas escritas por la versión anterior, cuando una venta cobraba UNA sola
+ * orden: el objeto era `{kind:'order', orderId}` y los pasos posteriores
+ * `orderParentId`. Sobreviven en la IndexedDB del device hasta 15 minutos sin
+ * resolver y 24 horas resueltas, así que el build nuevo se las encuentra en
+ * plena jornada — y sin esto `chargeKeys()` haría `undefined.map()` y dejaría
+ * el cobro trabado justo cuando hay una venta en duda.
+ *
+ * La clave NO cambió (`order:<id>`), así que la fila vieja se sigue
+ * encontrando; lo único que se normaliza es su contenido, al leerla.
+ */
+function normalizeTarget(target: ChargeTarget): ChargeTarget {
+  if (target.kind !== 'order' || Array.isArray(target.orderIds)) return target
+  const legacy = (target as unknown as { orderId?: string }).orderId
+  return { kind: 'order', orderIds: legacy ? [legacy] : [] }
+}
+
+function normalizeFollowups(followups: ChargeFollowups): ChargeFollowups {
+  if (Array.isArray(followups.orderParentIds)) return followups
+  const legacy = (followups as unknown as { orderParentId?: string | null }).orderParentId
+  return { ...followups, orderParentIds: legacy ? [legacy] : [] }
+}
+
+function normalizeRow(row: PendingChargeRow): PendingChargeRow {
+  return {
+    ...row,
+    target: normalizeTarget(row.target),
+    followups: normalizeFollowups(row.followups),
+  }
 }
 
 /**
@@ -118,37 +158,55 @@ export async function recordAmbiguousCharge(input: {
   now?: number
 }): Promise<void> {
   const db = await getPosOfflineDB()
-  const key = chargeKey(input.target)
+  const keys = chargeKeys(input.target)
   const nowIso = new Date(input.now ?? Date.now()).toISOString()
-  const prev = await db.get('pendingCharges', key)
-  if (prev && prev.uid !== input.uid) {
-    // Defensa: el llamador siempre reusa el uid del pendiente. Si llega otro,
-    // se conserva el viejo — pisarlo perdería el rastro del intento original.
-    console.error('[pending-charges] uid distinto sobre un cobro pendiente vivo; se conserva el original', key)
+  const prevs = await Promise.all(keys.map((key) => db.get('pendingCharges', key)))
+
+  // Defensa: el llamador siempre reusa el uid del pendiente. Si llega otro, se
+  // conserva el viejo — pisarlo perdería el rastro del intento original. Basta
+  // con que UNO de los objetos tenga otro uid para no escribir ninguno: el
+  // cobro es uno solo y sus filas no pueden quedar apuntando a intentos
+  // distintos.
+  const clash = prevs.findIndex((prev) => prev && prev.uid !== input.uid)
+  if (clash !== -1) {
+    console.error('[pending-charges] uid distinto sobre un cobro pendiente vivo; se conserva el original', keys[clash])
     return
   }
-  await db.put('pendingCharges', {
-    key,
-    target: input.target,
-    uid: input.uid,
-    payload: input.payload,
-    followups: input.followups,
-    createdAt: prev?.createdAt ?? nowIso,
-    lastAttemptAt: nowIso,
-  })
+
+  for (const [i, key] of keys.entries()) {
+    await db.put('pendingCharges', {
+      key,
+      target: input.target,
+      uid: input.uid,
+      payload: input.payload,
+      followups: input.followups,
+      createdAt: prevs[i]?.createdAt ?? nowIso,
+      lastAttemptAt: nowIso,
+    })
+  }
 }
 
+/**
+ * El pendiente que bloquea este cobro. Con varias órdenes alcanza que UNA
+ * tenga pendiente para que el cobro entero se tenga que resolver antes.
+ */
 export async function getPendingCharge(target: ChargeTarget): Promise<PendingChargeRow | undefined> {
   if (!isIdbAvailable()) return undefined
   const db = await getPosOfflineDB()
-  return db.get('pendingCharges', chargeKey(target))
+  for (const key of chargeKeys(target)) {
+    const row = await db.get('pendingCharges', key)
+    if (row) return normalizeRow(row)
+  }
+  return undefined
 }
 
 /** El cobro quedó resuelto (venta confirmada y mostrada): fuera de la lista. */
 export async function clearPendingCharge(target: ChargeTarget): Promise<void> {
   if (!isIdbAvailable()) return
   const db = await getPosOfflineDB()
-  await db.delete('pendingCharges', chargeKey(target))
+  for (const key of chargeKeys(target)) {
+    await db.delete('pendingCharges', key)
+  }
 }
 
 /**
@@ -173,9 +231,17 @@ export async function resolvePendingCharge(
   }
   if (!sale) return { kind: 'not-registered', row }
 
-  const resolved: PendingChargeRow = { ...row, resolvedSale: sale, resolvedAt: new Date().toISOString() }
+  const resolvedAt = new Date().toISOString()
+  const resolved: PendingChargeRow = { ...row, resolvedSale: sale, resolvedAt }
   const db = await getPosOfflineDB()
-  await db.put('pendingCharges', resolved)
+  // Se marca resuelta la fila de CADA objeto del mismo cobro (varias órdenes en
+  // una venta): todas comparten uid, así que la respuesta vale para todas y
+  // dejar una sin marcar haría salir a preguntar de nuevo por lo mismo.
+  for (const key of chargeKeys(row.target)) {
+    const sibling = key === row.key ? row : await db.get('pendingCharges', key)
+    if (!sibling || sibling.uid !== row.uid || sibling.resolvedSale) continue
+    await db.put('pendingCharges', { ...sibling, resolvedSale: sale, resolvedAt })
+  }
   return { kind: 'registered', row: resolved, sale }
 }
 
@@ -236,7 +302,7 @@ export async function planChargeAttempt(
 export async function reconcilePendingCharges(lookup: SaleLookup, now: number = Date.now()): Promise<void> {
   if (!isIdbAvailable()) return
   const db = await getPosOfflineDB()
-  const rows = await db.getAll('pendingCharges')
+  const rows = (await db.getAll('pendingCharges')).map(normalizeRow)
   for (const row of rows) {
     if (row.resolvedSale) {
       const since = Date.parse(row.resolvedAt ?? row.lastAttemptAt)

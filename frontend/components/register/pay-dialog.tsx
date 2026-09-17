@@ -283,7 +283,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const interno = useCartStore((s) => s.interno)
   const tags = useCartStore((s) => s.tags)
   const quoteParentId = useCartStore((s) => s.quoteParentId)
-  const orderParentId = useCartStore((s) => s.orderParentId)
+  const orderParentIds = useCartStore((s) => s.orderParentIds)
   const sessionParentId = useCartStore((s) => s.sessionParentId)
   const sessionOrderIds = useCartStore((s) => s.sessionOrderIds)
   const settlementIntent = useCartStore((s) => s.settlementIntent)
@@ -524,7 +524,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const isOnlineNow = useOnlineStatus()
   React.useEffect(() => {
     if (!open || !isOnlineNow || chargeCheck?.kind !== "blocked") return
-    const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+    const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentIds })
     if (target) void checkPendingCharge(target)
     // Solo reacciona a la vuelta de la red; `checkPendingCharge` lee el resto.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -691,7 +691,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     changeAmount: number
   }) {
     const { result, payload, followups, giftcardCode, changeAmount } = args
-    const { settlementIntent: fSettlement, sessionParentId: fSessionId, sessionOrderIds: fOrderIds, orderParentId: fOrderId } = followups
+    const { settlementIntent: fSettlement, sessionParentId: fSessionId, sessionOrderIds: fSessionOrderIds, orderParentIds: fOrderIds } = followups
 
     setSaleResult(result)
     // Anotar la venta en el registro del turno de este dispositivo. La venta
@@ -741,11 +741,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
     //    CADA orden de la sesión con markPaid y, al terminar, cerrar la
     //    sesión (SpaceSessionService::close) con el transactionId — el
-    //    espacio vuelve a 'free'. NO reusa el flujo de orderParentId (una
-    //    sola orden) para no perder el resto de las órdenes de la sesión.
-    // 2) orderParentId presente: esta venta viene de "Cobrar" una orden
-    //    existente (loadFromOrder en /pos/ordenes) — cerrar el rastro con
-    //    markPaid usando el transactionId recién creado.
+    //    espacio vuelve a 'free'. Sigue siendo un camino aparte del de las
+    //    órdenes sueltas porque además CIERRA la sesión del espacio.
+    // 2) orderParentIds con contenido: esta venta viene de "Cobrar" una o
+    //    varias órdenes existentes (loadFromOrder en /pos/ordenes) — cerrar
+    //    el rastro de cada una con markPaid usando el transactionId recién
+    //    creado.
     // 3) Sin ninguno de los dos, con ordenEnVenta=true: venta normal en
     //    modo venta — generar una orden espejo (sendNow=true) y cobrarla
     //    inmediatamente, para que quede el mismo registro operativo que si
@@ -798,7 +799,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     } else if (fSessionId && result.transactionId) {
       const txId = result.transactionId
       void Promise.all(
-        fOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
+        fSessionOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
       )
         .then(() => closeSpaceSession.mutateAsync({ sessionId: fSessionId, transactionId: txId }))
         .catch((e: unknown) => {
@@ -815,11 +816,28 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               : "Venta confirmada — no se pudo cerrar el espacio. Avisá al soporte.",
           )
         })
-    } else if (fOrderId && result.transactionId) {
-      void markOrderPaid.mutateAsync({ orderId: fOrderId, transactionId: result.transactionId })
-        .catch(() => {
-          toast.error("Venta confirmada — no se pudo cerrar la orden vinculada. Avisá al soporte.")
-        })
+    } else if (fOrderIds.length > 0 && result.transactionId) {
+      const txId = result.transactionId
+      // Una venta puede cubrir VARIAS órdenes sueltas (owner 2026-09-17): se
+      // marca cada una con el MISMO transactionId, igual que hace el cobro de
+      // un espacio con las órdenes de su sesión. `order_transaction_link`
+      // (mig 115) es N→N, así que no hace falta nada del lado del backend.
+      // `allSettled` y no `all` (hallazgo del review): con `all`, un fallo
+      // parcial (2 de 3 marcadas) reportaba el conjunto entero como fallido
+      // sin decir CUÁLES quedaron abiertas — y la orden abierta es la que el
+      // cajero podría volver a cobrar. El aviso nombra exactamente las que
+      // quedaron sin cerrar; la venta ya está confirmada en cualquier caso.
+      void Promise.allSettled(
+        fOrderIds.map((orderId) => markOrderPaid.mutateAsync({ orderId, transactionId: txId })),
+      ).then((results) => {
+        const failed = fOrderIds.filter((_, i) => results[i].status === "rejected")
+        if (failed.length === 0) return
+        toast.error(
+          failed.length === fOrderIds.length
+            ? "Venta confirmada — no se pudieron cerrar las órdenes vinculadas. Avisá al soporte."
+            : `Venta confirmada — quedaron órdenes sin cerrar (${failed.length} de ${fOrderIds.length}). Revisá el listado de órdenes antes de volver a cobrarlas.`,
+        )
+      })
     } else if (ordenEnVenta && result.transactionId) {
       // Manual (spec owner 2026-07-31): ya no se genera la orden espejo
       // automáticamente. Se deja el snapshot listo para el botón "Ordenar"
@@ -856,12 +874,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // Objeto de un cobro ONLINE-ONLY (espacio / orden / cobro parcial), o `null`
     // en la venta simple. Congelado al confirmar junto con sus pasos
     // posteriores, que viajan con el cobro pendiente si el resultado es ambiguo.
-    const chargeTarget = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+    const chargeTarget = chargeTargetFor({ settlementIntent, sessionParentId, orderParentIds })
     const chargeFollowups: ChargeFollowups = {
       settlementIntent,
       sessionParentId,
       sessionOrderIds,
-      orderParentId,
+      orderParentIds,
     }
 
     try {
@@ -1339,7 +1357,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     if (chargeBlockedReason) {
       toast.info(chargeBlockedReason)
       if (chargeCheck?.kind === "blocked") {
-        const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentId })
+        const target = chargeTargetFor({ settlementIntent, sessionParentId, orderParentIds })
         if (target) void checkPendingCharge(target)
       }
       return
@@ -1658,7 +1676,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   function handleClose() {
     if (phase === "success") {
       setOrderDraft(null)
-      clearCart() // clear() ya resetea quoteParentId/orderParentId via initialState (+ relock modoSoloOrdenes)
+      clearCart() // clear() ya resetea quoteParentId/orderParentIds via initialState (+ relock modoSoloOrdenes)
       void posApi.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
         data: {},

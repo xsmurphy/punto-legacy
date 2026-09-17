@@ -19,8 +19,9 @@ import "fake-indexeddb/auto"
 
 import { getPosOfflineDB } from "@/lib/pos/offline-db"
 import {
-  chargeKey,
+  chargeKeys,
   chargeTargetFor,
+  clearPendingCharge,
   getPendingCharge,
   planChargeAttempt,
   recordAmbiguousCharge,
@@ -29,6 +30,7 @@ import {
   UNRESOLVED_TTL_MS,
   type ChargeFollowups,
   type ChargeTarget,
+  type PendingChargeRow,
   type RegisteredSale,
   type SaleLookup,
 } from "@/lib/pos/pending-charges"
@@ -46,7 +48,7 @@ const FOLLOWUPS: ChargeFollowups = {
   settlementIntent: null,
   sessionParentId: "sess-1",
   sessionOrderIds: ["ord-1", "ord-2"],
-  orderParentId: null,
+  orderParentIds: [],
 }
 
 function payload(uid: string, subtotal = 50_000): CreateSalePayload {
@@ -102,14 +104,14 @@ beforeEach(async () => {
 
 describe("objeto cobrado", () => {
   it("la venta simple no tiene objeto; espacio y orden sí", () => {
-    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: null, orderParentId: null })).toBeNull()
-    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: "s", orderParentId: null })).toEqual({
+    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: null, orderParentIds: [] })).toBeNull()
+    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: "s", orderParentIds: [] })).toEqual({
       kind: "space-session",
       sessionId: "s",
     })
-    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: null, orderParentId: "o" })).toEqual({
+    expect(chargeTargetFor({ settlementIntent: null, sessionParentId: null, orderParentIds: ["o"] })).toEqual({
       kind: "order",
-      orderId: "o",
+      orderIds: ["o"],
     })
   })
 
@@ -117,9 +119,9 @@ describe("objeto cobrado", () => {
     const parcial = chargeTargetFor({
       settlementIntent: { sessionId: "s", kind: "amount", amount: 10 },
       sessionParentId: null,
-      orderParentId: null,
+      orderParentIds: [],
     })!
-    expect(chargeKey(parcial)).toBe(chargeKey({ kind: "space-session", sessionId: "s" }))
+    expect(chargeKeys(parcial)).toEqual(chargeKeys({ kind: "space-session", sessionId: "s" }))
   })
 })
 
@@ -211,6 +213,98 @@ describe("reintento tras resultado ambiguo", () => {
   })
 })
 
+describe("una venta que cobra VARIAS órdenes sueltas", () => {
+  const A_Y_B: ChargeTarget = { kind: "order", orderIds: ["ord-a", "ord-b"] }
+  const SOLO_A: ChargeTarget = { kind: "order", orderIds: ["ord-a"] }
+  const SOLO_C: ChargeTarget = { kind: "order", orderIds: ["ord-c"] }
+
+  it("una clave por ORDEN, no una del conjunto", () => {
+    expect(chargeKeys(A_Y_B)).toEqual(["order:ord-a", "order:ord-b"])
+  })
+
+  it("el pendiente de A+B frena cobrar A sola — si no, se emitiría dos veces", async () => {
+    await recordAmbiguousCharge({
+      target: A_Y_B,
+      uid: "uid-1",
+      payload: payload("uid-1"),
+      followups: FOLLOWUPS,
+    })
+
+    // Sin respuesta del servidor no se puede saber: no se cobra.
+    const plan = await planChargeAttempt(
+      SOLO_A,
+      async () => {
+        throw new Error("sin red")
+      },
+      "uid-nuevo",
+    )
+    expect(plan).toEqual({ action: "block" })
+  })
+
+  it("una orden ajena al pendiente se cobra normal", async () => {
+    await recordAmbiguousCharge({
+      target: A_Y_B,
+      uid: "uid-1",
+      payload: payload("uid-1"),
+      followups: FOLLOWUPS,
+    })
+    const plan = await planChargeAttempt(SOLO_C, async () => null, "uid-nuevo")
+    expect(plan).toEqual({ action: "emit", uid: "uid-nuevo" })
+  })
+
+  it("resolver por una orden deja resueltas las dos", async () => {
+    await recordAmbiguousCharge({
+      target: A_Y_B,
+      uid: "uid-1",
+      payload: payload("uid-1"),
+      followups: FOLLOWUPS,
+    })
+    await planChargeAttempt(SOLO_A, async (uid) => sale(uid), "x")
+
+    // La segunda no vuelve a salir a preguntar: ya sabe que la venta existe.
+    const lookup = vi.fn<SaleLookup>()
+    const plan = await planChargeAttempt({ kind: "order", orderIds: ["ord-b"] }, lookup, "x")
+    expect(plan.action).toBe("show-registered")
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it("limpiar el cobro borra el pendiente de TODAS sus órdenes", async () => {
+    await recordAmbiguousCharge({
+      target: A_Y_B,
+      uid: "uid-1",
+      payload: payload("uid-1"),
+      followups: FOLLOWUPS,
+    })
+    await clearPendingCharge(A_Y_B)
+    expect(await getPendingCharge(SOLO_A)).toBeUndefined()
+    expect(await getPendingCharge({ kind: "order", orderIds: ["ord-b"] })).toBeUndefined()
+  })
+})
+
+describe("filas escritas por la versión de UNA sola orden", () => {
+  it("se leen y se limpian igual — la clave no cambió", async () => {
+    const db = await getPosOfflineDB()
+    // Shape viejo tal cual quedó en la IndexedDB del device.
+    await db.put("pendingCharges", {
+      key: "order:ord-vieja",
+      target: { kind: "order", orderId: "ord-vieja" },
+      uid: "uid-viejo",
+      payload: payload("uid-viejo"),
+      followups: { ...FOLLOWUPS, orderParentIds: undefined, orderParentId: "ord-vieja" },
+      createdAt: "2026-09-16T12:00:00.000Z",
+      lastAttemptAt: "2026-09-16T12:00:00.000Z",
+    } as unknown as PendingChargeRow)
+
+    const target: ChargeTarget = { kind: "order", orderIds: ["ord-vieja"] }
+    const row = await getPendingCharge(target)
+    expect(row?.target).toEqual({ kind: "order", orderIds: ["ord-vieja"] })
+    expect(row?.followups.orderParentIds).toEqual(["ord-vieja"])
+
+    await clearPendingCharge(row!.target)
+    expect(await getPendingCharge(target)).toBeUndefined()
+  })
+})
+
 describe("reconciliación desde el sync", () => {
   const T0 = Date.parse("2026-09-16T12:00:00Z")
 
@@ -237,7 +331,7 @@ describe("reconciliación desde el sync", () => {
     const db = await getPosOfflineDB()
     await reconcilePendingCharges(async (uid) => {
       // El diálogo resolvió y limpió el cobro durante la consulta del sync.
-      await db.delete("pendingCharges", chargeKey(SESSION))
+      await db.delete("pendingCharges", chargeKeys(SESSION)[0])
       return sale(uid)
     }, T0 + 1_000)
     expect(await getPendingCharge(SESSION)).toBeUndefined()

@@ -374,7 +374,7 @@ export interface VoucherRedeemItem {
  * si el saldo llegó a 0 y corresponde liquidar (`settleIfCovered`). La UI no
  * cierra órdenes ni sesiones en un parcial.
  *
- * Mutuamente excluyente con `sessionParentId` y `orderParentId`. Se resetea
+ * Mutuamente excluyente con `sessionParentId` y `orderParentIds`. Se resetea
  * en `clear()` vía `initialState` — crítico: un intent que sobreviva al clear
  * haría que la SIGUIENTE venta normal se registre como parcial de un espacio
  * vieja, imputando plata a la cuenta equivocada.
@@ -547,6 +547,21 @@ export const selectCartIva = (s: CartState): number => {
   return computeTaxes(engineLines, { decimals }).totals.tax
 }
 
+/**
+ * Qué hizo `loadFromOrder` con el carrito. Lo consume `useOrderActions.cobrar`
+ * para decidir qué avisarle al cajero — ver el docblock de la acción.
+ *
+ * `customerConflict` sale en true cuando la orden que se agrega trae un cliente
+ * DISTINTO del que ya estaba en el carrito: gana el del carrito (una factura
+ * tiene UN receptor) y el cajero tiene que enterarse, porque el que decide si
+ * eso está bien es él.
+ */
+export type LoadFromOrderResult =
+  | { kind: "loaded" }
+  | { kind: "replaced" }
+  | { kind: "appended"; orderCount: number; customerConflict: boolean }
+  | { kind: "already-added" }
+
 interface CartState {
   lines: CartLine[]
   selectedLineId: string | null
@@ -620,14 +635,21 @@ interface CartState {
   posMode: "venta" | "orden" | "cotizacion"
 
   /**
-   * ID de la orden padre (`pos_order`). Se setea vía `loadFromOrder()` cuando
-   * el cajero elige "Cobrar" desde `/pos/ordenes` — el carrito se llena en
-   * modo venta con el contenido de la orden y, al confirmar el cobro,
-   * `pay-dialog.tsx` llama `OrderCoreService::markPaid()` con este id y el
-   * transactionId resultante. Se resetea en clear() (mismo mecanismo que
-   * quoteParentId).
+   * IDs de las órdenes padre (`pos_order`) que esta venta cobra. Se setea vía
+   * `loadFromOrder()` cuando el cajero elige "Cobrar" desde `/pos/ordenes` —
+   * el carrito se llena en modo venta con el contenido de la orden y, al
+   * confirmar el cobro, `pay-dialog.tsx` llama `OrderCoreService::markPaid()`
+   * por CADA id con el mismo transactionId. Se resetea en clear() (mismo
+   * mecanismo que quoteParentId).
+   *
+   * Es un ARRAY porque una factura puede cubrir varias órdenes sueltas: el
+   * cajero toca "Cobrar" en una y después en otra, y las dos se suman al mismo
+   * cobro (pedido del owner 2026-09-17). El backend ya lo soportaba —
+   * `order_transaction_link` (mig 115) es N→N y es el mismo patrón con el que
+   * se cobra un espacio entero (`sessionOrderIds`); lo único que faltaba era
+   * que el carrito dejara de pisarse.
    */
-  orderParentId: string | null
+  orderParentIds: string[]
 
   /**
    * Espacio seleccionado para tomar una orden (context/15-espacios-module-plan.md
@@ -670,15 +692,15 @@ interface CartState {
   scheduledFor: string | null
 
   /**
-   * Cobro de un espacio completo (context/15 F2): análogo a `orderParentId`
+   * Cobro de un espacio completo (context/15 F2): análogo a `orderParentIds`
    * pero para VARIAS órdenes a la vez. Se setea vía `loadFromSession()`
    * cuando el cajero toca "Cobrar" en el sheet de un espacio ocupado — el
    * carrito se llena en modo venta con el merge de todas las órdenes no
    * cerradas/canceladas de la sesión. Al confirmar el cobro, `pay-dialog.tsx`
    * llama `markPaid()` por cada orderId de `sessionOrderIds` y luego
    * `SpaceSessionService::close()` con el transactionId resultante.
-   * Mutuamente excluyente con `orderParentId` (una venta viene de una orden
-   * sola o de un espacio completo, nunca ambas). Se resetea en clear().
+   * Mutuamente excluyente con `orderParentIds` (una venta viene de órdenes
+   * sueltas o de un espacio completo, nunca ambas). Se resetea en clear().
    */
   sessionParentId: string | null
   sessionOrderIds: string[]
@@ -688,7 +710,7 @@ interface CartState {
    * `loadForSettlement()`. Ver el docblock de `SettlementIntent` arriba: es
    * lo que hace que `pay-dialog.tsx` registre el pago en el ledger en vez de
    * cerrar el espacio. Mutuamente excluyente con `sessionParentId` /
-   * `orderParentId`. Se resetea en clear().
+   * `orderParentIds`. Se resetea en clear().
    */
   settlementIntent: SettlementIntent | null
 
@@ -886,9 +908,24 @@ interface CartState {
    * carrito y facturar con el flujo normal (context/24, "UX — decisión clave
    * del owner"). Resuelve el cliente completo desde el catálogo (la orden
    * solo trae `customerId`). Ítems cancelados de la orden se excluyen.
-   * Reemplaza el carrito entero (no hace merge con líneas existentes).
+   *
+   * ACUMULA: si el carrito ya tiene líneas de otra(s) orden(es) —o de una
+   * venta suelta— las de esta orden se AGREGAN y su id se suma a
+   * `orderParentIds`, para poder emitir UNA factura por varias órdenes
+   * (pedido del owner 2026-09-17). Antes pisaba el carrito y por eso cobrar
+   * una segunda orden borraba la primera.
+   *
+   * Devuelve un discriminador para que el CALLER decida el toast (mismo
+   * criterio que `addItem`: el store no habla con la UI):
+   * - "loaded": carga limpia — el carrito estaba vacío.
+   * - "replaced": el carrito venía de un espacio (sesión completa o cobro
+   *   parcial) y ESO no se puede mezclar con una orden suelta — son objetos
+   *   de cobro mutuamente excluyentes. Se reemplaza, como hacía antes, pero
+   *   el caller avisa que se perdió lo que había.
+   * - "appended": las líneas se sumaron al cobro en curso.
+   * - "already-added": esa orden YA estaba en el cobro — no se toca nada.
    */
-  loadFromOrder: (order: Order) => void
+  loadFromOrder: (order: Order) => LoadFromOrderResult
 
   /**
    * Selecciona un espacio para tomar una orden (context/15 F2). Fuerza
@@ -924,7 +961,7 @@ interface CartState {
    * mergea con la última línea si coincide itemId, preservando notas
    * distintas como líneas separadas). Setea `sessionParentId` +
    * `sessionOrderIds` (los orderId a marcar `markPaid` al confirmar el
-   * cobro) — mutuamente excluyente con `orderParentId`. Reemplaza el
+   * cobro) — mutuamente excluyente con `orderParentIds`. Reemplaza el
    * carrito entero.
    */
   loadFromSession: (sessionId: string, spaceName: string, orders: Order[]) => void
@@ -1015,7 +1052,7 @@ const initialState = {
   quoteParentId: null as string | null,
   saleDiscount: null as { value: number; mode: "percent" | "money"; lineIds: string[] } | null,
   posMode: "venta" as "venta" | "orden" | "cotizacion",
-  orderParentId: null as string | null,
+  orderParentIds: [] as string[],
   spaceSessionId: null as string | null,
   spaceName: null as string | null,
   fulfillment: "dine_in" as Fulfillment,
@@ -1386,25 +1423,77 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   loadFromOrder: (order) => {
+    const state = _get()
     const { customers, items: catalogItems } = useCatalogStore.getState()
-    const customer = order.customerId
+    const orderCustomer = order.customerId
       ? (customers.find((c) => c.id === order.customerId) ?? null)
       : null
 
     // Toda la reconstrucción (add-ons incluidos) vive en
-    // `cartLinesFromOrderItems`, compartida con `loadFromSession`.
-    const newLines: CartLine[] = cartLinesFromOrderItems(order.items, catalogItems).map(
+    // `cartLinesFromOrderItems`, compartida con `loadFromSession`. Lo único
+    // que cambia entre cargar y acumular es DÓNDE aterrizan estas líneas.
+    const orderLines: CartLine[] = cartLinesFromOrderItems(order.items, catalogItems).map(
       (line) => ({ ...line, lineId: crypto.randomUUID() }),
     )
 
+    // Un cobro de espacio (sesión completa o parcial) no se puede mezclar con
+    // una orden suelta: son objetos de cobro mutuamente excluyentes (ver los
+    // docblocks de `sessionParentId`/`settlementIntent`) y `chargeTargetFor`
+    // solo puede apuntar a uno. Acumular ahí dejaría las órdenes del espacio
+    // sin marcar y la sesión sin cerrar. Se reemplaza —que es lo que hacía
+    // antes en TODOS los casos— y el caller avisa.
+    const fromSpace = state.sessionParentId !== null || state.settlementIntent !== null
+    const isEmpty = state.lines.length === 0
+
+    if (isEmpty || fromSpace) {
+      set({
+        ...initialState,
+        lines: orderLines,
+        customer: orderCustomer,
+        note: order.note ?? null,
+        posMode: "venta",
+        orderParentIds: [order.id],
+      })
+      return isEmpty ? { kind: "loaded" } : { kind: "replaced" }
+    }
+
+    // La misma orden dos veces no duplica líneas: se cobraría dos veces lo
+    // mismo y `markPaid` correría dos veces sobre la misma orden.
+    if (state.orderParentIds.includes(order.id)) return { kind: "already-added" }
+
+    // Las líneas se concatenan SIN mergear contra las que ya estaban: una
+    // línea existente puede tener descuento propio o precio editado a mano, y
+    // absorber cantidad ahí cambiaría plata. (`loadFromSession` sí mergea,
+    // pero ahí todas las líneas nacen del mismo lote de órdenes.)
+    //
+    // El cliente del carrito GANA: una factura tiene UN receptor, y el que ya
+    // estaba es el que el cajero eligió. Si no había, se toma el de la orden.
+    // La nota del carrito manda por el mismo motivo.
+    const customerConflict =
+      state.customer !== null &&
+      orderCustomer !== null &&
+      state.customer.id !== orderCustomer.id
+
     set({
-      ...initialState,
-      lines: newLines,
-      customer,
-      note: order.note ?? null,
+      lines: [...state.lines, ...orderLines],
+      customer: state.customer ?? orderCustomer,
+      note: state.note ?? order.note ?? null,
+      orderParentIds: [...state.orderParentIds, order.id],
+      // Acumular es seguir cobrando: nada de lo ya elegido por el cajero
+      // (crédito/interno/IVA, cliente, descuentos) se toca. Solo se garantiza
+      // el modo venta y se limpian los atributos que son de la ORDEN y no de
+      // la venta — mismo reset que `beginSale()`.
       posMode: "venta",
-      orderParentId: order.id,
+      fulfillment: "dine_in",
+      deliveryAddress: null,
+      scheduledFor: null,
     })
+
+    return {
+      kind: "appended",
+      orderCount: state.orderParentIds.length + 1,
+      customerConflict,
+    }
   },
 
   setSelectedSpace: (sessionId, spaceName) => {

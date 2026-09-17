@@ -87,7 +87,33 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
 
   const cobrar = React.useCallback(() => {
     if (isPaid) return
-    loadFromOrder(order)
+
+    // El store acumula: cobrar una segunda orden la SUMA al cobro en curso en
+    // vez de pisar el carrito, para poder emitir una sola factura por varias
+    // órdenes (owner 2026-09-17). Acá se traduce a lo que ve el cajero — el
+    // store no habla con la UI (mismo criterio que `addItem`).
+    const result = loadFromOrder(order)
+    const num = order.orderNumber ?? "—"
+
+    if (result.kind === "already-added") {
+      toast.info(`La orden #${num} ya está en el cobro`)
+    } else if (result.kind === "replaced") {
+      toast.warning(`Se reemplazó el cobro del espacio por la orden #${num}`)
+    } else if (result.kind === "appended") {
+      toast.success(`Orden #${num} agregada al cobro (${result.orderCount} órdenes)`)
+      if (result.customerConflict) {
+        // Con NOMBRE (hallazgo del review): "se mantiene el que estaba" a
+        // secas no dice a nombre de QUIÉN va a salir la factura, y el cajero
+        // tiene que poder frenar acá si el receptor no es el correcto.
+        const kept = useCartStore.getState().customer?.name
+        toast.warning(
+          kept
+            ? `La factura sale a nombre de ${kept} — el cliente de la orden #${num} no se usa`
+            : "Se mantiene el cliente que ya estaba en el cobro",
+        )
+      }
+    }
+
     onAfterAction?.()
     router.push("/pos")
   }, [isPaid, loadFromOrder, order, onAfterAction, router])

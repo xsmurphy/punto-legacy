@@ -288,7 +288,13 @@ export interface ShiftJournalRow {
 export type ChargeTarget =
   | { kind: 'space-settlement'; sessionId: string }
   | { kind: 'space-session'; sessionId: string }
-  | { kind: 'order'; orderId: string }
+  /**
+   * Una o VARIAS órdenes sueltas cobradas en la misma venta. El objeto sigue
+   * siendo la ORDEN, no el conjunto: se escribe una fila por id (todas con el
+   * mismo uid), así un pendiente sobre la orden A bloquea cobrarla de nuevo
+   * sola o junto a otra. Ver `chargeKeys()` en `pending-charges.ts`.
+   */
+  | { kind: 'order'; orderIds: string[] }
 
 /**
  * Lo que el cobro tiene que hacer DESPUÉS de que la venta existe (registrar el
@@ -300,7 +306,7 @@ export interface ChargeFollowups {
   settlementIntent: SettlementIntent | null
   sessionParentId: string | null
   sessionOrderIds: string[]
-  orderParentId: string | null
+  orderParentIds: string[]
 }
 
 /** Venta registrada, tal como la devuelve el servidor para un uid. */
@@ -316,7 +322,7 @@ export interface RegisteredSale {
 
 /** Fila del store `pendingCharges`. Ver `pending-charges.ts`. */
 export interface PendingChargeRow {
-  /** `chargeKey(target)` — un cobro pendiente por objeto. */
+  /** Una de las `chargeKeys(target)` — un cobro pendiente por objeto. */
   key: string
   target: ChargeTarget
   /** Uid del intento ambiguo. Se reusa en todo reintento sobre el objeto. */
