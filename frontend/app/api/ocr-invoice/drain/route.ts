@@ -2,6 +2,7 @@ import { after } from "next/server"
 
 import { extractInvoice, completeAndBill } from "@/lib/ai/extract-invoice"
 import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
+import { fetchAiModelConfig } from "@/lib/ai/model-config"
 
 /**
  * Vacía la cola de extracción: toma borradores en `queued` y los procesa.
@@ -157,14 +158,6 @@ export async function POST(req: Request) {
 
 /** Modelo de la capability 'vision' (ai_model_config). Fallback al seed. */
 async function resolveVisionModel(apiUrl: string, authHeader: string): Promise<string> {
-  try {
-    const res = await fetch(`${apiUrl}/v1/ai/config`, { headers: { Authorization: authHeader } })
-    if (res.ok) {
-      const config = (await res.json()) as Record<string, { model?: string }>
-      if (config?.vision?.model) return config.vision.model
-    }
-  } catch {
-    // cae al default
-  }
-  return "google/gemini-3.5-flash"
+  const config = await fetchAiModelConfig(apiUrl, authHeader, "[ocr-drain]")
+  return config.vision?.model ?? "google/gemini-3.5-flash"
 }

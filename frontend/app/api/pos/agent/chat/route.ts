@@ -4,6 +4,7 @@ import type { UIMessage } from "ai"
 import { buildPosAgentTools } from "@/lib/pos/agent-tools"
 import { buildBusinessContextBlock } from "@/lib/agent/business-context"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { fetchAiModelConfig } from "@/lib/ai/model-config"
 import { truncationMetadata } from "@/lib/agent/truncation"
 
 export const runtime = "nodejs"
@@ -183,23 +184,12 @@ export async function POST(req: Request) {
   // se puede leer (hoy es 403 — ver el docblock de arriba), porque el modelo
   // por defecto es una elección razonable y no una decisión de seguridad.
   let modelId = "deepseek/deepseek-v4-flash"
-  try {
-    const configRes = await fetch(`${apiUrl}/v1/ai/config`, {
-      headers: { Authorization: authHeader },
-    })
-    if (configRes.ok) {
-      const config = (await configRes.json()) as Record<
-        string,
-        { model: string; creditsperktoken: number }
-      >
-      if (config?.chat?.model) {
-        modelId = config.chat.model
-      }
-    } else {
-      console.error(`[pos-agent] ai/config respondió ${configRes.status}, usando default ${modelId}`)
+  {
+    // El unwrap del envelope `{ok, data}` vive en el helper compartido.
+    const config = await fetchAiModelConfig(apiUrl, authHeader, "[pos-agent]")
+    if (config.chat?.model) {
+      modelId = config.chat.model
     }
-  } catch (e) {
-    console.error("[pos-agent] fallo al leer ai/config, usando default", e)
   }
 
   // Gate de créditos ANTES de llamar al modelo — MISMO wrapper compartido que

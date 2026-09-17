@@ -1,6 +1,7 @@
 import { extractInvoice, completeAndBill } from "@/lib/ai/extract-invoice"
 import { after } from "next/server"
 import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
+import { fetchAiModelConfig } from "@/lib/ai/model-config"
 
 /**
  * POST /api/ocr-invoice   multipart/form-data { image: File, outletId: string }
@@ -75,23 +76,9 @@ export async function POST(req: Request) {
 
   // Modelo de la capability 'vision' (ai_model_config, mig 43/98). Fallback
   // alineado al seed por si /v1/ai/config no responde.
-  let modelId = "google/gemini-3.5-flash"
-  try {
-    const configRes = await fetch(`${apiUrl}/v1/ai/config`, { headers: { Authorization: authHeader } })
-    if (configRes.ok) {
-      const config = (await configRes.json()) as Record<
-        string,
-        { model: string; creditsperktoken: number }
-      >
-      if (config?.vision?.model) {
-        modelId = config.vision.model
-      }
-    } else {
-      console.error(`[ocr-invoice] ai/config respondió ${configRes.status}, usando default ${modelId}`)
-    }
-  } catch (e) {
-    console.error("[ocr-invoice] fallo al leer ai/config, usando default", e)
-  }
+  // El unwrap del envelope `{ok, data}` vive en el helper compartido.
+  const aiConfig = await fetchAiModelConfig(apiUrl, authHeader, "[ocr-invoice]")
+  const modelId = aiConfig.vision?.model ?? "google/gemini-3.5-flash"
 
   // RUC del tenant (de la sucursal que sube la factura) — habilita la
   // sección de "verificación de destinatario" del prompt. Multi-tenant: NO

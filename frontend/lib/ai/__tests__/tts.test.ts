@@ -50,7 +50,10 @@ beforeEach(() => {
     calls.push({ url, body })
 
     if (url.endsWith("/v1/ai/config")) {
-      return new Response(JSON.stringify(ttsConfig ? { tts: ttsConfig } : {}), {
+      // Envelope canónico `{ok, data}` (apiOk) — el mock viejo respondía el
+      // map pelado y con eso el route "funcionaba" en el test mientras en
+      // producción nunca encontraba la capability (bug 2026-09-17).
+      return new Response(JSON.stringify({ ok: true, data: ttsConfig ? { tts: ttsConfig } : {} }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
@@ -69,9 +72,12 @@ beforeEach(() => {
       if (openRouterStatus !== 200) {
         return new Response("boom", { status: openRouterStatus })
       }
+      // El content-type imita al proveedor real: PCM declara rate/channels
+      // (Gemini) y el resto responde mp3.
+      const asPcm = (body as { response_format?: string } | undefined)?.response_format === "pcm"
       return new Response(openRouterBytes, {
         status: 200,
-        headers: { "Content-Type": "audio/mpeg" },
+        headers: { "Content-Type": asPcm ? "audio/pcm;rate=24000;channels=1" : "audio/mpeg" },
       })
     }
     throw new Error(`fetch inesperado: ${url}`)
@@ -145,19 +151,25 @@ describe("POST /api/agent/tts", () => {
     expect(speechCalls()).toHaveLength(0)
   })
 
-  it("devuelve el audio como mp3 y debita como tts por caracteres", async () => {
+  it("con Gemini pide pcm + voz explícita, envuelve en WAV y debita por caracteres", async () => {
     const text = "x".repeat(400)
     const res = await postTts({ text })
 
     expect(res.status).toBe(200)
-    expect(res.headers.get("Content-Type")).toBe("audio/mpeg")
-    expect((await res.arrayBuffer()).byteLength).toBe(4)
+    // Gemini solo emite PCM (verificado contra el endpoint real 2026-09-17):
+    // el route lo envuelve en WAV (44 bytes de header + los datos).
+    expect(res.headers.get("Content-Type")).toBe("audio/wav")
+    const wav = await res.arrayBuffer()
+    expect(wav.byteLength).toBe(44 + 4)
+    expect(String.fromCharCode(...new Uint8Array(wav, 0, 4))).toBe("RIFF")
 
     expect(speechCalls()).toHaveLength(1)
     expect(speechCalls()[0].body).toMatchObject({
       model: "google/gemini-3.1-flash-tts-preview",
       input: text,
-      response_format: "mp3",
+      response_format: "pcm",
+      // Gemini EXIGE voz explícita — sin ella el proveedor devuelve 400.
+      voice: "Kore",
     })
 
     expect(debitCalls()).toHaveLength(1)
@@ -175,10 +187,13 @@ describe("POST /api/agent/tts", () => {
     expect(sent.input).toBe("Las ventas de hoy fueron 500.")
   })
 
-  it("usa el modelo del catálogo de /admin cuando está configurado", async () => {
+  it("usa el modelo del catálogo de /admin cuando está configurado — y mp3 sin voz fuera de Gemini", async () => {
     ttsConfig = { model: "hexgrad/kokoro-82m", creditsperktoken: 1 }
-    await postTts({ text: "hola" })
-    expect(speechCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m" })
+    const res = await postTts({ text: "hola" })
+    expect(res.headers.get("Content-Type")).toBe("audio/mpeg")
+    const sent = speechCalls()[0].body as Record<string, unknown>
+    expect(sent).toMatchObject({ model: "hexgrad/kokoro-82m", response_format: "mp3" })
+    expect(sent.voice).toBeUndefined()
     expect(debitCalls()[0].body).toMatchObject({ model: "hexgrad/kokoro-82m" })
   })
 

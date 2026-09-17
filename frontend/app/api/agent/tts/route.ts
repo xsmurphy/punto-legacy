@@ -1,4 +1,6 @@
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { fetchAiModelConfig } from "@/lib/ai/model-config"
+import { parsePcmContentType, pcmToWav } from "@/lib/ai/pcm-wav"
 import { MAX_TTS_CHARS, charsToEquivalentTokens } from "@/lib/ai/tts-usage"
 
 export const runtime = "nodejs"
@@ -8,7 +10,8 @@ export const maxDuration = 30
  * BFF de la voz del agente — `context/80-voz-del-agente.md`.
  *
  * Convierte el texto de un mensaje del asistente en audio con un modelo TTS de
- * OpenRouter y lo devuelve como MP3. Realm PANEL: la credencial es el Bearer
+ * OpenRouter y lo devuelve reproducible (MP3, o WAV cuando el proveedor solo
+ * emite PCM — ver `ttsRequestParams`). Realm PANEL: la credencial es el Bearer
  * del panel (`context/54`), el MISMO que usa `app/api/agent/chat/route.ts`, y
  * se reenvía tal cual al backend para resolver la company server-side.
  *
@@ -48,15 +51,25 @@ const TTS_CAPABILITY = "tts"
 const DEFAULT_TTS_MODEL = "google/gemini-3.1-flash-tts-preview"
 
 /**
- * Voz del modelo. Se omite a propósito: cada modelo TTS expone su propio juego
- * de nombres de voz y OpenRouter no los normaliza, así que mandar un nombre
- * que el modelo no conoce lo hace fallar la request ENTERA — y como el cliente
- * cae a la voz del navegador ante cualquier falla, el síntoma sería "la voz
- * nueva nunca se escucha" sin ningún error visible. Sin este campo, el modelo
- * usa su voz por defecto, que funciona. Cuando haya una voz elegida y
- * verificada contra el modelo configurado, va acá.
+ * Params de la request por FAMILIA de modelo. OpenRouter no los normaliza:
+ * cada proveedor TTS tiene su propio contrato y equivocarlo falla la request
+ * ENTERA — y como el cliente cae a la voz del navegador ante cualquier falla,
+ * el síntoma es "la voz nueva nunca se escucha" sin error visible.
+ *
+ * Gemini (verificado contra el endpoint real 2026-09-17):
+ * - EXIGE `voice` explícita ("An explicit voice is required for this TTS
+ *   provider"). `Kore` es una de sus voces prebuilt, multilingüe.
+ * - SOLO emite `pcm` (pedir mp3 devuelve 400) — el PCM se envuelve en WAV
+ *   acá abajo antes de responder.
+ * Resto (Kokoro et al.): mp3 sin voz — el modelo usa su default.
+ *
+ * Si /admin configura un modelo de otra familia con contrato propio, el lugar
+ * de su tratamiento es esta función, no un if en el handler.
  */
-const TTS_VOICE: string | undefined = undefined
+function ttsRequestParams(modelId: string): { voice?: string; format: "mp3" | "pcm" } {
+  if (modelId.startsWith("google/")) return { voice: "Kore", format: "pcm" }
+  return { format: "mp3" }
+}
 
 export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY
@@ -88,28 +101,21 @@ export async function POST(req: Request) {
   // Modelo desde la config del tenant, mismo patrón que el chat: el catálogo de
   // /admin manda y el slug no se hardcodea. `ai_model_config.capability` es
   // TEXT libre (mig 43) y /admin permite crear capabilities nuevas, así que
-  // `tts` entra al catálogo sin tocar el schema.
+  // `tts` entra al catálogo sin tocar el schema. El unwrap del envelope
+  // `{ok, data}` vive en `fetchAiModelConfig` — parsear el body crudo acá es
+  // exactamente el bug que ese helper vino a matar (fail-open en el MODELO;
+  // el cobro tiene su gate fail-closed aparte, abajo).
   let modelId = DEFAULT_TTS_MODEL
-  try {
-    const configRes = await fetch(`${apiUrl}/v1/ai/config`, { headers: { Authorization: authHeader } })
-    if (configRes.ok) {
-      const config = (await configRes.json()) as Record<string, { model: string; creditsperktoken: number }>
-      const chosen = config?.[TTS_CAPABILITY]?.model
-      if (chosen) {
-        modelId = chosen
-      } else {
-        // Sin fila `tts` habilitada la voz IGUAL suena (este default), pero el
-        // débito de abajo se rechaza con 422 ("Capability sin config activa") y
-        // el comercio escucha gratis. Es best-effort, así que no rompe nada en
-        // el momento — por eso queda logueado: el síntoma es invisible.
-        console.error(`[agent-tts] no hay capability '${TTS_CAPABILITY}' habilitada en ai_model_config; se usa ${modelId} y el débito va a fallar`)
-      }
-    } else {
-      console.error(`[agent-tts] ai/config respondió ${configRes.status}, usando default ${modelId}`)
-    }
-  } catch (e) {
-    // fail-open en el MODELO (no en el cobro: el gate de abajo es aparte)
-    console.error("[agent-tts] fallo al leer ai/config, usando default", e)
+  const config = await fetchAiModelConfig(apiUrl, authHeader, "[agent-tts]")
+  const chosen = config[TTS_CAPABILITY]?.model
+  if (chosen) {
+    modelId = chosen
+  } else {
+    // Sin fila `tts` habilitada la voz IGUAL suena (este default), pero el
+    // débito de abajo se rechaza con 422 ("Capability sin config activa") y
+    // el comercio escucha gratis. Es best-effort, así que no rompe nada en
+    // el momento — por eso queda logueado: el síntoma es invisible.
+    console.error(`[agent-tts] no hay capability '${TTS_CAPABILITY}' habilitada en ai_model_config; se usa ${modelId} y el débito va a fallar`)
   }
 
   // Gate de créditos ANTES de gastar la llamada al proveedor. FAIL-CLOSED.
@@ -125,7 +131,9 @@ export async function POST(req: Request) {
     throw e
   }
 
+  const params = ttsRequestParams(modelId)
   let audio: ArrayBuffer
+  let mimeType: string
   try {
     const res = await fetch("https://openrouter.ai/api/v1/audio/speech", {
       method: "POST",
@@ -140,10 +148,8 @@ export async function POST(req: Request) {
         // conversa — cualquier cosa que le agreguemos la termina leyendo en voz
         // alta al usuario.
         input: text,
-        ...(TTS_VOICE ? { voice: TTS_VOICE } : {}),
-        // El default del endpoint es `pcm` (crudo, sin contenedor): un browser
-        // no lo reproduce con `new Audio()`. `mp3` se pide explícito.
-        response_format: "mp3",
+        ...(params.voice ? { voice: params.voice } : {}),
+        response_format: params.format,
       }),
     })
 
@@ -153,14 +159,26 @@ export async function POST(req: Request) {
       return Response.json({ error: "No se pudo generar la voz" }, { status: 502 })
     }
 
-    audio = await res.arrayBuffer()
+    const raw = await res.arrayBuffer()
+    if (raw.byteLength === 0) {
+      // Antes del wrap: un PCM vacío envuelto en WAV mide 44 bytes y pasaría
+      // el chequeo de abajo como si fuera audio.
+      console.error(`[agent-tts] OpenRouter devolvió audio vacío model=${modelId}`)
+      return Response.json({ error: "No se pudo generar la voz" }, { status: 502 })
+    }
+    if (params.format === "pcm") {
+      // Gemini responde PCM pelado (`audio/pcm;rate=24000;channels=1`) que un
+      // browser no reproduce: se envuelve en WAV con el rate/channels que
+      // declara el header — es un prefijo de 44 bytes, no un transcode.
+      const { rate, channels } = parsePcmContentType(res.headers.get("content-type"))
+      audio = pcmToWav(raw, rate, channels)
+      mimeType = "audio/wav"
+    } else {
+      audio = raw
+      mimeType = "audio/mpeg"
+    }
   } catch (e) {
     console.error("[agent-tts] fallo de red contra OpenRouter", e)
-    return Response.json({ error: "No se pudo generar la voz" }, { status: 502 })
-  }
-
-  if (audio.byteLength === 0) {
-    console.error(`[agent-tts] OpenRouter devolvió audio vacío model=${modelId}`)
     return Response.json({ error: "No se pudo generar la voz" }, { status: 502 })
   }
 
@@ -189,7 +207,7 @@ export async function POST(req: Request) {
 
   return new Response(audio, {
     headers: {
-      "Content-Type": "audio/mpeg",
+      "Content-Type": mimeType,
       "Content-Length": String(audio.byteLength),
       // El audio depende del texto y ya se cachea del lado del cliente por
       // mensaje (D6): un caché intermedio no aporta y puede servir el audio de

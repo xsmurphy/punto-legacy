@@ -8,6 +8,7 @@ import { buildReadTools } from "@/lib/agent/read-tools"
 import { buildEinvoiceSetupTool } from "@/lib/agent/einvoice-setup"
 import { buildSetupStatusTool } from "@/lib/agent/setup-status"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { fetchAiModelConfig } from "@/lib/ai/model-config"
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
 import { truncationMetadata } from "@/lib/agent/truncation"
 
@@ -77,36 +78,23 @@ export async function POST(req: Request) {
   // `ai_model_config` (migs 43 / 98): un slug retirado por OpenRouter hace que
   // el agente falle en silencio.
   let modelId = "deepseek/deepseek-v4-flash"
-  try {
-    const configRes = await fetch(`${apiUrl}/v1/ai/config`, {
-      headers: { Authorization: authHeader },
-    })
-    if (configRes.ok) {
-      const config = (await configRes.json()) as Record<
-        string,
-        { model: string; creditsperktoken: number }
-      >
-      // Con un adjunto (imagen o PDF) manda la capability VISION, no `chat`:
-      // el modelo de chat por defecto (deepseek) no lee imágenes y la request
-      // fallaría o el modelo respondería ignorando el archivo — que es peor,
-      // porque el usuario cree que lo leyó. La capability `vision` ya existe y
-      // se administra desde /admin/ai, así que no se hardcodea ningún slug.
-      const wantsVision = messages.some((m) =>
-        (m.parts ?? []).some((part) => (part as { type?: string }).type === "file"),
-      )
-      const chosen = wantsVision ? (config?.vision?.model ?? config?.chat?.model) : config?.chat?.model
-      if (chosen) {
-        modelId = chosen
-      }
-      if (wantsVision && !config?.vision?.model) {
-        console.error("[agent] hay adjunto pero no hay modelo con capability 'vision' configurado; se usa el de chat")
-      }
-    } else {
-      console.error(`[agent] ai/config respondió ${configRes.status}, usando default ${modelId}`)
+  {
+    const config = await fetchAiModelConfig(apiUrl, authHeader, "[agent]")
+    // Con un adjunto (imagen o PDF) manda la capability VISION, no `chat`:
+    // el modelo de chat por defecto (deepseek) no lee imágenes y la request
+    // fallaría o el modelo respondería ignorando el archivo — que es peor,
+    // porque el usuario cree que lo leyó. La capability `vision` ya existe y
+    // se administra desde /admin/ai, así que no se hardcodea ningún slug.
+    const wantsVision = messages.some((m) =>
+      (m.parts ?? []).some((part) => (part as { type?: string }).type === "file"),
+    )
+    const chosen = wantsVision ? (config.vision?.model ?? config.chat?.model) : config.chat?.model
+    if (chosen) {
+      modelId = chosen
     }
-  } catch (e) {
-    // fail-open: seguimos con el modelo default, pero dejamos rastro
-    console.error("[agent] fallo al leer ai/config, usando default", e)
+    if (wantsVision && !config.vision?.model) {
+      console.error("[agent] hay adjunto pero no hay modelo con capability 'vision' configurado; se usa el de chat")
+    }
   }
 
   // Gate de créditos ANTES de llamar al modelo — wrapper compartido con
