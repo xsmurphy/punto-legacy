@@ -241,6 +241,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   "sales-void":      [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"]],
   production:        [["production-orders"], ["production-capacity"], ["producible-now"], ["waste-events"], ["replenishment-needs"]],
   waste:             [["waste-events"]],
+  // employee (employees.php, context/83 F0). La entity la deriva el
+  // publisher del path `/v1/employees` → singular `employee`. Un solo
+  // queryKey porque el hook cuelga todo de `["employees", ...]`: el listado,
+  // el detalle y los adjuntos. Los adjuntos entran igual —se suben por
+  // `/v1/employees?resource=attachments`, que publica la misma entity— y así
+  // el legajo abierto en otra pantalla ve el archivo nuevo sin recargar.
+  employee:          [["employees"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
   // el front más allá del canje inline del carrito): no hay listado
   // cacheado con react-query — issue/validate/consume son llamadas directas

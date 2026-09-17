@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 9;
+    public const CURRENT_VERSION = 10;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -205,6 +205,25 @@ final class PermissionCatalog
             ['id' => 'contacts.supplier.manage', 'label' => 'Gestionar proveedores',  'group' => 'Contactos'],
             ['id' => 'contacts.user.view',       'label' => 'Ver usuarios',           'group' => 'Contactos'],
             ['id' => 'contacts.user.manage',     'label' => 'Gestionar usuarios',     'group' => 'Contactos'],
+
+            // ── RRHH (context/83, F0: legajo) ────────────────────────────────
+            //
+            // Familia PROPIA y no `contacts.user.*` aunque las dos hablen de
+            // gente del comercio: `contacts.user.*` gobierna la CREDENCIAL
+            // (crear un usuario, cambiarle el rol, resetear su PIN) y el legajo
+            // contiene el SUELDO, el documento de identidad y el contrato
+            // escaneado. Quien administra los accesos del sistema no tiene por
+            // qué ver cuánto cobra cada uno, y al revés.
+            //
+            // A propósito NO van a ningún seed de `RoleService::SEED_PERMISSIONS`
+            // — ni siquiera al del Encargado, que sí recibe casi todo lo
+            // operativo. El Dueño las tiene por ser Dueño (su rol resuelve el
+            // catálogo entero en runtime) y cualquier otro rol las recibe
+            // cuando un admin las tilda en Ajustes → Roles. Un legajo con
+            // sueldos que se abre solo al hacer deploy no es un default
+            // aceptable.
+            ['id' => 'hr.employees.view',        'label' => 'Ver legajos',            'group' => 'RRHH', 'since' => 10],
+            ['id' => 'hr.employees.manage',      'label' => 'Gestionar legajos',      'group' => 'RRHH', 'since' => 10],
 
             ['id' => 'reports.sales.view',       'label' => 'Reportes de ventas',     'group' => 'Reportes'],
             ['id' => 'reports.drawers.view',     'label' => 'Reportes de cajas',      'group' => 'Reportes'],
