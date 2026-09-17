@@ -1036,10 +1036,14 @@ export const POS_ROUTES: RouteEntry[] = [
     requiresModule: "ordersPanel",
   },
   {
+    // No va en el sidebar de la caja: se entra desde el Menú del POS
+    // (`components/register/pos-main-menu.tsx`, owner 2026-09-17).
     to: "/pos/conteo",
-    title: "Conteo",
+    title: "Conteo de stock",
+    paletteTitle: "Menú del POS · Conteo de stock",
     icon: ClipboardCheck,
-    surface: "sidebar",
+    surface: "palette",
+    paletteGroup: "Operaciones",
     requiresModule: "stockCount",
   },
   {

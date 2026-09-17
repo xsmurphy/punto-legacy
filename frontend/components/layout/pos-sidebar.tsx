@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation"
 import {
   Blocks,
   Bookmark,
-  ClipboardCheck,
   ClipboardList,
   LayoutGrid,
   Lock,
@@ -33,8 +32,7 @@ import { useActiveOrders } from "@/hooks/use-orders"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { usePosModules } from "@/hooks/use-pos-modules"
-import type { ModulesMap } from "@/lib/types/module"
+import { usePosModules, posModuleEnabled } from "@/hooks/use-pos-modules"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useOnlineStatus } from "@/hooks/use-online-status"
 import { useCartStore } from "@/lib/cart/store"
@@ -44,30 +42,10 @@ import { toast } from "sonner"
 import { decideLockAction } from "@/lib/pos/lock-action"
 import { ChooseOwnPinDialog } from "@/components/pos/choose-own-pin-dialog"
 
-// Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
-// isLoading o error, el item condicional NO se muestra — evita parpadeo.
 // DEUDA: este sidebar y `posNav` en panel-auth-guard.tsx son DOS fuentes de
 // verdad para la nav del POS (panel-auth-guard nunca se renderiza en /pos,
 // pos-sidebar.tsx es el real) — deberían unificarse en un solo lugar.
-/**
- * ¿El módulo está activo? Solo responde `false` cuando el backend DIJO que está
- * apagado; mientras no haya respuesta buena, devuelve `undefined`.
- *
- * La versión anterior era `!isLoading && m?.[key]?.enabled === true`, que
- * colapsaba tres estados distintos —cargando, error y apagado— en un mismo
- * `false`. Con eso, un fallo de red o un 401 escondía Espacios y Órdenes sin
- * decir nada: el cajero veía el sidebar vacío y el panel seguía mostrando los
- * módulos habilitados. Un módulo no puede desaparecer por un error de lectura.
- */
-function moduleEnabled(
-  m: ModulesMap | undefined,
-  isLoading: boolean,
-  isError: boolean,
-  key: string,
-): boolean | undefined {
-  if (isLoading || isError || m === undefined) return undefined
-  return m?.[key]?.enabled === true
-}
+// El criterio de módulo activo vive en `posModuleEnabled()` (use-pos-modules).
 
 // Alto de fila: `h-12` (48px) en mobile porque el menú se abre como drawer de
 // abajo y el cajero lo toca con el pulgar — sobre el mínimo táctil de 44px
@@ -105,12 +83,8 @@ export function PosSidebar() {
   // `undefined` = todavía no sabemos. Se muestra el módulo: es preferible una
   // entrada que puede no corresponder —y que al tocarla informe— a un sidebar
   // que se vacía solo. La respuesta real llega en el mismo segundo.
-  const ordersEnabled = moduleEnabled(modules, modulesLoading, modulesError, "ordersPanel") !== false
-  const tablesEnabled = moduleEnabled(modules, modulesLoading, modulesError, "tables") !== false
-  // Conteo de stock: mismo criterio conservador que los dos de arriba —
-  // mientras no sepamos, se muestra; solo un "apagado" explícito lo esconde.
-  const stockCountEnabled =
-    moduleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
+  const ordersEnabled = posModuleEnabled(modules, modulesLoading, modulesError, "ordersPanel") !== false
+  const tablesEnabled = posModuleEnabled(modules, modulesLoading, modulesError, "tables") !== false
   const lockManually = useLockStore((s) => s.lockManually)
   // Sucursal con un solo usuario (context/72 §9.3): la caja abre sin PIN, pero
   // "Bloquear" es un bloqueo MANUAL y sí va a pedirlo (owner 2026-09-16). Qué
@@ -125,7 +99,6 @@ export function PosSidebar() {
   // permisos dentro de /pos — ver el comentario del item "Asistente" abajo.
   const operatorPermissions = useLockStore((s) => s.operatorPermissions)
   const canUseAgent = operatorPermissions.includes("pos.ai.use")
-  const canCountStock = operatorPermissions.includes("pos.stock.count")
   const isOnline = useOnlineStatus()
   const lockAction = decideLockAction({
     soleOperator: soleOperatorMode,
@@ -275,32 +248,6 @@ export function PosSidebar() {
                     <Link href="/pos/espacios" onClick={closeMobile}>
                       <LayoutGrid />
                       <span>Espacios</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-
-              {/* Conteo de stock (context/63 F1). Doble gate, y los dos hacen
-                  falta: el MÓDULO dice si el comercio lo usa, el PERMISO dice
-                  si esta persona puede contar. Un cajero sin `pos.stock.count`
-                  en un comercio que sí tiene el módulo no debería ver un link
-                  que le va a contestar 403.
-
-                  El permiso sale del lock-store —los permisos reales del
-                  operador del PIN, filtrados al prefijo `pos.` por el backend—
-                  y NUNCA de `usePermission()`, que resuelve contra el rol
-                  `device` y es el mismo para cualquiera que agarre la tablet. */}
-              {stockCountEnabled && canCountStock && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={pathname.startsWith("/pos/conteo")}
-                    tooltip="Conteo de stock"
-                    className={NAV_ITEM_CLASS}
-                  >
-                    <Link href="/pos/conteo" onClick={closeMobile}>
-                      <ClipboardCheck />
-                      <span>Conteo</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -35,6 +35,7 @@ import {
   Bell,
   X,
   type LucideIcon,
+  ClipboardCheck,
   CloudOff,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
@@ -91,6 +92,7 @@ import { formatMoney } from "@/lib/format-money"
 import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
 import { StatTile } from "@/components/stat-tile"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { usePosModules, posModuleEnabled } from "@/hooks/use-pos-modules"
 import {
   useDrawerStatus,
   useDrawerSummary,
@@ -258,6 +260,18 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     icon: CloudOff,
     CustomContent: SyncQueuePanel,
   },
+  {
+    // Conteo de stock (context/63). Navega directo a /pos/conteo, como HotKeys:
+    // el conteo es una pantalla propia, no un panel dentro del menú. Se
+    // filtra en `PosMainMenu` con el doble gate módulo + permiso del operador.
+    key: "stock-count",
+    label: "Conteo de stock",
+    icon: ClipboardCheck,
+    onSelect: ({ setOpen, router }) => {
+      setOpen(false)
+      router.push("/pos/conteo")
+    },
+  },
   // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
   // construyamos esas secciones reales (hoy son previews). 2026-06-28.
   // {
@@ -364,8 +378,20 @@ export function PosMainMenu() {
   const controlCaja = registerConfigData?.config?.controlCaja ?? true
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
 
+  // Conteo de stock (context/63): doble gate, y los dos hacen falta. El MÓDULO
+  // dice si el comercio lo usa —criterio conservador: mientras no sepamos, o
+  // sin red, se muestra; solo un "apagado" explícito lo esconde—. El PERMISO
+  // dice si esta persona puede contar, y sale del lock-store (permisos reales
+  // del operador del PIN), NUNCA de `usePermission()`, que resuelve contra el
+  // rol `device` y es el mismo para cualquiera que agarre la tablet.
+  const { data: modules, isLoading: modulesLoading, isError: modulesError } = usePosModules()
+  const stockCountEnabled =
+    posModuleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
+  const canCountStock = useLockStore((st) => st.operatorPermissions.includes("pos.stock.count"))
+
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
+    .filter((s) => s.key !== "stock-count" || (stockCountEnabled && canCountStock))
     // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
     // espacios, se ocultan transacciones y caja del menú.
     .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))

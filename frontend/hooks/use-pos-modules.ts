@@ -5,6 +5,26 @@ import { posFetch } from "@/lib/api/pos-fetch"
 import type { ModulesMap } from "@/lib/types/module"
 
 /**
+ * ¿El módulo está activo? Solo responde `false` cuando el backend DIJO que está
+ * apagado; mientras no haya respuesta buena, devuelve `undefined`.
+ *
+ * La versión anterior era `!isLoading && m?.[key]?.enabled === true`, que
+ * colapsaba tres estados distintos —cargando, error y apagado— en un mismo
+ * `false`. Con eso, un fallo de red o un 401 escondía Espacios y Órdenes sin
+ * decir nada: el cajero veía el sidebar vacío y el panel seguía mostrando los
+ * módulos habilitados. Un módulo no puede desaparecer por un error de lectura.
+ */
+export function posModuleEnabled(
+  m: ModulesMap | undefined,
+  isLoading: boolean,
+  isError: boolean,
+  key: string,
+): boolean | undefined {
+  if (isLoading || isError || m === undefined) return undefined
+  return m?.[key]?.enabled === true
+}
+
+/**
  * Módulos activos del comercio, leídos con la sesión del DISPOSITIVO.
  *
  * Cliente: `posFetch` (Bearer del device) — NUNCA `api-client`, que manda la
