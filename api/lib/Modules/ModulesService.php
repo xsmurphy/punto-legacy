@@ -49,6 +49,12 @@ final class ModulesService
         // Conteo de stock en la caja (context/63 D4): opcional por comercio,
         // como Órdenes y Espacios. Un comercio que no lo necesita no lo ve.
         'stockCount',
+        // RRHH (context/83 D9): legajo en la F0; asistencia, ausencias y
+        // liquidación en las fases siguientes, dentro del mismo módulo.
+        // `attendance` sigue en esta lista a propósito hasta la F1 — el
+        // comercio que hoy lo tiene prendido no se puede quedar sin él antes
+        // de que exista su reemplazo.
+        'rrhh',
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
         'einvoicePy',
         'api',

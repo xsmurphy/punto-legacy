@@ -35,6 +35,7 @@ import {
   ChefHat,
   ClipboardCheck,
   ClipboardList,
+  IdCard,
   Repeat,
   BellRing,
   ReceiptText,
@@ -177,6 +178,24 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     title: "Control de Asistencia",
     description: "Llevá el control de las horas trabajadas de tu staff.",
     icon: Clock,
+    category: "Operativos",
+    configKind: "none",
+    status: "available",
+  },
+  {
+    // RRHH (context/83, D9). La F0 entrega el LEGAJO; la asistencia, las
+    // ausencias y la liquidación llegan en las fases siguientes y viven
+    // dentro de este mismo módulo.
+    //
+    // `attendance` sigue acá arriba y NO se toca: muere recién en la F1,
+    // cuando el quiosco de marcación exista y la asistencia pase a vivir
+    // adentro de RRHH. Apagarlo antes dejaría sin nada al comercio que hoy
+    // lo tiene prendido.
+    key: "rrhh",
+    kind: "module",
+    title: "RRHH",
+    description: "Legajo de tu personal: datos, puesto, remuneración y archivos.",
+    icon: IdCard,
     category: "Operativos",
     configKind: "none",
     status: "available",

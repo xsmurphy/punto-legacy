@@ -24,6 +24,7 @@ import {
   Gift,
   HandCoins,
   History,
+  IdCard,
   KeyRound,
   Landmark,
   LayoutDashboard,
@@ -362,6 +363,35 @@ export const PANEL_ROUTES: RouteEntry[] = [
     sidebarGroup: "contactos",
     requires: "contacts.user.view",
     keywords: ["team", "staff", "empleados", "usuarios", "personal"],
+  },
+  {
+    // RRHH F0 (context/83): el LEGAJO, que no es lo mismo que "Equipo" de
+    // acá arriba. Equipo son los USUARIOS del sistema (credencial, rol, PIN);
+    // esto es la relación laboral —sueldo, documento, contrato— y existe
+    // igual para quien nunca entra a Punto.
+    //
+    // Va al sidebar y no solo al palette porque ya está doblemente gateado:
+    // solo lo ve quien tiene el módulo prendido Y el permiso, que a propósito
+    // no está en ningún rol por default.
+    to: "/employees",
+    title: "Empleados",
+    icon: IdCard,
+    surface: "sidebar",
+    sidebarGroup: "contactos",
+    requires: "hr.employees.view",
+    requiresModule: "rrhh",
+    keywords: [
+      "empleados",
+      "personal",
+      "staff",
+      "rrhh",
+      "recursos humanos",
+      "legajo",
+      "sueldo",
+      "salario",
+      "employees",
+      "hr",
+    ],
   },
 
   {
