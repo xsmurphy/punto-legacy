@@ -34,6 +34,7 @@
 import { getPosOfflineDB as getDB } from '@/lib/pos/offline-db'
 import type {
   OfflineError,
+  OpBlobRow,
   PendingOpKind,
   PendingOpRow,
   PendingOpStream,
@@ -41,6 +42,7 @@ import type {
 
 export type {
   OfflineError,
+  OpBlobRow,
   PendingOpKind,
   PendingOpRow,
   PendingOpStatus,
@@ -172,6 +174,55 @@ export async function enqueueOp(input: EnqueueOpInput): Promise<PendingOpRow> {
   return row
 }
 
+// ── Archivos adjuntos de una operación ────────────────────────────────────────
+
+/**
+ * Guarda el archivo de una operación (hoy: la foto de una marcación).
+ *
+ * Se llama ANTES o DESPUÉS de `enqueueOp` indistintamente — son dos escrituras
+ * y no una transacción. Y no hace falta que lo sean: la única incoherencia
+ * posible es un blob cuya operación todavía no existe (se limpia al
+ * sincronizar, ver `markOpSynced`) o una operación sin su blob, que el
+ * transporte ya sabe manejar — manda la marcación SIN foto y flageada, que es
+ * exactamente lo que el fail-open pide. Envolverlas en una transacción
+ * compraría atomicidad para un caso en el que ninguna de las dos mitades es
+ * catastrófica.
+ */
+export async function putOpBlob(opId: string, blob: Blob): Promise<void> {
+  const db = await getDB()
+  const row: OpBlobRow = {
+    opId,
+    blob,
+    mime: blob.type || 'application/octet-stream',
+    createdAt: new Date().toISOString(),
+  }
+  await db.put('opBlobs', row)
+}
+
+/** El archivo de una operación, o `null` si no tiene (o si se perdió). */
+export async function getOpBlob(opId: string): Promise<Blob | null> {
+  const db = await getDB()
+  const row = await db.get('opBlobs', opId)
+  return row?.blob ?? null
+}
+
+/**
+ * Borra el archivo de una operación. Lo llama la cola en los dos puntos donde
+ * una operación deja de existir (sincronizada o descartada), NUNCA el
+ * consumidor: un archivo cuya operación ya no está es basura inalcanzable, y
+ * dejar esa limpieza en manos de quien encoló es cómo se acumulan fotos en el
+ * IndexedDB de una tablet hasta que el browser empieza a rechazar escrituras.
+ */
+export async function deleteOpBlob(opId: string): Promise<void> {
+  try {
+    const db = await getDB()
+    await db.delete('opBlobs', opId)
+  } catch {
+    // La limpieza no puede hacer fallar la transición de la operación, que es
+    // lo que de verdad importa.
+  }
+}
+
 // ── Lectura ───────────────────────────────────────────────────────────────────
 
 /** Todas las operaciones en cola, en orden de encolado. */
@@ -247,10 +298,11 @@ export async function markOpSyncing(opId: string): Promise<void> {
   await patchOp(opId, (row) => ({ ...row, status: 'syncing' }))
 }
 
-/** El servidor la aceptó: sale de la cola. */
+/** El servidor la aceptó: sale de la cola, y su archivo con ella. */
 export async function markOpSynced(opId: string): Promise<void> {
   const db = await getDB()
   await db.delete('pendingOps', opId)
+  await deleteOpBlob(opId)
 }
 
 /**
@@ -318,6 +370,7 @@ export async function retryOp(opId: string): Promise<void> {
 export async function discardOp(opId: string): Promise<void> {
   const db = await getDB()
   await db.delete('pendingOps', opId)
+  await deleteOpBlob(opId)
 }
 
 /**

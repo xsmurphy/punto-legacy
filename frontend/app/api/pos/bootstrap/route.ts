@@ -47,6 +47,7 @@ import type {
   PosCategory,
   PosBrand,
   PosUser,
+  PosEmployee,
   PaymentMethodConfig,
   PosPrintTemplate,
 } from "@/lib/types/pos-bootstrap"
@@ -210,6 +211,12 @@ interface UpstreamBootstrap {
    * Bearer del device. El handler lo loguea explícitamente en vez de tragárselo.
    */
   users?: UpstreamRosterUser[]
+  /**
+   * Empleados habilitados para marcar asistencia (context/83 F1). Mismo gate
+   * que `users` —device que ES una caja— y por la misma razón: lleva hashes de
+   * PIN. Ausente además cuando el módulo `rrhh` está apagado.
+   */
+  employees?: UpstreamAttendanceEmployee[]
 }
 
 /** Fila del roster del lock screen. Tres campos, a propósito — ver arriba. */
@@ -217,6 +224,16 @@ interface UpstreamRosterUser {
   id: string
   name: string
   pinhash?: string | null
+}
+
+/** Fila del roster de marcación — ver `AttendanceService::rosterForOutlet()`. */
+interface UpstreamAttendanceEmployee {
+  id: string
+  name: string
+  jobTitle?: string | null
+  markPinHash?: string | null
+  lastKind?: string | null
+  lastMarkedAt?: string | null
 }
 
 // Fila de /v1/taxes — ver TaxService::present() (F0, tabla `tax`).
@@ -556,6 +573,35 @@ function reshapeRoster(rows: UpstreamRosterUser[] | undefined): PosUser[] | null
     name: u.name,
     pinhash: u.pinhash ?? null,
   }))
+}
+
+/**
+ * Empleados habilitados para marcar (context/83 F1).
+ *
+ * Misma distinción `null` vs `[]` que el roster, y acá también cambia lo que se
+ * muestra: `null` es "este comercio no tiene marcación" (módulo apagado, o
+ * `/api` viejo) y `[]` es "la tiene, pero nadie cargó su PIN todavía". El
+ * quiosco dice cosas distintas para cada uno — y ninguna de las dos es "PIN
+ * incorrecto", que es lo que diría si se colapsaran.
+ *
+ * Los que llegan SIN hash se descartan acá: sin él no hay nada contra qué
+ * validar sin red, así que solo sumarían un nombre que nunca matchea. El
+ * backend ya no los manda; el filtro es por si un `/api` intermedio lo hiciera.
+ */
+function reshapeAttendanceRoster(
+  rows: UpstreamAttendanceEmployee[] | undefined,
+): PosEmployee[] | null {
+  if (!Array.isArray(rows)) return null
+  return rows
+    .filter((e) => typeof e.markPinHash === "string" && e.markPinHash !== "")
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      jobTitle: e.jobTitle || null,
+      markPinHash: e.markPinHash as string,
+      lastKind: e.lastKind === "in" || e.lastKind === "out" ? e.lastKind : null,
+      lastMarkedAt: e.lastMarkedAt || null,
+    }))
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -912,6 +958,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Al viajar dentro del bootstrap queda además en el snapshot de IndexedDB,
     // así que el PIN se valida sin red en el arranque en frío.
     users: reshapeRoster(bs.users),
+    // Empleados que pueden marcar asistencia (context/83 F1). Viaja dentro del
+    // bootstrap por el mismo motivo que el roster: así queda en el snapshot de
+    // IndexedDB y el PIN de marcación se valida sin red, también en un arranque
+    // en frío.
+    employees: reshapeAttendanceRoster(bs.employees),
     activeRegisterId: bs.activeRegisterId ?? "",
     // F2b (context/38): tasas del tenant + default de la sucursal. Sin esto
     // el carrito no puede resolver la tasa de una línea, y el neteo de

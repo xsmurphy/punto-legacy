@@ -45,6 +45,15 @@ export interface Employee {
   hourlyRate: number | null
   commissions: boolean
   notes: string | null
+  /**
+   * ¿Esta persona tiene PIN de marcación cargado? El PIN mismo NO viaja, ni
+   * siquiera hasheado: es SHA-256 sin sal de 4 dígitos, o sea el PIN para quien
+   * tenga cinco minutos. Al quiosco baja por otro camino y con otro gate (el
+   * bootstrap del device). Un PIN olvidado se reemplaza, no se consulta.
+   */
+  hasMarkPin: boolean
+  /** Horario declarado. `null` = sin horario: el reporte no mide tardanzas. */
+  schedule: EmployeeSchedule | null
   biometricConsentAt: string | null
   /** 1 = vigente, 0 = archivado. Distinto de `active`. */
   status: number
@@ -82,7 +91,37 @@ export interface EmployeeFormValues {
   hourlyRate?: number | null
   commissions?: boolean
   notes?: string | null
+  /**
+   * PIN de marcación en CLARO (4 dígitos). El backend lo guarda hasheado.
+   *
+   * Tres valores con tres significados, y hay que respetarlos:
+   *   ausente → no se toca el que ya tenga
+   *   `null`  → se BORRA (la persona deja de poder marcar)
+   *   "1234"  → se reemplaza
+   *
+   * Mandar `null` "por las dudas" en cada edición le sacaría el PIN a todo el
+   * equipo cada vez que alguien corrige un teléfono.
+   */
+  markPin?: string | null
+  /** Horario declarado. `null` lo borra. Ausente no lo toca. */
+  schedule?: EmployeeSchedule | null
   biometricConsent?: boolean
+}
+
+/** Día de la semana del horario declarado. */
+export type ScheduleDay = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun"
+
+/**
+ * Horario declarado de una persona (context/83 F1).
+ *
+ * Un día AUSENTE del mapa es un día NO laborable — no hay una tercera forma de
+ * decirlo. La hora de salida es opcional: alcanza con la de entrada para medir
+ * tardanzas, que es lo que este dato existe para permitir.
+ */
+export interface EmployeeSchedule {
+  days: Partial<Record<ScheduleDay, { in: string; out: string | null }>>
+  /** Minutos de gracia antes de contar una llegada como tarde. */
+  toleranceMinutes: number
 }
 
 export interface EmployeeFilters {

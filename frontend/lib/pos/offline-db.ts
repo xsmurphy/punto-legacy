@@ -32,6 +32,10 @@
  *                            memoria propia del device, y es lo único con lo
  *                            que puede mostrar un total sin preguntarle a
  *                            nadie. Ver `shift-journal.ts`.
+ *   - `opBlobs`      (v7) — el ARCHIVO de una operación pendiente, guardado
+ *                            aparte de su fila. Hoy solo la foto de una
+ *                            marcación de asistencia. Ver abajo por qué no va
+ *                            adentro del payload.
  *   - `pendingCharges` (v6) — cobros ONLINE-ONLY (espacio / orden / cobro
  *                            parcial) cuyo resultado fue AMBIGUO: timeout,
  *                            caída de red o 5xx. El servidor pudo haber
@@ -55,7 +59,7 @@ import type { CreateSalePayload } from '@/lib/commands/create-sale'
 import type { SettlementIntent } from '@/lib/cart/store'
 
 export const DB_NAME = 'punto-pos-offline'
-export const DB_VERSION = 6
+export const DB_VERSION = 7
 
 // ── Filas ─────────────────────────────────────────────────────────────────────
 
@@ -157,6 +161,17 @@ export type PendingOpStream =
   // orden en que se hicieron, porque el segundo ajusta sobre el saldo que dejó
   // el primero.
   | 'stock-count'
+  // Marcación de asistencia (context/83 F1). Canal PROPIO, por el mismo
+  // criterio que `stock-count`: cada marcación es un hecho autónomo —nadie
+  // depende de que la entrada de Ana se aplique antes que la de Bruno— así que
+  // no tiene por qué esperar detrás de un cierre de caja rechazado.
+  //
+  // El FIFO consigo mismo sí importa, y mucho: la entrada y la salida de la
+  // misma persona se aplican en el orden en que ocurrieron. No porque el
+  // servidor las aparee al insertar (no lo hace: cada fila lleva su tipo
+  // explícito y su hora), sino porque enviarlas desordenadas no aportaría nada
+  // y complicaría leer la cola en pantalla.
+  | 'attendance'
   | 'printer-bindings'
 
 /** Qué operación es. Determina el transporte (ver `pending-ops-transport.ts`). */
@@ -181,6 +196,42 @@ export type PendingOpKind =
    * El hecho que sí la tiene —"conté este mostrador"— es esta operación.
    */
   | 'stockCount'
+  /**
+   * Una marcación de asistencia (context/83 F1): quién, entrada o salida,
+   * cuándo, y la foto del momento — que viaja en `opBlobs`, no en el payload.
+   *
+   * Nunca se fusiona con la anterior: dos marcaciones de la misma persona son
+   * DOS hechos (entró, salió), jamás una corrección de la primera.
+   */
+  | 'attendanceMark'
+
+/**
+ * El ARCHIVO de una operación pendiente. Store aparte de `pendingOps`, con la
+ * MISMA clave (`opId`), y no un campo más del payload.
+ *
+ * Por qué no va adentro del payload, que sería lo obvio:
+ *
+ * 1. **El payload se serializa a JSON al enviarse.** Un `Blob` no sobrevive a
+ *    `JSON.stringify`, así que habría que guardarlo en base64 — un 33% más de
+ *    bytes de una foto que ya pesa.
+ * 2. **La cola se lee ENTERA, seguido.** `peekAllOps()` hace `getAll()` y lo
+ *    llaman el motor de sync en cada pasada y varias lecturas de pantalla. Con
+ *    la foto adentro, cada una de esas lecturas levanta megabytes de imagen a
+ *    memoria para mirar cinco campos de texto. Afuera, la fila sigue pesando lo
+ *    que pesa una fila y el binario se lee solo cuando se va a enviar.
+ *
+ * El ciclo de vida lo maneja la cola (`pending-ops.ts`), no el consumidor: el
+ * blob se borra junto con su operación al sincronizar o al descartarla. Un
+ * archivo cuya operación ya no existe es basura que nadie va a alcanzar.
+ */
+export interface OpBlobRow {
+  /** Mismo `opId` que la fila de `pendingOps` a la que pertenece. */
+  opId: string
+  blob: Blob
+  /** Tipo real del archivo. El servidor lo revalida igual, contra el contenido. */
+  mime: string
+  createdAt: string // ISO
+}
 
 export type PendingOpStatus = 'pending' | 'syncing' | 'failed'
 
@@ -367,6 +418,10 @@ export interface PosOfflineDB extends DBSchema {
     key: string
     value: PendingChargeRow
   }
+  opBlobs: {
+    key: string
+    value: OpBlobRow
+  }
 }
 
 // ── Singleton ─────────────────────────────────────────────────────────────────
@@ -399,6 +454,9 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
         }
         if (!db.objectStoreNames.contains('pendingCharges')) {
           db.createObjectStore('pendingCharges', { keyPath: 'key' })
+        }
+        if (!db.objectStoreNames.contains('opBlobs')) {
+          db.createObjectStore('opBlobs', { keyPath: 'opId' })
         }
       },
     })
@@ -436,6 +494,16 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
  * No contiene PII (montos y nombres de medios de pago, ningún cliente), así que
  * no hay nada que sacar de encima del device, y borrarlo dejaría al cajero
  * arqueando a ciegas después de un logout a mitad de turno.
+ *
+ * `opBlobs` sobrevive con su cola, y este es el único caso donde eso implica
+ * conservar PII: la foto de una marcación de asistencia es la cara de una
+ * persona. Se conserva igual porque es la EVIDENCIA de un hecho que el
+ * dispositivo ya registró y el servidor todavía no recibió — tirarla no borra
+ * la marcación (esa sale igual), solo la deja llegar sin su prueba y flageada
+ * para revisión. La contracara está acotada: es la foto de un empleado del
+ * propio comercio, en el dispositivo del propio comercio, y dura lo que tarda
+ * en volver la red. El desvinculado EXPLÍCITO sí se la lleva, junto con todo
+ * lo demás (`purgeAllOfflineData()`).
  *
  * Para el borrado total y explícito ver `purgeAllOfflineData()`.
  */

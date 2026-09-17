@@ -49,6 +49,7 @@ import {
   Scale,
   ShieldCheck,
   ShoppingCart,
+  UserCheck,
   UserSearch,
   Users,
   Wallet,
@@ -257,6 +258,13 @@ const GROUPS: ReportGroup[] = [
         description: "Ventas, comisiones y ticket promedio por vendedor.",
         to: "/reports/users",
         icon: Users,
+        implemented: true,
+      },
+      {
+        title: "Asistencia",
+        description: "Horas trabajadas y llegadas tarde, con la foto de cada marcación.",
+        to: "/reports/attendance",
+        icon: UserCheck,
         implemented: true,
       },
       {
