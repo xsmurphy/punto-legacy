@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api, ApiError } from "@/lib/api-client"
+import { mapWithConcurrency, splitTextForTts } from "@/lib/ai/tts-chunk"
 
 /**
  * Acciones inline debajo de cada mensaje del assistant: copiar al clipboard +
@@ -19,9 +20,16 @@ import { api, ApiError } from "@/lib/api-client"
  * (D4) — sin créditos o con el proveedor caído, el usuario pidió escuchar y
  * escuchar algo feo le gana a un botón muerto.
  *
+ * EL TEXTO SE PIDE TROCEADO (`lib/ai/tts-chunk.ts`): la generación del
+ * proveedor escala con el largo y no streamea (una respuesta larga tardaba
+ * ~48s en empezar a sonar). Los pedazos se piden en paralelo —con tope— y se
+ * reproducen en secuencia: el primero es corto y define la espera; los demás
+ * llegan mientras suena. El gate y el débito corren por pedazo en el BFF, y la
+ * suma de caracteres es la del mensaje entero — el costo no cambia.
+ *
  * El audio se retiene por MENSAJE en un ref (D6): volver a tocar play sobre el
- * mismo mensaje reproduce el blob que ya está en memoria, sin pedirlo de nuevo
- * y sin debitar de nuevo. El object URL se revoca al desmontar.
+ * mismo mensaje reproduce los blobs que ya están en memoria, sin pedirlos de
+ * nuevo y sin debitar de nuevo. Los object URLs se revocan al desmontar.
  *
  * ── Por qué `remoteVoice` es una prop y no se resuelve acá ──────────────────
  * Este componente lo montan las DOS superficies (el thread es uno solo, ver el
@@ -76,8 +84,14 @@ export function MessageActions({
   const [copied, setCopied] = React.useState(false)
   const [speakState, setSpeakState] = React.useState<SpeakState>("idle")
 
-  /** Object URL del audio ya generado para ESTE mensaje. Null = todavía no se pidió. */
-  const audioUrlRef = React.useRef<string | null>(null)
+  /**
+   * Object URLs del audio ya generado para ESTE mensaje, uno por pedazo y en
+   * orden de lectura. Null = todavía no se pidió; solo se guarda la SECUENCIA
+   * COMPLETA (una re-escucha con huecos leería el mensaje salteado).
+   */
+  const audioUrlsRef = React.useRef<string[] | null>(null)
+  /** Todo object URL creado, completo o no — lo que hay que revocar al desmontar. */
+  const createdUrlsRef = React.useRef<string[]>([])
   const audioRef = React.useRef<HTMLAudioElement | null>(null)
   /** Evita setState después de desmontar (el fetch del audio dura segundos). */
   const aliveRef = React.useRef(true)
@@ -88,10 +102,9 @@ export function MessageActions({
       aliveRef.current = false
       // Si el user navega o el componente se desmonta mid-speech, cortar.
       audioRef.current?.pause()
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current)
-        audioUrlRef.current = null
-      }
+      for (const url of createdUrlsRef.current) URL.revokeObjectURL(url)
+      createdUrlsRef.current = []
+      audioUrlsRef.current = null
       if (typeof window !== "undefined" && window.speechSynthesis) {
         window.speechSynthesis.cancel()
       }
@@ -138,24 +151,52 @@ export function MessageActions({
     setSpeakState("playing")
   }
 
-  /** Reproduce un object URL ya generado. Lanza si el browser rechaza el play. */
-  async function playAudioUrl(url: string) {
-    const audio = audioRef.current ?? new Audio()
-    audioRef.current = audio
-    audio.src = url
-    audio.onended = () => {
-      if (aliveRef.current) setSpeakState("idle")
+  /**
+   * Reproduce un object URL HASTA EL FINAL: resuelve cuando terminó, lanza si
+   * el browser rechaza el play, y devuelve `false` si lo frenaron. Es el
+   * eslabón de la secuencia — quien la recorre decide si sigue con el próximo.
+   */
+  function playAudioUrlToEnd(url: string): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      const audio = audioRef.current ?? new Audio()
+      audioRef.current = audio
+      audio.src = url
+      audio.onended = () => resolve(true)
+      audio.onerror = () => resolve(true) // un pedazo ilegible no traba el resto
+      stopCurrentPlayback = () => {
+        audio.pause()
+        audio.currentTime = 0
+        if (aliveRef.current) setSpeakState("idle")
+        resolve(false)
+      }
+      audio.play().then(
+        () => {
+          if (aliveRef.current) setSpeakState("playing")
+        },
+        (e) => reject(e),
+      )
+    })
+  }
+
+  /**
+   * Recorre la secuencia en orden; corta limpio si la frenan o se desmonta.
+   * `progress.played` queda con cuántos pedazos SONARON aunque después algo
+   * lance: el que maneja el error necesita saber si el usuario ya escuchó
+   * parte del mensaje (releerlo entero con la voz nativa sería peor que
+   * cortar).
+   */
+  async function playSequence(
+    urls: (string | Promise<string>)[],
+    progress: { played: number } = { played: 0 },
+  ) {
+    for (const pending of urls) {
+      const url = await pending
+      if (!aliveRef.current) return
+      const finished = await playAudioUrlToEnd(url)
+      if (!finished || !aliveRef.current) return
+      progress.played++
     }
-    audio.onerror = () => {
-      if (aliveRef.current) setSpeakState("idle")
-    }
-    stopCurrentPlayback = () => {
-      audio.pause()
-      audio.currentTime = 0
-      if (aliveRef.current) setSpeakState("idle")
-    }
-    await audio.play()
-    if (aliveRef.current) setSpeakState("playing")
+    if (aliveRef.current) setSpeakState("idle")
   }
 
   async function handleToggleSpeak() {
@@ -177,33 +218,62 @@ export function MessageActions({
       return
     }
 
-    // Re-escucha: el audio de este mensaje ya está en memoria. Ni pedido ni
-    // débito nuevos (D6).
-    if (audioUrlRef.current) {
+    // Re-escucha: la secuencia completa de este mensaje ya está en memoria.
+    // Ni pedidos ni débitos nuevos (D6).
+    if (audioUrlsRef.current) {
       try {
-        await playAudioUrl(audioUrlRef.current)
+        await playSequence(audioUrlsRef.current)
         return
       } catch {
-        // El blob quedó inservible (revocado, o el browser rechazó el play):
-        // se descarta y sigue por el camino normal, que lo vuelve a pedir.
-        audioUrlRef.current = null
+        // Los blobs quedaron inservibles (revocados, o el browser rechazó el
+        // play): se descartan y sigue el camino normal, que los vuelve a pedir.
+        audioUrlsRef.current = null
       }
     }
 
     setSpeakState("loading")
     try {
+      // El texto va TROCEADO y en paralelo (ver el docblock de arriba): la
+      // espera del usuario es la del primer pedazo, no la del mensaje entero.
       // Por el api-client del panel y no por `fetch` crudo: es el único que
       // adjunta el Bearer del realm (`realm-token-separation.test.ts` lo
       // verifica en CI).
-      const blob = await api.postBlob("/agent/tts", { text })
-      const url = URL.createObjectURL(blob)
-      if (!aliveRef.current) {
-        // Se desmontó mientras generaba: no dejar el object URL colgado.
-        URL.revokeObjectURL(url)
-        return
+      const chunks = splitTextForTts(text)
+      if (chunks.length === 0) return
+      const urlPromises = mapWithConcurrency(chunks, 3, async (chunk) => {
+        const blob = await api.postBlob("/agent/tts", { text: chunk })
+        const url = URL.createObjectURL(blob)
+        createdUrlsRef.current.push(url)
+        return url
+      })
+      // Marca de "manejada" para cada promesa: mientras suena el pedazo N, un
+      // fallo del N+2 sería un unhandled rejection aunque el for de la
+      // secuencia lo vaya a ver después.
+      for (const p of urlPromises) p.catch(() => {})
+
+      const progress = { played: 0 }
+      try {
+        await playSequence(urlPromises, progress)
+      } catch (e) {
+        // Con parte del mensaje YA ESCUCHADA, caer a la voz nativa releería
+        // todo desde el principio: se corta con aviso y listo. El fallback
+        // nativo queda para cuando no sonó nada (el catch de afuera).
+        if (progress.played > 0) {
+          toast("No se pudo completar la lectura")
+          if (aliveRef.current) setSpeakState("idle")
+          return
+        }
+        throw e
       }
-      audioUrlRef.current = url
-      await playAudioUrl(url)
+
+      // La secuencia se cachea solo COMPLETA — con todas las promesas ya
+      // resueltas. Si la frenaron a mitad, las que faltaban pueden seguir en
+      // vuelo: se resuelven igual (quedan registradas para revocar) y la
+      // próxima escucha las vuelve a pedir.
+      const settled = await Promise.allSettled(urlPromises)
+      if (settled.every((s) => s.status === "fulfilled")) {
+        audioUrlsRef.current = settled.map((s) => (s as PromiseFulfilledResult<string>).value)
+      }
     } catch (e) {
       const status = e instanceof ApiError ? e.status : 0
       toast(

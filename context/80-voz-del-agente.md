@@ -73,9 +73,16 @@ Un BFF nuevo `app/api/agent/tts/route.ts` (realm panel):
   de la caja (`context/59`) tiene BFF propio con Bearer del device — si se
   quiere voz ahí, es un segundo endpoint con ESE realm, nunca compartir el
   del panel (mandato token-only del POS). Queda para después del OK.
-- **D6 — Streaming.** v1 blob completo (la respuesta típica del agente son
-  segundos de audio). Streaming de audio solo si la latencia molesta en la
-  práctica.
+- **D6 — Streaming: NO; troceo: SÍ** (revisada 2026-09-17, el mismo día que
+  salió). La latencia molestó en la práctica el primer día: un mensaje largo
+  tardaba ~48s en empezar a sonar. Medido contra el endpoint real: la
+  generación de Gemini escala con el largo y MAL (200 chars ≈ 6s, 1100 ≈
+  144s) y el primer byte llega al FINAL (TTFB 142s de 144s) — streamear la
+  respuesta no ayuda en nada. La solución es del CLIENTE
+  (`lib/ai/tts-chunk.ts`): el texto se pide por oraciones agrupadas en
+  pedazos (el primero corto, ~180 chars — es la espera del usuario), en
+  paralelo con tope de 3, y se reproducen en secuencia. Cada pedazo pasa por
+  el mismo gate y débito; el costo total no cambia.
 
 ## 5. Arquitecturas rechazadas
 
