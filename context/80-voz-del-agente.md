@@ -1,8 +1,13 @@
 # 80 — Voz del agente (TTS por OpenRouter)
 
-> Estado: **en implementación** (2026-09-17). D1-D6 CERRADAS — el owner
-> aprobó las propuestas tal cual (Kokoro default, cobro por caracteres con
-> reason propio, fallback a voz nativa, v1 solo panel, blob sin streaming).
+> Estado: **implementado** (2026-09-17, commit `71ceb677`, mig 226). D1-D6
+> CERRADAS. La D2 cambió en vuelo: el default NO es Kokoro — el owner frenó
+> ("creo que kokoro no tiene español", verificado: 3 voces es-* con G2P
+> débil) y el default es **Gemini Flash TTS**
+> (`google/gemini-3.1-flash-tts-preview`). OJO con el slug `-preview`: si
+> Google lo gradúa y OpenRouter lo renombra, se actualiza por `/admin` o con
+> una mig nueva de UPDATE (patrón mig 98) — NUNCA editando la seed 226, que
+> ya corrió en prod.
 
 ## 1. El pedido (owner)
 
@@ -45,11 +50,15 @@ Un BFF nuevo `app/api/agent/tts/route.ts` (realm panel):
 ## 4. Decisiones
 
 - **D1 — CERRADA (owner)**: se cobra del crédito IA del tenant.
-- **D2 — Modelo default.** El precio manda: la voz es un lujo, no puede
-  costar más que la respuesta que lee. Propuesta: **Kokoro 82M** como
-  default (barato, es-LA aceptable) y el modelo configurable desde `/admin`
-  como los de chat — si un tenant quiere Gemini TTS, es un select, no un
-  deploy.
+- **D2 — Modelo default: Gemini Flash TTS** (corregida en vuelo por el
+  owner). La propuesta original era Kokoro 82M por precio, pero su español
+  es flojo (3 voces es-*, G2P débil fuera del inglés) y el motivo de la
+  feature es justamente que la voz actual es mala. Default seedeado en la
+  mig 226 (`google/gemini-3.1-flash-tts-preview`, capability `tts` en
+  `ai_model_config`, `ON CONFLICT DO NOTHING` — lo que `/admin` ya
+  configuró gana). Kokoro queda como alternativa barata seleccionable.
+  Sin la fila de capability, `debit.php` corta 422 y —como el débito es
+  best-effort— la voz saldría GRATIS en silencio: la seed no es opcional.
 - **D3 — Unidad de cobro.** El TTS cobra por CARACTERES de entrada, no por
   tokens de salida. `debitAiUsage` recibe tokens; se mapea caracteres→"tokens
   equivalentes" (chars/4, el estándar) para no bifurcar el ledger. El
