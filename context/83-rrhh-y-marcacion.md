@@ -1,7 +1,7 @@
 # RRHH básico + marcación de asistencia (quiosco facial)
 
-**Estado: plan sin implementar (2026-09-17). D1 y D3 cerradas por el owner; el
-resto propuestas sin su OK.**
+**Estado: plan CERRADO, sin implementar. D1-D10 cerradas por el owner
+(D1/D3 el 2026-09-17; D2 y D4-D10 aprobadas en bloque el 2026-09-17).**
 
 ## §0 El pedido
 
@@ -61,7 +61,7 @@ combinan.** El legajo declara, por empleado:
 Combinables (base fija + comisión es el caso típico de vendedores). La
 liquidación muestra cada componente por separado en el recibo.
 
-**Tarifario de comisiones (D10 PROPUESTA)** — patrón lista de precios:
+**Tarifario de comisiones (D10 CERRADA)** — patrón lista de precios:
 
 - `commission_scheme` con reglas por alcance: default del esquema → categoría
   → producto; cada regla es `%` o `monto fijo por unidad`. Empleados asignados
@@ -75,7 +75,7 @@ liquidación muestra cada componente por separado en el recibo.
   Contracara asumida: cambiar una regla NO re-liquida ventas pasadas — lo
   vendido comisionó con la regla de su día.
 
-## §3 D2 PROPUESTA — el empleado es entidad propia, no un flag en `user`
+## §3 D2 CERRADA — el empleado es entidad propia, no un flag en `user`
 
 `employee` como tabla propia, con vínculo OPCIONAL a `user`:
 
@@ -100,7 +100,7 @@ Flujo propuesto: el empleado se para frente al equipo → el sistema lo
 identifica por la cara entre los empleados de la sucursal (1:N) → confirma
 entrada/salida en un toque. Sin tipear nada.
 
-### D4 PROPUESTA — la cara IDENTIFICA; nunca bloquea. La foto es la evidencia
+### D4 CERRADA — la cara IDENTIFICA; nunca bloquea. La foto es la evidencia
 
 - El reconocimiento es la identificación primaria; el **PIN queda de
   respaldo** (empleado sin enrolar, cámara rota, contraluz).
@@ -114,7 +114,7 @@ entrada/salida en un toque. Sin tipear nada.
   foto guardada, que convierte el intento en evidencia con autor. Es control
   de asistencia de pyme, no control de acceso.
 
-### D5 PROPUESTA — reconocimiento ON-DEVICE, biometría propia
+### D5 CERRADA — reconocimiento ON-DEVICE, biometría propia
 
 - La comparación corre **en el navegador del dispositivo** (embeddings
   faciales con modelo local). Sin servicio externo: **costo cero por
@@ -136,20 +136,20 @@ entrada/salida en un toque. Sin tipear nada.
   Paraguay ya tiene ley de protección de datos personales vigente — confirmar
   plazos/retención exigibles por país ANTES de habilitar el módulo a clientes.
 
-### D6 PROPUESTA — modo por sucursal
+### D6 CERRADA — modo por sucursal
 
 Default: quiosco facial. Alternativa por sucursal para personal de calle
 (repartidores, vendedores externos): marcación desde el celular propio con
 geolocalización + selfie del momento (el QR no vuelve — la selfie con flag de
 revisión reemplaza al PIN prestable como evidencia).
 
-### D7 PROPUESTA — offline-first
+### D7 CERRADA — offline-first
 
 La marcación encola como operación pendiente (patrón `pending-ops` del POS) y
 sincroniza al volver la red. El reconocimiento ya es local, así que sin
 internet no cambia nada para el empleado.
 
-## §5 D8 PROPUESTA — adelantos y liquidación pasan por Finanzas, no al lado
+## §5 D8 CERRADA — adelantos y liquidación pasan por Finanzas, no al lado
 
 - **Adelanto** = egreso de caja que YA existe, con vínculo al empleado. Al
   liquidar, los adelantos del período se descuentan solos.
@@ -168,7 +168,7 @@ internet no cambia nada para el empleado.
   esos números pero el comercio los puede corregir a mano antes de liquidar —
   la marcación es evidencia, no sentencia.
 
-## §6 D9 PROPUESTA — módulo `rrhh` togglable
+## §6 D9 CERRADA — módulo `rrhh` togglable
 
 Módulo nuevo gobernado por plan (F7 de context/34). El catálogo de módulos
 deja de ofrecer `attendance` suelto: la asistencia vive dentro de RRHH.
