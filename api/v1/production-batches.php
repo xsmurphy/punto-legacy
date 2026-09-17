@@ -4,10 +4,11 @@
  *
  *   GET  /v1/production-batches                       → lista (filtros: status, outletId, from, to)
  *   GET  /v1/production-batches?id=<uuid>             → detalle (lote + líneas + necesidad si está en draft)
- *   GET  /v1/production-batches?resource=order-demand&outletId=<uuid>[&date=YYYY-MM-DD]
+ *   GET  /v1/production-batches?resource=order-demand&outletId=<uuid>[&dateFrom=&dateTo=]
  *                                                     → la cola de órdenes pendientes de esa sucursal,
  *                                                       agregada por producto (alimentador del lote).
- *                                                       `date` = día de entrega (context/79); sin él, hoy.
+ *                                                       `dateFrom`/`dateTo` = rango de días de entrega
+ *                                                       (context/79); sin ellos, hoy. `date` = un solo día.
  *   POST /v1/production-batches?resource=estimate     → necesidad consolidada (LECTURA PURA, no escribe)
  *                                                       body: outletId, locationId?, lines:[{itemId, qty}]
  *   POST /v1/production-batches                       → crea el lote en draft + sus N órdenes hijas
@@ -69,14 +70,19 @@ switch ($method) {
             if ($outletId === '') {
                 apiError('outletId es requerido', 422);
             }
-            // Día de entrega a traer (context/79, D2). Ausente = hoy, que es el
-            // comportamiento previo: la cola sin fecha más lo vencido.
+            // Rango de días de entrega a traer (context/79 D2, ampliado a rango
+            // el 2026-09-17). Ausente = hoy, que es el comportamiento previo:
+            // la cola sin fecha más lo vencido. `date` sigue aceptándose como
+            // el rango de UN día que era, para no romper un cliente viejo.
             $demandDate = trim((string) ($_GET['date'] ?? ''));
+            $demandFrom = trim((string) ($_GET['dateFrom'] ?? '')) ?: $demandDate;
+            $demandTo   = trim((string) ($_GET['dateTo'] ?? '')) ?: $demandDate;
             try {
                 apiOk((new \Punto\Api\Orders\OrderDemandService())->pendingByItem(
                     $companyId,
                     $outletId,
-                    $demandDate !== '' ? $demandDate : null
+                    $demandFrom !== '' ? $demandFrom : null,
+                    $demandTo !== '' ? $demandTo : null
                 ));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);

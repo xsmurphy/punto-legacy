@@ -40,6 +40,9 @@ require_once __DIR__ . '/_harness.php';
  *       para platos que nadie cocinó.
  *   (+) Una orden SUELTA (`batchid IS NULL`) sigue funcionando igual — la
  *       comprobación de no-regresión del camino de un solo plato.
+ *   (S) EL FALTANTE ABRE NECESIDADES DE REPOSICIÓN (context/70 §B.5, mig 229):
+ *       la cantidad la calcula el servidor con el mismo estimador, el insumo
+ *       sin control de inventario queda afuera y pedirlo dos veces no duplica.
  *
  * Uso (ver `run_production_batch_test.sh` para levantar todo de cero):
  *   POSTGRES_HOST=... POSTGRES_PORT=... POSTGRES_DB=... POSTGRES_USER=... POSTGRES_PASSWORD=... \
@@ -533,5 +536,62 @@ $foreign  = $rep->orders($rFrom, $rTo, $otherRoc, 'fa8cf679-9003-417e-8726-5b772
 check('(R10) otro tenant no ve estas órdenes',
     !in_array($orderId, array_column($foreign['rows'], 'orderId'), true),
     'filas ajenas = ' . count($foreign['rows']), $failures, $checks);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (S) Del faltante del lote a la necesidad de reposición (context/70 §B.5, mig 229)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Lo que se prueba acá y no se ve leyendo el código: que la cantidad sale del
+// MISMO estimador que dibuja la pantalla (y no de un número que mande el
+// cliente), que el insumo sin control de inventario queda afuera (D1) y que
+// pedirlo dos veces no duplica —lo garantiza el índice único parcial, no un
+// SELECT previo—.
+
+echo "\n=== (S) el faltante del lote abre necesidades de reposición ===\n";
+
+$needs = new \Punto\Api\Services\ReplenishmentService();
+
+// Punto de partida limpio: el arnés puede correr sobre una base reusada.
+ncmExecute("DELETE FROM replenishment_need WHERE companyid = ? AND origin = 'production_batch'", [$companyId]);
+
+$lineasFalta  = [['itemId' => IT_MILANESA, 'qty' => 80]];
+$estS         = $batches->estimate($companyId, $outletId, $lineasFalta);
+$faltaPechuga = (float) (ing($estS, IT_PECHUGA)['missing'] ?? 0);
+
+$res1 = $needs->createFromBatch($companyId, $userId, $outletId, $lineasFalta, null, null);
+
+check('(S1) se abre una necesidad por la pechuga, por el faltante que calculó el SERVIDOR',
+    count($res1['created']) === 1
+        && $res1['created'][0]['itemId'] === IT_PECHUGA
+        && $faltaPechuga > 0
+        && near((float) $res1['created'][0]['quantity'], round($faltaPechuga, 3)),
+    'created = ' . json_encode($res1['created']) . ' (faltante estimado = ' . $faltaPechuga . ')', $failures, $checks);
+
+check('(S2) el insumo SIN control de inventario no abre necesidad (D1: sin onHand no hay faltante)',
+    !in_array(IT_SAL, array_column($res1['created'], 'itemId'), true),
+    'created = ' . json_encode(array_column($res1['created'], 'itemId')), $failures, $checks);
+
+$filaS = ncmExecute(
+    'SELECT origin, sourceid, status, onhandat FROM replenishment_need WHERE needid = ?',
+    [$res1['created'][0]['needId'] ?? '00000000-0000-4000-8000-000000000000']
+);
+check('(S3) la fila nace abierta, con origen `production_batch` y sin sourceid (el lote todavía no existe)',
+    $filaS && $filaS['origin'] === 'production_batch' && $filaS['sourceid'] === null && $filaS['status'] === 'open',
+    json_encode($filaS), $failures, $checks);
+
+$res2 = $needs->createFromBatch($companyId, $userId, $outletId, $lineasFalta, null, null);
+check('(S4) pedirlo de nuevo no duplica ni pisa: la que ya estaba abierta se DEVUELVE, no se reescribe',
+    $res2['created'] === []
+        && count($res2['existing']) === 1
+        && $res2['existing'][0]['itemId'] === IT_PECHUGA,
+    'created = ' . json_encode($res2['created']) . ', existing = ' . json_encode($res2['existing']), $failures, $checks);
+
+$res3 = $needs->createFromBatch($companyId, $userId, $outletId, [['itemId' => IT_MILANESA, 'qty' => 1]], null, null);
+check('(S5) un lote que ALCANZA no abre nada — no hay faltante que reponer',
+    $res3['created'] === [] && $res3['existing'] === [],
+    json_encode($res3), $failures, $checks);
+
+// El arnés no se lleva su basura: estas necesidades no son fixture de nadie.
+ncmExecute("DELETE FROM replenishment_need WHERE companyid = ? AND origin = 'production_batch'", [$companyId]);
 
 harnessFinish($failures, $checks);

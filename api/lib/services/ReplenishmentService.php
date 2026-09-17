@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+use Punto\Api\Production\ProductionBatchService;
 use Punto\Api\Production\ProductionService;
 use Punto\Api\Support\DbQueryException;
 
@@ -32,6 +33,13 @@ use Punto\Api\Support\DbQueryException;
  * `ON CONFLICT DO NOTHING` — no un SELECT previo, que dos cajas pasarían a la
  * vez.
  *
+ *   - `production_batch` (mig 229): el FALTANTE del lote de producción, pedido
+ *     por una persona desde la pantalla del lote. Es el único origen que no
+ *     mira el mínimo: la cantidad es lo que falta para cocinar ESTE lote, no
+ *     una reposición fija, y por eso `itemreplenishqty` no interviene. La
+ *     unicidad por (sucursal, ítem) sí se respeta igual, así que pedirlo dos
+ *     veces no duplica nada — ver `createFromBatch()`.
+ *
  * ── El disparo nunca rompe el movimiento ─────────────────────────────────────
  *
  * Corre dentro de la transacción de la venta. Un INSERT fallido con
@@ -58,7 +66,7 @@ use Punto\Api\Support\DbQueryException;
  */
 final class ReplenishmentService
 {
-    public const ORIGINS = ['min_stock', 'count_panel', 'count_register'];
+    public const ORIGINS = ['min_stock', 'count_panel', 'count_register', 'production_batch'];
     public const STATUSES = ['open', 'covered', 'closed'];
 
     /** @var array<string, array<string, true>> companyId => needIds a publicar al final del request. */
@@ -214,6 +222,132 @@ final class ReplenishmentService
             error_log('[replenishment] disparo por conteo ignorado: ' . $e->getMessage());
             return 0;
         }
+    }
+
+    // ── Disparo pedido a mano desde el lote de producción ─────────────────────
+
+    /**
+     * Abre una necesidad por cada insumo que FALTA para cocinar un lote
+     * (context/70 §B.5: "el faltante del lote de producción" como origen).
+     *
+     * ── El faltante lo calcula el SERVIDOR, no el cliente ────────────────────
+     *
+     * La entrada es la COMPOSICIÓN del lote —los mismos `{plato, cantidad}` que
+     * la pantalla ya manda al estimador— y no los kilos finales. Aceptar las
+     * cantidades del cliente le dejaría a cualquiera con la gate abrir
+     * necesidades por la cantidad que se le ocurra, y peor: el número que se
+     * guarda dejaría de ser el que sale de la receta. Se explota acá con
+     * `ProductionBatchService::estimate()`, que es el MISMO camino que dibuja
+     * la tabla de la pantalla; si divergieran, el faltante que el operador vio
+     * no sería el que se pidió reponer.
+     *
+     * ── Qué entra y qué no ───────────────────────────────────────────────────
+     *
+     * Solo los insumos con control de inventario y `missing > 0` (D1 de
+     * context/70): sin `onHand` no hay faltante, hay necesidad total, y abrir
+     * una necesidad por la necesidad TOTAL de la sal diría "comprá 12 kg" a un
+     * comercio que tiene el bidón lleno y nunca lo cargó.
+     *
+     * Las que ya tenían una necesidad ABIERTA no se pisan: la unicidad la
+     * garantiza el índice parcial con `ON CONFLICT DO NOTHING` y se devuelven
+     * aparte para que la pantalla lo DIGA. Pisar la cantidad de una necesidad
+     * que alguien ya está cubriendo sería cambiarle el pedido abajo de la mano.
+     *
+     * @param list<array{itemId:string, qty:float|int|string}> $lines
+     * @param string[]|null $allowedOutletIds
+     * @return array{
+     *   created: list<array{needId:string, itemId:string, itemName:?string, quantity:float}>,
+     *   existing: list<array{itemId:string, itemName:?string, quantity:float}>
+     * }
+     */
+    public function createFromBatch(
+        string $companyId,
+        string $userId,
+        string $outletId,
+        array $lines,
+        ?string $locationId,
+        ?array $allowedOutletIds,
+    ): array {
+        global $db;
+
+        if ($outletId === '') {
+            throw new \InvalidArgumentException('Elegí la sucursal', 422);
+        }
+        if ($allowedOutletIds !== null && !in_array($outletId, $allowedOutletIds, true)) {
+            throw new \InvalidArgumentException('No tenés acceso a esa sucursal', 403);
+        }
+        if ($lines === []) {
+            throw new \InvalidArgumentException('El lote no tiene platos', 422);
+        }
+
+        // Lectura pura: valida la sucursal y los platos contra el tenant y
+        // devuelve la necesidad ya agregada por insumo.
+        $estimate = (new ProductionBatchService($db))->estimate($companyId, $outletId, $lines, $locationId);
+
+        $created  = [];
+        $existing = [];
+        $needIds  = [];
+
+        $db->StartTrans();
+        try {
+            foreach ($estimate['ingredients'] as $ing) {
+                if (($ing['tracked'] ?? false) !== true) {
+                    continue;
+                }
+                // `quantity` es NUMERIC(15,3) con CHECK > 0: un faltante que
+                // redondea a cero no es una necesidad, y mandarlo abortaría la
+                // transacción entera por violar el CHECK.
+                $missing = round((float) ($ing['missing'] ?? 0), 3);
+                if ($missing <= 0) {
+                    continue;
+                }
+
+                $itemId   = (string) $ing['itemId'];
+                $itemName = $ing['itemName'] !== null ? (string) $ing['itemName'] : null;
+
+                $rs = $db->Execute(
+                    'INSERT INTO replenishment_need
+                        (companyid, outletid, itemid, quantity, origin, onhandat, createdby)
+                     VALUES (?, ?, ?, ?, \'production_batch\', ?, ?)
+                     ON CONFLICT (companyid, outletid, itemid) WHERE status = \'open\' DO NOTHING
+                     RETURNING needid',
+                    [$companyId, $outletId, $itemId, $missing, $ing['onHand'], self::uuidOrNull($userId)]
+                );
+
+                $needId = ($rs !== false && !$rs->EOF) ? (string) ($rs->fields['needid'] ?? '') : '';
+                if ($needId === '') {
+                    $existing[] = ['itemId' => $itemId, 'itemName' => $itemName, 'quantity' => $missing];
+                    continue;
+                }
+
+                $needIds[] = $needId;
+                $created[] = [
+                    'needId'   => $needId,
+                    'itemId'   => $itemId,
+                    'itemName' => $itemName,
+                    'quantity' => $missing,
+                ];
+            }
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
+        if (!$db->CompleteTrans()) {
+            throw new \RuntimeException('No se pudieron generar las necesidades de reposición');
+        }
+
+        // Fuera de la transacción y directo (no por `queueEvent()`): acá no hay
+        // una venta que pueda hacer rollback después, el commit ya pasó.
+        if ($needIds !== [] && function_exists('realtimePublish')) {
+            try {
+                realtimePublish('replenishment-need', 'create', null, 'all', $companyId, $needIds);
+            } catch (\Throwable $e) {
+                error_log('[replenishment] realtime ignorado: ' . $e->getMessage());
+            }
+        }
+
+        return ['created' => $created, 'existing' => $existing];
     }
 
     // ── Lectura ───────────────────────────────────────────────────────────────

@@ -8,8 +8,13 @@
  * POST { action: "produce",  id, qty? }                   → orden de producción en borrador vinculada
  * POST { action: "transfer", id, fromOutletId, fromLocationId?, toLocationId?, qty? }
  * POST { action: "close",    id, reason }                 → cierre manual (motivo obligatorio)
+ * POST { action: "from-batch", outletId, locationId?, lines:[{itemId, qty}] }
+ *                                                         → una necesidad por insumo FALTANTE de ese lote
  *
- * Las necesidades NACEN solas (stock mínimo, conteo): acá no hay "crear".
+ * Las necesidades nacen solas (stock mínimo, conteo) o a pedido desde el lote
+ * de producción (`from-batch`, mig 229), que es el único alta manual — y aun
+ * así la CANTIDAD la calcula el servidor explotando las recetas, nunca llega
+ * del cliente.
  *
  * Alcance por sucursal: un usuario con sucursales asignadas
  * (`contact_outlet`) ve y opera SOLO las necesidades de esas sucursales —
@@ -41,7 +46,10 @@ $svc = new ReplenishmentService();
 $fail = static function (\Throwable $e): never {
     if ($e instanceof \InvalidArgumentException) {
         $code = (int) $e->getCode();
-        apiError($e->getMessage(), in_array($code, [404, 422], true) ? $code : 422);
+        // 403 incluido: el servicio rechaza una sucursal fuera del alcance del
+        // usuario con ese código, y degradarlo a 422 le diría "pedido mal
+        // armado" a lo que en realidad es "no tenés acceso".
+        apiError($e->getMessage(), in_array($code, [403, 404, 422], true) ? $code : 422);
     }
     if ($e instanceof \RuntimeException && (int) $e->getCode() === 409) {
         apiError($e->getMessage(), 409);
@@ -89,7 +97,36 @@ if ($method === 'POST') {
     $body = is_array($raw) ? $raw : (array) $_POST;
 
     $action = (string) ($body['action'] ?? '');
-    $id     = trim((string) ($body['id'] ?? ''));
+
+    // La única acción que NO opera sobre una necesidad existente: las CREA a
+    // partir del faltante de un lote de producción, así que no lleva `id` y va
+    // antes de exigirlo. La gate es la MISMA que gobierna el lote
+    // (`production-batches.php`): quien puede armar el lote puede pedir lo que
+    // le falta, y no es una capacidad nueva que cada comercio deba re-tildar.
+    if ($action === 'from-batch') {
+        if (!hasPermission('production.manage')) {
+            apiError('No tenés permiso para esta acción (requiere: production.manage)', 403);
+        }
+        $outletId   = trim((string) ($body['outletId'] ?? ''));
+        $locationId = trim((string) ($body['locationId'] ?? ''));
+        if (!preg_match($uuidRe, $outletId)) {
+            apiError('Elegí la sucursal', 422);
+        }
+        try {
+            apiOk($svc->createFromBatch(
+                $companyId,
+                $userId,
+                $outletId,
+                (array) ($body['lines'] ?? []),
+                preg_match($uuidRe, $locationId) ? $locationId : null,
+                $allowed,
+            ), 201);
+        } catch (\Throwable $e) {
+            $fail($e);
+        }
+    }
+
+    $id = trim((string) ($body['id'] ?? ''));
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 400);
     }

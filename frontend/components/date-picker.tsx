@@ -91,8 +91,15 @@ export function DatePicker({
   )
 }
 
-/** "YYYY-MM-DD" → Date local. Si no parsea o viene vacío, undefined. */
-function parseISO(s: string): Date | undefined {
+/**
+ * "YYYY-MM-DD" → Date local. Si no parsea o viene vacío, undefined.
+ *
+ * Exportada: es la conversión canónica entre el string que viaja a la API y el
+ * `Date` que come el `<Calendar>`. Cualquier otro picker (el de rango del lote,
+ * por ejemplo) la reusa en vez de reescribir el mismo parseo — que escrito de
+ * nuevo con `new Date(s)` cae en el shift de un día por zona horaria.
+ */
+export function parseISO(s: string): Date | undefined {
   if (!s) return undefined
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (!m) return undefined
@@ -102,8 +109,8 @@ function parseISO(s: string): Date | undefined {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
 }
 
-/** Date local → "YYYY-MM-DD" (sin TZ shift). */
-function toISO(d: Date): string {
+/** Date local → "YYYY-MM-DD" (sin TZ shift). Exportada con `parseISO`. */
+export function toISO(d: Date): string {
   const yyyy = d.getFullYear()
   const mm = String(d.getMonth() + 1).padStart(2, "0")
   const dd = String(d.getDate()).padStart(2, "0")

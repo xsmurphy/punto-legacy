@@ -80,16 +80,22 @@ export function useProductionBatchEstimate(payload: EstimateBatchPayload | null)
  *
  * Por lo mismo NO invalida nada: no escribió nada.
  *
- * `date` (`YYYY-MM-DD`, context/79) elige QUÉ cola se trae. Sin ella el
- * servidor usa hoy —el comportamiento previo— y "hoy" incluye además las
- * órdenes sin fecha y las vencidas no producidas (D2). El día se resuelve
- * server-side con el reloj del comercio, no acá.
+ * `from`/`to` (`YYYY-MM-DD`, context/79) eligen QUÉ cola se trae; un solo día
+ * es `from === to`. Sin ellas el servidor usa hoy —el comportamiento previo— y
+ * un rango que ARRANCA hoy o antes incluye además las órdenes sin fecha y las
+ * vencidas no producidas (D2). El corte del día se resuelve server-side con el
+ * reloj del comercio, no acá.
  */
 export function useOrderDemand() {
-  return useMutation<OrderDemand, Error, { outletId: string; date?: string | null }>({
-    mutationFn: ({ outletId, date }) => {
+  return useMutation<
+    OrderDemand,
+    Error,
+    { outletId: string; from?: string | null; to?: string | null }
+  >({
+    mutationFn: ({ outletId, from, to }) => {
       const params = new URLSearchParams({ resource: "order-demand", outletId })
-      if (date) params.set("date", date)
+      if (from) params.set("dateFrom", from)
+      if (to) params.set("dateTo", to)
       return api.get<OrderDemand>(`/v1/production-batches?${params.toString()}`)
     },
   })

@@ -140,11 +140,13 @@ export interface OrderDemandLine {
 export interface OrderDemand {
   outletId: string
   /**
-   * Día de entrega que se trajo, `YYYY-MM-DD` (context/79). Lo resuelve el
-   * SERVIDOR con el reloj del comercio cuando el pedido no lo manda, así que
-   * es la única respuesta confiable a "¿de qué día es este lote?".
+   * Rango de días de entrega que se trajo, `YYYY-MM-DD` (context/79, ampliado
+   * a rango el 2026-09-17). Lo resuelve el SERVIDOR con el reloj del comercio
+   * cuando el pedido no lo manda, así que es la única respuesta confiable a
+   * "¿de qué días es este lote?". Un solo día viene con `dateFrom === dateTo`.
    */
-  date: string
+  dateFrom: string
+  dateTo: string
   /** Hora del comercio (naive `Y-m-d H:i:s`) — usar los helpers de format-date. */
   takenAt: string
   orderCount: number

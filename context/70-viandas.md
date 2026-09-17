@@ -174,8 +174,26 @@ entidad con líneas y no un botón.
   que la reversa no abra un duplicado. Aviso derivado en el centro de
   notificaciones (quien tiene `production.manage` o `inventory.transfer`, con
   `OutletScope`). Arnés `run_replenishment_need_test.sh`.
-- Pendiente: la orden de compra como tercera cobertura (D5) y el faltante del
-  lote de producción como origen.
+- Pendiente: la orden de compra como tercera cobertura (D5).
+
+**El faltante del lote como origen — implementado 2026-09-17** (branch
+`frontend/lote-rango-reposicion`, mig 229):
+
+- La pantalla del lote (`/produccion/lote`) tiene "Generar reposición": abre una
+  necesidad por cada insumo con faltante > 0, origen `production_batch`,
+  `sourceid` NULL (el lote todavía no existe como documento cuando se pide lo
+  que falta, que es cuando sirve pedirlo).
+- La CANTIDAD no viene del cliente: el request manda la composición del lote
+  —los mismos `{plato, cantidad}` del estimador— y `createFromBatch()` vuelve a
+  explotar las recetas con `ProductionBatchService::estimate()`, el mismo camino
+  que dibuja la tabla. Los insumos sin control de inventario quedan afuera (D1):
+  sin `onHand` no hay faltante.
+- Las que ya tenían una necesidad ABIERTA se informan, no se pisan (alguien
+  puede estar cubriéndolas con otra cantidad); la unicidad la sigue dando el
+  índice parcial con `ON CONFLICT DO NOTHING`. Gate: `production.manage`, la
+  misma del lote. Casos (S) en `run_production_batch_test.sh`.
+- El lote NO genera una orden de compra: genera necesidades, y la cobertura se
+  decide en `/reposicion` (arquitectura rechazada de este mismo doc).
 
 **Orden de compra** (D5), el flujo completo:
 
@@ -370,7 +388,11 @@ números de factura hoy.
 
 - **F2 — Lote del día + lote de producción multi-plato.** Vista de pedidos
   por fecha; desde ahí, un lote que explota todos los platos, agrega por
-  insumo, compara con `onHand` y muestra necesidad/faltante. Completar el
+  insumo, compara con `onHand` y muestra necesidad/faltante. **Desde
+  2026-09-17 el lote se arma por RANGO de fechas** ("mi semana"), no por un
+  día: la asimetría del D2 de `context/79` la decide el ARRANQUE del rango —de
+  hoy en adelante suma lo sin fecha y lo vencido; del futuro en adelante, solo
+  esos días. Completar el
   lote produce vía `ProductionService::complete()` (o no-op si el comercio no
   trackea, D1). Este es el corazón de "eficiente y ordenado".
 

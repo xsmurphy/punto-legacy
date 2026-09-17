@@ -125,6 +125,34 @@ export function useTransferReplenishment() {
   })
 }
 
+/** Lo que devolvió generar necesidades desde el faltante de un lote. */
+export interface NeedsFromBatchResult {
+  created: { needId: string; itemId: string; itemName: string | null; quantity: number }[]
+  /** Ya tenían una necesidad ABIERTA: no se pisaron, y la pantalla lo informa. */
+  existing: { itemId: string; itemName: string | null; quantity: number }[]
+}
+
+/**
+ * Genera una necesidad por cada insumo que FALTA para un lote de producción
+ * (context/70 §B.5, mig 229).
+ *
+ * Se manda la COMPOSICIÓN del lote —los mismos `{itemId, qty}` del estimador—,
+ * nunca los kilos faltantes: la cantidad la recalcula el servidor explotando
+ * las recetas. Mandar el faltante ya masticado dejaría que el cliente eligiera
+ * cuánto pedir y que el número guardado dejara de salir de la receta.
+ */
+export function useCreateNeedsFromBatch() {
+  const invalidate = useInvalidate()
+  return useMutation<
+    NeedsFromBatchResult,
+    Error,
+    { outletId: string; locationId: string | null; lines: { itemId: string; qty: number }[] }
+  >({
+    mutationFn: (body) => api.post("/v1/replenishment-needs", { action: "from-batch", ...body }),
+    onSuccess: invalidate,
+  })
+}
+
 export function useCloseReplenishment() {
   const invalidate = useInvalidate()
   return useMutation<ReplenishmentNeed, Error, { id: string; reason: string }>({
