@@ -1,183 +1,214 @@
-# 82 — Base de conocimiento de Punto AI (carga en /admin)
+# 82 — RAG de ayuda para Punto AI
 
-> Pedido del owner (2026-09-17): una sección en `/admin` para subir archivos
-> `.md` con la base de conocimiento de Punto, que use el bot.
+> Pedido del owner (2026-09-17): que Punto AI responda cómo se usa Punto a
+> partir de la base de conocimiento.
 >
-> **Estado: plan sin implementar.** D1 cerrada por el owner; D2-D8 PROPUESTAS
-> sin su OK. Leer §6 arquitecturas rechazadas antes de proponer nada.
+> **Estado: plan sin implementar.** D1-D4 CERRADAS por el owner 2026-09-17;
+> D5-D10 PROPUESTAS sin su OK. Leer §6 arquitecturas rechazadas antes de
+> proponer nada.
+>
+> Reescrito el mismo día: la primera versión proponía subir `.md` desde
+> `/admin` y búsqueda full-text en la base de los tenants. Las dos premisas
+> eran equivocadas — ver D3 y D4.
 
 ## 1. El hueco que cierra
 
-Punto AI conoce sus tools, no el producto. El prompt del panel
-(`app/api/agent/chat/route.ts`) se lo dice explícito: nunca afirmar que Punto
-"no tiene" algo, porque que una tool no ofrezca un dato no significa que el
-sistema no lo soporte. Hoy, ante "¿cómo configuro la impresora de cocina?", el
-agente no tiene de dónde responder y lo mejor que puede hacer es mandar al
-panel.
-
-La base de conocimiento es esa fuente: documentación de Punto escrita por
-Punto, que el agente consulta para responder el CÓMO.
+Punto AI conoce sus tools, no el producto. Su prompt se lo dice explícito:
+nunca afirmar que Punto "no tiene" algo, porque que una tool no ofrezca un
+dato no significa que el sistema no lo soporte. Ante "¿cómo configuro la
+impresora de cocina?" hoy no tiene de dónde responder.
 
 ## 2. Estado actual (verificado 2026-09-17)
 
-- **Cero infraestructura de recuperación.** Ni `pgvector`, ni embeddings, ni
-  `tsvector`, ni una tool que busque en documentos.
-- **La BD es `postgres:16-alpine`** (`docker-compose.yml`, `context/06`), que
-  NO trae `pgvector`. Sí trae las extensiones contrib (`unaccent` entre ellas).
-- **Ya existe OTRA base de conocimiento, para otro bot.** `content/sitio/*.md`
-  se genera en cada build desde el código del sitio y alimenta un agente de
-  atención al cliente fuera de este repo (`context/61`). No se toca ni se
-  reusa: es contenido comercial para prospectos, no documentación operativa
-  para un cajero.
+- **La base de conocimiento ya existe**: `frontend/content/ayuda/`, 28
+  artículos `NN-slug.md` con frontmatter (`title`, `slug`, `modulo`,
+  `audiencia`, `keywords`, `resumen`). Genera `docs.punto.la` en el build del
+  Front, y su `README.md` ya la define como fuente única "que lee el sitio y
+  lee el asistente". Tiene test de integridad de rutas
+  (`lib/docs/__tests__/ayuda-integrity.test.ts`).
+- **Cero infraestructura de recuperación**: ni pgvector, ni embeddings, ni
+  tool que busque en documentos.
+- **La BD de producción es `postgres:18-alpine`** (Coolify `Punto BD`,
+  `w6rtfxm2n6l45r4r9melj3hl`) — NO la 16 del `docker-compose.yml` local. La
+  imagen oficial no trae pgvector.
+- **El Front no habla con bases de datos.** `frontend/package.json` no tiene
+  driver: todo dato pasa por la API PHP.
+- **La imagen del backend no contiene `frontend/`.** Su build context es
+  `./api` (`api/Dockerfile`), así que no puede leer los artículos de su propio
+  disco.
+- **OpenRouter tiene embeddings**: `POST /api/v1/embeddings`, formato OpenAI,
+  con `text-embedding-3-small`/`-large` entre otros. La misma
+  `OPENROUTER_API_KEY` que ya usa el agente.
+- `content/sitio/*.md` es OTRA base, comercial, para el agente de atención
+  externo (`context/61`). No se toca.
 
 ## 3. Decisiones
 
-### D1 — La base es para Punto AI de los comercios. **Cerrada por el owner (2026-09-17).**
+### D1 — El RAG es para Punto AI de los comercios. **Cerrada (2026-09-17).**
 
-El asistente del panel y de la caja. No el agente de atención de
-`content/sitio`. La base es de Punto y la leen todos los comercios.
+El asistente del panel y de la caja, no el agente de atención.
 
-### D2 — Global, sin `companyId`. *(propuesta)*
+### D2 — Una sola burbuja: Punto AI, siempre activa. Soporte va al menú de usuario. **Cerrada (2026-09-17).**
 
-Es documentación del producto, igual para todos. La tabla no lleva
-`companyId` y la lectura no se scopea por tenant.
+El CRM de soporte (IA + humanos) tiene su propio snippet JS con burbuja. Dos
+burbujas en la misma pantalla no. Punto AI conserva la burbuja; soporte se
+abre desde el menú de usuario del sidebar.
 
-Esto NO abre un canal entre tenants: el contenido lo escribe solo Punto desde
-`/admin`, y ningún tenant puede escribir en la base. Un tenant que quiera
-contarle su negocio al agente tiene su propio campo, `agentBusinessContext`
-(`context/69`), que sí es por empresa.
+⚠ Al integrarlo: los snippets de webchat suelen inyectar su propio botón
+flotante al cargar. Hay que usar la opción del snippet para ocultar el lanzador
+y abrirlo por API desde el ítem del menú; si el snippet no la tiene, la
+integración se frena ahí, no se tapa el botón con CSS.
 
-### D3 — Recuperación por full-text de Postgres, no por vectores. *(propuesta)*
+### D3 — La fuente es `frontend/content/ayuda/`, no una carga en /admin. **Cerrada (2026-09-17).**
 
-`tsvector` con configuración `spanish` + `unaccent`, índice GIN, ranking con
-`ts_rank_cd`. Cero infraestructura nueva: todo es nativo del Postgres que ya
-corre.
+Los artículos ya se escriben para `docs.punto.la` y se versionan en git. El
+bot indexa esos mismos archivos: un solo lugar donde se escribe, publicado en
+el mismo deploy. No hay pantalla de carga.
 
-Por qué no `pgvector` en la v1: la imagen de producción no lo trae, y sumarlo
-es cambiar la imagen de la base de datos de un sistema con clientes
-facturando. Además hace falta un proveedor de embeddings, y el agente corre
-por OpenRouter (`context/17`), así que embeddings es otra integración con su
-propio costo y su propio punto de falla.
+### D4 — Base pgvector APARTE, exclusiva del RAG. **Cerrada (2026-09-17).**
 
-Para una base de documentación de producto —vocabulario acotado, preguntas que
-nombran la función ("impresora", "timbrado", "cierre de caja")— el full-text
-cubre bien. Si la F4 mide que la recuperación falla en preguntas reales, el
-vector se suma como COLUMNA sobre los mismos fragmentos (búsqueda híbrida), no
-como sistema aparte.
+Propuesta del owner. Una base Postgres nueva con pgvector (imagen
+`pgvector/pgvector:pg18`) como recurso propio en Coolify. La base de los
+tenants no se toca, no se reinicia, no cambia de imagen.
 
-### D4 — El agente la consulta con una tool, no se inyecta en el prompt. *(propuesta)*
+Encaja con el dato: la base de ayuda es global, no tiene datos de ningún
+comercio y no necesita cruzarse con nada de la base de los tenants.
 
-Tool de lectura `search_punto_help(query)`: devuelve los 3-5 fragmentos más
-relevantes con el título del documento y la sección de donde salen.
+**Consecuencia que simplifica**: no necesita backups. Se reconstruye entera
+desde git en cualquier momento. Si se pierde, se reindexa.
 
-No se inyecta la base entera en el system prompt por dos razones: se pagaría
-en CADA request (mismo argumento que D3 de `context/69`, multiplicado por el
-tamaño de la base), y con muchos documentos el modelo pierde lo relevante entre
-lo que no lo es.
+### D5 — Embeddings por OpenRouter, modelo fijo por índice. *(propuesta)*
 
-Regla que se suma al prompt: preguntas de CÓMO usar Punto se responden con lo
-que devuelva la tool; si no devuelve nada relevante, se dice que no está
-documentado y se ofrece el canal de soporte — nunca se inventa un paso ni se
-afirma que la función no existe.
+`text-embedding-3-small` vía `/api/v1/embeddings` de OpenRouter, con la clave
+que ya existe. La cuenta de OpenAI no hace falta.
 
-### D5 — Fragmentar por encabezado. *(propuesta)*
+El modelo queda anotado en cada fila. **Cambiar de modelo obliga a reindexar
+todo**: vectores de modelos distintos no son comparables, y mezclarlos devuelve
+resultados sin sentido sin dar ningún error.
 
-Cada `.md` se parte por sus secciones (`##`), guardando la ruta de encabezados
-(`Documento > Sección > Subsección`). Así el agente recibe una sección
-coherente, no un corte arbitrario a mitad de paso, y puede decir de dónde sale.
-Secciones muy largas se subdividen por párrafo con un tope de tamaño.
+### D6 — Solo el backend habla con la base del RAG. *(propuesta)*
 
-### D6 — Subir el mismo archivo REEMPLAZA, en una transacción. *(propuesta)*
+Endpoint `GET /v1/help/search?q=` en la API PHP, que ya tiene PDO. Acepta el
+realm del panel y el del device (Bearer, sin cookies — mandato del POS).
+Embebe la consulta, busca y devuelve fragmentos.
 
-La identidad del documento es su nombre (slug). Volver a subir `impresoras.md`
-reemplaza todos sus fragmentos de forma atómica: borrar los viejos e insertar
-los nuevos en la misma transacción, así el agente nunca lee un documento a
-medio actualizar. Desde `/admin` también se desactiva (deja de aparecer en
-búsquedas sin borrarse) o se elimina. Cada carga, reemplazo y baja queda en la
-auditoría de admin con quién y cuándo.
+Meter un driver de Postgres en el Front sería abrir un patrón nuevo solo para
+esto y romper la regla de que el Front pasa por la API.
 
-### D7 — Consumidores: panel y caja, con el mismo catálogo. *(propuesta)*
+### D7 — Cómo llegan los artículos al índice: sincronización por hash. *(propuesta)*
 
-La tool vive en el catálogo compartido `frontend/lib/agent/read-tools.ts`.
+Los artículos viven en el Front y el índice en el backend (§2). El puente:
 
-⚠ **El agente de la caja usa una ALLOWLIST explícita** (`lib/pos/agent-tools.ts`),
-así que no la hereda sola: hay que sumarla ahí a propósito. Del lado del
-backend, el endpoint de búsqueda tiene que aceptar el realm de la caja (Bearer
-del device), igual que el resto de lo que lee el POS — nunca cookies.
+1. El build del Front arma un manifiesto de los artículos ya fragmentados
+   (D8), con un hash por fragmento.
+2. Al arrancar el contenedor del Front, se envía ese manifiesto a un endpoint
+   interno del backend, autenticado con clave interna.
+3. El backend compara hashes: embebe solo los fragmentos nuevos o cambiados,
+   borra los que ya no están, y no toca el resto.
 
-El MCP (`context/58`) queda fuera de esta iteración: es Punto como fuente de
-DATOS del comercio, no un canal de ayuda del producto. Se suma si se pide.
+Por qué por hash: re-embeber todo en cada deploy es pagar embeddings de 28
+artículos cada vez que se cambia una línea de CSS. Y como es idempotente,
+mandarlo dos veces no hace nada.
 
-### D8 — El contenido es DATO, aunque lo escriba Punto. *(propuesta)*
+Además, en `/admin` un botón **Reindexar** que fuerza el proceso y muestra el
+estado: última sincronización, cantidad de fragmentos, fallos. Es la única
+pantalla del RAG, y es de diagnóstico, no de carga.
 
-Lo que devuelve la tool entra a la conversación como resultado de tool, nunca
-como parte del system prompt. Aunque el autor sea Punto, un `.md` puede traer
-por accidente texto con forma de instrucción (un ejemplo de conversación, una
-nota interna), y no debe poder cambiar las reglas del agente.
+### D8 — Fragmentar por encabezado, con el frontmatter adentro. *(propuesta)*
 
-## 4. Modelo *(propuesta)*
+Cada artículo se parte por sus secciones `##`. Cada fragmento lleva título,
+ruta de encabezados, `keywords` y `audiencia` del artículo, más el `slug` para
+linkear a `docs.punto.la`.
 
-Lowercase sin comillas, como todo el schema desde la mig 150.
+Las `keywords` se escribieron justo para cómo pregunta un comerciante
+(`README.md`: "los sinónimos que un comerciante realmente escribiría"). Van
+dentro del texto embebido y además en un `tsvector` en la misma base: búsqueda
+**híbrida**, vector + texto, para que un término exacto ("timbrado") no pierda
+contra algo que solo se le parece.
+
+### D9 — Tool `search_punto_help`, con umbral y salida a soporte. *(propuesta)*
+
+En el catálogo compartido `frontend/lib/agent/read-tools.ts`. Devuelve los 3-5
+fragmentos más relevantes que pasen un umbral de similitud, con el link al
+artículo.
+
+Regla en el prompt: el CÓMO se responde con lo que devuelve la tool, citando
+el artículo. Si nada pasa el umbral, se dice que no está documentado y se
+indica el soporte del menú de usuario (D2) — nunca se inventa un paso.
+
+⚠ El agente de la caja usa ALLOWLIST (`lib/pos/agent-tools.ts`): la tool hay
+que sumarla ahí a propósito.
+
+El resultado entra como resultado de tool, nunca al system prompt: aunque lo
+escriba Punto, es DATO.
+
+### D10 — El costo lo absorbe Punto. *(propuesta)*
+
+Indexar es costo de Punto, no de un comercio. La consulta de cada búsqueda es
+un embedding de pocas palabras. Se registra en logs para saber cuánto cuesta,
+pero no se descuenta del crédito IA del tenant.
+
+## 4. Modelo *(propuesta, en la base del RAG)*
 
 ```sql
+CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS unaccent;
 
-CREATE TABLE kb_document (
-  documentid  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  slug        VARCHAR(160) NOT NULL UNIQUE,   -- identidad: nombre del archivo
-  title       VARCHAR(200) NOT NULL,          -- primer # del .md, o el slug
-  body        TEXT NOT NULL,                  -- el .md completo, para reprocesar
-  isactive    BOOLEAN NOT NULL DEFAULT TRUE,
-  updatedby   UUID,                           -- admin_user
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+CREATE TABLE help_chunk (
+  chunkid      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  slug         TEXT NOT NULL,          -- artículo, para linkear a docs.punto.la
+  title        TEXT NOT NULL,
+  headingpath  TEXT NOT NULL,
+  audiencia    TEXT,
+  content      TEXT NOT NULL,
+  contenthash  TEXT NOT NULL UNIQUE,   -- idempotencia de D7
+  model        TEXT NOT NULL,          -- D5: nunca mezclar modelos
+  embedding    VECTOR(1536) NOT NULL,  -- text-embedding-3-small
+  search       TSVECTOR NOT NULL,      -- D8, calculado en el servicio
+  indexed_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE kb_chunk (
-  chunkid     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  documentid  UUID NOT NULL REFERENCES kb_document ON DELETE CASCADE,
-  headingpath TEXT NOT NULL,                  -- "Impresoras > Cocina > Conectar"
-  content     TEXT NOT NULL,
-  sort        INT NOT NULL,
-  search      TSVECTOR NOT NULL               -- título + ruta + contenido, pesados
-);
-
-CREATE INDEX idx_kb_chunk_search ON kb_chunk USING GIN (search);
+CREATE INDEX idx_help_chunk_embedding ON help_chunk USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX idx_help_chunk_search    ON help_chunk USING GIN (search);
 ```
 
-`body` guarda el `.md` original para poder re-fragmentar si cambia la regla de
-D5, sin pedirle al owner que vuelva a subir todo.
+⚠ `unaccent` no es `IMMUTABLE`: el `tsvector` se calcula en el servicio al
+insertar, no en una columna generada.
 
-⚠ `unaccent` NO es `IMMUTABLE`, así que no se puede usar dentro de una columna
-generada ni de un índice de expresión. El `tsvector` se calcula en el servicio
-al insertar (con la ruta de encabezados pesada más que el contenido), y la
-consulta aplica `unaccent` al texto buscado.
+Las migraciones de esta base van en una carpeta propia, separadas de las de los
+tenants: el runner que corre al arrancar el backend apunta a la base de los
+tenants y no debe tocar esta ni la otra por error.
 
 ## 5. Fases *(propuestas)*
 
 | Fase | Qué |
 |---|---|
-| **K1** | Migración + servicio de carga (fragmentado, reemplazo atómico, auditoría) + sección en `/admin` (subir varios `.md`, listar, desactivar, eliminar) |
-| **K2** | Endpoint de búsqueda + tool `search_punto_help` + regla en el prompt del panel |
-| **K3** | Sumarla al agente de la caja (allowlist + realm device) |
-| **K4** | Medir: registrar búsquedas sin resultado relevante, para saber qué falta documentar y si hace falta el vector de D3 |
+| **R0** | Crear la base pgvector en Coolify + env vars de conexión en el backend |
+| **R1** | Esquema + servicio de indexado por hash + endpoint interno + manifiesto en el build del Front |
+| **R2** | Endpoint de búsqueda híbrida + tool `search_punto_help` + regla en el prompt del panel |
+| **R3** | Sumarla al agente de la caja |
+| **R4** | Botón Reindexar + estado en `/admin`, y registro de búsquedas sin resultado |
+| **S1** | Soporte en el menú de usuario (D2) — independiente, puede ir antes |
 
-K4 es la que convierte la base en algo que mejora: las preguntas sin respuesta
-son la lista de documentación pendiente.
+R4 convierte el RAG en algo que mejora: las preguntas sin respuesta son la
+lista de artículos pendientes de escribir.
 
 ## 6. Arquitecturas RECHAZADAS
 
-- **Reusar `content/sitio/*.md`.** Es contenido comercial para prospectos,
-  generado desde el código del sitio y consumido por otro bot. Mezclarlo
-  confunde "qué vende Punto" con "cómo se usa Punto".
-- **`pgvector` en la v1.** Cambia la imagen de la BD de producción y suma un
-  proveedor de embeddings. Ver D3: si hace falta, entra como columna híbrida
-  sobre las mismas tablas.
+- **Subir `.md` desde `/admin`.** La base ya se escribe en git para
+  `docs.punto.la`. Una segunda vía de carga divide la fuente. Ver D3.
+- **Cambiar la imagen de la base de los tenants para tener pgvector.** Reinicia
+  la base de producción con clientes facturando, para guardar datos que no son
+  de ningún tenant. Ver D4.
+- **Full-text solo, sin vectores.** Era la propuesta de la primera versión. Se
+  queda como mitad de la búsqueda híbrida (D8), no como la búsqueda.
+- **Driver de base de datos en el Front.** Ver D6.
+- **Re-embeber todo en cada deploy.** Ver D7.
+- **Mezclar modelos de embedding en el mismo índice.** Resultados sin sentido,
+  sin error. Ver D5.
+- **Dos burbujas.** Ver D2.
+- **Tapar el lanzador del snippet de soporte con CSS.** Se rompe cuando el
+  proveedor cambie su markup. Ver D2.
+- **Reusar `content/sitio/*.md`.** Contenido comercial para otro bot.
 - **Inyectar la base entera en el system prompt.** Costo en cada request y
-  pérdida de relevancia. Ver D4.
-- **Guardar los `.md` solo en S3 y buscar leyéndolos.** La búsqueda necesita el
-  texto indexado en la base; S3 no aporta nada que `kb_document.body` no tenga.
-- **Base por tenant.** La documentación del producto es una sola. Lo que es de
-  cada comercio ya tiene su lugar en `context/69`.
-- **Fragmentar por cantidad fija de caracteres.** Corta pasos a la mitad y
-  pierde de qué sección sale cada fragmento. Ver D5.
+  pérdida de relevancia.
