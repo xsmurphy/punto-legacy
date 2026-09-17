@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Punto\Api\Services;
 
 use Punto\Api\Production\ProductionService;
+use Punto\Api\Support\DbQueryException;
 
 /**
  * ReplenishmentService — necesidad de reposición (context/70 §B.5, D6-D8,
@@ -38,6 +39,13 @@ use Punto\Api\Production\ProductionService;
  * `DB::ExecuteBestEffort()` (savepoint): si falla, se registra y la venta
  * sigue. Y como es la MISMA transacción, si la venta hace rollback la necesidad
  * se va con ella — no queda una necesidad por una venta que no existió.
+ *
+ * La ÚNICA excepción que se deja pasar es `DbQueryException`: el wrapper solo
+ * la lanza después de haber hecho rollback de la transacción entera (un
+ * `ROLLBACK TO SAVEPOINT` que no se pudo hacer, o una lectura con
+ * `ncmExecute()` que falló). Tragarla dejaría al caller escribiendo el resto de
+ * la venta en autocommit sobre una transacción que ya no existe; propagarla
+ * hace que la venta falle entera, que es lo correcto.
  *
  * ── Cobertura ────────────────────────────────────────────────────────────────
  *
@@ -122,6 +130,8 @@ final class ReplenishmentService
 
             self::queueEvent($companyId, $needId);
             return $needId;
+        } catch (DbQueryException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             error_log('[replenishment] disparo ignorado: ' . $e->getMessage());
             return null;
@@ -198,6 +208,8 @@ final class ReplenishmentService
                 }
             }
             return $opened;
+        } catch (DbQueryException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             error_log('[replenishment] disparo por conteo ignorado: ' . $e->getMessage());
             return 0;
@@ -573,6 +585,8 @@ final class ReplenishmentService
                 realtimePublish('replenishment-need', 'update', $needId, 'all', $companyId);
                 $rs->MoveNext();
             }
+        } catch (DbQueryException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             error_log('[replenishment] recálculo de cobertura ignorado (' . $sourceType . ' ' . $sourceId . '): ' . $e->getMessage());
         }

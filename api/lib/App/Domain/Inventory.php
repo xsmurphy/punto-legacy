@@ -1189,6 +1189,11 @@ final class Inventory
                     $isStockeable['itemreplenishqty'],
                     $user ? (string) $user : null,
                 );
+            } catch (\Punto\Api\Support\DbQueryException $e) {
+                // El wrapper ya revirtió la transacción entera: seguir sería
+                // escribir el resto de la venta en autocommit. Ver
+                // ReplenishmentService.
+                throw $e;
             } catch (\Throwable $e) {
                 error_log('[replenishment] disparo por mínimo ignorado: ' . $e->getMessage());
             }

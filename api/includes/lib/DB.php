@@ -396,7 +396,10 @@ class DB
      * efecto secundario fallido no convierte en fallida la operación
      * principal. Si el ROLLBACK TO SAVEPOINT mismo falla, la conexión está en
      * un estado que no se puede recuperar y ahí sí se trata como un error del
-     * wrapper (se lanza por el camino normal).
+     * wrapper: `handleQueryFailure()` revierte la transacción entera y lanza
+     * `DbQueryException`. Los callers de efectos secundarios la PROPAGAN
+     * (ver `ReplenishmentService`) — tragarla dejaría al caller escribiendo
+     * en autocommit sobre una transacción que ya no existe.
      */
     public function ExecuteBestEffort(string $sql, array $params = []): ?DBResult
     {
