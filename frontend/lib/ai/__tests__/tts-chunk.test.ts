@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { mapWithConcurrency, splitTextForTts } from "@/lib/ai/tts-chunk"
+import { mapWithConcurrency, splitTextForTts, textForSpeech } from "@/lib/ai/tts-chunk"
 
 describe("splitTextForTts", () => {
   it("texto vacío o solo espacios → sin pedazos (nada que leer, nada que cobrar)", () => {
@@ -92,5 +92,44 @@ describe("mapWithConcurrency", () => {
     })
     await results[0]
     expect(order).toEqual([0])
+  })
+})
+
+describe("textForSpeech", () => {
+  it("negritas e itálicas pierden los asteriscos — el caso del reporte del owner", () => {
+    expect(textForSpeech("Creá un **Lote multi uso** para *hoy*")).toBe("Creá un Lote multi uso para hoy")
+    expect(textForSpeech("__fuerte__ y _suave_ y ~~tachado~~")).toBe("fuerte y suave y tachado")
+  })
+
+  it("de un link queda el texto, de una imagen el alt, del code el contenido", () => {
+    expect(textForSpeech("Mirá [el reporte](https://x.test/r) con `SELECT 1`")).toBe(
+      "Mirá el reporte con SELECT 1",
+    )
+    expect(textForSpeech("![gráfico de ventas](https://x.test/img.png)")).toBe("gráfico de ventas")
+  })
+
+  it("encabezados, citas y viñetas pierden el prefijo pero conservan la línea", () => {
+    expect(textForSpeech("## Resumen\n> importante\n- primero\n* segundo")).toBe(
+      "Resumen\nimportante\nprimero\nsegundo",
+    )
+  })
+
+  it("las listas numeradas se quedan como están — se leen bien", () => {
+    expect(textForSpeech("1. Cargar el pedido\n2. Cobrar")).toBe("1. Cargar el pedido\n2. Cobrar")
+  })
+
+  it("una tabla se lee con pausas entre celdas, no como sopa de pipes", () => {
+    const out = textForSpeech("| Plato | Cant |\n| --- | --- |\n| Milanesa | 18 |")
+    expect(out).not.toContain("|")
+    expect(out).toContain("Milanesa, 18")
+  })
+
+  it("los fences de código desaparecen pero su contenido se conserva", () => {
+    expect(textForSpeech("```sql\nSELECT 1\n```")).toContain("SELECT 1")
+    expect(textForSpeech("```sql\nSELECT 1\n```")).not.toContain("```")
+  })
+
+  it("un asterisco de multiplicación suelto no se toca", () => {
+    expect(textForSpeech("2 * 3 = 6")).toBe("2 * 3 = 6")
   })
 })

@@ -18,6 +18,45 @@
  * la suma de caracteres es la del texto entero.
  */
 
+/**
+ * Markdown → texto hablable. El agente responde en markdown y el TTS lee lo
+ * que le llega LITERAL: "**Lote multi uso**" salía como "asterisco asterisco
+ * lote multi uso asterisco asterisco" (reporte del owner 2026-09-17). Se
+ * limpia ANTES de trocear —los topes de pedazo deben medirse sobre lo que de
+ * verdad se va a leer— y también lo usa la voz nativa del navegador, que
+ * tiene exactamente el mismo problema.
+ *
+ * Criterio: conservar las PALABRAS, tirar la sintaxis. De un link queda el
+ * texto, de una imagen el alt, de una tabla las celdas separadas por pausas.
+ */
+export function textForSpeech(markdown: string): string {
+  return (
+    markdown
+      // Fences de código: fuera los ``` y el nombre del lenguaje; el contenido
+      // queda — leerlo suena raro, pero callarlo esconde parte de la respuesta.
+      .replace(/^```[^\n]*$/gm, "")
+      // Imagen antes que link (la sintaxis de link matchearía la mitad).
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/`([^`]*)`/g, "$1")
+      .replace(/(\*\*\*|\*\*|\*|___|__|_|~~)(?=\S)([\s\S]*?\S)\1/g, "$2")
+      // Encabezados y citas: fuera el prefijo, queda la línea.
+      .replace(/^#{1,6}\s+/gm, "")
+      .replace(/^>\s?/gm, "")
+      // Viñetas al inicio de línea ("- ", "* ", "+ "). Los números de las
+      // listas ordenadas se quedan: "1. Cargar el pedido" se lee bien.
+      .replace(/^[ \t]*[-*+]\s+/gm, "")
+      // Reglas horizontales solas en su línea.
+      .replace(/^[ \t]*([-*_])\s*(\1\s*){2,}$/gm, "")
+      // Tablas: los pipes pasan a coma+espacio para que la fila se lea con
+      // pausas entre celdas y no como una palabra pegada.
+      .replace(/\s*\|\s*/g, ", ")
+      // La limpieza deja huérfanos (", ," de una fila separadora, dobles espacios).
+      .replace(/(, )+,/g, ",")
+      .replace(/[ \t]{2,}/g, " ")
+  )
+}
+
 /** Tope del PRIMER pedazo — define la espera hasta que empieza a sonar. */
 const FIRST_CHUNK_CHARS = 180
 /** Tope del resto — más grande: se generan mientras el primero suena. */

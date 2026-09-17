@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api, ApiError } from "@/lib/api-client"
-import { mapWithConcurrency, splitTextForTts } from "@/lib/ai/tts-chunk"
+import { mapWithConcurrency, splitTextForTts, textForSpeech } from "@/lib/ai/tts-chunk"
 
 /**
  * Acciones inline debajo de cada mensaje del assistant: copiar al clipboard +
@@ -134,7 +134,8 @@ export function MessageActions({
     const synth = window.speechSynthesis
     synth.cancel()
 
-    const u = new SpeechSynthesisUtterance(text)
+    // La voz nativa lee el markdown literal igual que el TTS pago — misma limpieza.
+    const u = new SpeechSynthesisUtterance(textForSpeech(text))
     u.lang = "es-ES"
     u.rate = 1
     u.onend = () => {
@@ -238,7 +239,9 @@ export function MessageActions({
       // Por el api-client del panel y no por `fetch` crudo: es el único que
       // adjunta el Bearer del realm (`realm-token-separation.test.ts` lo
       // verifica en CI).
-      const chunks = splitTextForTts(text)
+      // Markdown → texto hablable ANTES de trocear: "**Lote**" se leía como
+      // "asterisco asterisco lote asterisco asterisco".
+      const chunks = splitTextForTts(textForSpeech(text))
       if (chunks.length === 0) return
       const urlPromises = mapWithConcurrency(chunks, 3, async (chunk) => {
         const blob = await api.postBlob("/agent/tts", { text: chunk })

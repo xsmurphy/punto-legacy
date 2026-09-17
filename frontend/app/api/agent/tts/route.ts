@@ -69,7 +69,8 @@ const DEFAULT_TTS_MODEL = "hexgrad/kokoro-82m"
 function ttsRequestParams(modelId: string): { voice?: string; format: "mp3" | "pcm" } {
   if (modelId.startsWith("google/")) return { voice: "Kore", format: "pcm" }
   if (modelId.startsWith("deepgram/")) return { voice: "aura-2-celeste-es", format: "mp3" }
-  return { voice: "ef_dora", format: "mp3" }
+  // em_alex y no ef_dora: el owner escuchó las tres voces es-* y eligió (2026-09-17).
+  return { voice: "em_alex", format: "mp3" }
 }
 
 export async function POST(req: Request) {
