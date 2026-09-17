@@ -606,7 +606,9 @@ class DeviceInvitationService
         $sql = "SELECT r.registerid, r.registername, r.outletid, o.outletname,
                        EXISTS (
                          SELECT 1 FROM register_lease rl
-                          WHERE rl.registerid = r.registerid AND rl.status = 'active'
+                          WHERE rl.registerid = r.registerid
+                            AND rl.companyid  = r.companyid
+                            AND rl.status = 'active'
                        ) AS inuse
                   FROM register r
                   JOIN outlet o ON o.outletid = r.outletid AND o.companyid = r.companyid
@@ -622,8 +624,8 @@ class DeviceInvitationService
                 'registerName' => (string) ($f['registername'] ?? ''),
                 'outletId'     => (string) ($f['outletid'] ?? ''),
                 'outletName'   => (string) ($f['outletname'] ?? ''),
-                // PDO devuelve el bool de PG como true/'t'/'f' según driver.
-                'inUse'        => in_array($f['inuse'] ?? false, [true, 't', '1', 1], true),
+                // PDO devuelve el bool de PG como true/'t'/'true'/'1' según driver.
+                'inUse'        => in_array($f['inuse'] ?? false, [true, 't', 'true', '1', 1], true),
             ];
         }
         return $out;
