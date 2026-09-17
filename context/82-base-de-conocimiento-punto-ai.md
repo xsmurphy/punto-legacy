@@ -58,29 +58,25 @@ más adelante entra, se decide ahí dónde vive su acceso. Lo único que queda
 dicho es la regla que lo motivó — dos burbujas flotantes en la misma pantalla,
 no.
 
-### D3 — DOS fuentes en un solo índice: `ayuda` (git) y carga en /admin. **Cerrada (2026-09-17, ampliada el mismo día).**
+### D3 — El RAG se carga SOLO desde `/admin`. Nada se indexa solo. **Cerrada (2026-09-17).**
 
-1. **`frontend/content/ayuda/`** — los artículos que ya se escriben para
-   `docs.punto.la`, versionados en git y publicados con el deploy del Front.
-   El bot indexa ESOS mismos archivos; no se vuelven a subir a mano, porque
-   dos copias de lo mismo divergen.
-2. **Carga desde `/admin`** — para lo que el owner quiere que el bot sepa y
-   **no va al sitio público**: políticas, casos raros, respuestas a situaciones
-   que todavía no están escritas como artículo.
+`frontend/content/ayuda/` es la fuente de `docs.punto.la` y de nada más. El
+bot NO la indexa automáticamente.
 
-La regla que las separa: si algo sirve para cualquier comercio y se puede
-publicar, se escribe como artículo en git. `/admin` es para lo que no.
+Lo que el bot sabe es exactamente lo que el owner cargó en `/admin`:
 
-⚠ **Nada cargado en `/admin` se publica en `docs.punto.la`** — pero sí lo
-puede leer cualquier comercio, porque el bot responde con eso. No es un
-cajón de notas internas: no subir precios de costo, datos de otros clientes,
-credenciales ni nada que no quieras que lea un comerciante.
+- texto y archivos `.md` que escribe para el bot — contexto general,
+  conocimiento por rubro, criterios, casos raros;
+- y, si quiere, artículos de `ayuda`, **importados a mano** (D7).
 
-**Si las dos fuentes se contradicen no hay desempate automático.** Las dos
-llegan al modelo etiquetadas con su origen, y una contradicción es un problema
-de contenido que se arregla escribiendo, no una regla de precedencia — inventar
-que "`/admin` pisa a git" esconde el error en vez de mostrarlo. R4 registra
-estos casos.
+Por qué así, y no una sincronización automática desde git: lo que sirve como
+artículo público no siempre sirve como contexto de un asistente, y al revés.
+Indexar la carpeta entera sola le sacaría al owner la decisión de qué sabe el
+bot, que es justo lo que quiere conservar.
+
+⚠ **Nada de esto se publica, pero sí lo puede leer cualquier comercio**,
+porque el bot responde con eso. No es un cajón de notas internas: no subir
+costos, datos de otros clientes ni credenciales.
 
 ### D4 — Base pgvector APARTE, exclusiva del RAG. **Cerrada (2026-09-17).**
 
@@ -112,28 +108,24 @@ Embebe la consulta, busca y devuelve fragmentos.
 Meter un driver de Postgres en el Front sería abrir un patrón nuevo solo para
 esto y romper la regla de que el Front pasa por la API.
 
-### D7 — Cómo llegan los artículos al índice: sincronización por hash. *(propuesta)*
+### D7 — Importar artículos de `ayuda`: un atajo manual, no una sincronización. *(propuesta)*
 
-Los artículos viven en el Front y el índice en el backend (§2). El puente:
+Para no obligar al owner a copiar y pegar un artículo que ya escribió, la
+pantalla de `/admin` ofrece **Importar desde ayuda**: lista los artículos de
+`frontend/content/ayuda/` y el owner tilda los que quiere en el RAG. Lo
+importado se guarda como un documento más y desde ahí se edita, desactiva o
+borra como cualquier otro.
 
-1. El build del Front arma un manifiesto de los artículos ya fragmentados
-   (D8), con un hash por fragmento.
-2. Al arrancar el contenedor del Front, se envía ese manifiesto a un endpoint
-   interno del backend, autenticado con clave interna.
-3. El backend compara hashes: embebe solo los fragmentos nuevos o cambiados,
-   borra los que ya no están, y no toca el resto.
+Detalle de implementación: los artículos viven en el Front y el índice en el
+backend, cuya imagen NO contiene `frontend/` (§2). El listado y el contenido
+los sirve una ruta del Front, que es quien tiene los archivos; el backend
+recibe el texto y lo indexa. Sigue siendo una acción manual del owner.
 
-⚠ **El borrado del paso 3 se acota a `source = 'ayuda'`.** El manifiesto del
-Front no sabe nada de lo cargado en `/admin` (D3): un `DELETE` de todo lo que
-no venga en el manifiesto borraría esa fuente entera en el primer deploy.
-
-Por qué por hash: re-embeber todo en cada deploy es pagar embeddings de 28
-artículos cada vez que se cambia una línea de CSS. Y como es idempotente,
-mandarlo dos veces no hace nada.
-
-La pantalla de `/admin` hace las dos cosas: **cargar** lo de la segunda fuente
-(D3) y **diagnosticar** — última sincronización, fragmentos por fuente, fallos,
-y un botón Reindexar que fuerza el proceso.
+**Deriva declarada**: un artículo importado y después editado en git queda
+viejo en el RAG hasta que se reimporte. Es la contracara de que la carga sea
+manual, y se muestra en vez de esconderse — guardando el hash del artículo al
+importar, la pantalla marca "cambió en ayuda desde que lo importaste". Nunca se
+reimporta solo.
 
 ### D8 — Fragmentar por encabezado, con el frontmatter adentro. *(propuesta)*
 
@@ -201,8 +193,7 @@ CREATE EXTENSION IF NOT EXISTS unaccent;
 
 CREATE TABLE help_chunk (
   chunkid      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  source       TEXT NOT NULL,          -- 'ayuda' (git) | 'admin' (D3)
-  slug         TEXT NOT NULL,          -- artículo; solo 'ayuda' linkea a docs.punto.la
+  slug         TEXT NOT NULL,          -- documento dueño del fragmento
   title        TEXT NOT NULL,
   headingpath  TEXT NOT NULL,
   audiencia    TEXT,
@@ -225,6 +216,10 @@ CREATE TABLE help_document (
   slug        TEXT NOT NULL UNIQUE,
   title       TEXT NOT NULL,
   body        TEXT NOT NULL,
+  -- Si salió de un artículo de ayuda (D7): su slug y el hash al importarlo,
+  -- para poder avisar que el artículo cambió después. Nunca se reimporta solo.
+  fromayuda   TEXT,
+  ayudahash   TEXT,
   isactive    BOOLEAN NOT NULL DEFAULT TRUE,
   updatedby   UUID,                    -- admin_user
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -248,21 +243,21 @@ tenants y no debe tocar esta ni la otra por error.
 | Fase | Qué |
 |---|---|
 | **R0** | Crear la base pgvector en Coolify + env vars de conexión en el backend |
-| **R1** | Esquema + servicio de indexado por hash + endpoint interno + manifiesto en el build del Front |
+| **R1** | Esquema + servicio de indexado + carga de documentos desde `/admin` |
 | **R2** | Endpoint de búsqueda híbrida + tool `search_punto_help` + regla en el prompt del panel |
 | **R3** | Sumarla al agente de la caja |
-| **R4** | Botón Reindexar + estado en `/admin`, y registro de búsquedas sin resultado |
+| **R4** | Importar desde ayuda (D7) + aviso de deriva + registro de búsquedas sin resultado |
 
 R4 convierte el RAG en algo que mejora: las preguntas sin respuesta son la
 lista de artículos pendientes de escribir.
 
 ## 6. Arquitecturas RECHAZADAS
 
-- **Subir desde `/admin` los artículos que YA están en git.** Dos copias del
-  mismo contenido divergen: el sitio muestra una versión y el bot responde con
-  otra. La carga de `/admin` es para lo que NO va al sitio. Ver D3.
-- **Una regla de precedencia entre las dos fuentes.** Esconde la contradicción
-  en vez de mostrarla. Ver D3.
+- **Indexar `frontend/content/ayuda/` automáticamente.** Le saca al owner la
+  decisión de qué sabe el bot, y no todo artículo público sirve como contexto
+  del asistente. Ver D3.
+- **Reimportar solo un artículo que cambió en git.** La deriva se avisa, no se
+  resuelve por atrás. Ver D7.
 - **Cambiar la imagen de la base de los tenants para tener pgvector.** Reinicia
   la base de producción con clientes facturando, para guardar datos que no son
   de ningún tenant. Ver D4.
