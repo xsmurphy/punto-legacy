@@ -64,12 +64,6 @@ $row = ncmExecute(
         -- company.moduleData.bancard. El POS necesita los dos para saber si
         -- ofrecer el QR y si mostrar la config del terminal físico.
         config->>'bancard'                  AS bancard,
-        -- RRHH (context/83 F1). El flat key es lo que escribe el toggle del
-        -- módulo; `ModuleState::enabled()` lo lee de acá y cae a moduleData si
-        -- no está. Sin esta columna en el SELECT, un comercio con el módulo
-        -- prendido por el toggle se vería apagado y la caja no bajaría a los
-        -- empleados que pueden marcar.
-        config->>'rrhh'                     AS rrhh,
         -- D3/D2 de context/40-anulacion-y-nota-credito.md: el POS necesita
         -- estos dos para el flujo de devolución — settingReturnRefund decide
         -- si pregunta 'cash'/'credit' o los ofrece los dos ('ask', default);
@@ -524,14 +518,11 @@ if ($isRegisterDevice) {
     // vinculante convertiría un dato desactualizado en una marcación mal
     // tipificada.
     //
-    // A diferencia del roster de operadores, ESTA lista sí depende del módulo:
-    // `rrhh` apagado = el comercio no tiene marcación, y mandarle la lista a la
-    // caja solo lograría que aparezca una pantalla que no va a usar. El ALTA,
-    // en cambio, no mira el módulo — ver el docblock de `v1/attendance.php`.
-    if (\Punto\Api\Modules\ModuleState::enabled($row, 'rrhh')) {
-        $payload['employees'] = (new \Punto\Api\Hr\AttendanceService())
-            ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
-    }
+    // RRHH es CORE (owner 2026-09-17, context/83 §D9 superseded): como
+    // facturación o compras, no se activa por módulo. El roster baja siempre;
+    // un comercio sin empleados cargados recibe la lista vacía y listo.
+    $payload['employees'] = (new \Punto\Api\Hr\AttendanceService())
+        ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
 }
 
 apiOk($payload);

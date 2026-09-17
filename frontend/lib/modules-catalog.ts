@@ -172,25 +172,6 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     status: "soon",
   },
   {
-    // RRHH (context/83, D9). La F0 entregó el LEGAJO y la F1 la ASISTENCIA
-    // (quiosco de marcación + reporte de horas y tardanzas); las ausencias y
-    // la liquidación llegan después, dentro de este mismo módulo.
-    //
-    // `attendance` —el módulo suelto de Control de Asistencia— salió del
-    // catálogo acá: nunca tuvo UI ni generador de QR en el stack nuevo, y su
-    // reemplazo vive adentro de RRHH desde la F1. Se apagó recién ahora, con
-    // el reemplazo construido, que era la condición.
-    key: "rrhh",
-    kind: "module",
-    title: "RRHH",
-    description:
-      "Legajo de tu personal y marcación de asistencia: horas trabajadas y llegadas tarde.",
-    icon: IdCard,
-    category: "Operativos",
-    configKind: "none",
-    status: "available",
-  },
-  {
     key: "calendar",
     kind: "module",
     title: "Agenda y Calendario",

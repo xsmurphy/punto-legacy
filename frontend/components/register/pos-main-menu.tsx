@@ -416,16 +416,9 @@ export function PosMainMenu() {
     posModuleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
   const canCountStock = useLockStore((st) => st.operatorPermissions.includes("pos.stock.count"))
 
-  // Marcación (context/83 F1): UN solo gate, el del módulo. No hay permiso de
-  // operador que evaluar — ver el comentario de la sección. Mismo criterio
-  // conservador que el conteo: cargando o sin red, se muestra.
-  const attendanceEnabled =
-    posModuleEnabled(modules, modulesLoading, modulesError, "rrhh") !== false
-
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
     .filter((s) => s.key !== "stock-count" || stockCountEnabled)
-    .filter((s) => s.key !== "attendance" || attendanceEnabled)
     // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
     // espacios, se ocultan transacciones y caja del menú.
     .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))

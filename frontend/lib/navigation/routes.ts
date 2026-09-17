@@ -380,7 +380,6 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "sidebar",
     sidebarGroup: "contactos",
     requires: "hr.employees.view",
-    requiresModule: "rrhh",
     keywords: [
       "empleados",
       "personal",
@@ -409,7 +408,6 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "sidebar",
     sidebarGroup: "contactos",
     requires: "hr.attendance.view",
-    requiresModule: "rrhh",
     keywords: [
       "asistencia",
       "marcacion",
@@ -1132,7 +1130,6 @@ export const POS_ROUTES: RouteEntry[] = [
     icon: UserCheck,
     surface: "palette",
     paletteGroup: "Operaciones",
-    requiresModule: "rrhh",
     keywords: [
       "marcacion",
       "marcación",

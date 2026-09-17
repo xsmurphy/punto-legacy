@@ -168,10 +168,20 @@ internet no cambia nada para el empleado.
   esos números pero el comercio los puede corregir a mano antes de liquidar —
   la marcación es evidencia, no sentencia.
 
-## §6 D9 CERRADA — módulo `rrhh` togglable
+## §6 D9 SUPERSEDED (owner 2026-09-17) — RRHH es CORE, no togglable
 
-Módulo nuevo gobernado por plan (F7 de context/34). El catálogo de módulos
-deja de ofrecer `attendance` suelto: la asistencia vive dentro de RRHH.
+La D9 original (módulo `rrhh` activable por comercio) duró un día: al ver el
+toggle, el owner la corrigió con la regla general que ordena TODO el catálogo:
+
+> Los módulos BASE que se usan en todos los rubros (facturación, compras,
+> inventario, items, RRHH) NO son activables. Los activables son los
+> ESPECÍFICOS de rubro: producción, ecommerce, espacios, órdenes, calendario.
+
+Consecuencia: `rrhh` salió de `modules-catalog.ts` y de `NATIVE_KEYS`, las
+rutas del panel no llevan `requiresModule`, la sección de marcación del POS no
+se filtra por módulo y el roster baja SIEMPRE en el bootstrap (vacío si no hay
+empleados). El único gate del legajo y los reportes es el PERMISO (`hr.*`, sin
+rol por defecto); el quiosco no pide permiso de operador — es del comercio.
 
 ## §7 Fases
 
