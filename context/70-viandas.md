@@ -96,6 +96,38 @@ de producción, arma la compra, y las operaciones de stock no hacen nada. Lo
 único que cambia para ese comercio es honesto: sin `onHand` no hay
 **faltante**, hay **necesidad total** — y eso es lo que se le muestra.
 
+### Consolidado del día en el KDS (implementado 2026-09-17)
+
+Hay un caso de viandas que **no produce**: los platos ya vienen cocinados y lo
+que se hace es ARMAR y entregar. Ese comercio no necesita la etapa B —no
+explota recetas, no consume insumos, no acredita platos terminados— pero sí
+necesita la pregunta que la etapa B contesta de paso: **"¿cuántos de cada
+opción salen hoy?"**.
+
+**Decisión del owner (2026-09-17): eso es una VISTA del KDS, no un reporte del
+panel ni un lote.** La pantalla del punto de armado es donde está la persona
+que hace la cuenta, con las manos en la bandeja. Y meterlo por el lote de
+producción sería peor que redundante: **confirmar un lote acredita stock de
+platos terminados**, que acá no se produjeron — se compraron ya hechos. Sería
+inventar existencias. El lote sigue siendo de quien SÍ produce.
+
+Qué agrega la vista (`lib/kds/summary.ts` + `app/(screen)/kds/summary-view.tsx`,
+atajo `S`):
+
+- Las unidades de cada plato agregadas a través de todas las órdenes del día,
+  separando **pendiente** (falta armar) de **listo** (armado, esperando salir).
+- Las **opciones** (add-ons) contadas aparte dentro de cada plato: "Milanesa 18"
+  no alcanza, hay que saber "arroz 10 / puré 8" — el caso carne×guarnición.
+- El detalle expandible de qué órdenes piden cada plato, en orden de llegada.
+
+**No toca el backend.** Es una agregación en memoria de las MISMAS órdenes que
+el board ya tiene, con los mismos predicados de `lib/kds/board.ts`: el KDS ya
+recibe exactamente la demanda del día (`scheduledUntil=today` de `context/79` +
+WebSocket), así que un endpoint propio sería una segunda definición de "la
+demanda de hoy" que divergiría el día que una de las dos cambie. Como deriva
+del estado, el tiempo real sale gratis. Es de **solo lectura**: desde el resumen
+no se marca nada (el board no está a la vista, marcar ahí sería a ciegas).
+
 ### Etapa B.5 — Reposición y orden de compra
 
 **Reposición es la necesidad. Compra es una de las formas de cubrirla** (D6).
