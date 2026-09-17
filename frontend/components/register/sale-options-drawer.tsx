@@ -65,6 +65,7 @@ import { usePriceLists } from "@/hooks/use-price-lists"
 import { posApi } from "@/lib/api/pos-client"
 import { useTags } from "@/hooks/use-tags"
 import { TagsChipsField, type TagsChipsFieldHandle } from "@/components/register/tags-chips-field"
+import { HotkeyTooltip } from "@/components/register/hotkey-tooltip"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
@@ -414,16 +415,24 @@ export function SaleOptionsDrawer({
   return (
     <>
       <Drawer open={open} onOpenChange={setOpen}>
-        <DrawerTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-11"
-            aria-label="Opciones de la transacción"
-          >
-            <MoreVertical className="size-5" />
-          </Button>
-        </DrawerTrigger>
+        {/* `side="bottom"`: el trigger vive en la toolbar del carrito, pegado
+            al borde superior — un tooltip arriba se saldría de la pantalla. */}
+        <HotkeyTooltip
+          label="Opciones de la transacción"
+          hotkey="R"
+          side="bottom"
+        >
+          <DrawerTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-11"
+              aria-label="Opciones de la transacción"
+            >
+              <MoreVertical className="size-5" />
+            </Button>
+          </DrawerTrigger>
+        </HotkeyTooltip>
         <DrawerContent className="mx-auto max-w-lg">
           <DrawerHeader className="pb-2">
             {/* El título dice sobre QUÉ operan las acciones: el menú cambia

@@ -88,6 +88,7 @@ import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
+import { HotkeyTooltip } from "@/components/register/hotkey-tooltip"
 import { formatMoney } from "@/lib/format-money"
 import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
 import { StatTile } from "@/components/stat-tile"
@@ -416,6 +417,11 @@ export function PosMainMenu() {
 
   const activeSection = sectionsWithState.find((s) => s.key === activeKey) ?? null
 
+  const menuLabel =
+    pendingCount > 0
+      ? `Menú del POS — ${pendingCount} venta${pendingCount !== 1 ? "s" : ""} sin sincronizar`
+      : "Menú del POS"
+
   return (
     <MenuContentCtx.Provider value={{ setOpen, router }}>
       {/* Trigger ≡ — se mantiene idéntico al original para no romper el cart-panel.
@@ -427,28 +433,32 @@ export function PosMainMenu() {
           sigue estando a un toque, en Menú → Ventas pendientes. Rojo solo
           cuando hay ventas FALLIDAS, que sí son terminales y piden acción
           (context/08 §53). */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="relative size-11"
-        aria-label={
-          pendingCount > 0
-            ? `Menú del POS — ${pendingCount} venta${pendingCount !== 1 ? "s" : ""} sin sincronizar`
-            : "Menú del POS"
-        }
-        onClick={() => setOpen(true)}
-      >
-        <AppWindowMac className="size-5" />
-        {pendingCount > 0 && (
-          <span
-            aria-hidden
-            className={cn(
-              "absolute top-1 right-1 size-2 rounded-full ring-2 ring-background",
-              failedCount > 0 ? "bg-destructive" : "bg-amber-500",
-            )}
-          />
-        )}
-      </Button>
+      {/* El mismo texto va al tooltip y al `aria-label`: el ícono no dice qué
+          abre, y el punto de la esquina tampoco explica qué significa. Con
+          ventas en cola el tooltip lo aclara al pasar por encima, sin sumar
+          una banda arriba de la toolbar — que es lo que este punto vino a
+          reemplazar. `side="bottom"`: la toolbar apoya en el borde superior.
+          Atajo Q (`hooks/use-pos-hotkeys.ts`). */}
+      <HotkeyTooltip label={menuLabel} hotkey="Q" side="bottom">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative size-11"
+          aria-label={menuLabel}
+          onClick={() => setOpen(true)}
+        >
+          <AppWindowMac className="size-5" />
+          {pendingCount > 0 && (
+            <span
+              aria-hidden
+              className={cn(
+                "absolute top-1 right-1 size-2 rounded-full ring-2 ring-background",
+                failedCount > 0 ? "bg-destructive" : "bg-amber-500",
+              )}
+            />
+          )}
+        </Button>
+      </HotkeyTooltip>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent

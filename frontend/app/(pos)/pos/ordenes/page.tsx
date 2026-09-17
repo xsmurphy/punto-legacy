@@ -37,6 +37,7 @@ import { OrdersListView } from "@/components/orders/orders-list-view"
 import { OrdersMapView } from "@/components/orders/orders-map-view"
 import { FILTERABLE_STATUSES } from "@/lib/orders/order-display"
 import { useOrderStatusLabels } from "@/components/orders/order-status-labels-provider"
+import { HotkeyTooltip } from "@/components/register/hotkey-tooltip"
 import { usePersistedView } from "@/lib/ui/use-persisted-view"
 import { useActiveOrders, type Order, type OrderStatus } from "@/hooks/use-orders"
 
@@ -262,20 +263,27 @@ function ViewButton({
   active: boolean
   onClick: () => void
 }) {
+  // A diferencia del selector de vistas de Espacios, este botón es ícono
+  // pelado. Tenía `title` nativo: lo mismo, pero con el estilo del sistema
+  // operativo, un segundo y medio de espera y sin el tratamiento del design
+  // system que ya usa el resto de la caja.
+  const viewLabel = `Vista ${label.toLowerCase()}`
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Vista ${label.toLowerCase()}`}
-      title={`Vista ${label.toLowerCase()}`}
-      aria-pressed={active}
-      className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors",
-        active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
-      )}
-    >
-      <Icon className="size-4" />
-    </button>
+    <HotkeyTooltip label={viewLabel}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={viewLabel}
+        aria-pressed={active}
+        className={cn(
+          "flex size-9 shrink-0 items-center justify-center rounded-full transition-colors",
+          active ? "bg-white text-neutral-900" : "text-white/80 hover:text-white",
+        )}
+      >
+        <Icon className="size-4" />
+      </button>
+    </HotkeyTooltip>
   )
 }
 

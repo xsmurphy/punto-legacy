@@ -62,6 +62,7 @@ import { LineDiscountDialog } from "@/components/register/line-discount-dialog"
 import { LineNoteDialog } from "@/components/register/line-note-dialog"
 import { LineTagsDialog } from "@/components/register/line-tags-dialog"
 import { LineSellerDialog } from "@/components/register/line-seller-dialog"
+import { HotkeyTooltip } from "@/components/register/hotkey-tooltip"
 import { cn } from "@/lib/utils"
 import {
   useCartStore,
@@ -778,26 +779,32 @@ function CartToolbar({
         <PosMainMenu />
       </div>
       <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-11"
-          onClick={onSearch}
-          aria-label="Buscar producto"
-        >
-          <Search className="size-5" />
-        </Button>
+        {/* `side="bottom"`: la toolbar vive pegada al borde superior del
+            carrito y un tooltip arriba se saldría de la pantalla. */}
+        <HotkeyTooltip label="Buscar producto" hotkey="W" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11"
+            onClick={onSearch}
+            aria-label="Buscar producto"
+          >
+            <Search className="size-5" />
+          </Button>
+        </HotkeyTooltip>
       </div>
       <div className="flex flex-1 justify-center">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-11"
-          onClick={onCustomer}
-          aria-label="Cliente"
-        >
-          <User className="size-5" />
-        </Button>
+        <HotkeyTooltip label="Cliente" hotkey="E" side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-11"
+            onClick={onCustomer}
+            aria-label="Cliente"
+          >
+            <User className="size-5" />
+          </Button>
+        </HotkeyTooltip>
       </div>
       <div className="flex flex-1 justify-center">
         <SaleOptionsDrawer onCancelSale={onCancelSale} />
@@ -843,14 +850,16 @@ function SpaceChip({
         </Badge>
       </div>
       {spaceSessionId && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={onClear}
-          aria-label="Quitar espacio seleccionado"
-        >
-          <X className="size-3" />
-        </Button>
+        <HotkeyTooltip label="Quitar espacio seleccionado">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={onClear}
+            aria-label="Quitar espacio seleccionado"
+          >
+            <X className="size-3" />
+          </Button>
+        </HotkeyTooltip>
       )}
     </div>
   )
@@ -906,14 +915,16 @@ function CustomerChip({
           </Badge>
         )}
       </div>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={() => setCustomer(null)}
-        aria-label="Quitar cliente"
-      >
-        <X className="size-3" />
-      </Button>
+      <HotkeyTooltip label="Quitar cliente">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => setCustomer(null)}
+          aria-label="Quitar cliente"
+        >
+          <X className="size-3" />
+        </Button>
+      </HotkeyTooltip>
     </div>
   )
 }
@@ -945,14 +956,16 @@ function DeliveryAddressChip({
           {address.reference ? ` — ${address.reference}` : ""}
         </p>
       </div>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={onClear}
-        aria-label="Quitar dirección de envío"
-      >
-        <X className="size-3" />
-      </Button>
+      <HotkeyTooltip label="Quitar dirección de envío">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClear}
+          aria-label="Quitar dirección de envío"
+        >
+          <X className="size-3" />
+        </Button>
+      </HotkeyTooltip>
     </div>
   )
 }
@@ -1350,7 +1363,7 @@ function LineToolButton({
   className,
   ...rest
 }: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  return (
+  const button = (
     <button
       type="button"
       className={cn(
@@ -1364,6 +1377,15 @@ function LineToolButton({
       {children}
     </button>
   )
+
+  // El tooltip sale del `aria-label` que ya declara cada call-site (−, +,
+  // vendedor, quitar, más opciones): son todos ícono pelado y ninguno tiene
+  // dónde poner texto. Hacerlo acá y no en cada uso garantiza que lo que se
+  // lee en pantalla y lo que lee el lector de pantalla no puedan divergir.
+  const label = rest["aria-label"]
+  if (!label) return button
+
+  return <HotkeyTooltip label={label}>{button}</HotkeyTooltip>
 }
 
 function LineActionTile({
@@ -1546,14 +1568,16 @@ function ExtraRow({
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {label}
       </span>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={onClear}
-        aria-label="Quitar"
-      >
-        <X className="size-3" />
-      </Button>
+      <HotkeyTooltip label="Quitar">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={onClear}
+          aria-label="Quitar"
+        >
+          <X className="size-3" />
+        </Button>
+      </HotkeyTooltip>
     </div>
   )
 }
