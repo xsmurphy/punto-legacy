@@ -72,7 +72,7 @@ beforeEach(async () => {
   useOfflineSyncStore.setState({ catalogFromCache: false, catalogCachedAt: null })
 })
 
-describe("migración de la base v1 → v6", () => {
+describe("migración de la base v1 → v7", () => {
   it("conserva las ventas encoladas de un device que ya venía con la v1", async () => {
     // Un device en la calle: base v1, solo `pendingSales`, con una venta
     // emitida e impresa esperando conexión.
@@ -94,8 +94,9 @@ describe("migración de la base v1 → v6", () => {
     // Abrirla con el schema nuevo NO puede perder esa venta: es un documento
     // fiscal que existe en papel y en ningún otro lado.
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(6)
+    expect(db.version).toBe(7)
     expect([...db.objectStoreNames].sort()).toEqual([
+      "opBlobs",
       "pendingCharges",
       "pendingOps",
       "pendingSales",
@@ -135,7 +136,7 @@ describe("migración de la base v1 → v6", () => {
     v2.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(6)
+    expect(db.version).toBe(7)
     expect(db.objectStoreNames.contains("tenancy")).toBe(true)
     // Store nuevo: arranca vacío, o sea sin tenencia confirmada — y sin
     // tenencia confirmada el POS no emite. El device tiene que hacer un claim
@@ -181,7 +182,7 @@ describe("migración de la base v1 → v6", () => {
     v3.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(6)
+    expect(db.version).toBe(7)
     expect(db.objectStoreNames.contains("pendingOps")).toBe(true)
     expect(await db.count("pendingOps")).toBe(0)
 
@@ -226,7 +227,7 @@ describe("migración de la base v1 → v6", () => {
     v4.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(6)
+    expect(db.version).toBe(7)
     expect(db.objectStoreNames.contains("shiftJournal")).toBe(true)
     expect(await db.count("shiftJournal")).toBe(0)
 
@@ -259,7 +260,7 @@ describe("migración de la base v1 → v6", () => {
     v5.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(6)
+    expect(db.version).toBe(7)
     expect(db.objectStoreNames.contains("pendingCharges")).toBe(true)
     expect(await db.count("pendingCharges")).toBe(0)
     expect((await db.get("pendingSales", "uid-5"))?.invoiceNo).toBe(321)
