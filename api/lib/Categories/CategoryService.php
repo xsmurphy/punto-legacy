@@ -123,6 +123,59 @@ final class CategoryService
         return $categoryId;
     }
 
+    /**
+     * Resuelve una categoría por NOMBRE dentro del tenant y la CREA si no existe.
+     * Devuelve el `categoryId`, o `null` si el nombre es vacío.
+     *
+     * Mismo contrato que `TagService::resolveOrCreateByName()`, y por el mismo
+     * motivo: la tabla tiene UNIQUE `(companyId, LOWER(name))` (mig 38), así
+     * que un alta por nombre que no mire antes lo que ya existe CHOCA contra
+     * ese índice. Pasó en el migrador (job 71e8282d, 2026-09-18): el comercio
+     * ya tenía "Bebidas" y el legacy traía "BEBIDAS" — cinco categorías
+     * fallaron con un 23505 y sus artículos entraron sin categoría.
+     *
+     * Case-insensitive por el MISMO criterio que el índice, y sin carrera:
+     * `ON CONFLICT DO NOTHING` + re-lectura en vez de un INSERT pelado (en
+     * este wrapper un error de PG marca la transacción entera como fallida).
+     */
+    public function resolveOrCreateByName(string $companyId, string $name): ?string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return null;
+        }
+
+        $existing = $this->findIdByName($companyId, $name);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        $this->db->Execute(
+            'INSERT INTO category (categoryId, companyId, name)
+             VALUES (?, ?, ?)
+             ON CONFLICT DO NOTHING',
+            [$this->generateUuid(), $companyId, $name]
+        );
+
+        return $this->findIdByName($companyId, $name);
+    }
+
+    /** `categoryId` de la fila con ese nombre (case-insensitive), o null. */
+    public function findIdByName(string $companyId, string $name): ?string
+    {
+        $rs = $this->db->Execute(
+            'SELECT categoryId FROM category
+              WHERE companyId = ? AND LOWER(name) = LOWER(?)
+              LIMIT 1',
+            [$companyId, trim($name)]
+        );
+        if ($rs === false || $rs->EOF) {
+            return null;
+        }
+        $id = (string) ($rs->fields['categoryid'] ?? $rs->fields['categoryId'] ?? '');
+        return $id !== '' ? $id : null;
+    }
+
     public function update(string $companyId, string $categoryId, array $input): void
     {
         $sets   = [];

@@ -398,6 +398,31 @@ final class ContactService
     }
 
     /**
+     * Si el teléfono de `$in` se puede guardar, con la MISMA regla que aplica
+     * `create()` (la de `mapToColumns()`: E.164 con el país del contacto o el
+     * del tenant). Sin teléfono, true.
+     *
+     * Existe para quien importa en lote y necesita decidir qué hacer con un
+     * número inválido ANTES del alta, sin reconocer el error por el texto del
+     * mensaje (el migrador del legacy: context/77 §17.15).
+     */
+    public function phoneIsStorable(string $companyId, array $in): bool
+    {
+        if (trim((string) ($in['phone'] ?? '')) === '') {
+            return true;
+        }
+        try {
+            self::mapToColumns(
+                ['phone' => $in['phone'], 'country' => $in['country'] ?? ''],
+                $this->tenantCountry($companyId)
+            );
+            return true;
+        } catch (RuntimeException $e) {
+            return false;
+        }
+    }
+
+    /**
      * Crea un contacto + su dirección default.
      *
      * @return string contactId del nuevo registro.

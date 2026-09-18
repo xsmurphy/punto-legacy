@@ -60,6 +60,9 @@ final class EncomImportService
     /** Memo de impuestos del destino: nombre normalizado → taxId. */
     private ?array $taxByName = null;
 
+    /** Memo de artículos del destino: nombre normalizado → [itemId => true]. */
+    private ?array $itemsPorNombre = null;
+
     /** Costos del panel: SKU normalizado → costo, y nombre normalizado → costo. */
     private array $costBySku  = [];
     private array $costByName = [];
@@ -104,8 +107,10 @@ final class EncomImportService
         //     arriba. Entre ellos el orden es indistinto —no se referencian—
         //     pero las ventas van primero porque son las que el operador
         //     mira.
+        //   · `suppliers` va antes del histórico: las compras se cuelgan de
+        //     sus proveedores, y sin ellos entraban sin proveedor.
         $order = [
-            'catalog', 'customers', 'config', 'users', 'payments', 'stock',
+            'catalog', 'customers', 'suppliers', 'config', 'users', 'payments', 'stock',
             'sales_history', 'purchases_history', 'expenses_history',
         ];
 
@@ -118,6 +123,7 @@ final class EncomImportService
                 match ($domain) {
                     'catalog'   => $this->catalog(),
                     'customers' => $this->customers(),
+                    'suppliers' => $this->suppliers(),
                     'config'    => $this->config($options),
                     'users'     => $this->users(),
                     'payments'  => $this->payments(),
@@ -256,23 +262,21 @@ final class EncomImportService
         global $db;
 
         // ── Taxonomías primero: los ítems las referencian ────────────────
+        // Las tres tienen UNIQUE (empresa, nombre sin mayúsculas), así que una
+        // que YA existe en Punto —cargada a mano, o que el legacy trae dos
+        // veces con distinto case— se REUSA y se mapea, en vez de fallar con un
+        // 23505 y dejar sus artículos sin categoría (job 71e8282d, 2026-09-18:
+        // "ENTRADAS", "COMBOS", "Buffet", "DELIVERY" y "BEBIDAS"). Lo resuelve
+        // el SERVICIO de cada taxonomía (`resolveOrCreateByName()`), no el
+        // importador: es la misma regla que el índice, en un solo lugar.
         $categories = new \Punto\Api\Categories\CategoryService($db);
-        $this->each('category', $this->source->categories(), function (array $row) use ($categories): ?string {
-            $name = trim((string) ($row['name'] ?? ''));
-            return $name === '' ? null : $categories->create($this->companyId, ['name' => $name]);
-        });
+        $this->eachTaxonomy('category', 'Categorías', $this->source->categories(), $categories);
 
         $brands = new \Punto\Api\Brands\BrandService($db);
-        $this->each('brand', $this->source->brands(), function (array $row) use ($brands): ?string {
-            $name = trim((string) ($row['name'] ?? ''));
-            return $name === '' ? null : $brands->create($this->companyId, ['name' => $name]);
-        });
+        $this->eachTaxonomy('brand', 'Marcas', $this->source->brands(), $brands);
 
         $tags = new \Punto\Api\Tags\TagService($db);
-        $this->each('tag', $this->source->tags(), function (array $row) use ($tags): ?string {
-            $name = trim((string) ($row['name'] ?? ''));
-            return $name === '' ? null : $tags->create($this->companyId, ['name' => $name]);
-        });
+        $this->eachTaxonomy('tag', 'Etiquetas', $this->source->tags(), $tags);
 
         // El COSTO sale de otra superficie que el resto del catálogo (la tabla
         // del panel, no `/fetchs`) y es un ENRIQUECIMIENTO: si no se puede
@@ -324,6 +328,12 @@ final class EncomImportService
             return $itemId;
         });
 
+        // Relanzar COMPLETA la categoría/marca de los artículos que ya estaban
+        // importados y entraron sin ella (job 71e8282d: cinco categorías
+        // chocaron contra el UNIQUE y sus artículos quedaron sin categoría; el
+        // artículo es idempotente y la corrida siguiente lo saltea).
+        $this->completarTaxonomiasDeArticulos($items, $this->source->items());
+
         // Qué artículos quedaron sin costo teniendo la tabla disponible. No se
         // inventa un 0 —"no lo sé" y "cuesta cero" no son lo mismo, y un 0
         // falso arruina el margen de ese artículo para siempre—, así que se
@@ -343,6 +353,118 @@ final class EncomImportService
         // El stock inicial SÍ se migra desde 2026-09-11, pero NO acá: es su
         // propio dominio (`stock`) y corre al final, porque una apertura
         // necesita además el mapa de SUCURSALES que llena `config`.
+    }
+
+    /**
+     * Importa una taxonomía con unicidad por nombre (categoría, marca,
+     * etiqueta): la que ya existe con ese nombre —sin importar mayúsculas— se
+     * REUSA y queda mapeada; solo se crea la que falta.
+     *
+     * @param object $svc servicio con `findIdByName()` y `resolveOrCreateByName()`
+     */
+    private function eachTaxonomy(string $domain, string $titulo, array $rows, object $svc): void
+    {
+        $reusadas = [];
+
+        $this->each($domain, $rows, function (array $row) use ($svc, &$reusadas): ?string {
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name === '') {
+                throw new \RuntimeException('vino sin nombre en el legacy.');
+            }
+            if ($svc->findIdByName($this->companyId, $name) !== null) {
+                $reusadas[] = $name;
+            }
+            return $svc->resolveOrCreateByName($this->companyId, $name);
+        });
+
+        if ($reusadas !== []) {
+            $reusadas = array_values(array_unique($reusadas));
+            $this->note(
+                $titulo . ' que ya existían en Punto con el mismo nombre y se reusaron en vez de duplicarse: '
+                . implode(', ', array_slice($reusadas, 0, 30))
+                . (count($reusadas) > 30 ? ' … y ' . (count($reusadas) - 30) . ' más.' : '.')
+            );
+        }
+    }
+
+    /**
+     * A un artículo YA importado que quedó sin categoría o sin marca, le pone
+     * la que ahora sí resuelve el mapa. Nunca pisa una que ya tenga: puede ser
+     * la que el comercio eligió a mano después de la migración.
+     *
+     * Escribe las dos formas, igual que `writeItem()`: la FK legacy
+     * `item.categoryId`/`brandId` por el servicio y la m2m
+     * (`item_category`/`item_brand`).
+     */
+    private function completarTaxonomiasDeArticulos(\Punto\Api\Items\ItemService $items, array $rows): void
+    {
+        $completados = [];
+
+        foreach ($rows as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $legacyId = $this->legacyIdOf($row);
+            $itemId   = $legacyId === null ? '' : $this->mapOf('item', $legacyId);
+            if ($itemId === '') {
+                continue;
+            }
+
+            $categoryId = $this->mapOf('category', $row['categoryId'] ?? null)
+                ?: $this->mapOf('category', $row['category'] ?? null);
+            $brandId    = $this->mapOf('brand', $row['brand'] ?? null);
+            if ($categoryId === '' && $brandId === '') {
+                continue;
+            }
+
+            $actual = \ncmExecute(
+                'SELECT i.categoryId AS categoryid, i.brandId AS brandid,
+                        EXISTS (SELECT 1 FROM item_category ic WHERE ic.itemId = i.itemId) AS tienecat,
+                        EXISTS (SELECT 1 FROM item_brand ib WHERE ib.itemId = i.itemId) AS tienemarca
+                   FROM item i
+                  WHERE i.itemId = ? AND i.companyId = ?
+                  LIMIT 1',
+                [$itemId, $this->companyId]
+            );
+            if (!$actual) {
+                continue;
+            }
+
+            $sinCat   = (string) ($actual['categoryid'] ?? '') === '' && !self::pgTruthy($actual['tienecat'] ?? false);
+            $sinMarca = (string) ($actual['brandid'] ?? '') === '' && !self::pgTruthy($actual['tienemarca'] ?? false);
+
+            $patch = [];
+            if ($sinCat && $categoryId !== '') {
+                $patch['categoryId'] = $categoryId;
+            }
+            if ($sinMarca && $brandId !== '') {
+                $patch['brandId'] = $brandId;
+            }
+            if ($patch === []) {
+                continue;
+            }
+
+            try {
+                $items->update($itemId, $this->companyId, $patch);
+                if (isset($patch['categoryId'])) {
+                    $this->linkM2m('item_category', 'categoryId', $itemId, $categoryId);
+                }
+                if (isset($patch['brandId'])) {
+                    $this->linkM2m('item_brand', 'brandId', $itemId, $brandId);
+                }
+                $completados[] = trim((string) ($row['name'] ?? $legacyId));
+            } catch (\Throwable $e) {
+                $this->fail('item', 'Item "' . trim((string) ($row['name'] ?? '?')) . '": no se le pudo completar la categoría/marca: ' . $e->getMessage());
+            }
+        }
+
+        if ($completados !== []) {
+            $this->note(
+                count($completados) . ' artículo(s) ya importados que habían quedado sin categoría o marca y se '
+                . 'completaron en esta corrida: ' . implode(', ', array_slice($completados, 0, 20))
+                . (count($completados) > 20 ? ' … y ' . (count($completados) - 20) . ' más.' : '.')
+            );
+        }
     }
 
     /** Completa el artículo recién creado y engancha sus taxonomías. */
@@ -550,8 +672,9 @@ final class EncomImportService
         global $db;
         $compounds = new \Punto\Api\Items\ItemCompoundService($db);
 
-        $counts   = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
-        $revisar  = [];
+        $counts    = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $revisar   = [];
+        $porNombre = [];
 
         foreach ($this->source->items() as $row) {
             if (!is_array($row)) {
@@ -571,6 +694,7 @@ final class EncomImportService
 
             if ($legacyId === null) {
                 $counts['failed']++;
+                $this->fail('compound', 'La composición de "' . $name . '" no se importó: el artículo vino sin id del legacy.');
                 continue;
             }
 
@@ -589,19 +713,28 @@ final class EncomImportService
                 // El artículo padre no se importó (falló en la primera pasada):
                 // su receta no tiene dónde colgarse.
                 $counts['failed']++;
+                $this->fail(
+                    'compound',
+                    'La composición de "' . $name . '" no se importó porque el artículo mismo no se importó (ver su '
+                    . 'error en esta bitácora).'
+                );
                 continue;
             }
 
             if (!in_array($kind, self::RECIPE_KINDS, true)) {
-                $revisar[] = $name . ' (' . (trim((string) ($row['kind'] ?? '')) ?: 'sin kind') . ')';
                 $counts['failed']++;
+                $this->fail(
+                    'compound',
+                    'Revisar a mano: ' . $name . ' (' . (trim((string) ($row['kind'] ?? '')) ?: 'sin kind') . ') trae '
+                    . 'composición pero Punto no lo importa como combo ni receta con ese tipo.'
+                );
                 continue;
             }
 
             $parts = json_decode($raw, true);
             if (!is_array($parts) || $parts === []) {
                 $counts['failed']++;
-                $this->fail('catalog', 'La composición de "' . $name . '" no se pudo leer: ' . $raw);
+                $this->fail('compound', 'La composición de "' . $name . '" no se pudo leer: ' . $raw);
                 continue;
             }
 
@@ -622,8 +755,10 @@ final class EncomImportService
                 }
 
                 $childLegacy = trim((string) ($part['id'] ?? ''));
+                $childName   = trim((string) ($part['name'] ?? ''));
+                $childLabel  = ($childName !== '' ? '"' . $childName . '" ' : '') . '(' . ($childLegacy ?: 'sin id') . ')';
                 if ($childLegacy === '') {
-                    $faltantes[] = '(sin id)';
+                    $faltantes[] = $childLabel;
                     continue;
                 }
 
@@ -639,8 +774,20 @@ final class EncomImportService
 
                 $childId = $this->mapOf('item', $childLegacy);
                 if ($childId === '') {
-                    $faltantes[] = $childLegacy;
-                    continue;
+                    // El componente NO vino en el catálogo: `/fetchs` solo
+                    // exporta artículos ACTIVOS y VENDIBLES de la sucursal del
+                    // alcance (`itemStatus = 1 AND itemCanSale = 1`, leído en
+                    // el código del legacy), así que un insumo no vendible, uno
+                    // archivado o uno de otra sucursal nunca llega al mapa. El
+                    // `compound` sí trae su NOMBRE: si en Punto hay UN solo
+                    // artículo con ese nombre (del mismo comercio), es ese. Con
+                    // cero o con varios no se adivina.
+                    $childId = $this->itemIdPorNombreUnico($childName);
+                    if ($childId === '') {
+                        $faltantes[] = $childLabel;
+                        continue;
+                    }
+                    $porNombre[] = $name . ' → ' . $childLabel;
                 }
 
                 // `units` viaja como "1.000" — decimal con punto, no un miles.
@@ -656,12 +803,8 @@ final class EncomImportService
                 } catch (\Throwable $e) {
                     // Un ciclo o un componente de otro tenant: lo rechaza el
                     // servicio, que es justamente para lo que se lo usa.
-                    $faltantes[] = $childLegacy . ': ' . $e->getMessage();
+                    $faltantes[] = $childLabel . ': ' . $e->getMessage();
                 }
-            }
-
-            if ($faltantes !== []) {
-                $revisar[] = $name . ' — componentes que no se pudieron resolver: ' . implode(', ', $faltantes);
             }
             if ($selectables > 0) {
                 $revisar[] = $name . ' — tiene ' . $selectables . ' componente(s) que el cliente elige al vender: '
@@ -669,6 +812,14 @@ final class EncomImportService
             }
 
             if ($faltantes !== []) {
+                $this->fail(
+                    'compound',
+                    'Revisar a mano: ' . $name . ' — componentes que no se pudieron resolver: ' . implode(', ', $faltantes)
+                    . '. No vinieron en el catálogo del sistema anterior, que solo exporta artículos activos y '
+                    . 'vendibles de esta sucursal (un insumo no vendible, uno archivado o uno de otra sucursal queda '
+                    . 'afuera), y en Punto no hay un único artículo con ese nombre. Creá el componente y volvé a '
+                    . 'lanzar: la receta se completa sin duplicar lo que ya entró.'
+                );
                 // ── La receta INCOMPLETA no se marca como compuesta ───────
                 // Marcarla la congelaría a medias para siempre: la corrida
                 // siguiente la saltearía por idempotente, y `explodeRecipe`
@@ -680,12 +831,28 @@ final class EncomImportService
             } elseif ($escritos > 0 || $yaEstaban > 0) {
                 EncomMigrationService::remember($this->companyId, 'compound', $legacyId, $parentId, $this->jobId);
                 $counts['imported']++;
+            } elseif ($selectables > 0) {
+                // Todos sus componentes se eligen al vender: no hay receta fija
+                // que escribir. No es una falla —queda la nota de arriba para
+                // armar el grupo de opciones— y contarla como tal escondía
+                // cuál era el problema.
+                $counts['skipped']++;
             } else {
                 $counts['failed']++;
+                $this->fail('compound', 'La composición de "' . $name . '" vino sin componentes utilizables: ' . $raw);
             }
         }
 
         $this->progress['compound'] = $counts;
+
+        if ($porNombre !== []) {
+            $this->note(
+                'Componentes de combos/recetas que no vinieron en el catálogo del sistema anterior y se '
+                . 'encontraron en Punto por su nombre (un único artículo con ese nombre): '
+                . implode('; ', array_slice($porNombre, 0, 30))
+                . (count($porNombre) > 30 ? ' … y ' . (count($porNombre) - 30) . ' más.' : '.')
+            );
+        }
 
         foreach (array_slice($revisar, 0, 50) as $linea) {
             $this->note('Revisar a mano: ' . $linea);
@@ -693,6 +860,44 @@ final class EncomImportService
         if (count($revisar) > 50) {
             $this->note('… y ' . (count($revisar) - 50) . ' artículo(s) más para revisar a mano.');
         }
+    }
+
+    /**
+     * Id del ÚNICO artículo del destino con ese nombre (sin mayúsculas ni
+     * espacios de más), o '' si no hay ninguno o hay más de uno.
+     *
+     * Una consulta por corrida, no por componente.
+     */
+    private function itemIdPorNombreUnico(string $nombre): string
+    {
+        $clave = $this->normalizeName($nombre);
+        if ($clave === '') {
+            return '';
+        }
+
+        if ($this->itemsPorNombre === null) {
+            $this->itemsPorNombre = [];
+            $rs = \ncmExecute(
+                'SELECT itemId, itemName FROM item WHERE companyId = ?',
+                [$this->companyId],
+                false,
+                true
+            );
+            if ($rs !== false && is_object($rs)) {
+                while (!$rs->EOF) {
+                    $k  = $this->normalizeName((string) ($rs->fields['itemname'] ?? $rs->fields['itemName'] ?? ''));
+                    $id = (string) ($rs->fields['itemid'] ?? $rs->fields['itemId'] ?? '');
+                    if ($k !== '' && $id !== '') {
+                        $this->itemsPorNombre[$k][$id] = true;
+                    }
+                    $rs->MoveNext();
+                }
+                $rs->Close();
+            }
+        }
+
+        $ids = array_keys($this->itemsPorNombre[$clave] ?? []);
+        return count($ids) === 1 ? (string) $ids[0] : '';
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -707,12 +912,14 @@ final class EncomImportService
         global $db;
         $contacts = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 
+        $dup = self::duplicadosVacios();
+
         // La idempotencia usa el id REAL del contacto en el legacy
         // (`customerId`), que `/fetchs` sí manda. El CSV del panel no lo traía y
         // obligaba a una clave natural (documento, o el nombre normalizado) que
         // fusionaba a dos homónimos sin documento en un solo cliente. Ese
         // parche se fue junto con el scraping.
-        $this->each('customer', $this->source->customers(), function (array $row) use ($contacts): ?string {
+        $this->each('customer', $this->source->customers(), function (array $row) use ($contacts, &$dup): ?string {
             $fiscalName = trim((string) ($row['fiscalName'] ?? ''));
             $personName = trim((string) ($row['name'] ?? ''));
             if ($fiscalName === '' && $personName === '') {
@@ -788,8 +995,162 @@ final class EncomImportService
                 $in['bday'] = substr($bday, 0, 10);
             }
 
-            return $contacts->create($this->companyId, $in);
+            return $this->crearContacto($contacts, $in, 'cliente', $dup);
         });
+
+        $this->avisarDuplicados('cliente', $dup);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // suppliers — proveedores (context/77 §17.14)
+    // ═══════════════════════════════════════════════════════════════════
+
+    /**
+     * Proveedores del legacy como contactos proveedor (`type = 2`), por el
+     * servicio real.
+     *
+     * No existía: el histórico de compras buscaba al proveedor por NOMBRE
+     * entre los contactos del destino —de cualquier tipo— y como los
+     * proveedores nunca se habían migrado, las compras entraban sin proveedor
+     * o, peor, colgadas de un cliente o un usuario homónimo (job 71e8282d:
+     * 26 proveedores sin migrar).
+     *
+     * Va antes del histórico en el orden del job, y la idempotencia es la de
+     * siempre: `migration_map` por el id del legacy (`enc(contactId)`).
+     */
+    private function suppliers(): void
+    {
+        require_once dirname(__DIR__) . '/Contacts/ContactService.php';
+        require_once dirname(__DIR__) . '/Contacts/ContactRepository.php';
+
+        global $db;
+        $contacts = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
+        $dup      = self::duplicadosVacios();
+
+        $this->each('supplier', $this->source->suppliers(), function (array $row) use ($contacts, &$dup): ?string {
+            $razon     = trim((string) ($row['name'] ?? ''));
+            $encargado = trim((string) ($row['contact'] ?? ''));
+            if ($razon === '' && $encargado === '') {
+                return null;
+            }
+
+            $in = [
+                'fiscalName' => $razon !== '' ? $razon : $encargado,
+                'name'       => $encargado !== '' ? $encargado : $razon,
+                'type'       => \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER,
+            ];
+            foreach (['tin', 'phone', 'email', 'address'] as $k) {
+                $v = trim((string) ($row[$k] ?? ''));
+                if ($v !== '') {
+                    $in[$k] = $v;
+                }
+            }
+
+            return $this->crearContacto($contacts, $in, 'proveedor', $dup);
+        });
+
+        $this->avisarDuplicados('proveedor', $dup);
+    }
+
+    /** @return array{unificados:array<int,string>,telRepetido:array<int,string>,telInvalido:array<int,string>} */
+    private static function duplicadosVacios(): array
+    {
+        return ['unificados' => [], 'telRepetido' => [], 'telInvalido' => []];
+    }
+
+    /**
+     * Alta de un contacto del legacy con la política del owner para los datos
+     * que Punto no acepta repetidos (decisión 2026-09-18, context/77 §17.15):
+     *
+     *   1. **Documento personal repetido** → es la MISMA persona cargada dos
+     *      veces en el legacy. NO se crea otro contacto: el id del legacy se
+     *      mapea al contacto de Punto que ya tiene ese documento, así sus
+     *      ventas históricas quedan en un solo cliente.
+     *   2. **Teléfono repetido con otra persona** → se importa SIN teléfono y
+     *      el número original queda en la nota del contacto.
+     *   3. **Teléfono inválido** → igual que 2.
+     *
+     * Si cae en 1 y 2 a la vez manda 1, y sale solo: `ContactService` chequea
+     * el documento ANTES que el teléfono.
+     *
+     * Idempotente sin nada extra: el alta (o la unificación) se hace una sola
+     * vez, porque `each()` la marca en `migration_map` y la corrida siguiente
+     * la saltea — la nota no se vuelve a escribir.
+     *
+     * @param array{unificados:array<int,string>,telRepetido:array<int,string>,telInvalido:array<int,string>} $dup
+     */
+    private function crearContacto(
+        \Punto\Api\Contacts\ContactService $svc,
+        array $in,
+        string $rol,
+        array &$dup
+    ): string {
+        $nombre = (string) ($in['fiscalName'] ?? $in['name'] ?? '?');
+
+        // 3. Inválido: se decide ANTES del alta y con la regla del servicio,
+        //    no reconociendo el error por el texto del mensaje.
+        if (isset($in['phone']) && !$svc->phoneIsStorable($this->companyId, $in)) {
+            $dup['telInvalido'][] = $nombre . ' (' . $in['phone'] . ')';
+            $in = $this->sinTelefono($in, 'el número no es válido');
+        }
+
+        try {
+            return $svc->create($this->companyId, $in);
+        } catch (\Punto\Api\Contacts\DuplicateContactException $e) {
+            if ($e->field === 'ci') {
+                // 1. La misma persona: se unifica en el contacto que ya existe.
+                $dup['unificados'][] = $nombre . ' → ' . $e->contactName;
+                return $e->contactId;
+            }
+            if ($e->field !== 'phone' || !isset($in['phone'])) {
+                throw $e;
+            }
+
+            // 2. El teléfono es de OTRO contacto: entra sin él.
+            $dup['telRepetido'][] = $nombre . ' (' . $in['phone'] . ', ya lo tiene ' . $e->contactName . ')';
+            return $svc->create(
+                $this->companyId,
+                $this->sinTelefono($in, 'ya lo tiene otro ' . $rol . ': ' . $e->contactName)
+            );
+        }
+    }
+
+    /** El contacto sin teléfono, con el número original guardado en su nota. */
+    private function sinTelefono(array $in, string $motivo): array
+    {
+        $linea = 'Teléfono del sistema anterior: ' . $in['phone'] . ' (no se cargó: ' . $motivo . ').';
+        $nota  = trim((string) ($in['note'] ?? ''));
+
+        unset($in['phone']);
+        $in['note'] = $nota === '' ? $linea : $nota . "\n" . $linea;
+
+        return $in;
+    }
+
+    /** Resumen de la política de duplicados: conteo y ejemplos por caso. */
+    private function avisarDuplicados(string $rol, array $dup): void
+    {
+        $casos = [
+            'unificados'  => ' se UNIFICARON con el ' . $rol . ' de Punto que ya tenía su mismo documento personal '
+                . '(la misma persona cargada dos veces en el sistema anterior): no se creó otro contacto y su '
+                . 'histórico queda en uno solo',
+            'telRepetido' => ' entraron SIN teléfono porque ese número ya lo tiene otro ' . $rol . '; el número '
+                . 'original quedó en la nota del contacto',
+            'telInvalido' => ' entraron SIN teléfono porque el número no es válido; el número original quedó en la '
+                . 'nota del contacto',
+        ];
+
+        foreach ($casos as $k => $texto) {
+            $lista = $dup[$k] ?? [];
+            if ($lista === []) {
+                continue;
+            }
+            $this->note(
+                count($lista) . ' ' . $rol . '(s)' . $texto . '. Ejemplos: '
+                . implode('; ', array_slice($lista, 0, 10))
+                . (count($lista) > 10 ? ' … y ' . (count($lista) - 10) . ' más.' : '.')
+            );
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1224,7 +1585,10 @@ final class EncomImportService
 
             $this->note(
                 'Usuario "' . $name . '": rol del legacy "'
-                . (trim((string) ($row['roleName'] ?? '')) ?: 'sin rol') . '" → rol de Punto "' . $role['name'] . '".'
+                . (trim((string) ($row['roleName'] ?? '')) ?: 'sin rol') . '" → rol de Punto "' . $role['name'] . '"'
+                . (($role['slug'] ?? null) === 'owner'
+                    ? ' (con TODOS los permisos: confirmá que corresponde, por ejemplo que no sea una cuenta de soporte del sistema anterior).'
+                    : '.')
             );
 
             return $id;
@@ -1272,7 +1636,7 @@ final class EncomImportService
      * una persona, lo lleva la sesión de un dispositivo pareado.
      *
      * @param array<int,array{id:string,name:string,slug:?string}> $roles
-     * @return array{id:string,name:string}
+     * @return array{id:string,name:string,slug:?string}
      */
     private function roleFor(array $roles, string $legacyRoleName): array
     {
@@ -1293,17 +1657,25 @@ final class EncomImportService
         // 1. Nombre idéntico.
         foreach ($asignables as $r) {
             if ($legacy !== '' && mb_strtolower(trim((string) $r['name']), 'UTF-8') === $legacy) {
-                return ['id' => (string) $r['id'], 'name' => (string) $r['name']];
+                return ['id' => (string) $r['id'], 'name' => (string) $r['name'], 'slug' => $r['slug'] ?? null];
             }
         }
 
         // 2. Palabra clave → slug. El "administrador" del legacy cae en
         //    `manager` y no en `owner`, igual que en el mapa de roles legacy de
-        //    `RoleService`: el dueño es uno solo y no se reparte por nombre.
+        //    `RoleService`.
+        //
+        //    "Jefe" SÍ es `owner` (decisión del owner, 2026-09-18): en el
+        //    legacy es el rol más alto —la escala es Cajero Base < Cajero <
+        //    Admin. Base < Administrador < Jefe— y lo tiene el administrador
+        //    principal del comercio. Antes no matcheaba ninguna palabra y caía
+        //    al rol MÁS BAJO: el dueño del comercio entraba como Cajero.
+        //    Ojo: la cuenta de soporte del legacy también suele ser "Jefe" y
+        //    entra como Dueño por esta misma regla; la bitácora la nombra.
         $porSlug = null;
         if ($legacy !== '') {
             foreach ([
-                'owner'   => ['dueñ', 'duen', 'owner', 'propietar', 'titular'],
+                'owner'   => ['dueñ', 'duen', 'owner', 'propietar', 'titular', 'jefe'],
                 'manager' => ['encargad', 'gerent', 'supervis', 'manager', 'admin'],
                 'cashier' => ['cajer', 'vendedor', 'mozo', 'cashier', 'empleado', 'moso'],
             ] as $slug => $palabras) {
@@ -1316,18 +1688,18 @@ final class EncomImportService
             }
         }
         if ($porSlug !== null && isset($bySlug[$porSlug])) {
-            return ['id' => (string) $bySlug[$porSlug]['id'], 'name' => (string) $bySlug[$porSlug]['name']];
+            return ['id' => (string) $bySlug[$porSlug]['id'], 'name' => (string) $bySlug[$porSlug]['name'], 'slug' => $porSlug];
         }
 
         // 3. El más bajo que exista.
         foreach (['cashier', 'manager', 'owner'] as $slug) {
             if (isset($bySlug[$slug])) {
-                return ['id' => (string) $bySlug[$slug]['id'], 'name' => (string) $bySlug[$slug]['name']];
+                return ['id' => (string) $bySlug[$slug]['id'], 'name' => (string) $bySlug[$slug]['name'], 'slug' => $slug];
             }
         }
 
         $primero = $asignables[0];
-        return ['id' => (string) $primero['id'], 'name' => (string) $primero['name']];
+        return ['id' => (string) $primero['id'], 'name' => (string) $primero['name'], 'slug' => $primero['slug'] ?? null];
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1468,6 +1840,7 @@ final class EncomImportService
         /** @var array<int,string> Artículos con saldo que se quedaron sin abrir. */
         $sinCosto  = [];
         $sinMapear = [];
+        $sinControl = [];
 
         foreach ($this->source->outlets() as $o) {
             if (!is_array($o)) {
@@ -1550,7 +1923,10 @@ final class EncomImportService
                 // explosión de receta (`RecipeCosting`), no por saldo. Manda el
                 // artículo YA migrado, no el flag del legacy.
                 if (!$articulo['track']) {
+                    // Se nombra: un "omitido" sin explicación en el progreso
+                    // no le dice a soporte si falta algo (job 71e8282d).
                     $counts['skipped']++;
+                    $sinControl[] = $articulo['name'] . ' (' . $nombreSucursal . ': ' . $this->cantidad($cantidad) . ')';
                     continue;
                 }
 
@@ -1625,6 +2001,16 @@ final class EncomImportService
             $this->note(
                 'Hay ' . count($sinMapear) . ' artículo(s) con saldo en el legacy que no existen en el '
                 . 'catálogo migrado: migrá el catálogo y volvé a lanzar.'
+            );
+        }
+
+        if ($sinControl !== []) {
+            $this->note(
+                count($sinControl) . ' saldo(s) del sistema anterior NO se abrieron porque en Punto ese artículo '
+                . 'no lleva control de stock (servicio, combo o producción: su costo sale de la receta, no de un '
+                . 'saldo): ' . implode(', ', array_slice($sinControl, 0, 20))
+                . (count($sinControl) > 20 ? ' … y ' . (count($sinControl) - 20) . ' más.' : '.')
+                . ' Si alguno tendría que llevar stock, activalo en su ficha y volvé a lanzar.'
             );
         }
     }
@@ -1725,8 +2111,18 @@ final class EncomImportService
 
             $legacyId = $this->legacyIdOf($row);
             if ($legacyId === null) {
+                // Nombrada: "una fila vino sin identificador" no le dice a
+                // soporte a QUIÉN buscar. En clientes pasa con contactos del
+                // legacy que no tienen `contactUID` (el bootstrap del POS solo
+                // manda `customerId` si existe): ninguna venta puede
+                // referenciarlo, y sin id no hay forma idempotente de traerlo.
                 $counts['failed']++;
-                $this->fail($domain, 'Una fila de ' . $domain . ' vino sin identificador del legacy.');
+                $this->fail(
+                    $domain,
+                    ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '": vino sin identificador del legacy '
+                    . '(en el sistema anterior no tiene id propio), así que no se puede importar sin riesgo de '
+                    . 'duplicarlo al relanzar. Si hace falta, cargalo a mano.'
+                );
                 continue;
             }
 
@@ -1738,7 +2134,15 @@ final class EncomImportService
             try {
                 $puntoId = $create($row);
                 if (!is_string($puntoId) || $puntoId === '') {
+                    // Toda falla deja mensaje: un contador que sube sin una
+                    // línea que lo explique es un número que nadie puede
+                    // resolver.
                     $counts['failed']++;
+                    $this->fail(
+                        $domain,
+                        ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '" (' . $legacyId . '): no se importó '
+                        . 'porque vino sin nombre en el legacy.'
+                    );
                     continue;
                 }
                 EncomMigrationService::remember($this->companyId, $domain, $legacyId, $puntoId, $this->jobId);
@@ -1750,6 +2154,18 @@ final class EncomImportService
         }
 
         $this->progress[$domain] = $counts;
+    }
+
+    /** Cómo nombrar una fila en la bitácora: lo más humano que traiga. */
+    private function nombreDeFila(array $row): string
+    {
+        foreach (['name', 'fiscalName', 'tin', 'ci', 'phone', 'email'] as $k) {
+            $v = trim((string) ($row[$k] ?? ''));
+            if ($v !== '') {
+                return $v;
+            }
+        }
+        return '?';
     }
 
     /** Id del legacy. Las APIs no son simétricas: unas mandan `ID`, otras `id`. */

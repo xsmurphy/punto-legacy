@@ -49,6 +49,10 @@ final class EncomMigrationService
      * sucursal). Meterlo dentro de `catalog` lo dejaría corriendo antes de que
      * las sucursales existieran.
      *
+     * `suppliers` (2026-09-18) sale de la tabla de contactos del panel, no de
+     * `/fetchs` —el bootstrap del POS solo trae clientes—, y va antes del
+     * histórico porque las compras se cuelgan de sus proveedores (§17.15).
+     *
      * ── Los tres dominios de HISTÓRICO (F2) ─────────────────────────────
      * `sales_history`, `purchases_history` y `expenses_history` son TRES y no
      * uno solo por tres razones, no por gusto de separar:
@@ -69,7 +73,7 @@ final class EncomMigrationService
      * dominios anteriores.
      */
     public const DOMAINS = [
-        'catalog', 'customers', 'config', 'users', 'payments', 'stock',
+        'catalog', 'customers', 'suppliers', 'config', 'users', 'payments', 'stock',
         'sales_history', 'purchases_history', 'expenses_history',
     ];
 
@@ -603,6 +607,33 @@ final class EncomMigrationService
              VALUES (?, ?, ?, ?, ?)
              ON CONFLICT (companyid, domain, legacyid) DO NOTHING',
             [$companyId, $domain, $legacyId, $puntoId, $jobId]
+        );
+    }
+
+    /**
+     * Descarta un ALIAS por nombre (`outlet_name`, `supplier_name`, …) que
+     * apunta a algo que ya no corresponde.
+     *
+     * Un alias no es un mapa de entidad: es la memoria de "este NOMBRE del
+     * legacy se emparejó con esta fila de Punto", y el emparejamiento puede
+     * haber sido malo. Pasó con los proveedores (2026-09-18): la búsqueda por
+     * nombre no filtraba por tipo de contacto y dejó `supplier_name` apuntando
+     * a un USUARIO y a un CLIENTE homónimos; con `remember()` en `DO NOTHING`,
+     * ese alias malo se reusaba para siempre.
+     *
+     * Solo acepta dominios `*_name`: borrar el mapa de una ENTIDAD importada
+     * abriría la puerta a importarla dos veces, que es justo lo que el mapa
+     * existe para impedir.
+     */
+    public static function forgetAlias(string $companyId, string $domain, string $legacyId): void
+    {
+        if (!str_ends_with($domain, '_name')) {
+            throw new \LogicException('forgetAlias() solo descarta alias por nombre, no "' . $domain . '".');
+        }
+        global $db;
+        $db->Execute(
+            'DELETE FROM migration_map WHERE companyid = ? AND domain = ? AND legacyid = ?',
+            [$companyId, $domain, $legacyId]
         );
     }
 

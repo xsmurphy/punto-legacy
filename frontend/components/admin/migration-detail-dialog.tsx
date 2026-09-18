@@ -32,6 +32,7 @@ const STATUS_VARIANT: Record<AdminMigrationStatus, "default" | "secondary" | "de
 const DOMAIN_LABEL: Record<string, string> = {
   catalog: "Catálogo",
   customers: "Clientes",
+  suppliers: "Proveedores",
   config: "Configuración",
   users: "Usuarios",
   payments: "Medios de pago",
@@ -49,6 +50,7 @@ const DOMAIN_LABEL: Record<string, string> = {
   // revisar a mano.
   compound: "Combos y recetas",
   customer: "Clientes",
+  supplier: "Proveedores",
   outlet: "Sucursales",
   register: "Cajas",
   user: "Usuarios",

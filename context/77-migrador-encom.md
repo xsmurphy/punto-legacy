@@ -991,6 +991,9 @@ ANTES de correr el histórico.
 | **Ponerle un usuario cualquiera a la venta cuyo usuario no está migrado** | `userid` es NOT NULL, pero completarlo con otro le atribuye ventas a quien no las hizo. La venta no entra y el log dice qué falta. |
 | **Traer "todo el histórico" sin rango** | El legacy no dice desde cuándo tiene datos, y son decenas de miles de requests (una por venta) más años de particiones. El rango lo elige el operador; sin elección, 12 meses. |
 | **Dejar que un dominio dependiente emita un error por fila cuando el prerequisito no está** | Es el incidente del 2026-09-11: 512 líneas de "la sucursal no está migrada" enterrando los 4 errores que eran la causa. Ver §17.12. |
+| **Usar el `data-id` de una fila de log como identidad de la LÍNEA** | En los logs de ítems vendidos y de compras es el id de la VENTA/COMPRA. Como identidad de fila hizo abortar la paginación y habría dejado cada venta con una sola línea (§17.14). La línea se identifica con `lineKeys()`. |
+| **Asentar las cabeceras de un mes antes de leer su log de líneas** | Un log truncado dejaba el mes a medias (753 ventas sin líneas) con un mensaje que decía lo contrario. Los dos logs se leen antes de escribir (§17.14). |
+| **Borrar y re-importar para arreglar lo que entró incompleto** | Relanzar COMPLETA (líneas, proveedor, categoría) sobre lo ya importado, sin duplicar y sin pisar lo que el comercio cambió a mano (§17.15). |
 | **Cortar "a los N errores iguales"** | Sigue nombrando el síntoma (solo que menos veces), ya pagó N requests paceadas contra el legacy, y obliga a elegir un N y a clasificar mensajes por parecido. La condición real es binaria. Ver §17.12. |
 
 ### 17.12 El prerequisito: por qué el histórico se fija ANTES de iterar
@@ -1193,3 +1196,197 @@ UPDATE nuevo sobre un job `running` puede tocar `updated_at` si no significa
 3. **Que `# Documento` identifica a la venta dentro del rango.** Con números
    repetidos entre cajas la línea no se pega y se informa, que es el lado
    correcto para equivocarse.
+
+
+### 17.14 El job 71e8282d (2026-09-18) — el `data-id` era el de la VENTA
+
+Tenant `019ff24f-0285-75a1-a710-398ea3cc7714`, rango 2026-01-01 a 2026-02-28,
+todos los dominios. Terminó `failed` con 389 errores. Diagnóstico contra la
+base de producción (solo lectura) y contra el **código del legacy**
+(`~/Dropbox/ENCOM/V1/PANEL/panel/a_report_*.php`, `a_contacts.php`,
+`includes/functions.php`, `APP/fetchs.php`), que es de donde salen los hechos
+de abajo. Supersede lo que §17.13 decía sobre cómo se pega una línea.
+
+**Lo que había en la base.** 759 ventas tipo 0: **753 importadas** (todas de
+enero en hora local; las del 31/1 a la noche figuran como 1/2 en UTC) con
+**cero líneas**, y **6 ventas REALES hechas en Punto** (25–31/8, `invoiceno`
+1–6, sin `meta.importedFrom` ni fila en `migration_map`: las únicas con
+líneas). No había fechas fuera del rango importadas: las de agosto son esas 6.
+246 compras importadas sin líneas; 17 colgadas del USUARIO "Delia Rojas" y 3
+del CLIENTE "Shirley" como proveedor.
+
+#### Causa 1 — el log de ítems y la paginación
+
+`a_report_products?action=detailTable` pinta cada fila con
+`data-id="enc(transactionId)"`: el id de la **venta**, no de la línea. Eso
+rompía tres cosas a la vez:
+
+1. **"El listado dejó de avanzar"** era falso. `paginar()` detectaba
+   repetición por id de fila; una venta de 3 líneas partida entre dos páginas
+   repetía id en la página siguiente. Página 2 no tocó un borde así; la 3 sí.
+2. **La idempotencia por línea** (`sale_line_history` = `'il:' . ID`) marcaba
+   la PRIMERA línea de cada venta y daba por asentadas las demás. Aunque la
+   paginación hubiera andado, cada venta habría entrado con una sola línea.
+3. **El pegado a la venta** caía al `#Documento` (se repite entre cajas)
+   teniendo el id exacto a mano: ese `data-id` es el MISMO `enc(transactionId)`
+   que el listado de ventas trae en el suyo.
+
+Y una fragilidad de fondo: el legacy ordena solo por fecha
+(`ORDER BY a.transactionDate DESC`) y todas las líneas de una venta comparten
+fecha. MySQL no garantiza el orden entre empates de una request a otra, así
+que paginar por OFFSET puede repetir una línea y perder otra en el borde.
+
+**Arreglo** (en el lector, no por call-site):
+
+- `EncomClient::pagedTable()` pide primero **`nolimit=1`**: `getTableLimits()`
+  del legacy lo traduce a `LIMIT 10000` SIN offset, así que la ventana entra
+  en UNA request y no hay borde. Se acepta si vuelven más filas que el tope
+  (100); con 10.000 exactas **parte el rango `from`/`to` por la mitad** y lee
+  cada mitad por el mismo camino (hasta ventanas de 60 s). Si el deploy lo
+  ignora, cae a la paginación verificada de siempre.
+- La repetición se detecta por **huella** (id + celdas), no por id.
+- `EncomClient::lineKeys()` da a cada línea una clave estable: documento,
+  fecha, artículo, cantidad y total + un ORDINAL entre líneas idénticas del
+  mismo documento (dos cafés iguales son dos líneas). No entran IVA ni costo:
+  `a_report_products` REESCRIBE el IVA de la línea al leerla cuando IVA ≥
+  total.
+- `saleRef` = el `data-id` de la fila → pega exacto; `#Documento` de respaldo.
+
+⚠ **`nolimit` está leído en el código, NO probado contra el sistema vivo**
+(que es más viejo que el snapshot, §4). Si el vivo lo ignora, el modo de falla
+es el de antes: paginación verificada, ahora sin el falso "no avanza".
+
+#### Causa 2 — el dominio no era atómico por mes
+
+`sales()` asentaba las cabeceras del mes y RECIÉN DESPUÉS leía el log de
+ítems. El truncamiento abortaba con enero ya escrito, y el mensaje decía "no
+se importa nada de este dominio". Ahora **los dos logs del mes se leen antes de
+escribir una fila**: un export incompleto corta el mes entero, y el mensaje
+dice lo que pasa (el período no se asienta; lo anterior queda y relanzar lo
+completa). Febrero nunca corrió porque el dominio se cortó en enero.
+
+Bug latente que salió de acá: `cargarTransaccionesImportadas()` cacheaba el
+índice de ventas importadas tras el PRIMER mes, así que las líneas de los
+meses siguientes habrían quedado todas huérfanas. Se recarga por mes.
+
+#### Causa 3 — el detalle de compras no se leía NUNCA
+
+Las filas de `a_report_purchases?action=detailTable` no tienen `data-id` ni
+`id`: solo `data-load="…?action=edit&id=<enc(transactionId)>&ro=1"`.
+`EncomParse::htmlRows()` descartaba toda fila sin id como si fuera el
+`<thead>`: cero filas, encabezados presentes, `[]` sin error. Ahora la
+referencia sale también del `id=` de `data-load`/`data-url`, y las líneas se
+pegan a su compra por ese id (`purchaseRef`), no por `#Documento`.
+
+Los fixtures del arnés tenían `data-id` inventados en los dos logs: por eso
+todo esto pasaba en verde. Ahora reproducen el shape leído en el código del
+legacy.
+
+### 17.15 Proveedores, taxonomías, duplicados y roles (2026-09-18)
+
+**Proveedores — dominio nuevo `suppliers`.** `/fetchs?load=customers` filtra
+`type == 1`: los proveedores nunca se exportaban. Salen de
+`a_contacts?action=generalTable&rol=supplier` (mismo lector paginado) y
+entran por `ContactService::create()` con `type = 2`. Va antes del histórico
+y está tildado por defecto. ⚠ El legacy OCULTA del listado los proveedores que
+exceden el `max_suppliers` de su plan: esos no se pueden leer y sus compras
+siguen sin proveedor (quedan nombradas).
+
+La compra se busca por NOMBRE (el listado de compras no trae el id) y la
+búsqueda de contactos en `buscarPorNombre()` ahora **filtra por tipo** (0
+usuario, 1 cliente, 2 proveedor): sin eso se colgaba del usuario o del cliente
+homónimo. Un alias `*_name` que ya no cumple el filtro se descarta con
+`EncomMigrationService::forgetAlias()` (solo acepta dominios `*_name`, nunca
+un mapa de entidad) y se re-resuelve.
+
+**Relanzar COMPLETA, nunca duplica.** Una compra ya importada (idempotente)
+pasa por `completarCompra()`: le agrega las líneas que falten (marca por línea
+`purchase_line_history`, en la misma transacción) y le pone el proveedor si no
+tiene o si apunta a un contacto que no es proveedor. Solo toca filas con
+`meta.importedFrom`; nunca total ni fecha. Mismo criterio para el catálogo:
+`completarTaxonomiasDeArticulos()` le pone categoría/marca al artículo ya
+importado que entró sin ellas, y nunca pisa una existente.
+
+**Taxonomías con UNIQUE por nombre.** `category`, `brand` y `tag` tienen
+`UNIQUE (companyId, LOWER(name))` (migs 38/39). El comercio ya tenía
+"Bebidas", "Combos", "Buffet", "Delivery" y "Entradas" (cargadas el
+2026-08-25) y el legacy las traía en mayúsculas: 23505 y artículos sin
+categoría. Ahora es `resolveOrCreateByName()` del SERVICIO (nuevo en
+`CategoryService`/`BrandService`, mismo contrato que ya tenía `TagService`):
+se reusa la existente, se mapea y la bitácora las nombra. `payments` y los
+impuestos ya adoptaban por nombre.
+
+**Clientes duplicados — política del owner (2026-09-18).**
+
+| Caso | Qué hace |
+|---|---|
+| Documento personal repetido | Es la MISMA persona. No se crea contacto: el id del legacy se mapea al que ya lo tiene (su histórico queda en uno solo). |
+| Teléfono de otra persona | Entra SIN teléfono; el número original va a la nota del contacto. |
+| Teléfono inválido | Igual que el anterior. Se decide ANTES del alta con `ContactService::phoneIsStorable()` (la misma regla de `create()`), no leyendo el texto del error. |
+
+Si cae en los dos primeros, manda el documento (sale solo: `ContactService`
+chequea el documento antes que el teléfono). Idempotente: el alta o la
+unificación queda en `migration_map` y la nota no se reescribe. Se aplica
+también a proveedores (el documento personal no aplica: el proveedor trae
+RUC, que puede repetirse por decisión del 2026-08-31). La bitácora da conteo y
+ejemplos de cada caso.
+
+El cliente "sin identificador del legacy" NO era un problema de parseo: es un
+contacto del legacy sin `contactUID` (`fetchs.php` solo manda `customerId` si
+existe). Ninguna venta lo puede referenciar y sin id no hay alta idempotente;
+el error ahora lo nombra.
+
+**Roles** (`roleFor()`): la escala del legacy es Cajero Base < Cajero < Admin.
+Base < Administrador < Jefe. "Jefe" no matcheaba ninguna palabra clave y caía
+al rol MÁS BAJO: el dueño del comercio entraba como Cajero. Decisión del owner:
+**Jefe → Dueño**. Mapa vigente: Jefe → Dueño; Administrador y Admin. Base →
+Encargado (palabra `admin`); Cajero y Cajero Base → Cajero; nombre idéntico a
+un rol de Punto → ese; resto → el más bajo. La cuenta de soporte del legacy
+suele ser "Jefe" y entra como Dueño por la regla general: la bitácora pide
+confirmarla.
+
+**Combos/recetas.** `compose()` contaba fallas sin mensaje (padre sin
+importar, sin id, `kind` no importable, todo `select`). Ahora toda falla va a
+`errors` con su causa. El componente que falta (`4VGKZ`, `zgePM`, `ll41G` en
+este job) no vino porque `/fetchs?load=items` filtra
+`itemStatus = 1 AND itemCanSale = 1` y la sucursal del alcance: un insumo NO
+vendible, uno archivado o uno de otra sucursal nunca llega al mapa. Si el
+`compound` trae el nombre del componente y en Punto hay UN solo artículo con
+ese nombre, se usa (queda anotado). ⚠ El snapshot de `displayableCompounds()`
+manda `name`; el vivo mostró `{id, units, select}` sin nombre, así que ese
+respaldo puede no aplicar nunca. **Hueco estructural abierto**: los insumos no
+vendibles no se migran; resolverlo es leerlos del panel (`a_items`), decisión
+pendiente.
+
+**Stock.** El "omitido" sin explicación era un saldo de un artículo que en
+Punto no lleva control de stock (servicio, combo, producción). Ahora la
+bitácora lo nombra.
+
+### 17.16 Qué hacer con los datos YA importados del tenant 019ff24f
+
+Con esta branch deployada, **relanzar el mismo job (mismos dominios, mismo
+rango, sumando `suppliers`) es idempotente y completa**; no hace falta borrar
+nada. Lo que hace cada dominio:
+
+- `catalog`: las 5 categorías se reusan y se mapean; los artículos que
+  quedaron sin categoría se completan.
+- `customers`: los 383 fallidos (documento/teléfono repetido o inválido)
+  entran con la política de §17.15; los 5.446 ya importados se saltean.
+- `suppliers`: entran los proveedores visibles del panel.
+- `sales_history`: las 753 cabeceras de enero se saltean y reciben sus líneas;
+  febrero entra completo.
+- `purchases_history`: las 246 compras reciben sus líneas y su proveedor; las
+  20 colgadas de un usuario/cliente se corrigen, y los 2 alias `supplier_name`
+  malos se descartan solos.
+- Las **6 ventas reales de Punto** (agosto) no se tocan: el importador solo
+  escribe sobre filas con `meta.importedFrom`/mapa.
+
+### 17.17 Pendientes que deja este arreglo
+
+1. `nolimit` y el partido de ventana por fecha: leídos en el código, sin
+   prueba contra el vivo (§17.14).
+2. Insumos no vendibles / archivados / de otra sucursal fuera del catálogo
+   (§17.15, combos).
+3. Proveedores ocultos por el tope de plan del legacy.
+4. El partido por fecha de `sinTope()` no está cubierto por el arnés (haría
+   falta un fixture de 10.000 filas).

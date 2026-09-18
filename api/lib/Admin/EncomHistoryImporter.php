@@ -113,6 +113,10 @@ final class EncomHistoryImporter
     /** Cuántas líneas terminaron colgadas de un artículo histórico. */
     private int $lineasEnHistorico = 0;
 
+    /** Compras ya importadas que esta corrida completó (líneas / proveedor). */
+    private int $comprasCompletadas = 0;
+    private int $comprasConProveedorCorregido = 0;
+
     /** Artículos cuyas líneas entraron SIN costo, para la bitácora. */
     private array $sinCostoLineas = [];
 
@@ -228,6 +232,29 @@ final class EncomHistoryImporter
                 continue;
             }
 
+            // ── El SEGUNDO log del mes se lee ANTES de escribir nada ───────
+            // Hasta 2026-09-18 se leía después de asentar las cabeceras, así
+            // que un log de ítems truncado abortaba el dominio con las
+            // cabeceras del mes YA escritas: 753 ventas sin una línea, y un
+            // mensaje que decía "no se importa nada" (job 71e8282d). Leídos
+            // los dos antes, un export incompleto corta el mes ENTERO sin
+            // escribir una fila, que es lo que el mensaje promete.
+            $lineasDelMes = null;
+            try {
+                $lineasDelMes = $this->source->itemsSoldHistory($desdeTs, $hastaTs);
+            } catch (EncomExportTruncatedException $e) {
+                throw $e;
+            } catch (\Throwable $e) {
+                // No es un truncamiento: el log no se pudo leer. Las cabeceras
+                // entran igual (los totales son correctos) y queda dicho.
+                $this->fail(
+                    'sales_history',
+                    'No se pudo traer el log de ítems vendidos de ' . $mesIni . ': ' . $e->getMessage()
+                    . ' Las ventas de ese mes quedan con sus totales, pero sin detalle: no hay ranking de productos '
+                    . 'ni margen para ese período. Relanzar la migración completa las líneas sin duplicar ventas.'
+                );
+            }
+
             foreach ($ventas as $venta) {
                 $this->latir();
 
@@ -314,9 +341,14 @@ final class EncomHistoryImporter
                 }
             }
 
-            // El SEGUNDO log del mes, una vez que sus cabeceras ya están
-            // asentadas y mapeadas: sin eso no habría a qué pegarle cada línea.
-            $this->adjuntarLineas($desdeTs, $hastaTs, $mesIni);
+            // El SEGUNDO log del mes (ya leído arriba), una vez que sus
+            // cabeceras están asentadas y mapeadas: sin eso no habría a qué
+            // pegarle cada línea. Corre también para las ventas que ya
+            // estaban importadas: así relanzar COMPLETA las líneas de un mes
+            // que había quedado sin detalle.
+            if ($lineasDelMes !== null) {
+                $this->adjuntarLineas($lineasDelMes);
+            }
         }
 
         if ($sinClienteEnElLegacy > 0) {
@@ -388,14 +420,21 @@ final class EncomHistoryImporter
                 continue;
             }
 
-            // Las líneas del rango vienen en UNA request y se agrupan por
-            // número de documento: el detalle del legacy no trae el id de la
-            // compra, solo el `#Documento`.
-            $lineasPorDoc = [];
+            // Las líneas del rango vienen en una lectura y se agrupan por la
+            // COMPRA a la que pertenecen: `purchaseRef` es el id del legacy
+            // (el `id=` del link de la fila, el mismo `enc(transactionId)` del
+            // listado de compras). El `#Documento` queda de respaldo para una
+            // fila que no lo traiga — y se repite entre proveedores, así que
+            // no es clave.
+            $lineasPorCompra = [];
+            $lineasPorDoc    = [];
             try {
                 foreach ($this->source->purchaseLines($desdeTs, $hastaTs) as $l) {
+                    $ref = trim((string) ($l['purchaseRef'] ?? ''));
                     $doc = trim((string) ($l['docNumber'] ?? ''));
-                    if ($doc !== '') {
+                    if ($ref !== '') {
+                        $lineasPorCompra[$ref][] = $l;
+                    } elseif ($doc !== '') {
                         $lineasPorDoc[$doc][] = $l;
                     }
                 }
@@ -428,8 +467,29 @@ final class EncomHistoryImporter
 
                 $this->counts['total']++;
 
-                if (EncomMigrationService::mapped($this->companyId, 'purchase_history', $legacyId) !== null) {
+                $lineas = $lineasPorCompra[$legacyId] ?? ($doc !== '' ? ($lineasPorDoc[$doc] ?? []) : []);
+
+                // El proveedor es un contacto PROVEEDOR (`type = 2`), migrado
+                // por el dominio `suppliers`. Se busca por nombre porque el
+                // listado de compras trae el nombre, no el id. Y como con el
+                // cliente, se distingue "el legacy no traía proveedor" de "el
+                // proveedor no está migrado": solo el segundo tiene arreglo.
+                $proveedorLegacy = $this->textoDeCelda($compra['supplier'] ?? '');
+                $supplierId      = $proveedorLegacy !== ''
+                    ? $this->mapOf('supplier', $proveedorLegacy, 'supplier_name')
+                    : '';
+                if ($supplierId === '' && $proveedorLegacy !== '') {
+                    $proveedorSinMigrar[$proveedorLegacy] = true;
+                }
+
+                $yaImportada = EncomMigrationService::mapped($this->companyId, 'purchase_history', $legacyId);
+                if ($yaImportada !== null) {
                     $this->counts['skipped']++;
+                    // Relanzar COMPLETA lo que una corrida anterior dejó a medias:
+                    // las líneas que no se pudieron leer y el proveedor que no
+                    // estaba migrado (job 71e8282d: 246 compras sin líneas y sin
+                    // proveedor). Nunca reescribe lo que ya estaba bien.
+                    $this->completarCompra($yaImportada, $legacyId, $lineas, $supplierId);
                     continue;
                 }
 
@@ -458,29 +518,13 @@ final class EncomHistoryImporter
                     continue;
                 }
 
-                // El proveedor es un contacto como el cliente: si no está
-                // migrado, la compra entra sin él (el gasto es correcto igual).
-                // Y como con el cliente, se distingue "el legacy no traía
-                // proveedor" de "el proveedor no está migrado": solo el segundo
-                // tiene algo que hacer al respecto.
-                $proveedorLegacy = $this->textoDeCelda($compra['supplier'] ?? '');
-                $supplierId      = $proveedorLegacy !== ''
-                    ? $this->mapOf('customer', $proveedorLegacy, 'supplier_name')
-                    : '';
-                if ($supplierId === '' && $proveedorLegacy !== '') {
-                    $proveedorSinMigrar[$proveedorLegacy] = true;
-                }
-
-                $lineas = $lineasPorDoc[$doc] ?? [];
-
                 try {
                     $db->StartTrans();
 
                     $txId = $this->insertPurchase($compra, $fecha, $outletId, $userId, $supplierId, $lineas);
-                    $this->counts['lines'] += $this->insertLines(
+                    $this->counts['lines'] += $this->asentarLineasDeCompra(
                         $txId, $fecha, $lineas, $outletId, $userId, $legacyId,
-                        $this->esCredito($compra) ? '4' : '1',
-                        'purchases_history'
+                        $this->esCredito($compra) ? '4' : '1'
                     );
 
                     EncomMigrationService::remember(
@@ -506,15 +550,28 @@ final class EncomHistoryImporter
                 count($nombres) . ' proveedor(es) del legacy NO están migrados, así que sus compras entraron sin '
                 . 'proveedor: ' . implode(', ', array_slice($nombres, 0, 20))
                 . (count($nombres) > 20 ? ' … y ' . (count($nombres) - 20) . ' más.' : '')
-                . ' El gasto es correcto; lo que falta es a quién se le compró.'
+                . ' El gasto es correcto; lo que falta es a quién se le compró. Migrá los proveedores y volvé a '
+                . 'lanzar: las compras ya importadas se completan con su proveedor sin duplicarse.'
             );
         }
+
+        if ($this->comprasCompletadas > 0 || $this->comprasConProveedorCorregido > 0) {
+            $this->note(
+                'Compras que ya estaban importadas y se COMPLETARON en esta corrida: '
+                . $this->comprasCompletadas . ' con sus líneas de detalle, '
+                . $this->comprasConProveedorCorregido . ' con su proveedor. No se duplicó ninguna.'
+            );
+        }
+        $this->comprasCompletadas           = 0;
+        $this->comprasConProveedorCorregido = 0;
 
         // Una compra SIN una sola línea no es un error de fila —el total de la
         // compra es correcto igual— pero que NINGUNA haya traído líneas sí es
         // una señal, y es exactamente lo que pasó en la primera corrida real:
         // 207 compras, cero líneas, job en verde.
-        if ($this->counts['imported'] > 0 && $this->counts['lines'] === 0) {
+        if (($this->counts['imported'] + $this->counts['skipped']) > 0 && $this->counts['lines'] === 0
+            && $this->comprasSinLineasPrevias()
+        ) {
             $this->note(
                 'Las ' . $this->counts['imported'] . ' compras entraron SIN una sola línea de detalle. Los totales '
                 . 'están bien, pero no hay qué se compró: revisá en esta misma bitácora si el detalle del legacy no '
@@ -770,7 +827,7 @@ final class EncomHistoryImporter
      * el `transactionId` todavía no está ahí. El registry lo puebla el trigger
      * AFTER INSERT de `transaction`, así que el orden es obligatorio.
      */
-    private function insertLines(
+    private function asentarLineasDeCompra(
         string $txId,
         string $fecha,
         array $lineas,
@@ -778,11 +835,20 @@ final class EncomHistoryImporter
         string $userId,
         string $legacyDocId,
         string $typeStr,
-        string $domain,
     ): int {
         $escritas = 0;
 
         foreach ($lineas as $linea) {
+            // Idempotencia POR LÍNEA, como las de venta: es lo que permite
+            // COMPLETAR una compra que entró sin detalle sin duplicar las
+            // líneas que sí entraron. La marca va en la misma transacción.
+            $clave = $this->claveMapa('pl:' . trim((string) ($linea['ID'] ?? '')));
+            if (trim((string) ($linea['ID'] ?? '')) !== ''
+                && EncomMigrationService::mapped($this->companyId, 'purchase_line_history', $clave) !== null
+            ) {
+                continue;
+            }
+
             $entro = $this->insertarLinea($linea, [
                 'txId'        => $txId,
                 'fecha'       => $fecha,
@@ -790,15 +856,117 @@ final class EncomHistoryImporter
                 'userId'      => $userId,
                 'legacyDocId' => $legacyDocId,
                 'typeStr'     => $typeStr,
-                'domain'      => $domain,
+                'domain'      => 'purchases_history',
             ]);
 
             if ($entro) {
+                if (trim((string) ($linea['ID'] ?? '')) !== '') {
+                    EncomMigrationService::remember(
+                        $this->companyId, 'purchase_line_history', $clave, $txId, $this->jobId
+                    );
+                }
                 $escritas++;
             }
         }
 
         return $escritas;
+    }
+
+    /**
+     * Completa una compra que una corrida anterior ya asentó: le agrega las
+     * líneas que falten y, si entró sin proveedor —o colgada de un contacto
+     * que NO es proveedor—, le pone el proveedor ya migrado.
+     *
+     * ── Por qué existe ───────────────────────────────────────────────────
+     * La cabecera es idempotente (`purchase_history`) y la corrida siguiente
+     * la saltea, así que sin este paso una compra que entró incompleta queda
+     * incompleta para siempre. Pasó (job 71e8282d): 246 compras sin una sola
+     * línea —el parser descartaba el detalle entero— y sin proveedor —no se
+     * migraban—. Relanzar tiene que COMPLETAR, nunca duplicar: las líneas
+     * llevan su propia marca (`purchase_line_history`) y el proveedor solo se
+     * escribe si falta o si apunta a un cliente/usuario.
+     *
+     * Toca únicamente compras que el migrador asentó (`meta.importedFrom`), y
+     * nunca el total ni la fecha. Un mes CERRADO no llega acá: se saltea
+     * antes, entero.
+     */
+    private function completarCompra(string $txId, string $legacyId, array $lineas, string $supplierId): void
+    {
+        global $db;
+
+        $tx = \ncmExecute(
+            "SELECT t.transactiondate, t.outletid, t.userid, t.transactiontype, t.supplierid,
+                    c.type AS suppliertype
+               FROM transaction t
+               LEFT JOIN contact c ON c.contactid = t.supplierid AND c.companyid = t.companyid
+              WHERE t.transactionid = ? AND t.companyid = ?
+                AND jsonb_exists(COALESCE(t.meta::jsonb, '{}'::jsonb), 'importedFrom')
+              LIMIT 1",
+            [$txId, $this->companyId]
+        );
+        if (!$tx) {
+            return;
+        }
+
+        $proveedorActual = (string) ($tx['supplierid'] ?? '');
+        $tipoActual      = $tx['suppliertype'] ?? null;
+        $corregirProveedor = $supplierId !== ''
+            && ($proveedorActual === '' || (int) $tipoActual !== 2)
+            && $proveedorActual !== $supplierId;
+
+        if ($lineas === [] && !$corregirProveedor) {
+            return;
+        }
+
+        try {
+            $db->StartTrans();
+
+            $escritas = 0;
+            $unidades = 0.0;
+            if ($lineas !== []) {
+                $antes    = $this->counts['lines'];
+                $escritas = $this->asentarLineasDeCompra(
+                    $txId,
+                    (string) $tx['transactiondate'],
+                    $lineas,
+                    (string) $tx['outletid'],
+                    (string) $tx['userid'],
+                    $legacyId,
+                    (string) ((int) $tx['transactiontype'])
+                );
+                $this->counts['lines'] = $antes + $escritas;
+                if ($escritas > 0) {
+                    foreach ($lineas as $l) {
+                        $unidades += (float) ($l['qty'] ?? 0);
+                    }
+                }
+            }
+
+            if ($escritas > 0) {
+                \ncmExecute(
+                    'UPDATE transaction SET transactionUnitsSold = ? WHERE transactionId = ? AND companyId = ?',
+                    [$unidades, $txId, $this->companyId]
+                );
+            }
+            if ($corregirProveedor) {
+                \ncmExecute(
+                    'UPDATE transaction SET supplierId = ? WHERE transactionId = ? AND companyId = ?',
+                    [$supplierId, $txId, $this->companyId]
+                );
+                $this->comprasConProveedorCorregido++;
+            }
+
+            $db->CompleteTrans();
+
+            if ($escritas > 0) {
+                $this->comprasCompletadas++;
+            }
+            $this->marcarSucio(['expenses'], (string) $tx['transactiondate']);
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            $this->fail('purchases_history', 'Compra ' . $legacyId . ': no se pudo completar: ' . $e->getMessage());
+        }
     }
 
     /**
@@ -1150,7 +1318,15 @@ final class EncomHistoryImporter
         $clave  = $this->claveMapa($this->normalizar($v));
         $alias  = EncomMigrationService::mapped($this->companyId, $aliasDomain, $clave);
         if ($alias !== null) {
-            return $alias;
+            // El alias es un emparejamiento POR NOMBRE que pudo haber sido
+            // malo: antes de 2026-09-18 la búsqueda de contactos no filtraba
+            // por tipo y dejó `supplier_name` apuntando a un usuario y a un
+            // cliente. Si ya no cumple lo que hoy exige la búsqueda, se
+            // descarta y se vuelve a resolver.
+            if ($this->sigueSiendoValido($domain, $alias)) {
+                return $alias;
+            }
+            EncomMigrationService::forgetAlias($this->companyId, $aliasDomain, $clave);
         }
 
         $id = $this->buscarPorNombre($domain, $v);
@@ -1166,11 +1342,51 @@ final class EncomHistoryImporter
     /** Busca una entidad del destino por nombre normalizado. */
     private function buscarPorNombre(string $domain, string $nombre): string
     {
-        [$tabla, $col, $id] = match ($domain) {
-            'outlet'   => ['outlet', 'outletName', 'outletId'],
-            'register' => ['register', 'registerName', 'registerId'],
-            'user'     => ['contact', 'contactName', 'contactId'],
-            'customer' => ['contact', 'contactName', 'contactId'],
+        [$tabla, $col, $id, $filtro] = $this->tablaDeBusqueda($domain);
+
+        $row = \ncmExecute(
+            "SELECT $id AS id FROM $tabla
+              WHERE companyId = ? AND lower(trim($col)) = lower(trim(?))$filtro LIMIT 1",
+            [$this->companyId, $nombre]
+        );
+
+        if (!$row) {
+            return '';
+        }
+
+        return (string) ($row['id'] ?? '');
+    }
+
+    /** Si un id que dejó un alias sigue cumpliendo lo que exige la búsqueda. */
+    private function sigueSiendoValido(string $domain, string $puntoId): bool
+    {
+        [$tabla, , $id, $filtro] = $this->tablaDeBusqueda($domain);
+
+        return (bool) \ncmExecute(
+            "SELECT 1 AS ok FROM $tabla WHERE companyId = ? AND $id::text = ?$filtro LIMIT 1",
+            [$this->companyId, $puntoId]
+        );
+    }
+
+    /**
+     * Dónde y cómo se busca por nombre cada dominio.
+     *
+     * Los tres dominios de CONTACTO filtran por TIPO: `contact` guarda
+     * usuarios (0), clientes (1) y proveedores (2) en la misma tabla, y sin el
+     * filtro una compra se colgaba del usuario o del cliente que tuviera el
+     * mismo nombre que su proveedor (job 71e8282d: 17 compras "compradas" a
+     * una usuaria del comercio).
+     *
+     * @return array{0:string,1:string,2:string,3:string} tabla, columna, id, filtro SQL extra
+     */
+    private function tablaDeBusqueda(string $domain): array
+    {
+        return match ($domain) {
+            'outlet'   => ['outlet', 'outletName', 'outletId', ''],
+            'register' => ['register', 'registerName', 'registerId', ''],
+            'user'     => ['contact', 'contactName', 'contactId', ' AND type = 0'],
+            'customer' => ['contact', 'contactName', 'contactId', ' AND type = 1'],
+            'supplier' => ['contact', 'contactName', 'contactId', ' AND type = 2'],
             // Falla RUIDOSO, no devolviendo vacío: un dominio nuevo que se
             // cablee a `mapOf()` con alias y se olvide de esta tabla dejaría
             // de resolver SIEMPRE, y el síntoma sería "todas las ventas
@@ -1180,18 +1396,6 @@ final class EncomHistoryImporter
                 'EncomHistoryImporter: el dominio "' . $domain . '" no tiene tabla de búsqueda por nombre.'
             ),
         };
-
-        $row = \ncmExecute(
-            "SELECT $id AS id FROM $tabla
-              WHERE companyId = ? AND lower(trim($col)) = lower(trim(?)) LIMIT 1",
-            [$this->companyId, $nombre]
-        );
-
-        if (!$row) {
-            return '';
-        }
-
-        return (string) ($row['id'] ?? '');
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -1595,32 +1799,22 @@ final class EncomHistoryImporter
      * entra en unas pocas páginas de 1000.
      *
      * ── Cómo se pega cada línea, y qué pasa si no se puede ───────────────
-     * Por el `#Documento`, el mismo patrón que ya usan las compras. Una línea
+     * Por `saleRef`: el `data-id` de la fila del log, que es el id de la
+     * VENTA en el legacy —el mismo que el listado de ventas trae en su
+     * `data-id`—, así que pega exacto. El `#Documento` queda de respaldo para
+     * un deploy que no lo mande. Una línea
      * cuya venta NO está importada no se asienta NUNCA: `itemsold.transactionid`
      * es NOT NULL con FK, y las dos salidas fáciles están mal —inventarle una
      * transacción falsea la facturación del período, y descartarla en silencio
      * repite el bug que este trabajo vino a cerrar—. Se cuentan y se informan.
      *
      * Corre DESPUÉS de las cabeceras del mes porque necesita que estén
-     * mapeadas para encontrarlas.
+     * mapeadas para encontrarlas. El log se LEE antes que las cabeceras
+     * (ver `sales()`): acá llega ya leído.
      */
-    private function adjuntarLineas(string $desdeTs, string $hastaTs, string $mesIni): void
+    private function adjuntarLineas(array $filas): void
     {
         global $db;
-
-        try {
-            $filas = $this->source->itemsSoldHistory($desdeTs, $hastaTs);
-        } catch (EncomExportTruncatedException $e) {
-            throw $e;
-        } catch (\Throwable $e) {
-            $this->fail(
-                'sales_history',
-                'No se pudo traer el log de ítems vendidos de ' . $mesIni . ': ' . $e->getMessage()
-                . ' Las ventas de ese mes quedan con sus totales, pero sin detalle: no hay ranking de productos '
-                . 'ni margen para ese período.'
-            );
-            return;
-        }
 
         if ($filas === []) {
             return;
@@ -1719,15 +1913,18 @@ final class EncomHistoryImporter
 
     /**
      * Índice de las ventas históricas ya asentadas, por sus tres nombres
-     * posibles. Una sola consulta por corrida.
+     * posibles. Una consulta por mes.
      */
     private function cargarTransaccionesImportadas(): void
     {
-        if ($this->txPorId !== null) {
-            return;
-        }
-
-        $this->txPorId = [];
+        // Se RECARGA en cada mes, no una vez por corrida: el índice se arma
+        // después de asentar las cabeceras de un mes, y cacheado desde el
+        // primero dejaba afuera las ventas de los meses siguientes — todas sus
+        // líneas se habrían contado como huérfanas.
+        $this->txPorId        = [];
+        $this->txPorLegacy    = [];
+        $this->txPorDocumento = [];
+        $this->txPorNumero    = [];
 
         $rs = \ncmExecute(
             "SELECT m.legacyid AS legacyid, t.transactionid, t.transactiondate, t.outletid,
@@ -1901,6 +2098,24 @@ final class EncomHistoryImporter
         $clave = preg_replace('/[\s\-]*stock$/u', '', $clave) ?? $clave;
 
         return trim($clave);
+    }
+
+    /**
+     * Si las compras que este job asentó o encontró siguen SIN una sola línea
+     * en la base — el aviso "entraron sin detalle" tiene que mirar el
+     * resultado, no solo lo que esta corrida escribió (una re-corrida que no
+     * escribe nada porque todo ya estaba completo no es un problema).
+     */
+    private function comprasSinLineasPrevias(): bool
+    {
+        $row = \ncmExecute(
+            "SELECT count(*) AS n
+               FROM migration_map m
+              WHERE m.companyid = ? AND m.domain = 'purchase_history'
+                AND EXISTS (SELECT 1 FROM itemsold i WHERE i.transactionid = m.puntoid::uuid AND i.companyid = m.companyid)",
+            [$this->companyId]
+        );
+        return (int) ($row['n'] ?? 0) === 0;
     }
 
     /** Deja los conteos en cero al empezar un dominio. */
