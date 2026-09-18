@@ -44,4 +44,4 @@ Sí. Al darlo de baja, se archiva y deja de aparecer en las búsquedas normales,
 El sistema no bloquea esa duplicación automáticamente, así que conviene revisar antes de cargar un cliente nuevo si ya existe con ese documento.
 
 **¿Los usuarios internos del sistema (mi equipo) están en esta misma sección?**
-No. Los usuarios que operan la caja o el panel se administran aparte, en [Contactos › Equipo](panel:/contacts?type=0) — no son clientes ni proveedores.
+No. Los usuarios que operan la caja o el panel se administran aparte, en [Equipo](panel:/employees) — no son clientes ni proveedores.

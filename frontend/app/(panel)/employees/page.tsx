@@ -1,30 +1,26 @@
 "use client"
 
-import * as React from "react"
-import type { ColumnDef } from "@tanstack/react-table"
-import { Archive, IdCard, Pencil, Plus, UserMinus } from "lucide-react"
-import { toast } from "sonner"
+/**
+ * Equipo — TODAS las personas del comercio (context/83 §9).
+ *
+ * Antes eran dos pantallas para la misma gente: "Equipo" listaba los usuarios y
+ * "Empleados" los legajos. Desde la unificación (una persona = un usuario, el
+ * legajo es su satélite) son una sola lista y una sola ficha: acá está el que
+ * solo usa el sistema, el que solo tiene legajo y el que tiene las dos cosas.
+ *
+ * El cruce se hace acá y no en el backend porque no hace falta ninguno nuevo:
+ * `Employee.id` ES el id del usuario (mig 233), así que las dos listas que ya
+ * existían se aparean por esa clave.
+ */
 
+import * as React from "react"
+import { useRouter } from "next/navigation"
+import type { ColumnDef } from "@tanstack/react-table"
+import { CircleOff, IdCard, Plus, Shield, Users } from "lucide-react"
+
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -32,170 +28,177 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { DataTable, FilterField } from "@/components/data-table/data-table"
-import { RowActions, type RowAction } from "@/components/data-table/row-actions"
-import { DatePicker } from "@/components/date-picker"
 import { EmptyState } from "@/components/empty-state"
 import { EmployeeFormDialog } from "@/components/employees/employee-form-dialog"
+import { UserFormDialog } from "@/components/employees/user-form-dialog"
+import { OwnPinDialog } from "@/components/domain/contacts/own-pin-dialog"
 
-import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useOutlets } from "@/hooks/use-outlets"
 import { usePermission } from "@/hooks/use-permissions"
-import {
-  useArchiveEmployee,
-  useEmployees,
-  useTerminateEmployee,
-  type Employee,
-  type EmployeeState,
-  type FixedPeriod,
-} from "@/hooks/use-employees"
+import { useTeamMembers, type TeamMember } from "@/hooks/use-team"
+import { useEmployees, type Employee } from "@/hooks/use-employees"
+import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { formatDate } from "@/lib/format-date"
-import { formatMoney } from "@/lib/format-money"
-import type { TenantLocaleConfig } from "@/lib/tenant-locale"
+import { formatPhone } from "@/lib/phone"
+import { resolveColorBg } from "@/lib/ui/color-palette"
 
 const ALL = "__all__"
 
-const PERIOD_LABEL: Record<FixedPeriod, string> = {
-  monthly: "por mes",
-  biweekly: "por quincena",
-  weekly: "por semana",
+/** Una persona: su credencial y, si lo tiene, su legajo. */
+interface Person {
+  id: string
+  name: string
+  email: string | null
+  phone: string | null
+  color: string | null
+  roleName: string | null
+  outletNames: string[]
+  /** ¿La credencial está activa? */
+  userActive: boolean
+  /** `null` = todavía no tiene legajo. */
+  employee: Employee | null
 }
 
-/**
- * Legajo de empleados — RRHH F0 (context/83).
- *
- * El listado muestra los legajos VIGENTES (incluido el de quien ya egresó:
- * es historial laboral). Los archivados —la fila cargada por error— quedan
- * fuera salvo que se pida verlos.
- */
-export default function EmployeesPage() {
-  const { data: bootstrap } = useBootstrap()
+export default function TeamPage() {
+  const router = useRouter()
   const { data: outletsData } = useOutlets()
   const outlets = outletsData?.rows ?? []
 
-  const canManage = usePermission("hr.employees.manage")
+  const canViewUsers = usePermission("contacts.user.view")
+  const canManageUsers = usePermission("contacts.user.manage")
+  const canViewHr = usePermission("hr.employees.view")
+  const canManageHr = usePermission("hr.employees.manage")
 
-  const [state, setState] = React.useState<EmployeeState | typeof ALL>(ALL)
+  const { data: teamData, isLoading: usersLoading } = useTeamMembers()
+  // `state: "all"` + archivados: la lista de personas no se recorta por el
+  // estado del LEGAJO — quien egresó sigue siendo alguien del historial, y sin
+  // esto su fila desaparecería por no tener legajo vigente.
+  const { data: legajos, isLoading: hrLoading } = useEmployees(
+    { state: "all", includeArchived: true },
+    canViewHr,
+  )
+
   const [outletId, setOutletId] = React.useState<string>(ALL)
-  const [includeArchived, setIncludeArchived] = React.useState(false)
+  const [state, setState] = React.useState<"all" | "active" | "inactive" | "sin-legajo">("all")
 
-  const { data: employees = [], isLoading } = useEmployees({
-    state: state === ALL ? undefined : state,
-    outletId: outletId === ALL ? undefined : outletId,
-    includeArchived,
-  })
+  const [creatingUser, setCreatingUser] = React.useState(false)
+  const [legajoFor, setLegajoFor] = React.useState<TeamMember | null>(null)
 
-  const [formOpen, setFormOpen] = React.useState(false)
-  const [editing, setEditing] = React.useState<Employee | null>(null)
-  const [terminating, setTerminating] = React.useState<Employee | null>(null)
-  const [archiving, setArchiving] = React.useState<Employee | null>(null)
+  const people = React.useMemo<Person[]>(() => {
+    const byId = new Map<string, Employee>()
+    for (const e of legajos ?? []) byId.set(e.id, e)
 
-  const archiveEmployee = useArchiveEmployee()
+    const users = teamData?.users ?? []
+    const rows: Person[] = users.map((u) => ({
+      id: u.id,
+      name: u.name,
+      email: u.email,
+      phone: u.phone,
+      color: u.color,
+      roleName: u.roleName,
+      outletNames: u.outletNames ?? [],
+      userActive: u.status === 1,
+      employee: byId.get(u.id) ?? null,
+    }))
 
-  const activeFilterCount =
-    (state !== ALL ? 1 : 0) + (outletId !== ALL ? 1 : 0) + (includeArchived ? 1 : 0)
-  const clearFilters = () => {
-    setState(ALL)
-    setOutletId(ALL)
-    setIncludeArchived(false)
-  }
-
-  const openCreate = () => {
-    setEditing(null)
-    setFormOpen(true)
-  }
-  const openEdit = (employee: Employee) => {
-    setEditing(employee)
-    setFormOpen(true)
-  }
-
-  const handleArchive = async () => {
-    if (!archiving) return
-    try {
-      await archiveEmployee.mutateAsync(archiving.id)
-      toast.success("Legajo archivado")
-    } catch (e) {
-      toast.error("No se pudo archivar el legajo", {
-        description: e instanceof Error ? e.message : undefined,
+    // Un legajo cuya persona no vino en `/v1/users` (por ejemplo, sin permiso
+    // de ver usuarios) igual tiene que aparecer: la pantalla es la lista de
+    // personas, no la de credenciales.
+    const seen = new Set(rows.map((r) => r.id))
+    for (const e of legajos ?? []) {
+      if (seen.has(e.id)) continue
+      rows.push({
+        id: e.id,
+        name: e.fullName,
+        email: e.email,
+        phone: e.phone,
+        color: null,
+        roleName: null,
+        outletNames: e.outletName ? [e.outletName] : [],
+        userActive: e.userActive,
+        employee: e,
       })
     }
-    setArchiving(null)
+
+    return rows.sort((a, b) => a.name.localeCompare(b.name))
+  }, [teamData?.users, legajos])
+
+  const filtered = React.useMemo(() => {
+    return people.filter((p) => {
+      if (state === "active" && !p.userActive) return false
+      if (state === "inactive" && p.userActive) return false
+      if (state === "sin-legajo" && p.employee !== null) return false
+      if (outletId !== ALL) {
+        const inLegajo = p.employee?.outletId === outletId
+        const inUser = (teamData?.users ?? [])
+          .find((u) => u.id === p.id)
+          ?.outletIds?.includes(outletId)
+        if (!inLegajo && !inUser) return false
+      }
+      return true
+    })
+  }, [people, state, outletId, teamData?.users])
+
+  const activeFilterCount = (state !== "all" ? 1 : 0) + (outletId !== ALL ? 1 : 0)
+  const clearFilters = () => {
+    setState("all")
+    setOutletId(ALL)
   }
 
-  const actionsFor = React.useCallback(
-    (employee: Employee): RowAction[] => [
-      {
-        label: "Editar",
-        icon: Pencil,
-        onSelect: () => openEdit(employee),
-        hidden: !canManage,
-      },
-      {
-        label: "Registrar egreso",
-        icon: UserMinus,
-        onSelect: () => setTerminating(employee),
-        hidden: !canManage,
-        disabled: !employee.active,
-        reason: "Ya tiene registrada su fecha de egreso",
-      },
-      {
-        label: "Archivar",
-        icon: Archive,
-        variant: "destructive",
-        onSelect: () => setArchiving(employee),
-        hidden: !canManage || employee.status === 0,
-      },
-    ],
-    [canManage],
+  useAgentPageSnapshot(
+    {
+      route: "/employees",
+      routeLabel: "Equipo",
+      summary: { personas: people.length, filasVisibles: filtered.length },
+    },
+    [people.length, filtered.length],
   )
 
-  const columns = React.useMemo(
-    () => buildColumns(bootstrap, actionsFor),
-    [bootstrap, actionsFor],
-  )
+  const columns = React.useMemo(() => buildColumns(), [])
+  const isLoading = usersLoading || hrLoading
 
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Empleados</h1>
+          <h1 className="text-2xl font-semibold">Equipo</h1>
           <p className="text-sm text-muted-foreground">
-            El legajo de tu personal: datos, puesto, remuneración y archivos.
+            Las personas del comercio: su acceso al sistema y su legajo.
           </p>
         </div>
-        {canManage && (
-          <Button onClick={openCreate}>
+        {canManageUsers && (
+          <Button onClick={() => setCreatingUser(true)}>
             <Plus className="size-4" />
-            Nuevo empleado
+            Nueva persona
           </Button>
         )}
       </header>
 
-      {!isLoading && employees.length === 0 && activeFilterCount === 0 ? (
+      {!isLoading && people.length === 0 ? (
         <EmptyState
-          icon={IdCard}
-          title="Sin empleados"
-          description="Cargá a tu personal para llevar su legajo."
+          icon={Users}
+          title="Sin personas cargadas"
+          description="Agregá a la primera persona para darle acceso o llevar su legajo."
           actions={
-            canManage ? (
-              <Button onClick={openCreate}>
+            canManageUsers ? (
+              <Button onClick={() => setCreatingUser(true)}>
                 <Plus className="size-4" />
-                Nuevo empleado
+                Nueva persona
               </Button>
             ) : undefined
           }
         />
       ) : (
         <DataTable
-          tableId="employees"
+          tableId="team"
           columns={columns}
-          data={employees}
+          data={filtered}
           isLoading={isLoading}
           getRowId={(r) => r.id}
-          onRowClick={canManage ? (r) => openEdit(r) : undefined}
-          searchPlaceholder="Buscar por nombre, documento o puesto…"
-          exportFileName="empleados"
+          onRowClick={(r) => router.push(`/employees/${r.id}`)}
+          searchPlaceholder="Buscar por nombre, puesto o rol…"
+          exportFileName="equipo"
           activeFilterCount={activeFilterCount}
           onClearFilters={clearFilters}
           filtersSlot={
@@ -203,15 +206,16 @@ export default function EmployeesPage() {
               <FilterField label="Estado">
                 <Select
                   value={state}
-                  onValueChange={(v) => setState(v as EmployeeState | typeof ALL)}
+                  onValueChange={(v) => setState(v as typeof state)}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Todos" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={ALL}>Todos</SelectItem>
+                    <SelectItem value="all">Todos</SelectItem>
                     <SelectItem value="active">Activos</SelectItem>
-                    <SelectItem value="terminated">Egresados</SelectItem>
+                    <SelectItem value="inactive">Inactivos</SelectItem>
+                    <SelectItem value="sin-legajo">Sin legajo</SelectItem>
                   </SelectContent>
                 </Select>
               </FilterField>
@@ -230,206 +234,160 @@ export default function EmployeesPage() {
                   </SelectContent>
                 </Select>
               </FilterField>
-              <FilterField label="Archivados">
-                <Select
-                  value={includeArchived ? "1" : "0"}
-                  onValueChange={(v) => setIncludeArchived(v === "1")}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">Ocultar</SelectItem>
-                    <SelectItem value="1">Mostrar</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FilterField>
             </>
           }
         />
       )}
 
-      <EmployeeFormDialog
-        open={formOpen}
-        employee={editing}
-        onOpenChange={(open) => {
-          setFormOpen(open)
-          if (!open) setEditing(null)
+      {/* Alta: primero la persona. Si además lleva legajo, se encadena con la
+          persona ya fijada — el alta unificada del pedido del owner. */}
+      <UserFormDialog
+        open={creatingUser}
+        member={null}
+        onOpenChange={setCreatingUser}
+        onCreated={(created) => {
+          if (canManageHr) setLegajoFor(created)
         }}
       />
 
-      <TerminateDialog employee={terminating} onClose={() => setTerminating(null)} />
+      <EmployeeFormDialog
+        open={legajoFor !== null}
+        employee={null}
+        presetContactId={legajoFor?.id}
+        presetName={legajoFor?.name}
+        onOpenChange={(open) => !open && setLegajoFor(null)}
+      />
 
-      <AlertDialog open={archiving !== null} onOpenChange={(open) => !open && setArchiving(null)}>
-        <AlertDialogContent className="sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archivar el legajo</AlertDialogTitle>
-            <AlertDialogDescription>
-              {archiving?.fullName} sale del listado. Para registrar que dejó de trabajar,
-              usá &quot;Registrar egreso&quot;.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <Button variant="destructive" onClick={() => void handleArchive()}>
-              Archivar
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Código POS propio cuando todavía es el del alta de la cuenta y el
+          comercio ya tiene otro usuario (context/72 §9.3). Vivía en la pestaña
+          Equipo de Contactos; se muda con ella. */}
+      {canViewUsers && <OwnPinDialog />}
     </div>
   )
 }
 
-/**
- * Egreso. Dialog propio y no un campo más del formulario: registrar que
- * alguien dejó de trabajar es una decisión, no la edición de una fecha.
- */
-function TerminateDialog({
-  employee,
-  onClose,
-}: {
-  employee: Employee | null
-  onClose: () => void
-}) {
-  const terminate = useTerminateEmployee()
-  const [endDate, setEndDate] = React.useState("")
-  const [endReason, setEndReason] = React.useState("")
-
-  React.useEffect(() => {
-    if (employee) {
-      setEndDate(new Date().toISOString().slice(0, 10))
-      setEndReason("")
-    }
-  }, [employee])
-
-  const submit = async () => {
-    if (!employee) return
-    try {
-      await terminate.mutateAsync({ id: employee.id, endDate, endReason })
-      toast.success("Egreso registrado")
-      onClose()
-    } catch (e) {
-      toast.error("No se pudo registrar el egreso", {
-        description: e instanceof Error ? e.message : undefined,
-      })
-    }
-  }
-
-  return (
-    <Dialog open={employee !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Registrar egreso</DialogTitle>
-          <DialogDescription>{employee?.fullName}</DialogDescription>
-        </DialogHeader>
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="employee-end-date">Fecha de egreso</Label>
-            <DatePicker id="employee-end-date" value={endDate} onChange={setEndDate} />
-          </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="employee-end-reason">Motivo</Label>
-            <Textarea
-              id="employee-end-reason"
-              rows={3}
-              value={endReason}
-              onChange={(e) => setEndReason(e.target.value)}
-            />
-          </div>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={terminate.isPending}>
-            Cancelar
-          </Button>
-          <Button onClick={() => void submit()} disabled={terminate.isPending || !endDate}>
-            Registrar egreso
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
 }
 
-function schemeLabel(employee: Employee, config: TenantLocaleConfig | null | undefined): string {
-  // Los tres conviven (D1): se listan todos los que tenga, no "el" esquema.
-  const parts: string[] = []
-  if (employee.fixedAmount !== null) {
-    const period = employee.fixedPeriod ? ` ${PERIOD_LABEL[employee.fixedPeriod]}` : ""
-    parts.push(`${formatMoney(employee.fixedAmount, config ?? null)}${period}`)
-  }
-  if (employee.hourlyRate !== null) {
-    parts.push(`${formatMoney(employee.hourlyRate, config ?? null)} por hora`)
-  }
-  if (employee.commissions) {
-    parts.push("comisiones")
-  }
-  return parts.length > 0 ? parts.join(" + ") : "—"
+function avatarStyle(color: string | null) {
+  const hex = resolveColorBg(color)
+  if (!hex) return {}
+  return { backgroundColor: hex + "33", color: hex }
 }
 
-function buildColumns(
-  config: TenantLocaleConfig | null | undefined,
-  actionsFor: (employee: Employee) => RowAction[],
-): ColumnDef<Employee>[] {
+function buildColumns(): ColumnDef<Person, unknown>[] {
   return [
     {
-      accessorKey: "fullName",
+      accessorKey: "name",
       header: "Nombre",
-      cell: ({ row }) => <span className="font-medium">{row.original.fullName}</span>,
-    },
-    {
-      accessorKey: "jobTitle",
-      header: "Puesto",
-      cell: ({ row }) => row.original.jobTitle ?? "—",
-    },
-    {
-      accessorKey: "outletName",
-      header: "Sucursal",
-      cell: ({ row }) => row.original.outletName ?? "—",
-    },
-    {
-      id: "scheme",
-      header: "Remuneración",
-      enableSorting: false,
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap">{schemeLabel(row.original, config)}</span>
-      ),
-    },
-    {
-      accessorKey: "hireDate",
-      header: "Ingreso",
-      cell: ({ row }) => (
-        <span className="whitespace-nowrap tabular-nums text-sm">
-          {row.original.hireDate ? formatDate(row.original.hireDate) : "—"}
-        </span>
-      ),
-    },
-    {
-      id: "status",
-      header: "Estado",
       cell: ({ row }) => {
-        const employee = row.original
-        if (employee.status === 0) {
-          return <Badge variant="outline">Archivado</Badge>
-        }
-        return employee.active ? (
-          <Badge variant="secondary">Activo</Badge>
+        const p = row.original
+        return (
+          <div className="flex items-center gap-3">
+            <Avatar className="size-8 shrink-0">
+              <AvatarFallback className="text-xs" style={avatarStyle(p.color)}>
+                {initials(p.name ?? "?")}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate font-medium">{p.name}</span>
+              {p.email && (
+                <span className="truncate text-xs text-muted-foreground">{p.email}</span>
+              )}
+            </div>
+          </div>
+        )
+      },
+    },
+    {
+      accessorKey: "roleName",
+      header: "Rol",
+      cell: ({ row }) =>
+        row.original.roleName ? (
+          <Badge variant="secondary" className="gap-1">
+            <Shield className="size-3" />
+            {row.original.roleName}
+          </Badge>
         ) : (
-          <Badge variant="outline">
-            Egresó {employee.endDate ? formatDate(employee.endDate) : ""}
+          <span className="text-xs text-muted-foreground">Sin rol</span>
+        ),
+    },
+    {
+      id: "jobTitle",
+      header: "Puesto",
+      accessorFn: (p) => p.employee?.jobTitle ?? "",
+      cell: ({ row }) => {
+        const e = row.original.employee
+        if (!e) {
+          return (
+            <Badge variant="outline" className="gap-1 text-muted-foreground">
+              <IdCard className="size-3" />
+              Sin legajo
+            </Badge>
+          )
+        }
+        return e.jobTitle ?? <span className="text-xs text-muted-foreground">—</span>
+      },
+    },
+    {
+      id: "outlet",
+      header: "Sucursal",
+      accessorFn: (p) => p.employee?.outletName ?? p.outletNames.join(", "),
+      cell: ({ row }) => {
+        const p = row.original
+        const fromLegajo = p.employee?.outletName
+        if (fromLegajo) return <span>{fromLegajo}</span>
+        const names = p.outletNames
+        if (names.length === 0) return <span className="text-xs text-muted-foreground">Todas</span>
+        if (names.length === 1) return <span>{names[0]}</span>
+        return (
+          <Badge variant="secondary" title={names.join(", ")}>
+            {names.length} sucursales
           </Badge>
         )
       },
     },
     {
-      id: "actions",
-      header: "",
-      enableSorting: false,
-      cell: ({ row }) => (
-        <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
-          <RowActions actions={actionsFor(row.original)} />
-        </div>
-      ),
+      accessorKey: "phone",
+      header: "Teléfono",
+      cell: ({ row }) => {
+        const p = formatPhone(row.original.phone)
+        return p ? p : <span className="text-xs text-muted-foreground">—</span>
+      },
+    },
+    {
+      id: "status",
+      header: "Estado",
+      cell: ({ row }) => {
+        const p = row.original
+        const e = p.employee
+        // El egreso manda sobre el estado de la credencial: alguien que dejó de
+        // trabajar es "egresó" aunque su usuario siga habilitado.
+        if (e && e.status === 1 && !e.active) {
+          return (
+            <Badge variant="outline">
+              Egresó {e.endDate ? formatDate(e.endDate) : ""}
+            </Badge>
+          )
+        }
+        return p.userActive ? (
+          <Badge variant="outline" className="gap-1.5">
+            <span className="size-1.5 rounded-full bg-[var(--chart-1)]" />
+            Activo
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="gap-1 text-muted-foreground">
+            <CircleOff className="size-3" />
+            Inactivo
+          </Badge>
+        )
+      },
     },
   ]
 }

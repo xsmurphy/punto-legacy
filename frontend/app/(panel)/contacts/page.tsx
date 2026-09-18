@@ -26,22 +26,27 @@ function formatBday(iso: string): string {
   if (!m) return iso
   return `${m[3]}/${m[2]}`
 }
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import type { ContactListItem } from "@/lib/types/contact"
 import { EmptyState } from "@/components/empty-state"
-import { TeamSection } from "@/components/domain/contacts/team-section"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, resolveNumberLocale } from "@/lib/tenant-locale"
 
-type ActiveTab = "1" | "2" | "team"
+type ActiveTab = "1" | "2"
 
 function getActiveTab(searchParams: ReturnType<typeof useSearchParams>): ActiveTab {
-  const typeParam = searchParams.get("type")
-  const tabParam = searchParams.get("tab")
-  if (tabParam === "team" || typeParam === "0") return "team"
-  if (typeParam === "2") return "2"
-  return "1"
+  return searchParams.get("type") === "2" ? "2" : "1"
+}
+
+/**
+ * El Equipo salió de acá: las personas del comercio viven en `/employees`,
+ * junto con su legajo (context/83 §9). Los links viejos —`?type=0` y
+ * `?tab=team`, que convivían— siguen llegando desde bookmarks y desde la ayuda,
+ * así que se redirigen en vez de caer en Clientes sin explicación.
+ */
+function isLegacyTeamUrl(searchParams: ReturnType<typeof useSearchParams>): boolean {
+  return searchParams.get("tab") === "team" || searchParams.get("type") === "0"
 }
 
 /** Clave de las preferencias del listado (ver `lib/table-state`). */
@@ -52,14 +57,18 @@ function ContactsPage() {
   const searchParams = useSearchParams()
   const activeTab = getActiveTab(searchParams)
 
+  const legacyTeam = isLegacyTeamUrl(searchParams)
+  React.useEffect(() => {
+    if (legacyTeam) router.replace("/employees")
+  }, [legacyTeam, router])
+
   const setActiveTab = (next: ActiveTab) => {
     const params = new URLSearchParams(searchParams.toString())
-    params.set("type", next === "team" ? "0" : next)
+    params.set("type", next)
     params.delete("tab")
     router.replace(`/contacts?${params.toString()}`)
   }
 
-  // contactType solo se usa cuando activeTab !== "team"
   const contactType: ContactType = activeTab === "2" ? 2 : 1
 
   const { data, isLoading, error } = useContacts({ type: contactType })
@@ -70,7 +79,6 @@ function ContactsPage() {
     "all",
   )
   const isSupplier = activeTab === "2"
-  const teamOpenCreateRef = React.useRef<(() => void) | null>(null)
 
   const filteredRows = React.useMemo(() => {
     const rows = data?.contacts ?? []
@@ -82,15 +90,10 @@ function ContactsPage() {
   useAgentPageSnapshot(
     {
       route: "/contacts",
-      routeLabel:
-        activeTab === "2"
-          ? "Listado de proveedores"
-          : activeTab === "team"
-          ? "Equipo / usuarios"
-          : "Listado de clientes",
+      routeLabel: activeTab === "2" ? "Listado de proveedores" : "Listado de clientes",
       summary: {
         tabActiva: activeTab,
-        filasVisibles: activeTab !== "team" ? filteredRows.length : null,
+        filasVisibles: filteredRows.length,
       },
     },
     [activeTab, filteredRows.length],
@@ -262,44 +265,28 @@ function ContactsPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground">
-            {activeTab === "team"
-              ? "Usuarios con acceso al panel y la caja."
-              : "Clientes y proveedores del negocio."}
+            Clientes y proveedores del negocio.
           </p>
         </div>
-        {activeTab !== "team" ? (
-          <Button asChild>
-            <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
-              <Plus className="size-4" />
-              {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
-            </Link>
-          </Button>
-        ) : (
-          <Button onClick={() => teamOpenCreateRef.current?.()}>
+        <Button asChild>
+          <Link href={isSupplier ? "/contacts/new?type=2" : "/contacts/new"}>
             <Plus className="size-4" />
-            Nuevo usuario
-          </Button>
-        )}
+            {isSupplier ? "Nuevo proveedor" : "Nuevo cliente"}
+          </Link>
+        </Button>
       </header>
 
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as ActiveTab)}
       >
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="1">Clientes</TabsTrigger>
           <TabsTrigger value="2">Proveedores</TabsTrigger>
-          <TabsTrigger value="team">Equipo</TabsTrigger>
         </TabsList>
-
-        <TabsContent value="team" className="mt-6">
-          <TeamSection openCreateRef={teamOpenCreateRef} />
-        </TabsContent>
       </Tabs>
 
-      {activeTab !== "team" && (
-        <>
-          {error && (
+      {error && (
             <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
               <AlertCircle className="mt-0.5 size-4 text-destructive" />
               <div>
@@ -307,12 +294,12 @@ function ContactsPage() {
                 <p className="text-xs text-muted-foreground">{error.message}</p>
               </div>
             </div>
-          )}
+      )}
 
-          {/* DataTable sin Card wrapper — el DataTable interno provee border-y
-              (top+bottom de la tabla) y los rows tienen divisores. El feedback del
-              user fue claro: sin bordes externos. */}
-          <DataTable
+      {/* DataTable sin Card wrapper — el DataTable interno provee border-y
+          (top+bottom de la tabla) y los rows tienen divisores. El feedback del
+          user fue claro: sin bordes externos. */}
+      <DataTable
             tableId={CONTACTS_TABLE_ID}
             data={filteredRows}
             columns={columns}
@@ -351,8 +338,6 @@ function ContactsPage() {
               </Select>
             }
           />
-        </>
-      )}
     </div>
   )
 }

@@ -131,6 +131,15 @@ function ContactEditPageInner() {
   const searchParams = useSearchParams()
   const contactType = searchParams.get("type") === "2" ? 2 : 1
   const isSupplier = contactType === 2
+
+  // Una persona del comercio (type=0) tiene su ficha en `/employees/[id]`, con
+  // su legajo y su acceso (context/83 §9). Esta página nunca supo mostrarlas
+  // —siempre las trató como clientes— así que el link viejo se redirige en vez
+  // de pintar una ficha de cliente con los datos de un usuario.
+  const isUser = searchParams.get("type") === "0"
+  React.useEffect(() => {
+    if (isUser && !isNew) router.replace(`/employees/${id}`)
+  }, [isUser, isNew, id, router])
   const { data, isLoading, error } = useContact(isNew ? undefined : id)
   const create = useCreateContact()
   const update = useUpdateContact()

@@ -357,33 +357,27 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["suppliers", "proveedores", "vendors"],
   },
   {
-    to: "/contacts?type=0",
+    // UNA sola entrada para las personas del comercio (context/83 §9).
+    //
+    // Eran dos —"Equipo" (los usuarios) y "Empleados" (los legajos)— y
+    // listaban a la misma gente por caminos distintos. Desde que una persona
+    // es UN usuario y el legajo es su satélite, son una lista y una ficha.
+    //
+    // `requiresAny` y no `requires`: acá entra tanto quien administra las
+    // credenciales como quien lleva los legajos, y ninguno de los dos permisos
+    // implica al otro. Dentro de la ficha cada pestaña se gatea por el suyo.
+    to: "/employees",
     title: "Equipo",
     icon: UserCog,
     surface: "sidebar",
     sidebarGroup: "contactos",
-    requires: "contacts.user.view",
-    keywords: ["team", "staff", "empleados", "usuarios", "personal"],
-  },
-  {
-    // RRHH F0 (context/83): el LEGAJO, que no es lo mismo que "Equipo" de
-    // acá arriba. Equipo son los USUARIOS del sistema (credencial, rol, PIN);
-    // esto es la relación laboral —sueldo, documento, contrato— y existe
-    // igual para quien nunca entra a Punto.
-    //
-    // Va al sidebar y no solo al palette porque ya está doblemente gateado:
-    // solo lo ve quien tiene el módulo prendido Y el permiso, que a propósito
-    // no está en ningún rol por default.
-    to: "/employees",
-    title: "Empleados",
-    icon: IdCard,
-    surface: "sidebar",
-    sidebarGroup: "contactos",
-    requires: "hr.employees.view",
+    requiresAny: ["contacts.user.view", "hr.employees.view"],
     keywords: [
+      "team",
+      "staff",
+      "usuarios",
       "empleados",
       "personal",
-      "staff",
       "rrhh",
       "recursos humanos",
       "legajo",
@@ -1145,7 +1139,7 @@ export const UNINDEXED_PAGES: Record<string, string> = {
   "/finanzas/categorias":
     "Redirect a /finanzas/configuracion — sobrevive solo para links y bookmarks viejos.",
   "/settings/team":
-    "Redirect a /contacts?tab=team — el destino real ya se indexa como Contactos · Equipo.",
+    "Redirect a /employees — el destino real ya se indexa como Contactos · Equipo.",
   "/ordenes-pago/new":
     "Formulario de alta, se llega desde el botón de /ordenes-pago — que sí se indexa. Una pantalla de creación no es un destino de navegación por sí sola.",
   "/pos/transactions":

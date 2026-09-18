@@ -87,6 +87,16 @@ export interface RouteEntry {
   requires?: string
   /** Permisos adicionales: se requieren TODOS junto con requires. */
   requiresAll?: string[]
+  /**
+   * Alcanza con UNO de estos. Para pantallas a las que se llega por más de un
+   * camino: Equipo muestra las personas del comercio, y ahí entra tanto quien
+   * administra usuarios como quien lleva los legajos — son dos permisos
+   * distintos y ninguno implica al otro.
+   *
+   * Se evalúa junto con `requires`/`requiresAll`, que siguen siendo Y: esto
+   * agrega una condición O, no reemplaza a las otras.
+   */
+  requiresAny?: string[]
   /** Módulo del tenant que debe estar activo (`/v1/modules`). */
   requiresModule?: string
   /** Oculta el item en mobile. Solo aplica a `surface: "sidebar"`. */

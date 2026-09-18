@@ -165,11 +165,20 @@ const EMPTY: FormValues = {
 export function EmployeeFormDialog({
   open,
   employee,
+  presetContactId,
+  presetName,
   onOpenChange,
 }: {
   open: boolean
   /** null = alta. */
   employee: Employee | null
+  /**
+   * La persona ya está decidida: se le carga el legajo a ESTE usuario y el
+   * selector no se muestra. Es el camino desde su propia ficha, donde elegir a
+   * otro sería cargarle el legajo a quien no se está mirando.
+   */
+  presetContactId?: string
+  presetName?: string
   onOpenChange: (open: boolean) => void
 }) {
   const { data: bootstrap } = useBootstrap()
@@ -229,12 +238,12 @@ export function EmployeeFormDialog({
             schedule: employee.schedule,
             biometricConsent: employee.biometricConsentAt !== null,
           }
-        : EMPTY,
+        : { ...EMPTY, contactId: presetContactId ?? NEW },
     )
     // `bootstrap` fuera de las deps a propósito: solo interesa su valor en el
     // momento de abrir, y refrescarlo re-montaría el form mientras se edita.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, employee, form, tenantCountry])
+  }, [open, employee, form, tenantCountry, presetContactId])
 
   const isEdit = employee !== null
   const saving = createEmployee.isPending || updateEmployee.isPending
@@ -293,9 +302,13 @@ export function EmployeeFormDialog({
       {/* `l` de la escala: el form es largo y va en dos columnas. */}
       <DialogContent className="sm:max-w-4xl" sectioned>
         <DialogHeader>
-          <DialogTitle>{isEdit ? employee.fullName : "Nuevo empleado"}</DialogTitle>
+          <DialogTitle>
+            {isEdit ? employee.fullName : presetName ? `Legajo de ${presetName}` : "Nuevo empleado"}
+          </DialogTitle>
           <DialogDescription>
-            {isEdit ? "Datos del legajo" : "Datos de la persona y de su relación laboral"}
+            {isEdit || presetContactId
+              ? "Datos del legajo"
+              : "Datos de la persona y de su relación laboral"}
           </DialogDescription>
         </DialogHeader>
 
@@ -306,7 +319,7 @@ export function EmployeeFormDialog({
                   mismo; en la edición ya está definida y su nombre, teléfono y
                   email se gestionan en Equipo, que es donde se gestiona
                   cualquier usuario (context/83 §9.1). */}
-              {!isEdit && (
+              {!isEdit && !presetContactId && (
                 <FormSection title="Persona">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <FormField
