@@ -9,11 +9,21 @@ export interface WalletPocket {
   name: string
   active: boolean
   createdAt: string
+  /** Impuesto con el que se FACTURAN las cargas del bolsillo (mig 234). null = sin impuesto. */
+  taxId: string | null
+  taxName: string | null
+  taxRate: number
+  taxKind: "rate" | "exempt"
 }
+
+/** Valor del select para "sin impuesto" (un SelectItem no admite ""). */
+export const WALLET_POCKET_NO_TAX = "none"
 
 export interface WalletPocketPayload {
   name: string
   active: boolean
+  /** Id del impuesto, o `WALLET_POCKET_NO_TAX`. El hook lo traduce al contrato del endpoint. */
+  taxId: string
 }
 
 export interface WalletBalance {

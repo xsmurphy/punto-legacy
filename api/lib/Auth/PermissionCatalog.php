@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 12;
+    public const CURRENT_VERSION = 13;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -267,6 +267,23 @@ final class PermissionCatalog
             // claves NUEVAS: el caso seguro del backfill.
             ['id' => 'wallet.view',              'label' => 'Ver bolsillos de clientes', 'group' => 'Contactos', 'since' => 12],
             ['id' => 'wallet.manage',            'label' => 'Gestionar bolsillos y ajustar saldos', 'group' => 'Contactos', 'since' => 12],
+
+            // ── Wallet desde la caja (context/74 F2) ──────────────────────
+            //
+            // Dos claves porque son dos decisiones: CARGAR crea saldo a cambio
+            // de una venta (el que cobra en caja), PAGAR CON SALDO lo gasta
+            // (el que despacha). Se evalúan contra el OPERADOR del PIN
+            // (`OperatorContext`), nunca contra el rol `device`: dárselas al
+            // device sería "cualquiera que agarre la tablet". Con prefijo
+            // `pos.` para que `unlock-pin.php` las baje a la caja y el POS
+            // pueda gatear sus botones sin preguntar.
+            //
+            // Sin seed, mismo criterio que `wallet.*`: el módulo es de rubro y
+            // nace apagado; el Dueño las tiene por serlo y el resto las recibe
+            // cuando un admin las tilda. `since` = 13 y claves NUEVAS: el caso
+            // seguro del backfill.
+            ['id' => 'pos.wallet.load',          'label' => 'Cargar saldo a clientes desde la caja', 'group' => 'POS', 'since' => 13],
+            ['id' => 'pos.wallet.spend',         'label' => 'Cobrar con saldo en la caja', 'group' => 'POS', 'since' => 13],
 
             ['id' => 'reports.sales.view',       'label' => 'Reportes de ventas',     'group' => 'Reportes'],
             ['id' => 'reports.drawers.view',     'label' => 'Reportes de cajas',      'group' => 'Reportes'],

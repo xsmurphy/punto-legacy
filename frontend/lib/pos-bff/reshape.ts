@@ -204,6 +204,8 @@ export interface UpstreamContactRow {
   city?: string | null
   location?: string | null
   country?: string | null
+  /** Titular en la wallet (context/74 §3.1); null = es titular. */
+  parentContactId?: string | null
 }
 
 export function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
@@ -235,5 +237,6 @@ export function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
     city: row.city ?? null,
     location: row.location ?? null,
     country: row.country ?? null,
+    parentContactId: row.parentContactId ?? null,
   }
 }

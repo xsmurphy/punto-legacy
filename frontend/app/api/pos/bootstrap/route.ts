@@ -194,6 +194,14 @@ interface UpstreamBootstrap {
   stockCountFromRegister?: boolean
   stockCountRecordOnly?: boolean
   stockCountBlind?: boolean
+  /** Bolsillos activos de la wallet (context/74 F2). Ausente = módulo apagado. */
+  walletPockets?: Array<{
+    id: string
+    name: string
+    taxId: string | null
+    taxRate: number | string | null
+    taxKind: string | null
+  }>
   /**
    * Roster de la pantalla de bloqueo — proyección MÍNIMA (id/name/pinhash) de
    * los usuarios activos habilitados en la sucursal del contexto, servida por
@@ -490,6 +498,17 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     // que un front nuevo contra un back viejo no promete un modo que el
     // servidor no sabe resolver. Por eso `!== false` y no `=== true`.
     stockCountBlind: bs.stockCountBlind !== false,
+    // Ausente = módulo wallet apagado (o `/api` anterior a la F2): `null`, y la
+    // caja no ofrece cargar ni pagar con saldo.
+    walletPockets: Array.isArray(bs.walletPockets)
+      ? bs.walletPockets.map((p) => ({
+          id: p.id,
+          name: p.name,
+          taxId: p.taxId ?? null,
+          taxRate: Number(p.taxRate ?? 0) || 0,
+          taxKind: p.taxKind === "rate" ? ("rate" as const) : ("exempt" as const),
+        }))
+      : null,
   }
 }
 

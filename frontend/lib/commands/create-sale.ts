@@ -121,6 +121,12 @@ export interface SaleItem {
    * — ver el docblock de `SaleService::expandAddonSelections`.
    */
   selections?: { optionId: string; qty: number }[]
+  /**
+   * Carga de saldo (wallet F2, context/74): SOLO el bolsillo. El ítem, el
+   * impuesto y el monto que entra al saldo los resuelve `SaleService` contra
+   * la BD (`Money::sanitizeSaleArray` descarta cualquier otra clave).
+   */
+  walletLoad?: { pocketId: string }
 }
 
 /**
@@ -413,6 +419,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
           })),
         }
       : {}),
+    ...(line.walletLoad ? { walletLoad: { pocketId: line.walletLoad.pocketId } } : {}),
   }))
 
   // El vale ya se cobró al emitirse (context/36, decisión 5): sus líneas

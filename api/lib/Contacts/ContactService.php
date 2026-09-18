@@ -721,6 +721,10 @@ final class ContactService
             // Expuesto para que el detalle por id (que ya no filtra por type)
             // pueda derivar el label "cliente"/"proveedor" del propio dato.
             'type'        => isset($row['type']) ? (int) $row['type'] : self::TYPE_CUSTOMER,
+            // Titular del contacto en la wallet (mig 232, context/74 §3.1).
+            // null = es titular. La caja lo necesita OFFLINE para no ofrecer
+            // "Cargar saldo" a un cliente a cargo: a él solo se le transfiere.
+            'parentContactId' => !empty($row['parentcontactid']) ? (string) $row['parentcontactid'] : null,
         ];
     }
 }

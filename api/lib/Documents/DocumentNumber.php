@@ -427,6 +427,9 @@ final class DocumentNumber
             SaleType::Cashsale->value, SaleType::Creditsale->value => 'factura',
             SaleType::Quote->value                                => 'cotizacion',
             SaleType::Return->value                               => 'nota_credito',
+            // Comprobante interno de consumo con saldo (wallet F2, D12): talonario
+            // propio por caja, sin serie fiscal. Ver `SaleService::WALLET_CONSUMPTION_DOCTYPE`.
+            SaleType::WalletConsumption->value                    => 'consumo_saldo',
             default                                               => null,
         };
     }

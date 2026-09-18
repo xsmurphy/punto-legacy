@@ -104,6 +104,18 @@ import { useClearCart } from "@/hooks/use-clear-cart"
 import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
 import { useRegisterSessionPayment, validateSessionPayment } from "@/hooks/use-space-settlement"
 import { parseDisplay, formatDisplayInput } from "./money-visor"
+import { WalletPayDialog, type WalletPaySelection } from "./wallet-pay-dialog"
+import { useLockStore } from "@/lib/pos/lock-store"
+import type { CartLine } from "@/lib/cart/store"
+import {
+  WALLET_PAYMENT_METHOD,
+  POS_WALLET_LOAD,
+  POS_WALLET_SPEND,
+  WalletInsufficientError,
+  cartHasWalletLoad,
+  consumeWithWallet,
+  walletLoadLine,
+} from "@/lib/wallet/pos-wallet"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -147,7 +159,9 @@ const FALLBACK_METHODS: PaymentMethodConfig[] = [
 // que varía por tenant). "interno" no tiene hoy un método real en el backend
 // (es un flag del carrito, no un medio de pago) — se mantiene por si se
 // materializa como taxonomy row con systemKey='internal' a futuro.
-const SECONDARY_SYSTEM_KEYS = ["internal", "giftcard"]
+// "wallet" (Saldo, context/74 F2) va con ellos: es un medio del sistema, no
+// uno del catálogo del comercio, y solo existe con el módulo prendido.
+const SECONDARY_SYSTEM_KEYS = ["internal", "giftcard", "wallet"]
 
 // ── Tipo de pago aplicado ─────────────────────────────────────────────────────
 
@@ -165,6 +179,14 @@ interface AppliedPayment {
    * en la pantalla de éxito y en la pantalla del cliente.
    */
   change: number
+  /**
+   * Pago con SALDO (wallet F2): de qué bolsillo y cuánto había al elegirlo.
+   * Es un marcador del cobro, no un pago que viaje en la venta: al confirmar,
+   * el carrito sale como COMPROBANTE DE CONSUMO debitado del bolsillo, y el
+   * resto de los pagos (si el bolsillo no alcanzaba) paga una CARGA de la
+   * diferencia (D14). Ver `handleWalletConfirm`.
+   */
+  wallet?: { pocketId: string; pocketName: string; available: number }
 }
 
 // ── Helpers de display numérico ───────────────────────────────────────────────
@@ -303,7 +325,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // otra pasarela que sí está activa (ver lib/payments/psp).
   const paymentMethods = React.useMemo(() => {
     const list = storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
-    return [...list]
+    const sorted = [...list]
       .filter((m) => isPspQrChannelEnabled(m.systemKey, config))
       // Orden por sortOrder (drag&drop del panel); sin valor cae al final estable.
       .sort((a, b) => {
@@ -311,6 +333,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         const sb = b.sortOrder ?? Number.MAX_SAFE_INTEGER
         return sa - sb
       })
+    // "Saldo" existe SIEMPRE que el módulo wallet esté prendido — con o sin
+    // cliente, con o sin red —, apagado en su lugar cuando no se puede usar:
+    // sacarlo y ponerlo movería la grilla (context/14 R10).
+    return config?.walletPockets != null ? [...sorted, WALLET_PAYMENT_METHOD] : sorted
   }, [storedMethods, config])
 
   const { data: currenciesData } = useSettingsCurrencies()
@@ -346,6 +372,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     changeOverride?: number
   } | null>(null)
   const [pendingGiftcard, setPendingGiftcard] = React.useState(false)
+  // ── Wallet (context/74 F2) ────────────────────────────────────────────────
+  const [pendingWallet, setPendingWallet] = React.useState(false)
+  /**
+   * La CARGA automática de D14 ya se emitió en este cobro (factura impresa, o
+   * encolada sin red): la plata ya es saldo del cliente. Desde acá un
+   * reintento cobra SOLO el consumo — nunca vuelve a cargar.
+   */
+  const [walletLoaded, setWalletLoaded] = React.useState<{ amount: number; queued: boolean } | null>(null)
+  /** Éxito de un cobro con saldo: qué bolsillo y cuánto le quedó. */
+  const [walletSuccess, setWalletSuccess] = React.useState<{ pocketName: string; balance: number } | null>(null)
   /** Cobro con QR de pasarela en curso: con qué pasarela y por cuánto. */
   const [pendingQr, setPendingQr] = React.useState<{
     adapter: PspQrAdapter
@@ -410,6 +446,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // resultado fue ambiguo y el cajero cierra y reabre, el uid sale del COBRO
   // PENDIENTE persistido (`lib/pos/pending-charges.ts`), no de esta apertura.
   const saleUidRef = React.useRef<string>(crypto.randomUUID())
+  // Mismo criterio para el comprobante de CONSUMO con saldo: estable por
+  // apertura, así un reintento (timeout, carga recién acreditada) devuelve el
+  // mismo comprobante y nunca debita dos veces (el endpoint es idempotente por
+  // uid). La carga de D14 es una venta con su propio uid.
+  const walletConsumeUidRef = React.useRef<string>(crypto.randomUUID())
+  const walletLoadUidRef = React.useRef<string>(crypto.randomUUID())
+
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
 
   // Resetear al abrir
   React.useEffect(() => {
@@ -420,6 +464,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setDueDate(defaultDueDate())
       setSaleResult(null)
       setErrorMsg(null)
+      setPendingWallet(false)
+      setWalletLoaded(null)
+      setWalletSuccess(null)
+      walletConsumeUidRef.current = crypto.randomUUID()
+      walletLoadUidRef.current = crypto.randomUUID()
       // Gate de tenencia AL ABRIR, no solo al confirmar: el botón de cobrar
       // ya se muestra deshabilitado con el motivo (`PayCta` en
       // `cart-panel.tsx`), y quien igual lo toca tiene que aterrizar en la
@@ -551,13 +600,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   function runAutoPrint(
     payload: import("@/lib/commands/create-sale").CreateSalePayload,
     result: CreateSaleResult,
+    // El comprobante de CONSUMO con saldo (wallet F2) es interno, no fiscal:
+    // sale por el documento Recibo — el no fiscal del sistema de plantillas.
+    // Lo que imprime lo decide la plantilla de ese documento, no este código.
+    docTypeOverride?: PrinterDocType,
   ) {
     const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
     const ticketData = buildTicketData({ payload, result, config })
     const saleCategoryIds = [
       ...new Set(ticketData.items.map((i) => i.categoryId).filter((id): id is string => id !== null)),
     ]
-    const autoDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
+    const autoDocType: PrinterDocType = docTypeOverride ?? (hasGiftcardIssuance ? "receipt" : "factura")
     const matchedBindings = getBindingsForSale(allBindings, autoDocType, saleCategoryIds)
     const autoBindings = matchedBindings.filter((b) => b.autoPrint)
     // Sin binding para este documento el auto-print no dispara, y antes no
@@ -863,10 +916,308 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     invalidateDrawerQueries(qc)
   }
 
+  // ── Emisión de una venta (núcleo compartido) ──────────────────────────────
+  /**
+   * Emite UNA venta fiscal (contado/crédito) por el camino de siempre: gate de
+   * timbrado, gate de tenencia, número LOCAL de la caja, POST y, sin red, la
+   * cola offline. Devuelve qué pasó y deja la pantalla/impresión a quien llama.
+   *
+   * Existe como función aparte porque hay DOS emisores: la venta del carrito
+   * (`handleConfirm`) y la CARGA automática de la diferencia cuando un cobro
+   * con saldo no alcanza (`handleWalletConfirm`, context/74 D14). La carga es
+   * una venta como cualquier otra —numera en la misma serie, sale con factura,
+   * se encola sin red—, así que no puede tener un camino propio: dos copias de
+   * los gates fiscales divergirían (es exactamente cómo se emitieron números
+   * fuera de serie antes, context/29).
+   *
+   *   - `blocked` → la tenencia de la caja cortó ANTES de numerar; la fase ya
+   *                 quedó en `register-taken`.
+   *   - `queued`  → sin red: encolada, anotada en el turno y con su número.
+   *   - `sent`    → registrada por el servidor.
+   */
+  async function emitSale(args: {
+    lines: CartLine[]
+    payments: SalePaymentMethod[]
+    credito: boolean
+    interno: boolean
+    tags: typeof tags
+    quoteParentId: string | null
+    saleDiscount: typeof saleDiscount
+    ivaRemoved: boolean
+    dueDate: string | null
+    uid: string
+    chargeTarget: ChargeTarget | null
+    chargeFollowups: ChargeFollowups
+  }): Promise<
+    | { kind: "blocked" }
+    | { kind: "queued"; payload: CreateSalePayload; result: CreateSaleResult }
+    | { kind: "sent"; payload: CreateSalePayload; result: CreateSaleResult }
+  > {
+    // Número de comprobante — se consume UNA SOLA VEZ acá, ANTES de
+    // intentar el POST, y sirve a las DOS ramas (online y offline) que
+    // siguen. El número sale SIEMPRE del contador local del POS ("último
+    // correlativo de mi caja + 1", `lib/pos/invoice-numbering.ts` —
+    // context/29-numeracion-y-exclusividad-de-caja.md) — nunca de un
+    // `DocumentNumber::allocate()` server-side en el camino online: un
+    // allocate() ahí devolvería números por encima de lo que el device ya
+    // emitió offline, y el device emitiría después, offline, un número
+    // MENOR con fecha posterior — viola "orden de números = orden de
+    // fechas". El backend (`api/v1/sales.php`) valida que este device siga
+    // siendo el tenedor de `register_lease` antes de guardar y la rechaza
+    // con 409 si no lo es — ver `showRegisterConflict`.
+    //
+    // Regla del owner ("no puede salir una venta sin número de factura",
+    // context/08 §53) — sin número no hay documento válido para entregar,
+    // en NINGUNA rama (online u offline). `interno` incluido — el doctype
+    // 'comprobante' sin valor fiscal todavía no existe. Cotización queda
+    // afuera — no pasa por acá (create-quote.ts es un comando aparte,
+    // nunca llega a invoice-numbering).
+    //
+    // Trade-off aceptado: un intento que falla DESPUÉS de este punto (4xx
+    // de negocio, o el cobro online-only de sesión/orden/settlement que no
+    // encola) quema este número sin usarlo — mismo criterio que un hueco
+    // de numeración, aceptado por diseño en modo offline. La alternativa
+    // (pedir el número recién si el POST fuera a tener éxito) no es
+    // posible: hace falta MANDARLO en el payload para que el backend
+    // valide tenencia.
+    // ── Gate de tenencia, ANTES de numerar ──────────────────────────────
+    // El fix del incidente 2026-08-23. Hasta acá el único gate de tenencia
+    // era el 409 de `sales.php`, o sea que existía SOLO online: sin red no
+    // había POST, el POS numeraba, imprimía y el rechazo llegaba al
+    // sincronizar, con el ticket ya en la mano del cliente. Ahora el device
+    // decide con lo último que el servidor le confirmó (grant persistido,
+    // `lib/pos/register-tenancy.ts`) — que es la única información que puede
+    // tener sin conexión.
+    //
+    // Va ANTES de `getNextInvoiceNo()` a propósito: consumir el número es el
+    // punto de no retorno de la numeración (deja un hueco aunque la venta no
+    // salga). Sin derecho a emitir, no se toca el contador.
+    //
+    // Fail-closed: `verdict === null` (todavía no hidratado) tampoco emite.
+    // El costo de equivocarse hacia el otro lado es un comprobante duplicado
+    // que el sistema después repudia.
+    // ── Gate de TIMBRADO, antes que el de tenencia y antes de numerar ────
+    // Va primero por la misma razón que en `emission-block.ts`: tomar la
+    // caja no habilita a facturar con el timbrado caído, así que mandar al
+    // cajero a `RegisterTakenPhase` sería mandarlo a una acción que no lo
+    // desbloquea. Y va ANTES de `getNextInvoiceNo()` por el mismo motivo que
+    // el gate de tenencia: consumir el número es el punto de no retorno de la
+    // numeración.
+    //
+    // Esta es la evaluación que importa: el guard del servidor
+    // (`InvoiceAuthGate`, 422 `invoice_auth_expired`) solo llega si hay red, y
+    // sin este corte local el POS imprimiría el ticket y se enteraría del
+    // rechazo recién al sincronizar — con el comprobante ya entregado.
+    //
+    // Un `throw` y no una fase propia: no hay recuperación desde acá (el
+    // trámite es en el panel, y ante la autoridad fiscal), así que el mensaje
+    // sale por el mismo camino que el resto de los cortes terminales de este
+    // handler.
+    const authBlock = emissionBlockNow()
+    if (authBlock?.kind === "invoice-auth") {
+      throw new Error(authBlock.reason)
+    }
+
+    const block = tenancyBlock(useTenancyStore.getState().verdict)
+    if (block) {
+      setRegisterTaken(block)
+      setBlockedBeforePay(false)
+      setPhase("register-taken")
+      return { kind: "blocked" }
+    }
+
+    let invoiceNo: number
+    let invoiceSerie: string
+    try {
+      // El contador es por SERIE (timbrado + punto de expedicion + serie
+      // SIFEN), no por caja: cambiar cualquiera de las tres abre una serie
+      // nueva que arranca en 1, y seguir con el contador de la anterior es
+      // como se mando el numero 838 contra un punto que iba por 614. La serie
+      // se lee del store en el momento del click, igual que el veredicto de
+      // tenencia — y de la MISMA lista, asi el numero y la serie SIFEN que
+      // viajan congelados en la venta salen de la misma foto de la caja.
+      const registersNow = useCatalogStore.getState().registers
+      const series = invoiceSeriesForRegister(registersNow, activeRegisterId)
+      const serie = invoiceSerieForRegister(registersNow, activeRegisterId)
+      // Serie desconocida (la caja activa no esta en el catalogo del device)
+      // se trata igual que no tener numero: se corta ANTES de emitir en vez
+      // de numerar bajo una serie inventada.
+      if (series === null || serie === null) throw new Error("NO_INVOICE_NUMBER")
+      invoiceNo = getNextInvoiceNo(activeRegisterId, series)
+      invoiceSerie = serie
+    } catch {
+      throw new Error(
+        'No se pudo determinar el próximo número de comprobante de esta caja — conectate a internet e intentá de nuevo.',
+      )
+    }
+
+    // Construir payload para tenerlo disponible tanto para el POST como para el enqueue
+    const payload = buildSalePayload({
+      lines: args.lines,
+      payments: args.payments,
+      credito: args.credito,
+      interno: args.interno,
+      customer,
+      userId: null,
+      tags: args.tags,
+      quoteParentId: args.quoteParentId,
+      saleDiscount: args.saleDiscount,
+      ivaRemoved: args.ivaRemoved,
+      timezone: config?.timezone,
+      dueDate: args.dueDate,
+      uid: args.uid,
+      invoiceno: invoiceNo,
+      invoiceserie: invoiceSerie,
+    })
+
+    let result: CreateSaleResult
+
+    try {
+      const apiPayload = buildApiPayload(payload)
+      // El timeout existe para el modo offline: si la red no responde, se
+      // encola rápido y el cajero sigue vendiendo. Pero el cobro de un
+      // espacio/orden es ONLINE-ONLY (abajo), así que cortar a los 5s solo
+      // sirve para abortar una venta que el servidor quizás estaba
+      // procesando — con el espacio cargado y el servidor remoto, 5s se cumplen
+      // seguido. Para esos cobros se da margen real.
+      const isOnlineOnlyCharge = args.chargeTarget !== null
+      const timeoutMs = isOnlineOnlyCharge ? 20_000 : 5_000
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('fetch timeout')), timeoutMs)
+      )
+      const raw = await Promise.race([
+        posApi.postLegacy<{
+          success: boolean
+          transactionId: string
+          uid: string
+          duplicated: boolean
+          einvoicePortalUrl?: string | null
+          /** Solo en el duplicado: la venta que YA estaba registrada. */
+          sale?: Parameters<typeof toRegisteredSale>[0]
+        }>(
+          '/v1/sales',
+          apiPayload,
+        ),
+        timeoutPromise,
+      ])
+      // Duplicado (este uid ya estaba registrado): manda la venta ORIGINAL.
+      // El número que se consumió arriba para ESTE intento no es el que
+      // quedó registrado — el ticket y la pantalla muestran el del servidor.
+      const registered = raw.duplicated === true && raw.sale ? toRegisteredSale(raw.sale) : null
+      result = {
+        transactionId: raw.transactionId,
+        transactionUID: raw.uid,
+        // Mismo número consumido arriba, ANTES del POST — el backend lo
+        // persistió tal cual (SaleInput.php:157 → SaleService.php:663).
+        // Antes esto era siempre `null`: la venta online nunca mandaba
+        // invoiceno y el ticket nunca mostraba comprobante (P0 fiscal).
+        invoiceNumber: registered?.invoiceNo != null ? String(registered.invoiceNo) : String(invoiceNo),
+        total: registered?.total ?? payload.subtotal,
+        duplicated: raw.duplicated === true,
+        einvoicePortalUrl: raw.einvoicePortalUrl ?? null,
+      }
+    } catch (fetchErr) {
+      // TypeError (network) o timeout → encolar offline
+      // ApiError 4xx → NO encolar (error de negocio), relanzar
+      // ApiError 5xx → encolar también
+      const isNetworkOrTimeout =
+        fetchErr instanceof TypeError ||
+        (fetchErr instanceof Error && fetchErr.message === 'fetch timeout') ||
+        (fetchErr instanceof ApiError && fetchErr.status >= 500)
+
+      if (!isNetworkOrTimeout) {
+        // 4xx o error de negocio — mostrar error normal
+        throw fetchErr
+      }
+
+      // Online-only: el cobro de un espacio/orden NO se encola offline —
+      // el scope offline es SOLO ventas simples (memoria/roadmap): encolar
+      // acá dejaría la sesión/orden sin markPaid ni close en el server.
+      // El cobro PARCIAL (split, context/15 §F3) es aún más estricto: sin
+      // transactionId no hay renglón de ledger, y el saldo del espacio
+      // quedaría intacto con la plata ya en la caja.
+      // El cajero ve el error y reintenta con conexión.
+      if (args.chargeTarget) {
+        // Resultado AMBIGUO (timeout, red o 5xx): el servidor pudo haber
+        // registrado la venta. Se persiste el cobro pendiente con ESTE uid,
+        // y el próximo intento sobre el mismo objeto —aunque el cajero
+        // cierre el diálogo o recargue— lo consulta antes de volver a
+        // cobrar. Ver `lib/pos/pending-charges.ts`.
+        await recordAmbiguousCharge({
+          target: args.chargeTarget,
+          uid: payload.uid,
+          payload,
+          followups: args.chargeFollowups,
+        }).catch((err) =>
+          console.error("[pay-dialog] no se pudo registrar el cobro pendiente:", err),
+        )
+        // Un 5xx NO es falta de conexión: es un error DEL SERVIDOR, y
+        // decirle "sin conexión" al cajero lo manda a reintentar para
+        // siempre contra un bug. Se propaga el error real para que se vea
+        // qué falló. Solo la caída de red y el timeout se reportan como
+        // falta de conexión.
+        if (fetchErr instanceof ApiError) {
+          throw fetchErr
+        }
+        throw new Error(
+          "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
+        )
+      }
+
+      // El número ya se consumió UNA sola vez arriba, antes del try/POST
+      // — acá solo se usa para el enqueue, no se vuelve a pedir (ver
+      // comentario grande más arriba, antes de `buildSalePayload`).
+
+      // Encolar en IndexedDB
+      await enqueue({ clientTempId: payload.uid, invoiceNo, sale: payload })
+      await journalSale(payload)
+
+      // Stock optimistic
+      const catalogItems = useCatalogStore.getState().items
+      for (const line of args.lines) {
+        const item = catalogItems.find((i) => i.id === line.itemId)
+        if (item && item.stock !== null) {
+          useCatalogStore.getState().patchItem({ ...item, stock: item.stock - line.qty })
+        }
+      }
+
+      // Actualizar contador de pendientes
+      const count = await getCount()
+      useOfflineSyncStore.getState().setPendingCount(count)
+
+      // Misma pantalla de confirmación que la venta online (decisión owner:
+      // TODA transacción termina en el modal de éxito, ahí se decide si
+      // imprimir — la impresión es browser-side y no necesita el server).
+      // Antes: clearCart + toast + return dejaban el dialog colgado en fase
+      // "pay" con total Gs. 0 y sin confirmación. El clearCart ahora ocurre
+      // al cerrar (handleClose, fase success), igual que el flujo online.
+      const offlineResult: CreateSaleResult = {
+        transactionId: "",
+        transactionUID: payload.uid,
+        // El número que emitió el device es el que va impreso: es el mismo
+        // que el server va a confirmar al sincronizar (offline-sync.php).
+        invoiceNumber: String(invoiceNo),
+        total: payload.subtotal,
+        duplicated: false,
+        // Venta offline: el documento electrónico todavía no existe (se
+        // encola al sincronizar), así que no hay link del portal que imprimir.
+        einvoicePortalUrl: null,
+      }
+      return { kind: "queued", payload, result: offlineResult }
+    }
+
+    return { kind: "sent", payload, result }
+  }
+
   async function handleConfirm(
     appliedPayments: AppliedPayment[],
     changeAmount: number,
   ) {
+    // Cobro con SALDO: otro documento, otro camino (ver `handleWalletConfirm`).
+    if (appliedPayments.some((r) => r.wallet)) {
+      await handleWalletConfirm(appliedPayments)
+      return
+    }
     setSubmitting(true)
     setErrorMsg(null)
     setOrderDraft(null) // limpiar snapshot de "Ordenar" de una venta previa en el mismo mount
@@ -928,6 +1279,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       if (credito && customer && !customer.isCreditable) {
         throw new Error(`${customer.name} no tiene crédito habilitado`)
       }
+      // Carga de saldo (wallet F2): va al bolsillo de un TITULAR y se cobra en
+      // el momento. El servidor lo rechaza igual; acá se corta ANTES de numerar
+      // para que no se emita un comprobante que después no entra.
+      if (cartHasWalletLoad(lines)) {
+        if (!customer) throw new Error("Elegí el cliente al que le cargás saldo")
+        if (customer.parentContactId) {
+          throw new Error(`A ${customer.name} se le transfiere saldo desde su titular`)
+        }
+        if (credito) throw new Error("La carga de saldo se cobra en el momento, no a crédito")
+      }
       if (effectivePayments.length === 0) {
         throw new Error("Debe agregar al menos un método de pago")
       }
@@ -978,262 +1339,31 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         }
       }
 
-      // Número de comprobante — se consume UNA SOLA VEZ acá, ANTES de
-      // intentar el POST, y sirve a las DOS ramas (online y offline) que
-      // siguen. El número sale SIEMPRE del contador local del POS ("último
-      // correlativo de mi caja + 1", `lib/pos/invoice-numbering.ts` —
-      // context/29-numeracion-y-exclusividad-de-caja.md) — nunca de un
-      // `DocumentNumber::allocate()` server-side en el camino online: un
-      // allocate() ahí devolvería números por encima de lo que el device ya
-      // emitió offline, y el device emitiría después, offline, un número
-      // MENOR con fecha posterior — viola "orden de números = orden de
-      // fechas". El backend (`api/v1/sales.php`) valida que este device siga
-      // siendo el tenedor de `register_lease` antes de guardar y la rechaza
-      // con 409 si no lo es — ver el catch de abajo (`registerTakenInfo`).
-      //
-      // Regla del owner ("no puede salir una venta sin número de factura",
-      // context/08 §53) — sin número no hay documento válido para entregar,
-      // en NINGUNA rama (online u offline). `interno` incluido — el doctype
-      // 'comprobante' sin valor fiscal todavía no existe. Cotización queda
-      // afuera — no pasa por acá (create-quote.ts es un comando aparte,
-      // nunca llega a invoice-numbering).
-      //
-      // Trade-off aceptado: un intento que falla DESPUÉS de este punto (4xx
-      // de negocio, o el cobro online-only de sesión/orden/settlement que no
-      // encola) quema este número sin usarlo — mismo criterio que un hueco
-      // de numeración, aceptado por diseño en modo offline. La alternativa
-      // (pedir el número recién si el POST fuera a tener éxito) no es
-      // posible: hace falta MANDARLO en el payload para que el backend
-      // valide tenencia.
-      // ── Gate de tenencia, ANTES de numerar ──────────────────────────────
-      // El fix del incidente 2026-08-23. Hasta acá el único gate de tenencia
-      // era el 409 de `sales.php`, o sea que existía SOLO online: sin red no
-      // había POST, el POS numeraba, imprimía y el rechazo llegaba al
-      // sincronizar, con el ticket ya en la mano del cliente. Ahora el device
-      // decide con lo último que el servidor le confirmó (grant persistido,
-      // `lib/pos/register-tenancy.ts`) — que es la única información que puede
-      // tener sin conexión.
-      //
-      // Va ANTES de `getNextInvoiceNo()` a propósito: consumir el número es el
-      // punto de no retorno de la numeración (deja un hueco aunque la venta no
-      // salga). Sin derecho a emitir, no se toca el contador.
-      //
-      // Fail-closed: `verdict === null` (todavía no hidratado) tampoco emite.
-      // El costo de equivocarse hacia el otro lado es un comprobante duplicado
-      // que el sistema después repudia.
-      // ── Gate de TIMBRADO, antes que el de tenencia y antes de numerar ────
-      // Va primero por la misma razón que en `emission-block.ts`: tomar la
-      // caja no habilita a facturar con el timbrado caído, así que mandar al
-      // cajero a `RegisterTakenPhase` sería mandarlo a una acción que no lo
-      // desbloquea. Y va ANTES de `getNextInvoiceNo()` por el mismo motivo que
-      // el gate de tenencia: consumir el número es el punto de no retorno de la
-      // numeración.
-      //
-      // Esta es la evaluación que importa: el guard del servidor
-      // (`InvoiceAuthGate`, 422 `invoice_auth_expired`) solo llega si hay red, y
-      // sin este corte local el POS imprimiría el ticket y se enteraría del
-      // rechazo recién al sincronizar — con el comprobante ya entregado.
-      //
-      // Un `throw` y no una fase propia: no hay recuperación desde acá (el
-      // trámite es en el panel, y ante la autoridad fiscal), así que el mensaje
-      // sale por el mismo camino que el resto de los cortes terminales de este
-      // handler.
-      const authBlock = emissionBlockNow()
-      if (authBlock?.kind === "invoice-auth") {
-        throw new Error(authBlock.reason)
-      }
-
-      const block = tenancyBlock(useTenancyStore.getState().verdict)
-      if (block) {
-        setRegisterTaken(block)
-        setBlockedBeforePay(false)
-        setPhase("register-taken")
-        return
-      }
-
-      let invoiceNo: number
-      let invoiceSerie: string
-      try {
-        // El contador es por SERIE (timbrado + punto de expedicion + serie
-        // SIFEN), no por caja: cambiar cualquiera de las tres abre una serie
-        // nueva que arranca en 1, y seguir con el contador de la anterior es
-        // como se mando el numero 838 contra un punto que iba por 614. La serie
-        // se lee del store en el momento del click, igual que el veredicto de
-        // tenencia — y de la MISMA lista, asi el numero y la serie SIFEN que
-        // viajan congelados en la venta salen de la misma foto de la caja.
-        const registersNow = useCatalogStore.getState().registers
-        const series = invoiceSeriesForRegister(registersNow, activeRegisterId)
-        const serie = invoiceSerieForRegister(registersNow, activeRegisterId)
-        // Serie desconocida (la caja activa no esta en el catalogo del device)
-        // se trata igual que no tener numero: se corta ANTES de emitir en vez
-        // de numerar bajo una serie inventada.
-        if (series === null || serie === null) throw new Error("NO_INVOICE_NUMBER")
-        invoiceNo = getNextInvoiceNo(activeRegisterId, series)
-        invoiceSerie = serie
-      } catch {
-        throw new Error(
-          'No se pudo determinar el próximo número de comprobante de esta caja — conectate a internet e intentá de nuevo.',
-        )
-      }
-
-      // Construir payload para tenerlo disponible tanto para el POST como para el enqueue
-      const payload = buildSalePayload({
+      const outcome = await emitSale({
         lines,
         payments: effectivePayments,
         credito,
         interno,
-        customer,
-        userId: null,
         tags,
         quoteParentId,
         saleDiscount,
         ivaRemoved,
-        timezone: config?.timezone,
         dueDate: credito ? (dueDate || null) : null,
         uid: saleUidRef.current,
-        invoiceno: invoiceNo,
-        invoiceserie: invoiceSerie,
+        chargeTarget,
+        chargeFollowups,
       })
-
-      let result: CreateSaleResult
-
-      try {
-        const apiPayload = buildApiPayload(payload)
-        // El timeout existe para el modo offline: si la red no responde, se
-        // encola rápido y el cajero sigue vendiendo. Pero el cobro de un
-        // espacio/orden es ONLINE-ONLY (abajo), así que cortar a los 5s solo
-        // sirve para abortar una venta que el servidor quizás estaba
-        // procesando — con el espacio cargado y el servidor remoto, 5s se cumplen
-        // seguido. Para esos cobros se da margen real.
-        const isOnlineOnlyCharge = chargeTarget !== null
-        const timeoutMs = isOnlineOnlyCharge ? 20_000 : 5_000
-        const timeoutPromise = new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('fetch timeout')), timeoutMs)
-        )
-        const raw = await Promise.race([
-          posApi.postLegacy<{
-            success: boolean
-            transactionId: string
-            uid: string
-            duplicated: boolean
-            einvoicePortalUrl?: string | null
-            /** Solo en el duplicado: la venta que YA estaba registrada. */
-            sale?: Parameters<typeof toRegisteredSale>[0]
-          }>(
-            '/v1/sales',
-            apiPayload,
-          ),
-          timeoutPromise,
-        ])
-        // Duplicado (este uid ya estaba registrado): manda la venta ORIGINAL.
-        // El número que se consumió arriba para ESTE intento no es el que
-        // quedó registrado — el ticket y la pantalla muestran el del servidor.
-        const registered = raw.duplicated === true && raw.sale ? toRegisteredSale(raw.sale) : null
-        result = {
-          transactionId: raw.transactionId,
-          transactionUID: raw.uid,
-          // Mismo número consumido arriba, ANTES del POST — el backend lo
-          // persistió tal cual (SaleInput.php:157 → SaleService.php:663).
-          // Antes esto era siempre `null`: la venta online nunca mandaba
-          // invoiceno y el ticket nunca mostraba comprobante (P0 fiscal).
-          invoiceNumber: registered?.invoiceNo != null ? String(registered.invoiceNo) : String(invoiceNo),
-          total: registered?.total ?? payload.subtotal,
-          duplicated: raw.duplicated === true,
-          einvoicePortalUrl: raw.einvoicePortalUrl ?? null,
-        }
-      } catch (fetchErr) {
-        // TypeError (network) o timeout → encolar offline
-        // ApiError 4xx → NO encolar (error de negocio), relanzar
-        // ApiError 5xx → encolar también
-        const isNetworkOrTimeout =
-          fetchErr instanceof TypeError ||
-          (fetchErr instanceof Error && fetchErr.message === 'fetch timeout') ||
-          (fetchErr instanceof ApiError && fetchErr.status >= 500)
-
-        if (!isNetworkOrTimeout) {
-          // 4xx o error de negocio — mostrar error normal
-          throw fetchErr
-        }
-
-        // Online-only: el cobro de un espacio/orden NO se encola offline —
-        // el scope offline es SOLO ventas simples (memoria/roadmap): encolar
-        // acá dejaría la sesión/orden sin markPaid ni close en el server.
-        // El cobro PARCIAL (split, context/15 §F3) es aún más estricto: sin
-        // transactionId no hay renglón de ledger, y el saldo del espacio
-        // quedaría intacto con la plata ya en la caja.
-        // El cajero ve el error y reintenta con conexión.
-        if (chargeTarget) {
-          // Resultado AMBIGUO (timeout, red o 5xx): el servidor pudo haber
-          // registrado la venta. Se persiste el cobro pendiente con ESTE uid,
-          // y el próximo intento sobre el mismo objeto —aunque el cajero
-          // cierre el diálogo o recargue— lo consulta antes de volver a
-          // cobrar. Ver `lib/pos/pending-charges.ts`.
-          await recordAmbiguousCharge({
-            target: chargeTarget,
-            uid: payload.uid,
-            payload,
-            followups: chargeFollowups,
-          }).catch((err) =>
-            console.error("[pay-dialog] no se pudo registrar el cobro pendiente:", err),
-          )
-          // Un 5xx NO es falta de conexión: es un error DEL SERVIDOR, y
-          // decirle "sin conexión" al cajero lo manda a reintentar para
-          // siempre contra un bug. Se propaga el error real para que se vea
-          // qué falló. Solo la caída de red y el timeout se reportan como
-          // falta de conexión.
-          if (fetchErr instanceof ApiError) {
-            throw fetchErr
-          }
-          throw new Error(
-            "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
-          )
-        }
-
-        // El número ya se consumió UNA sola vez arriba, antes del try/POST
-        // — acá solo se usa para el enqueue, no se vuelve a pedir (ver
-        // comentario grande más arriba, antes de `buildSalePayload`).
-
-        // Encolar en IndexedDB
-        await enqueue({ clientTempId: payload.uid, invoiceNo, sale: payload })
-        await journalSale(payload)
-
-        // Stock optimistic
-        const catalogItems = useCatalogStore.getState().items
-        for (const line of lines) {
-          const item = catalogItems.find((i) => i.id === line.itemId)
-          if (item && item.stock !== null) {
-            useCatalogStore.getState().patchItem({ ...item, stock: item.stock - line.qty })
-          }
-        }
-
-        // Actualizar contador de pendientes
-        const count = await getCount()
-        useOfflineSyncStore.getState().setPendingCount(count)
-
+      if (outcome.kind === "blocked") return
+      if (outcome.kind === "queued") {
         // Misma pantalla de confirmación que la venta online (decisión owner:
-        // TODA transacción termina en el modal de éxito, ahí se decide si
-        // imprimir — la impresión es browser-side y no necesita el server).
-        // Antes: clearCart + toast + return dejaban el dialog colgado en fase
-        // "pay" con total Gs. 0 y sin confirmación. El clearCart ahora ocurre
-        // al cerrar (handleClose, fase success), igual que el flujo online.
+        // TODA transacción termina en el modal de éxito). Ver `emitSale`.
         toast.info('Sin conexión — la venta se enviará al volver online')
-        const offlineResult: CreateSaleResult = {
-          transactionId: "",
-          transactionUID: payload.uid,
-          // El número que emitió el device es el que va impreso: es el mismo
-          // que el server va a confirmar al sincronizar (offline-sync.php).
-          invoiceNumber: String(invoiceNo),
-          total: payload.subtotal,
-          duplicated: false,
-          // Venta offline: el documento electrónico todavía no existe (se
-          // encola al sincronizar), así que no hay link del portal que imprimir.
-          einvoicePortalUrl: null,
-        }
-        setSaleResult(offlineResult)
-        runAutoPrint(payload, offlineResult)
+        setSaleResult(outcome.result)
+        runAutoPrint(outcome.payload, outcome.result)
         setPhase("success")
         return
       }
+      const { payload, result } = outcome
 
       // Cobro emitido con respuesta: ya no hay nada pendiente sobre este
       // objeto. Se limpia ANTES de pasar a éxito: si quedara, el próximo cobro
@@ -1259,29 +1389,208 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // la caja y CUÁNDO se libera, con un CTA de reintentar — no solo el
       // texto plano de `errorMsg`.
       if (err instanceof ApiError && err.status === 409) {
-        // El 409 es información MÁS fresca que el grant local: persistirlo
-        // deja al device sabiendo que perdió la caja aunque la red se corte
-        // el segundo siguiente. Sin esto, el próximo intento (ya offline)
-        // volvería a dejar vender.
-        const info = extractRegisterConflictInfo(err)
-        setRegisterTaken({
-          info,
-          // Sin veredicto local: este bloqueo lo produjo el servidor.
-          kind: null,
-          // Misma regla que `evaluateGrant()`: solo "la tiene otro" cierra la
-          // puerta. Un 409 sin `reason` legible (backend viejo) deja pedir la
-          // caja — el claim lo resolverá con información fresca.
-          canAcquire: info.reason !== "taken_by_other" && info.holderDeviceId === null,
-        })
-        setPhase("register-taken")
-        // Reconfirmar, no reclamar: el cajero acaba de perder la caja y tiene
-        // que verlo, no que el POS se la arrebate de vuelta a quien la tenga.
-        if (activeRegisterId) void refreshTenancy(activeRegisterId, { acquire: false })
+        showRegisterConflict(err)
       } else {
         setErrorMsg(
           err instanceof Error ? err.message : "Error al confirmar la venta",
         )
       }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  /** 409 de tenencia de caja al emitir (venta o carga de D14). */
+  function showRegisterConflict(err: ApiError) {
+    // El 409 es información MÁS fresca que el grant local: persistirlo
+    // deja al device sabiendo que perdió la caja aunque la red se corte
+    // el segundo siguiente. Sin esto, el próximo intento (ya offline)
+    // volvería a dejar vender.
+    const info = extractRegisterConflictInfo(err)
+    setRegisterTaken({
+      info,
+      // Sin veredicto local: este bloqueo lo produjo el servidor.
+      kind: null,
+      // Misma regla que `evaluateGrant()`: solo "la tiene otro" cierra la
+      // puerta. Un 409 sin `reason` legible (backend viejo) deja pedir la
+      // caja — el claim lo resolverá con información fresca.
+      canAcquire: info.reason !== "taken_by_other" && info.holderDeviceId === null,
+    })
+    setPhase("register-taken")
+    // Reconfirmar, no reclamar: el cajero acaba de perder la caja y tiene
+    // que verlo, no que el POS se la arrebate de vuelta a quien la tenga.
+    if (activeRegisterId) void refreshTenancy(activeRegisterId, { acquire: false })
+  }
+
+  // ── Cobro con saldo (wallet F2, context/74 D12-D14) ───────────────────────
+  /**
+   * El carrito se paga con SALDO: sale como COMPROBANTE INTERNO de consumo
+   * (saca stock y COGS, no suma a ventas, no mueve caja, no emite factura —
+   * D12), creado y debitado por el servidor en una sola operación (§5).
+   *
+   * Si el bolsillo no alcanzaba (D14), el cajero cobró la diferencia con otros
+   * medios en ESTE MISMO cobro — ve uno solo. Por detrás son dos operaciones,
+   * en este orden:
+   *
+   *   1. Una CARGA de la diferencia: una venta normal con la línea "Carga de
+   *      saldo", pagada con esos otros medios, numerada por la caja y con su
+   *      factura (`emitSale`, el mismo camino fiscal que cualquier venta —
+   *      offline incluido). Así TODA factura sale al cargar.
+   *   2. El CONSUMO del carrito entero con saldo, que ya alcanza.
+   *
+   * Si el consumo falla después de la carga, no se pierde nada: la plata ya es
+   * saldo del cliente. El cobro queda armado como "todo con saldo" y el
+   * reintento cobra SOLO el consumo (con el mismo uid: nunca debita dos veces).
+   */
+  async function handleWalletConfirm(appliedPayments: AppliedPayment[]) {
+    const walletRow = appliedPayments.find((r) => r.wallet)
+    if (!walletRow?.wallet) return
+    const { pocketId, pocketName } = walletRow.wallet
+
+    setSubmitting(true)
+    setErrorMsg(null)
+    let stage: "load" | "consume" = "load"
+    let loadedNow = walletLoaded !== null
+
+    try {
+      if (walletBaseBlockedReason) throw new Error(walletBaseBlockedReason)
+      if (!customer) throw new Error("Elegí el cliente para cobrar con saldo")
+
+      const loadAmount = Math.round((total - walletRow.amount) * 100) / 100
+      if (loadAmount > 0) {
+        const pocket = (config?.walletPockets ?? []).find((p) => p.id === pocketId)
+        if (!pocket) throw new Error(`El bolsillo ${pocketName} ya no está activo`)
+        if (!operatorPermissions.includes(POS_WALLET_LOAD)) {
+          throw new Error(`El saldo de ${pocketName} no alcanza para este cobro`)
+        }
+        const others = appliedPayments.filter((r) => !r.wallet)
+        const outcome = await emitSale({
+          lines: [{ ...walletLoadLine(pocket, loadAmount), lineId: crypto.randomUUID() }],
+          payments: others.map((r) => ({
+            name: r.method.name,
+            type: r.method.id,
+            total: r.amount,
+            ...(r.identifier ? { identifier: r.identifier } : {}),
+          })),
+          credito: false,
+          interno: false,
+          tags: [],
+          quoteParentId: null,
+          saleDiscount: null,
+          ivaRemoved: false,
+          dueDate: null,
+          uid: walletLoadUidRef.current,
+          chargeTarget: null,
+          chargeFollowups: { settlementIntent: null, sessionParentId: null, sessionOrderIds: [], orderParentIds: [] },
+        })
+        if (outcome.kind === "blocked") return
+        // La encolada ya quedó en el registro del turno dentro de `emitSale`.
+        if (outcome.kind === "sent") void journalSale(outcome.payload)
+        runAutoPrint(outcome.payload, outcome.result, "factura")
+        // Diferencia pagada con giftcard: se canjea contra la CARGA, igual que
+        // `completeConfirmedSale` hace con una venta normal (fire-and-forget,
+        // la carga ya está emitida). Sin esto la tarjeta quedaba con saldo.
+        const gcCode = others.find((r) => r.method.systemKey === "giftcard")?.identifier ?? null
+        if (gcCode && outcome.kind === "sent" && outcome.result.transactionId) {
+          void posApi.post("/v1/giftcards?resource=consume", {
+            code: gcCode,
+            transactionId: outcome.result.transactionId,
+          }).catch((err) => {
+            const reason = err instanceof Error ? err.message : "error desconocido"
+            toast.error(`Carga confirmada — giftcard no se pudo canjear (${reason}). Avisá al soporte.`)
+          })
+        }
+        loadedNow = true
+        setWalletLoaded({ amount: loadAmount, queued: outcome.kind === "queued" })
+        // Desde acá el cobro es TODO con saldo: la diferencia ya es saldo del
+        // bolsillo. Los otros pagos se fueron en la carga (su vuelto se
+        // conserva en la fila para la pantalla de éxito).
+        const merged: AppliedPayment = {
+          ...walletRow,
+          amount: total,
+          change: others.reduce((acc, r) => acc + r.change, 0),
+          wallet: { ...walletRow.wallet, available: walletRow.wallet.available + loadAmount },
+        }
+        setApplied([merged])
+        void qc.invalidateQueries({ queryKey: ["wallet"] })
+      }
+
+      stage = "consume"
+      const consumePayload = buildSalePayload({
+        lines,
+        payments: [],
+        credito: false,
+        interno: false,
+        customer,
+        userId: null,
+        tags,
+        quoteParentId: null,
+        saleDiscount,
+        ivaRemoved: false,
+        timezone: config?.timezone,
+        dueDate: null,
+        uid: walletConsumeUidRef.current,
+        invoiceno: 0,
+        invoiceserie: "",
+      })
+      const res = await consumeWithWallet({
+        pocketId,
+        sale: {
+          uid: consumePayload.uid,
+          client: customer.id,
+          sale: consumePayload.sale,
+          subtotal: consumePayload.subtotal,
+          discount: consumePayload.discount,
+          note: consumePayload.note ?? null,
+          tags: consumePayload.tags,
+          timestamp: consumePayload.timestamp,
+          date: consumePayload.date,
+        },
+      })
+
+      const result: CreateSaleResult = {
+        transactionId: res.transactionId,
+        transactionUID: res.uid,
+        invoiceNumber: res.invoiceNo != null ? String(res.invoiceNo) : null,
+        total: res.total,
+        duplicated: res.duplicated,
+        einvoicePortalUrl: null,
+      }
+      setWalletSuccess({ pocketName, balance: res.balance })
+      setSaleResult(result)
+      // El comprobante de consumo NO va al registro del turno: no movió caja.
+      runAutoPrint(
+        {
+          ...consumePayload,
+          payment: [{ name: pocketName, type: "wallet", total: res.total }],
+          invoiceno: res.invoiceNo ?? 0,
+        },
+        result,
+        "receipt",
+      )
+      setPhase("success")
+      void posApi.post("/v1/screens?resource=publish", {
+        type: "sale-confirmed",
+        data: { total: res.total, change: 0 },
+      }).catch(() => {})
+      void qc.invalidateQueries({ queryKey: ["wallet"] })
+      void qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
+    } catch (err) {
+      if (stage === "load" && err instanceof ApiError && err.status === 409) {
+        showRegisterConflict(err)
+        return
+      }
+      const base =
+        err instanceof WalletInsufficientError
+          ? `${pocketName} tiene ${formatMoney(err.available, config)}`
+          : err instanceof Error
+            ? err.message
+            : "No se pudo cobrar con saldo"
+      setErrorMsg(
+        stage === "consume" && loadedNow
+          ? `${base}. La carga ya quedó en el saldo de ${customer?.name ?? "el cliente"}: tocá Saldo para reintentar el cobro.`
+          : base,
+      )
     } finally {
       setSubmitting(false)
     }
@@ -1301,13 +1610,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     amount: number,
     identifier: string | null,
     changeOverride?: number,
+    wallet?: AppliedPayment["wallet"],
   ) {
     // changeOverride tiene prioridad: permite registrar el vuelto cuando el
     // pago entra por `remaining` pero el cajero recibió más (medio con vuelto).
     const rowChange = changeOverride ?? 0
     const newApplied: AppliedPayment[] = [
       ...applied,
-      { rowId: crypto.randomUUID(), method, amount, identifier, change: rowChange },
+      { rowId: crypto.randomUUID(), method, amount, identifier, change: rowChange, ...(wallet ? { wallet } : {}) },
     ]
     const newAppliedTotal = newApplied.reduce((s, r) => s + r.amount, 0)
     const newRemaining = total - newAppliedTotal
@@ -1376,6 +1686,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         return
       }
       toast.info("El total ya está cubierto — confirmá la venta")
+      return
+    }
+
+    // Saldo (wallet F2): se elige el bolsillo viendo el disponible. Online
+    // siempre; el impedimento se dice acá, que es también el camino del hotkey.
+    if (method.systemKey === "wallet") {
+      if (walletPayBlockedReason) {
+        toast.info(walletPayBlockedReason)
+        return
+      }
+      setPendingWallet(true)
       return
     }
 
@@ -1547,6 +1868,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     ? chargeBlockedReason
     : !credito
     ? null
+    : cartHasWalletLoad(lines)
+      ? "La carga de saldo se cobra en el momento, no a crédito"
     : !customer
       ? "Elegí un cliente para vender a crédito"
       : !customer.isCreditable
@@ -1569,6 +1892,39 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       ?? (credito && remaining <= 0
         ? "El total ya está cubierto"
         : null)
+
+  /**
+   * Por qué el medio "Saldo" no se puede usar ahora (context/74 F2), o `null`.
+   * Se pinta EN el botón, que nunca sale de la grilla (context/14 R10).
+   *
+   * Sin red no hay cobro con saldo (§5): el saldo es compartido entre cajas y
+   * el débito lo decide el servidor. Y el consumo es un comprobante propio,
+   * así que no se mezcla con lo que tiene su propio circuito: crédito, cobro de
+   * espacios/órdenes, interno/sin IVA, cargas, vales y gift cards.
+   */
+  const walletChargeTarget = chargeTargetFor({ settlementIntent, sessionParentId, orderParentIds })
+  // Base = lo que no depende de los pagos ya aplicados. `handleWalletConfirm`
+  // usa ESTA: la llaman con los pagos recién armados, antes de que el estado
+  // `applied` de este render se entere de ellos.
+  const walletBaseBlockedReason: string | null =
+    !isOnlineNow
+      ? "Necesita conexión a internet"
+      : !operatorPermissions.includes(POS_WALLET_SPEND)
+        ? "No tenés permiso para cobrar con saldo"
+        : !customer
+          ? "Elegí el cliente para cobrar con saldo"
+          : credito
+            ? "El saldo no se usa en una venta a crédito"
+            : walletChargeTarget
+              ? "Este cobro no se paga con saldo"
+              : interno || ivaRemoved
+                ? "Quitá Interno y Sin IVA para cobrar con saldo"
+                : cartHasWalletLoad(lines) || lines.some((l) => l.voucher || l.giftcard)
+                  ? "Esta venta no se paga con saldo"
+                  : null
+  const walletPayBlockedReason: string | null =
+    walletBaseBlockedReason
+    ?? (applied.some((r) => r.wallet) && remaining > 0 ? "Ya se aplicó un pago con saldo" : null)
 
   function handleCreditConfirm() {
     if (!creditSaleReady) return
@@ -1627,7 +1983,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // fallback cuando falta el binding "factura". EXCEPCIÓN: emisión de gift
     // card = adelanto → Recibo (ver comentario espejo en handleConfirm arriba).
     const hasGiftcardIssuance = lines.some((l) => !!l.giftcard)
-    const printDocType: PrinterDocType = hasGiftcardIssuance ? "receipt" : "factura"
+    // Consumo con saldo (wallet F2): comprobante interno → Recibo.
+    const printDocType: PrinterDocType = walletSuccess || hasGiftcardIssuance ? "receipt" : "factura"
     // `requestPrint` es el wrapper compartido (print-with-fallback.ts) que ya
     // usan el diálogo de transacciones y el drawer de opciones: si hay binding
     // para el documento imprime derecho; si NO hay pero sí hay impresoras
@@ -1684,6 +2041,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     } else {
       // Venta abandonada — limpiar quoteParentId para que la próxima venta no herede el parent
       setQuoteParent(null)
+      // Cobro con saldo que se abandona DESPUÉS de emitir la carga de la
+      // diferencia (D14): esa plata ya es saldo del cliente. Se dice, para que
+      // nadie la vuelva a cobrar.
+      if (walletLoaded) {
+        toast.info(
+          `La carga de ${formatMoney(walletLoaded.amount, config)} quedó en el saldo de ${customer?.name ?? "el cliente"}`,
+        )
+      }
     }
     onOpenChange(false)
   }
@@ -1716,6 +2081,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               customer={customer}
               creditBlockedReason={creditBlockedReason}
               payBlockedHint={payBlockedHint}
+              walletBlockedReason={walletPayBlockedReason}
               applied={applied}
               display={display}
               displayRef={displayRef}
@@ -1770,7 +2136,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             />
           ) : (
             <TransactionSuccessView
-              title="¡Venta confirmada!"
+              title={walletSuccess ? "¡Pagado con saldo!" : "¡Venta confirmada!"}
               amount={formatMoney(
                 saleResult?.duplicated ? saleResult.total : total,
                 config,
@@ -1780,6 +2146,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                 saleResult?.duplicated ? (
                   <Badge variant="outline" className="text-[10px] opacity-70">
                     Este cobro ya estaba registrado
+                  </Badge>
+                ) : walletSuccess ? (
+                  <Badge variant="outline" className="text-[10px] opacity-80">
+                    {walletSuccess.pocketName}: quedan {formatMoney(walletSuccess.balance, config)}
                   </Badge>
                 ) : undefined
               }
@@ -1855,6 +2225,27 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         }}
         onCancel={() => setPendingGiftcard(false)}
       />
+
+      <WalletPayDialog
+        open={pendingWallet}
+        customerId={customer?.id ?? null}
+        customerName={customer?.name ?? null}
+        remaining={remaining}
+        canLoadDifference={operatorPermissions.includes(POS_WALLET_LOAD)}
+        config={config}
+        onApply={(sel: WalletPaySelection) => {
+          setPendingWallet(false)
+          // Lo que hay, con tope en lo que falta: si no alcanza, el resto se
+          // cobra con otro medio y termina siendo una carga (D14).
+          const amount = Math.min(sel.available, remaining)
+          void applyPayment(WALLET_PAYMENT_METHOD, amount, sel.pocketName, undefined, {
+            pocketId: sel.pocketId,
+            pocketName: sel.pocketName,
+            available: sel.available,
+          })
+        }}
+        onCancel={() => setPendingWallet(false)}
+      />
     </>
   )
 }
@@ -1874,6 +2265,8 @@ interface PayPhaseProps {
    * la emisión que falló.
    */
   payBlockedHint: string | null
+  /** Por qué el medio "Saldo" no se puede usar ahora (wallet F2), o `null`. */
+  walletBlockedReason: string | null
   applied: AppliedPayment[]
   display: string
   displayRef: React.RefObject<HTMLInputElement | null>
@@ -1935,6 +2328,7 @@ function PayPhase({
   customer,
   creditBlockedReason,
   payBlockedHint,
+  walletBlockedReason,
   applied,
   display,
   displayRef,
@@ -2141,7 +2535,9 @@ function PayPhase({
             // `onMethodClick`, que es también el camino del hotkey.
             const blockedHint = pspOffline
               ? "Necesita conexión a internet"
-              : (payBlockedHint ?? undefined)
+              : (payBlockedHint
+                ?? (m.systemKey === "wallet" ? walletBlockedReason : null)
+                ?? undefined)
             // Contado con el total cubierto: el botón NO está impedido (no se
             // apaga), pero tampoco hace lo de siempre — reintenta la emisión
             // que falló. El tooltip lo dice en vez de dejar que el cajero

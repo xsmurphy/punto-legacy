@@ -149,6 +149,25 @@ if ($alreadyRegistered !== null) {
     apiOk(\Punto\Api\Sales\SaleResult::duplicate($alreadyRegistered)->toApiPayload());
 }
 
+// Carga de saldo (wallet F2, context/74): cargar crea saldo gastable, así que
+// pide `pos.wallet.load` a la PERSONA del PIN, no al rol `device` (que es el de
+// cualquiera que agarre la tablet — ver `OperatorContext`). Va en el camino
+// DIRECTO y no en la cola offline por la misma razón que el timbrado y la
+// tenencia de abajo: acá el ticket todavía no se imprimió; una carga que ya
+// llega por `offline-sync` está EMITIDA y no se rechaza (§53). La caja ya gatea
+// el botón con los permisos del operador que baja `unlock-pin`.
+//
+// `realm` explícito: `apiAuthPosContext()` solo acepta el Bearer del device,
+// así que la credencial ES `pos-app` por construcción — pero su ctx no trae la
+// clave, y sin ella `OperatorContext` leería la persona como si fuera el panel.
+foreach ($input->sale as $__line) {
+    if (is_array($__line) && is_array($__line['walletLoad'] ?? null)) {
+        require_once dirname(__DIR__) . '/lib/Auth/OperatorContext.php';
+        \Punto\Api\Auth\OperatorContext::requirePermission($authCtx + ['realm' => 'pos-app'], 'pos.wallet.load');
+        break;
+    }
+}
+
 $regId    = (string) $authCtx['registerId'];
 $compId   = (string) $authCtx['companyId'];
 $deviceId = (string) ($authCtx['deviceId'] ?? '');
