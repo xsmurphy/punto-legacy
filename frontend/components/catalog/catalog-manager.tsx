@@ -99,7 +99,12 @@ export interface CatalogManagerProps<T, P> {
   /** Hooks de mutación de TanStack Query. */
   useCreate: () => UseMutationResult<T, Error, P>
   useUpdate: () => UseMutationResult<T, Error, { id: string; values: Partial<P> }>
-  useDelete: () => UseMutationResult<{ deleted: boolean }, Error, string>
+  /**
+   * Opcional: un catálogo cuyas filas tienen historia (ej. bolsillos de la
+   * wallet, que referencian movimientos) no se borra — se desactiva con un
+   * campo del form. Sin este hook no se ofrece "Eliminar" en ninguna vista.
+   */
+  useDelete?: () => UseMutationResult<{ deleted: boolean }, Error, string>
   /** Columnas del DataTable (sin la columna de acciones, se agrega acá). */
   columns: ColumnDef<T, unknown>[]
   /** Campos del form del dialog (orden = orden de render). */
@@ -126,6 +131,19 @@ export interface CatalogManagerProps<T, P> {
     /** Render del contenido de cada fila (a la derecha del handle). */
     renderRow: (row: T) => React.ReactNode
   }
+  /** Subtítulo del encabezado. Default: el de los catálogos de artículos. */
+  description?: string
+  /**
+   * Género gramatical de `entitySingular`, para "Nuevo/Nueva",
+   * "creado/creada" y "el primero/la primera". Default femenino (categoría,
+   * marca, etiqueta).
+   */
+  gender?: "m" | "f"
+}
+
+/** Hook vacío para cuando el catálogo no admite borrado (ver `useDelete`). */
+function useNoDelete(): null {
+  return null
 }
 
 export function CatalogManager<T, P>({
@@ -145,10 +163,16 @@ export function CatalogManager<T, P>({
   exportFileName,
   transformPayload,
   reorderable,
+  description,
+  gender = "f",
 }: CatalogManagerProps<T, P>) {
   const create = useCreate()
   const update = useUpdate()
-  const del = useDelete()
+  // Siempre se llama UN hook (el real o el vacío), así el orden de hooks no
+  // depende de las props.
+  const del = (useDelete ?? useNoDelete)()
+  const canDelete = del !== null
+  const w = genderWords(gender)
 
   const [editing, setEditing] = React.useState<T | null>(null)
   const [dialogOpen, setDialogOpen] = React.useState(false)
@@ -183,6 +207,7 @@ export function CatalogManager<T, P>({
                   icon: Trash2,
                   variant: "destructive",
                   onSelect: () => setDeleteTarget(row.original),
+                  hidden: !canDelete,
                 },
               ]}
             />
@@ -192,7 +217,7 @@ export function CatalogManager<T, P>({
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columns, entitySingular],
+    [columns, entitySingular, canDelete],
   )
 
   return (
@@ -201,12 +226,12 @@ export function CatalogManager<T, P>({
         <div className="space-y-1">
           <h2 className="text-base font-semibold capitalize">{entityPlural}</h2>
           <p className="text-sm text-muted-foreground">
-            Administrá las {entityPlural} disponibles para tu catálogo de productos.
+            {description ?? `Administrá las ${entityPlural} disponibles para tu catálogo de productos.`}
           </p>
         </div>
         <Button onClick={openNew}>
           <Plus className="size-4" />
-          Nueva {entitySingular}
+          {w.newWord} {entitySingular}
         </Button>
       </header>
 
@@ -220,9 +245,10 @@ export function CatalogManager<T, P>({
               onReorder={reorderable.onReorder}
               renderRow={reorderable.renderRow}
               onEdit={openEdit}
-              onDelete={setDeleteTarget}
+              onDelete={canDelete ? setDeleteTarget : undefined}
               entitySingular={entitySingular}
               entityPlural={entityPlural}
+              gender={gender}
             />
           ) : (
             <DataTable
@@ -240,7 +266,7 @@ export function CatalogManager<T, P>({
                   title={`Sin ${entityPlural} todavía`}
                   description={
                     <>
-                      Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
+                      Creá {w.first} con el botón <strong>{w.newWord} {entitySingular}</strong>.
                     </>
                   }
                   showMarquee={false}
@@ -256,6 +282,7 @@ export function CatalogManager<T, P>({
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
         entitySingular={entitySingular}
+        newWord={w.newWord}
         editing={editing}
         fields={fields}
         emptyFormValues={emptyFormValues}
@@ -266,10 +293,10 @@ export function CatalogManager<T, P>({
           try {
             if (editing) {
               await update.mutateAsync({ id: getId(editing), values })
-              toast.success(`${capitalize(entitySingular)} actualizada`)
+              toast.success(`${capitalize(entitySingular)} actualizad${w.suffix}`)
             } else {
               await create.mutateAsync(values)
-              toast.success(`${capitalize(entitySingular)} creada`)
+              toast.success(`${capitalize(entitySingular)} cread${w.suffix}`)
             }
             setDialogOpen(false)
           } catch (e) {
@@ -282,7 +309,7 @@ export function CatalogManager<T, P>({
       />
 
       <AlertDialog
-        open={!!deleteTarget}
+        open={canDelete && !!deleteTarget}
         onOpenChange={(v) => !v && setDeleteTarget(null)}
       >
         <AlertDialogContent>
@@ -301,10 +328,10 @@ export function CatalogManager<T, P>({
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               onClick={async () => {
-                if (!deleteTarget) return
+                if (!deleteTarget || !del) return
                 try {
                   await del.mutateAsync(getId(deleteTarget))
-                  toast.success(`${capitalize(entitySingular)} eliminada`)
+                  toast.success(`${capitalize(entitySingular)} eliminad${w.suffix}`)
                   setDeleteTarget(null)
                 } catch (e) {
                   toast.error("No se pudo eliminar", {
@@ -326,6 +353,7 @@ function CatalogFormDialog<T, P>({
   open,
   onClose,
   entitySingular,
+  newWord,
   editing,
   fields,
   emptyFormValues,
@@ -337,6 +365,7 @@ function CatalogFormDialog<T, P>({
   open: boolean
   onClose: () => void
   entitySingular: string
+  newWord: string
   editing: T | null
   fields: CatalogField<P>[]
   emptyFormValues: P
@@ -351,6 +380,7 @@ function CatalogFormDialog<T, P>({
         {open && (
           <CatalogFormBody<T, P>
             entitySingular={entitySingular}
+            newWord={newWord}
             editing={editing}
             fields={fields}
             emptyFormValues={emptyFormValues}
@@ -368,6 +398,7 @@ function CatalogFormDialog<T, P>({
 
 function CatalogFormBody<T, P>({
   entitySingular,
+  newWord,
   editing,
   fields,
   emptyFormValues,
@@ -378,6 +409,7 @@ function CatalogFormBody<T, P>({
   onCancel,
 }: {
   entitySingular: string
+  newWord: string
   editing: T | null
   fields: CatalogField<P>[]
   emptyFormValues: P
@@ -399,7 +431,7 @@ function CatalogFormBody<T, P>({
     <>
       <DialogHeader>
         <DialogTitle>
-          {editing ? `Editar ${entitySingular}` : `Nueva ${entitySingular}`}
+          {editing ? `Editar ${entitySingular}` : `${newWord} ${entitySingular}`}
         </DialogTitle>
         {editing && (
           <DialogDescription>{getLabel(editing)}</DialogDescription>
@@ -529,6 +561,7 @@ function SortableCatalogList<T, P>({
   onDelete,
   entitySingular,
   entityPlural,
+  gender,
 }: {
   rows: T[]
   isLoading: boolean
@@ -536,10 +569,12 @@ function SortableCatalogList<T, P>({
   onReorder: (orderedIds: string[]) => void
   renderRow: (row: T) => React.ReactNode
   onEdit: (row: T) => void
-  onDelete: (row: T) => void
+  onDelete?: (row: T) => void
   entitySingular: string
   entityPlural: string
+  gender: "m" | "f"
 }) {
+  const w = genderWords(gender)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -571,7 +606,7 @@ function SortableCatalogList<T, P>({
         title={`Sin ${entityPlural} todavía`}
         description={
           <>
-            Creá la primera con el botón <strong>Nueva {entitySingular}</strong>.
+            Creá {w.first} con el botón <strong>{w.newWord} {entitySingular}</strong>.
           </>
         }
         showMarquee={false}
@@ -590,7 +625,7 @@ function SortableCatalogList<T, P>({
               id={getId(row)}
               entitySingular={entitySingular}
               onEdit={() => onEdit(row)}
-              onDelete={() => onDelete(row)}
+              onDelete={onDelete ? () => onDelete(row) : undefined}
             >
               {renderRow(row)}
             </SortableRow>
@@ -612,7 +647,7 @@ function SortableRow({
   children: React.ReactNode
   entitySingular: string
   onEdit: () => void
-  onDelete: () => void
+  onDelete?: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id })
@@ -656,17 +691,25 @@ function SortableRow({
       >
         <Pencil className="size-3.5" />
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-8 text-destructive"
-        onClick={onDelete}
-        aria-label={`Eliminar ${entitySingular}`}
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
+      {onDelete && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 text-destructive"
+          onClick={onDelete}
+          aria-label={`Eliminar ${entitySingular}`}
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      )}
     </li>
   )
+}
+
+function genderWords(gender: "m" | "f") {
+  return gender === "m"
+    ? { newWord: "Nuevo", suffix: "o", first: "el primero" }
+    : { newWord: "Nueva", suffix: "a", first: "la primera" }
 }
 
 function capitalize(s: string): string {
