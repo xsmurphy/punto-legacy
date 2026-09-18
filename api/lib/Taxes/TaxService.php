@@ -219,6 +219,20 @@ final class TaxService
 
     public function delete(string $companyId, string $taxId): void
     {
+        // Un bolsillo de la wallet factura sus CARGAS con este impuesto
+        // (mig 234, FK RESTRICT). Borrarlo dejaría esas cargas exentas sin que
+        // nadie lo decida; la FK lo frena igual, esto es para decir por qué.
+        $inUse = $this->db->Execute(
+            'SELECT name FROM wallet_pocket WHERE taxid = ? AND companyid = ? ORDER BY lower(name) LIMIT 1',
+            [$taxId, $companyId]
+        );
+        if ($inUse && !$inUse->EOF) {
+            throw new \RuntimeException(
+                'Este impuesto lo usa el bolsillo "' . (string) $inUse->fields['name']
+                . '". Cambiale el impuesto al bolsillo antes de eliminarlo.'
+            );
+        }
+
         $ok = $this->db->Execute(
             'DELETE FROM tax WHERE taxId = ? AND companyId = ?',
             [$taxId, $companyId]

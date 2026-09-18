@@ -2508,6 +2508,11 @@ function saleIsSimplePathEligible(array $payload, array $sale): ?string
 		if (in_array($itemType, ['discount', 'giftcard', 'inCredit'], true)) {
 			continue;
 		}
+		// Carga de saldo (wallet F2): el POS no conoce el ítem de sistema, lo
+		// asigna SaleService (`WalletLoadItem::ensure()`).
+		if (is_array($item['walletLoad'] ?? null)) {
+			continue;
+		}
 		// `duration > 0` migrado en 35d (persistScheduledSessions). No se rechaza.
 		if (empty($item['itemId'])) {
 			return 'Línea de venta sin itemId no soportada en este path (usar legacy)';

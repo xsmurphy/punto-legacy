@@ -143,6 +143,7 @@ final class ItemService
     public function update(string $id, string $companyId, array $patch): bool
     {
         if (empty($patch)) return false;
+        if ($this->isSystemItem($id, $companyId)) return false;
 
         // Código de barras: "" y NULL son la MISMA cosa de negocio (el ítem no
         // tiene código), y guardarlas como dos valores distintos deja el dato
@@ -226,7 +227,28 @@ final class ItemService
 
     public function archive(string $id, string $companyId): bool
     {
+        if ($this->isSystemItem($id, $companyId)) return false;
         return $this->repo->archive($id, $companyId);
+    }
+
+    /**
+     * Ítem de SISTEMA (mig 234, `item.systemkey` — hoy la "Carga de saldo" de
+     * la wallet): lo administra Punto, no el comercio. No se edita, no se
+     * archiva ni se borra: la wallet lo busca por su clave y lo necesita tal
+     * cual (sin stock, sin sucursales). Devuelve el mismo `false` que un id
+     * ajeno — el panel ni siquiera lo lista, así que llegar acá es a mano.
+     */
+    private function isSystemItem(string $id, string $companyId): bool
+    {
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
+            return false;
+        }
+        global $db;
+        $rs = $db->Execute(
+            'SELECT 1 FROM item WHERE itemid = ? AND companyid = ? AND systemkey IS NOT NULL LIMIT 1',
+            [$id, $companyId]
+        );
+        return $rs && !$rs->EOF;
     }
 
     /**
@@ -239,6 +261,7 @@ final class ItemService
      */
     public function delete(string $id, string $companyId)
     {
+        if ($this->isSystemItem($id, $companyId)) return false;
         return $this->repo->hardDelete($id, $companyId);
     }
 

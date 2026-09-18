@@ -498,6 +498,32 @@ if ($isRegisterDevice) {
     // la caja no necesita que nadie le mande una lista.
     $payload['stockCountFromRegister'] = $countSettings->fromRegister();
 
+    // Wallet desde la caja (context/74 F2). Baja al snapshot porque la CARGA
+    // de saldo funciona sin red (D15: es una venta emitida, y lo que se emite
+    // no se bloquea): el cajero elige el bolsillo de esta lista y la línea se
+    // factura con el impuesto del bolsillo, que el carrito necesita para
+    // mostrar el IVA sin preguntarle a nadie. Solo los ACTIVOS: uno inactivo
+    // no recibe cargas ni pagos.
+    //
+    // Lo que NO baja son los SALDOS: son estado compartido entre cajas y se
+    // piden online al elegir el cliente (`/v1/pos-wallet?resource=balances`).
+    // Una copia local invitaría a aprobar un pago contra ella (§5, §10).
+    //
+    // Ausente (no `[]`) con el módulo apagado: la caja no ofrece nada de la
+    // wallet, y `[]` con el módulo prendido significa "no hay bolsillos todavía".
+    if ((new \Punto\Api\Modules\ModulesService())->isEnabled(COMPANY_ID, 'wallet')) {
+        $payload['walletPockets'] = array_map(
+            static fn (array $p): array => [
+                'id'      => $p['id'],
+                'name'    => $p['name'],
+                'taxId'   => $p['taxId'],
+                'taxRate' => $p['taxRate'],
+                'taxKind' => $p['taxKind'],
+            ],
+            (new \Punto\Api\Wallet\WalletService())->listPockets(COMPANY_ID, true)
+        );
+    }
+
     // El roster de MARCACIÓN ya no baja acá (context/83 §9.2). La marcación
     // dejó de ser una pantalla del POS y pasó a ser un dispositivo propio —el
     // reloj, `device.module='clock'`—, así que la lista del personal y sus

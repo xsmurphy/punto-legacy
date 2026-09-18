@@ -1,6 +1,6 @@
 # 74 — Módulo Wallet multi-nivel
 
-> Estado: **F1 implementada 2026-09-18** (núcleo, ver §11). F2-F5 pendientes.
+> Estado: **F1 y F2 implementadas 2026-09-18** (núcleo §11, caja §12). F3-F5 pendientes.
 > Módulo NUEVO, diseñado desde cero: no se construye sobre giftcard ni sobre el
 > crédito interno existentes (§9). La v1 es deliberadamente chica (§2).
 > **Todas las decisiones de la v1 están cerradas** (2026-09-16).
@@ -165,6 +165,30 @@ lo cargado bajo A no se vuelve a facturar.
 - **D11** (2026-09-16) — Los hijos se marcan y quedan ocultos por defecto en los
   listados de clientes, visibles con un filtro.
 
+- **D12** (2026-09-18) — **El consumo con saldo NO es una venta fiscal.** Es un
+  COMPROBANTE INTERNO de consumo: descuenta stock y registra COGS (el producto
+  sale en ese momento), NO suma a ingresos/ventas, NO mueve caja y NO emite
+  factura electrónica. Lleva los productos y el precio consumido para que los
+  reportes de productos lo muestren APARTE ("consumido con saldo"), sin
+  mezclarlo con lo cobrado.
+- **D13** (2026-09-18) — **Cada peso entra una sola vez a los reportes, en la
+  CARGA.** Ingresos = carga (venta con factura). Stock/costo = consumo. Caja =
+  carga. El criterio "no suma a ingresos" vive en UN lugar que todos los
+  reportes leen, nunca como parche por call-site (resuelto en §12.1).
+- **D14** (2026-09-18) — **Si el bolsillo no alcanza, la diferencia se cobra
+  como una CARGA automática**: una venta normal de "carga de saldo" por la
+  diferencia (con su factura, pagada con otro medio) y después el consumo se
+  paga ENTERO con saldo. Toda factura sale al cargar y ningún consumo emite
+  factura. El cajero ve UN cobro. Son dos operaciones, en ese orden (la
+  numeración fiscal la asigna la caja). Si el consumo falla después de la
+  carga, la plata queda como saldo del cliente y el cajero reintenta el
+  consumo. Refina D6.
+- **D15** (2026-09-18) — **Carga offline sí, consumo offline no.** La carga es
+  una venta emitida: funciona sin red como toda venta y el `load` se aplica al
+  sincronizar (solo suma, no deja nada negativo). Pagar con saldo requiere red
+  (§5): sin conexión el medio "Saldo" queda deshabilitado con el motivo en el
+  propio control.
+
 ### Fuera de la v1
 
 **D8 — Vencimiento.** Si algún día vence, en el modo A devolver es una nota de
@@ -291,3 +315,138 @@ claves `pos.*` propias contra el operador del PIN); alta de hijos, filtro que
 los oculta en listados (D11) y transferencia en UI (F3 — `setParent` y
 `transfer` ya existen en el servicio); interfaz del titular/hijo (F4); modo B
 (F5).
+
+## 12. F2 — implementado (2026-09-18)
+
+Branch `frontend/wallet-f2` (toca `api/` y `frontend/`, regla 2 del workflow).
+Cargar saldo con una venta y pagar con saldo en la caja, con D12-D15.
+
+### 12.1 D13 — por qué un TIPO de transacción y no la "venta interna"
+
+El consumo es `transactionType = 15` (`SaleType::WalletConsumption`). El
+criterio "no suma a ingresos" vive en el TIPO, que es lo único que todo lector
+ya mira con LISTA BLANCA: reportes de ventas (`IN (0,3)` / `(0,3,6)`), rollups
+(migs 42/160), ledger de Finanzas (`recordSale` solo toma el tipo 0), cierre de
+caja (`DrawerService`, `IN (0,3,5,6)`), unicidad fiscal
+(`uq_transaction_expedition_invoiceno`, tipos 0/3) y facturación electrónica
+(`enqueueElectronicInvoice`, FC/FCR). Un tipo nuevo queda afuera de todos por
+construcción: cero reportes tocados, cero parches por call-site. El arnés lo
+verifica contra los servicios reales (`SalesService::salesTotals`,
+`NonAddingSales::salesByPayment`, `fin_movement`, `einvoice_document`).
+
+La venta interna se investigó y se descartó: es un tipo 0 con el tag mágico
+`166227` (y la columna `interno`, mig 118, que ningún reporte lee). NUMERA bajo
+timbrado, ENCOLA FE y ENTRA a la caja; los reportes la RESTAN después y solo si
+el dueño prendió `ignoreInternal`. Montar el consumo ahí haría depender de un
+checkbox que el ingreso se cuente dos veces, y emitiría factura.
+
+El tipo 15 NO se puede crear por `/v1/sales` ni por la cola offline
+(`SaleInput::fromPayload` lo rechaza): la única puerta es
+`SaleInput::forWalletConsumption()`, que siempre lo acompaña del débito.
+
+### 12.2 Backend
+
+- **Mig 234.** `wallet_pocket.taxid` (FK a `tax`, RESTRICT; default = primer
+  impuesto del catálogo, backfill incluido; trigger: del mismo comercio;
+  `TaxService::delete()` frena con el nombre del bolsillo). `item.systemkey` +
+  índice único parcial `(companyid, systemkey)`.
+- **Ítem de sistema** `WalletLoadItem` ("Carga de saldo", `systemkey =
+  'wallet_load'`): servicio sin stock, SIN `item_outlet` (invisible para toda
+  caja por construcción), lo crea el servidor la primera vez (idempotente ante
+  carreras por el índice). El panel no lo lista (`/v1/items`) ni lo edita,
+  archiva o borra (`ItemService::isSystemItem`).
+- **Carga = venta.** El POS manda la línea con `walletLoad: {pocketId}` y SIN
+  ítem (así una caja puede emitir su primera carga sin red). `SaleService::
+  resolveWalletLoads()` (antes de abrir la transacción) valida titular +
+  bolsillo activo + monto, asigna el ítem de sistema y congela el impuesto DEL
+  BOLSILLO siempre incluido (`enrichWithTaxes`). Dentro de la transacción,
+  `persistWalletMovements()` escribe un `load` por línea: modo A, `sourceType
+  'sale'`, origen = la venta, monto = neto de la línea (`total − totalDiscount`:
+  el descuento de venta ya viene prorrateado). Rechazos (422): a un hijo, a
+  crédito, sin cliente.
+- **Consumo = comprobante interno.** `/v1/pos-wallet?resource=consume` (realm
+  `pos-app` único, Bearer del device, token-only). En UNA transacción:
+  `SaleService::save()` con tipo 15 → itemSold + COGS + stock, número del
+  talonario interno `consumo_saldo` por caja (`DocumentNumber::allocate`, sin
+  serie fiscal, vuelve si falla), y `spend` del neto contra el bolsillo
+  (`sourceType 'consumption'`). Sin saldo: 409 `INSUFFICIENT_FUNDS` con
+  `available` y NADA escrito (ni comprobante, ni stock, ni número).
+  Idempotente por uid. Sin timbrado, sin FE, sin Finanzas, sin rollup, sin
+  notificaciones.
+- **Saldos para la caja:** `/v1/pos-wallet?resource=balances` → saldos por
+  bolsillo + `isChild`.
+- **Permisos** `pos.wallet.load` / `pos.wallet.spend` (`since` 13,
+  `CURRENT_VERSION` 13, sin seed — mismo criterio que `wallet.*`), evaluados
+  contra el OPERADOR del PIN (`OperatorContext`). `/v1/pos-wallet` los exige;
+  `/v1/sales` exige `pos.wallet.load` en el camino DIRECTO si la venta trae una
+  carga (realm `pos-app` forzado con `array_merge`, el valor forzado gana). La
+  cola offline evalúa el permiso de quien EMITIÓ, no de quien sincroniza: la
+  caja embebe en toda venta con carga la afirmación firmada del operador al
+  emitir (`walletLoadAuth`) y `WalletLoadPermission` la verifica vigente en el
+  INSTANTE de la emisión (`OperatorAssertion::verifyAt`). Sin afirmación o sin
+  permiso, la venta ya emitida se guarda igual (§53), la carga NO se acredita
+  y queda marcada en `meta.walletLoadWithheld` (mismo patrón que
+  `invoiceAuthExpiredAtEmission`), visible como "Carga de saldo: sin
+  acreditar" en el detalle de la transacción del panel. El autor de cada
+  movimiento es el operador.
+- **Bootstrap de la caja:** `walletPockets` (activos, con su impuesto) solo con
+  el módulo prendido; los contactos exponen `parentContactId`.
+- **Realtime:** `WalletService::publishChange()` tras el commit de la venta /
+  del consumo (el aviso nunca sale antes de que el saldo exista).
+
+### 12.3 Caja (POS)
+
+- **Cargar saldo:** opción del menú "Opciones de venta", junto a "Vale" — es
+  la misma clase de acción (agrega una línea a la venta en curso, solo modo
+  venta, funciona sin red). Aparece con el módulo prendido y `pos.wallet.load`;
+  sin cliente, con un cliente a cargo o sin bolsillos, la fila se apaga y el
+  toque dice el motivo. Diálogo: bolsillo (botones) + monto con `<NumericPad>`.
+- **Saldo del cliente (D7):** en el chip del cliente del carrito, en la línea
+  del RUC con alto fijo (no empuja nada). Solo online; sin red no se muestra.
+- **Medio "Saldo"** en el cobro: existe siempre con el módulo prendido (grupo
+  secundario), apagado en su lugar con el motivo cuando no aplica (sin red,
+  sin permiso, sin cliente, crédito, cobro de espacio/orden, interno/sin IVA,
+  cargas/vales/gift cards en el carrito). Elige el bolsillo viendo el saldo
+  (pedido fresco). Si no alcanza se aplica lo que hay y el resto se cobra con
+  otro medio: al confirmar se emite la CARGA de la diferencia por el mismo
+  camino fiscal que cualquier venta (`emitSale`, extraído de `handleConfirm`:
+  gates de timbrado y tenencia, número local, cola offline) y después el
+  consumo entero. Si el consumo falla, el cobro queda "todo con saldo", el
+  mensaje dice que la carga ya está en el saldo, y "Saldo" reintenta SOLO el
+  consumo (mismo uid). Cerrar el cobro en ese estado lo avisa.
+- **Impresión:** la carga sale como Factura; el consumo por el documento
+  Recibo (no fiscal) — lo que imprime lo decide la plantilla.
+- **Panel:** el bolsillo gana "Impuesto de la carga" en Ajustes → Catálogo.
+
+### 12.4 Tests
+
+`bash api/tests/run_wallet_test.sh` corre F1 (75) + `wallet_pos_test.php` (63)
+contra Postgres real: carga atómica con la venta (un constraint trigger
+diferido revienta el COMMIT y no queda ni venta ni carga), rechazos, consumo
+con stock/COGS sin FE/Finanzas/ingresos (con control positivo), saldo
+insuficiente sin escribir nada, carrera real de dos cajas por el comprobante
+completo, los 403 del operador por HTTP real, y la cola offline con emisor
+sin permiso / sin afirmación / afirmación adulterada / con permiso.
+
+### 12.5 Qué quedó fuera
+
+- **PENDIENTE PRIORITARIO — monto del consumo confiado desde el POS.** El
+  subtotal del comprobante de consumo (y por lo tanto el débito) sale del
+  payload de la caja, con la misma confianza que una venta normal: un cliente
+  alterado podría consumir por menos de lo que vale. Va como fast-follow junto
+  con el reporte "consumido con saldo" — recalcular el precio server-side
+  contra el catálogo/lista de precios.
+- **Carga retenida sin resolución en el sistema**: `meta.walletLoadWithheld`
+  se ve en el detalle, pero no hay acción para acreditarla o devolverla (hoy
+  se resuelve con un ajuste manual del bolsillo o una devolución de la venta).
+- **Reporte "consumido con saldo"** en los reportes de productos: el dato ya
+  está (itemSold con precio y COGS del tipo 15), falta la sección.
+- **Devolución de un consumo** (`refund` existe en el servicio, sin UI ni
+  flujo en la caja).
+- Hijos y transferencias en UI (F3), interfaz del titular (F4), modo B (F5).
+- La carga que llega por la cola offline a un cliente que dejó de ser titular
+  entre la emisión y el sync queda en la cola como `INVALID_INPUT` (no hay a
+  quién cargarle sin inventarlo); la caja ya bloquea el caso al emitir.
+- El comprobante de consumo sale por el binding "Recibo": un comercio sin
+  impresora asignada a Recibo no lo imprime solo (se reimprime a mano).
+

@@ -34,7 +34,7 @@ export interface PaymentMethodConfig {
    * usar esto en vez de comparar contra el `id` (taxonomyId), que varía por
    * tenant y no es estable entre entornos.
    */
-  systemKey?: "cash" | "giftcard" | "internal" | "check" | "qr" | null
+  systemKey?: "cash" | "giftcard" | "internal" | "check" | "qr" | "wallet" | null
   /** Key de color de la paleta unificada (lib/ui/color-palette.ts). Acento en el pill. */
   color?: string
   /** Orden de aparición en el pay-dialog (drag&drop del panel). */
@@ -166,6 +166,26 @@ export interface PosConfig {
    * default recomendado y el comportamiento que ese `/api` ya tenía.
    */
   stockCountBlind?: boolean
+  /**
+   * Bolsillos ACTIVOS de la wallet (context/74 F2). `null`/ausente = el módulo
+   * está apagado (o `/api` anterior a la F2): la caja no ofrece nada de la
+   * wallet. `[]` = módulo prendido sin bolsillos todavía.
+   *
+   * Bajan en el snapshot porque la CARGA de saldo funciona sin red (D15): el
+   * cajero elige el bolsillo de esta lista y la línea lleva el impuesto del
+   * bolsillo. Los SALDOS no bajan: son estado compartido y se piden online.
+   */
+  walletPockets?: PosWalletPocket[] | null
+}
+
+/** Bolsillo de la wallet tal como lo ve la caja (context/74 §3.2, mig 234). */
+export interface PosWalletPocket {
+  id: string
+  name: string
+  /** Impuesto con el que se FACTURA una carga a este bolsillo. `null` = exenta. */
+  taxId: string | null
+  taxRate: number
+  taxKind: "rate" | "exempt"
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────
@@ -483,6 +503,12 @@ export interface PosCustomer {
   city?: string | null
   location?: string | null
   country?: string | null
+  /**
+   * Titular del cliente en la wallet (context/74 §3.1). `null`/ausente = es
+   * titular. A un cliente a cargo no se le carga saldo: solo recibe
+   * transferencias de su titular — la caja lo sabe sin red gracias a esto.
+   */
+  parentContactId?: string | null
 }
 
 // ── Empleado del outlet (roster del lock screen) ─────────────────────────────

@@ -921,7 +921,12 @@ switch ($method) {
 
         $limit  = max(1, min((int) ($_GET['limit'] ?? 50), 200));
         $offset = max(0, (int) ($_GET['offset'] ?? 0));
-        $where  = ['companyId = ?', 'itemStatus = ?'];
+        // `systemkey IS NULL`: los ítems de SISTEMA (mig 234 — hoy solo la
+        // "Carga de saldo" de la wallet) no son catálogo del comercio. Los crea
+        // y administra Punto, no se editan, y listarlos invitaría a hacerlo.
+        // En la caja ya son invisibles por construcción (sin `item_outlet`);
+        // acá es el mismo criterio para el panel.
+        $where  = ['companyId = ?', 'itemStatus = ?', 'systemkey IS NULL'];
         $params = [$companyId, (int) ($_GET['archived'] ?? 0) === 1 ? 0 : 1];
 
         // Filtro por grupo:
@@ -977,7 +982,7 @@ switch ($method) {
 
         // Prefijar el WHERE con el alias `i.` para que pegue en el JOIN.
         $whereSql = preg_replace(
-            '/\b(companyId|itemStatus|itemName|itemSKU|barcode|itemKind|itemType|itemParentId|variantParentId)\b/',
+            '/\b(companyId|itemStatus|itemName|itemSKU|barcode|itemKind|itemType|itemParentId|variantParentId|systemkey)\b/',
             'i.$1',
             implode(' AND ', $where)
         );

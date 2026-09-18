@@ -110,5 +110,10 @@ echo "[run_wallet_test.sh] === wallet F1 (saldo, negativos, append-only, transfe
 export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
 harness_run "$SCRIPT_DIR/wallet_test.php"
 
+# ── 3. Wallet en la caja (F2) ──────────────────────────────────────────────
+echo ""
+echo "[run_wallet_test.sh] === wallet F2 (carga como venta, consumo con saldo, permisos del operador) ==="
+harness_run "$SCRIPT_DIR/wallet_pos_test.php"
+
 echo ""
 echo "[run_wallet_test.sh] TODO OK."

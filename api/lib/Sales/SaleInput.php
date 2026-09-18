@@ -131,6 +131,21 @@ final class SaleInput
          * venta ya emitida (context/08 §53).
          */
         public readonly ?string $invoiceSerie = null,
+        /**
+         * Bolsillo del que se paga un CONSUMO CON SALDO (wallet F2, D12). Solo
+         * lo setea `forWalletConsumption()` y solo con `type =
+         * WalletConsumption`: `SaleService` debita ESTE bolsillo del cliente,
+         * por el neto del comprobante, dentro de la misma transacción.
+         */
+        public readonly ?string $walletPocketId = null,
+        /**
+         * Afirmación firmada del OPERADOR que emitió la venta (`OperatorAssertion`,
+         * la del PIN), embebida por la caja en toda venta con CARGA de saldo
+         * (wallet F2). Es lo que permite evaluar `pos.wallet.load` contra quien
+         * EMITIÓ una venta que llega por la cola offline, horas después y con
+         * otro operador desbloqueado — ver `WalletLoadPermission`.
+         */
+        public readonly ?string $walletLoadAuth = null,
     ) {
     }
 
@@ -197,6 +212,11 @@ final class SaleInput
         // AddonService::validateSelections, llamado desde SaleService.
         self::assertSelectionsShape($sale);
 
+        // Wallet F2: forma de las líneas de CARGA y el medio `wallet`, que en
+        // una venta no existe (el consumo con saldo es otro documento).
+        self::assertWalletLoadShape($sale, $type);
+        self::assertNoWalletPayment($payment);
+
         return new self(
             uid:        $uid,
             type:       $type,
@@ -226,6 +246,9 @@ final class SaleInput
             repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
             quoteParentId: self::normalizeUuid($payload['parentTransactionId'] ?? null),
             invoiceSerie:  self::normalizeInvoiceSerie($payload),
+            walletLoadAuth: is_string($payload['walletLoadAuth'] ?? null) && strlen($payload['walletLoadAuth']) <= 2048
+                ? $payload['walletLoadAuth']
+                : null,
         );
     }
 
@@ -439,6 +462,151 @@ final class SaleInput
                         "sale[$i].selections[$j].qty debe ser un entero >= 1: " . var_export($qty, true)
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * Medio de pago reservado del consumo con saldo. Solo lo escribe
+     * `forWalletConsumption()`; en una venta (0/3) se rechaza.
+     */
+    public const WALLET_PAYMENT_TYPE = 'wallet';
+
+    /**
+     * Construye el COMPROBANTE DE CONSUMO CON SALDO (wallet F2, D12-D14).
+     *
+     * Es la ÚNICA puerta al tipo `WalletConsumption`: `fromPayload()` no lo
+     * acepta, así que ni `/v1/sales` ni la cola offline pueden crear un
+     * consumo — que sin su débito sería mercadería regalada.
+     *
+     * El payload es el mismo carrito que arma el POS (`sale[]`, `subtotal`,
+     * `discount`, `client`, `note`, `tags`, `timestamp`/`date`). Lo que NO sale
+     * del payload:
+     *   - el tipo, el número (lo asigna el servidor: no es un documento fiscal
+     *     ni se emite offline) y el timbrado (no lleva);
+     *   - el pago: UNA fila `wallet` por el neto `subtotal - discount`, contra
+     *     el bolsillo elegido — el mismo número que `SaleService` debita, así
+     *     el comprobante y el movimiento no pueden diferir;
+     *   - el usuario: el OPERADOR del PIN, que es también el autor del débito.
+     *
+     * Rechaza lo que no es un consumo: líneas de carga (se carga con una
+     * venta), canjes de vale y emisiones de gift card (tienen su propio
+     * circuito fiscal).
+     *
+     * @param array{id: string, name: string} $pocket bolsillo ya validado por el endpoint
+     */
+    public static function forWalletConsumption(array $raw, string $companyId, array $pocket, string $operatorId): self
+    {
+        $payload = $raw['transaction'] ?? $raw;
+        if (isset($raw['uid']) && !isset($payload['uid'])) {
+            $payload['uid'] = $raw['uid'];
+        }
+
+        $uid = trim((string) ($payload['uid'] ?? ''));
+        if ($uid === '' || strlen($uid) > SaleUidLookup::UID_MAX_LENGTH) {
+            throw new InvalidSaleInputException('Falta uid en el payload');
+        }
+
+        $clientId = self::normalizeUuid($payload['client'] ?? null);
+        if ($clientId === null) {
+            throw new InvalidSaleInputException('Para pagar con saldo hay que elegir al cliente');
+        }
+
+        $sale = $payload['sale'] ?? [];
+        if (!is_array($sale) || $sale === []) {
+            throw new InvalidSaleInputException('El consumo no tiene productos');
+        }
+        foreach ($sale as $i => $line) {
+            if (!is_array($line)) {
+                throw new InvalidSaleInputException("sale[$i] debe ser objeto");
+            }
+            if (array_key_exists('walletLoad', $line)) {
+                throw new InvalidSaleInputException('Una carga de saldo no se paga con saldo');
+            }
+            if (!empty($line['voucher']) || !empty($line['giftcard']) || ($line['type'] ?? '') === 'giftcard') {
+                throw new InvalidSaleInputException('Los vales y las tarjetas de regalo no se pagan con saldo');
+            }
+            if (empty($line['itemId'])) {
+                throw new InvalidSaleInputException("sale[$i] no tiene producto");
+            }
+        }
+        self::assertSelectionsShape($sale);
+
+        $subtotal = (float) ($payload['subtotal'] ?? 0);
+        $discount = (float) ($payload['discount'] ?? 0);
+        $net      = round($subtotal - $discount, 2);
+        if (!is_finite($net) || $net <= 0) {
+            throw new InvalidSaleInputException('El total a pagar con saldo tiene que ser mayor a cero');
+        }
+
+        return new self(
+            uid:        $uid,
+            type:       SaleType::WalletConsumption,
+            sale:       $sale,
+            subtotal:   $subtotal,
+            tax:        0.0,
+            discount:   $discount,
+            payment:    [[
+                'type'     => self::WALLET_PAYMENT_TYPE,
+                'name'     => (string) $pocket['name'],
+                'total'    => $net,
+                'price'    => $net,
+                'pocketId' => (string) $pocket['id'],
+            ]],
+            date:       self::resolveDate($payload, $companyId),
+            timestamp:  (int) ($payload['timestamp'] ?? 0),
+            clientId:   $clientId,
+            userId:     $operatorId,
+            note:       !empty($payload['note']) ? (string) $payload['note'] : null,
+            currency:   !empty($payload['currency']) ? (string) $payload['currency'] : null,
+            dontNotify: true,
+            tags:       self::normalizeTags($payload['tags'] ?? null),
+            walletPocketId: (string) $pocket['id'],
+        );
+    }
+
+    /**
+     * Forma de las líneas de CARGA de saldo (`walletLoad: {pocketId}`).
+     *
+     * Solo FORMA: que el bolsillo exista y esté activo, que el cliente sea un
+     * titular y el monto lo valida `SaleService` contra la BD. Lo único de
+     * negocio acá es que la carga no va a crédito: el saldo es plata que ENTRÓ
+     * (D13, "caja = carga"); cargarlo fiado crearía saldo gastable contra una
+     * deuda.
+     *
+     * @param array<int,mixed> $sale
+     */
+    private static function assertWalletLoadShape(array $sale, SaleType $type): void
+    {
+        foreach ($sale as $i => $item) {
+            if (!is_array($item) || !array_key_exists('walletLoad', $item)) {
+                continue;
+            }
+            $wl = $item['walletLoad'];
+            if (!is_array($wl) || self::normalizeUuid($wl['pocketId'] ?? null) === null) {
+                throw new InvalidSaleInputException("sale[$i].walletLoad.pocketId debe ser un UUID");
+            }
+            if (!empty($item['voucher']) || !empty($item['giftcard']) || !empty($item['selections'])) {
+                throw new InvalidSaleInputException("sale[$i]: una carga de saldo es una línea sola");
+            }
+            if ($type === SaleType::Creditsale) {
+                throw new InvalidSaleInputException('La carga de saldo se cobra en el momento, no a crédito');
+            }
+        }
+    }
+
+    /**
+     * El medio `wallet` es del consumo con saldo, que es un documento propio
+     * con su débito atómico. Una venta que lo declare estaría diciendo "se
+     * pagó con saldo" sin haber debitado nada.
+     *
+     * @param array<int,mixed> $payment
+     */
+    private static function assertNoWalletPayment(array $payment): void
+    {
+        foreach ($payment as $p) {
+            if (is_array($p) && (string) ($p['type'] ?? '') === self::WALLET_PAYMENT_TYPE) {
+                throw new InvalidSaleInputException('El pago con saldo no va en una venta');
             }
         }
     }

@@ -25,6 +25,7 @@ import {
   XCircle,
   MoreVertical,
   Ticket,
+  Wallet,
   type LucideIcon,
 } from "lucide-react"
 
@@ -78,6 +79,9 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
 import { VoucherApplyDialog } from "@/components/register/voucher-apply-dialog"
+import { WalletLoadDialog } from "@/components/register/wallet-load-dialog"
+import { useLockStore } from "@/lib/pos/lock-store"
+import { POS_WALLET_LOAD } from "@/lib/wallet/pos-wallet"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -89,6 +93,7 @@ type ActiveDialog =
   | "parkedSales"
   | "tags"
   | "voucher"
+  | "walletLoad"
   | null
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -143,6 +148,28 @@ export function SaleOptionsDrawer({
 
   const hasGlobalDiscount = saleDiscount !== null
   const hasVoucher = cartLines.some((l) => Boolean(l.voucher))
+
+  // ── Cargar saldo (wallet F2, context/74) ──────────────────────────────────
+  // Vive acá, junto a "Vale", porque es lo mismo: una acción sobre la VENTA en
+  // curso que le agrega una línea — la carga se factura y se cobra con los
+  // medios normales, en modo venta, con o sin red. No es una pantalla aparte:
+  // el cajero la arma en el mismo carrito (y puede sumarle productos).
+  //
+  // Existe solo con el módulo prendido (`walletPockets !== null`) y si la
+  // PERSONA del PIN puede cargar. Los impedimentos que dependen de la venta
+  // (sin cliente, cliente a cargo, sin bolsillos) se dicen en la propia fila.
+  const walletPockets = useCatalogStore((s) => s.config?.walletPockets ?? null)
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
+  const customer = useCartStore((s) => s.customer)
+  const canLoadWallet = walletPockets !== null && operatorPermissions.includes(POS_WALLET_LOAD)
+  const walletLoadBlockedReason: string | null = !customer
+    ? "Elegí el cliente al que le cargás saldo"
+    : customer.parentContactId
+      ? `A ${customer.name} se le transfiere saldo desde su titular`
+      : walletPockets !== null && walletPockets.length === 0
+        ? "Creá un bolsillo en Ajustes → Catálogo"
+        : null
+  const hasWalletLoad = cartLines.some((l) => Boolean(l.walletLoad))
 
   const hasGlobalSeller = React.useMemo(() => {
     if (cartLines.length === 0) return false
@@ -280,6 +307,8 @@ export function SaleOptionsDrawer({
     action?: () => void
     stub?: boolean
     active?: boolean
+    /** Por qué no se puede ahora — la fila se apaga y el toque lo dice. */
+    blockedReason?: string | null
     modes: Array<"venta" | "orden" | "cotizacion">
   }> = [
     {
@@ -338,6 +367,19 @@ export function SaleOptionsDrawer({
       active: hasVoucher,
       modes: ["venta"],
     },
+    ...(canLoadWallet
+      ? [
+          {
+            key: "walletLoad",
+            label: "Cargar saldo",
+            icon: Wallet as LucideIcon,
+            action: () => openDialog("walletLoad"),
+            active: hasWalletLoad,
+            blockedReason: walletLoadBlockedReason,
+            modes: ["venta" as const],
+          },
+        ]
+      : []),
     {
       key: "save",
       label: "Guardar",
@@ -456,8 +498,15 @@ export function SaleOptionsDrawer({
                   stub={opt.stub}
                   active={opt.active}
                   disabled={opt.key === "quote" && isSavingQuote}
+                  blocked={Boolean(opt.blockedReason)}
                   onClick={() => {
                     if (opt.stub) return
+                    // Impedimento dicho en el control (tablet sin hover): el
+                    // toque explica en vez de no hacer nada.
+                    if (opt.blockedReason) {
+                      toast.info(opt.blockedReason)
+                      return
+                    }
                     opt.action?.()
                   }}
                 />
@@ -510,6 +559,8 @@ export function SaleOptionsDrawer({
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
 
       <VoucherApplyDialog open={activeDialog === "voucher"} onClose={closeDialog} />
+
+      <WalletLoadDialog open={activeDialog === "walletLoad"} onClose={closeDialog} />
 
       {quoteSuccess && (
         <TransactionSuccessDialog
@@ -574,6 +625,7 @@ function OptionRow({
   destructive,
   active,
   disabled,
+  blocked,
   onClick,
 }: {
   label: string
@@ -582,14 +634,20 @@ function OptionRow({
   destructive?: boolean
   active?: boolean
   disabled?: boolean
+  /**
+   * Apagada pero TOCABLE (`aria-disabled`, no `disabled`): el toque dice el
+   * motivo. Mismo patrón que los medios de pago del cobro (context/14 R10).
+   */
+  blocked?: boolean
   onClick: () => void
 }) {
-  const isDisabled = stub || disabled
+  const isDisabled = stub || disabled || blocked
   return (
     <button
       type="button"
       onClick={onClick}
-      disabled={isDisabled}
+      disabled={stub || disabled}
+      aria-disabled={blocked ? true : undefined}
       title={stub ? "Próximamente" : undefined}
       className={cn(
         "flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-[15px] transition-colors",

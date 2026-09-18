@@ -54,6 +54,18 @@ final class SaleService
      */
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
+    /**
+     * Talonario del comprobante de CONSUMO CON SALDO (wallet F2, D12): interno,
+     * por caja y sin serie fiscal. Ver `DocumentNumber::docTypeForSaleType()`.
+     */
+    public const WALLET_CONSUMPTION_DOCTYPE = 'consumo_saldo';
+
+    /** `wallet_movement.sourcetype` de la carga: la venta que la facturó. */
+    public const WALLET_SOURCE_LOAD = 'sale';
+
+    /** `wallet_movement.sourcetype` del débito: el comprobante de consumo. */
+    public const WALLET_SOURCE_CONSUMPTION = 'consumption';
+
     private \Punto\Api\Services\TransactionLinkService $links;
 
     /** F3 add-ons (context/41): revalidador server-side de las selecciones. */
@@ -76,7 +88,15 @@ final class SaleService
      * @throws DuplicateSaleException Si el UID ya existe (el endpoint devuelve 200 con duplicated=true).
      * @throws SaleAbortedException   Si la transacción de PG falla (el endpoint devuelve 500).
      */
-    public function save(SaleInput $input): SaleResult
+    /**
+     * @param bool $walletLoadAuthorized false = la venta trae CARGAS de saldo
+     *   pero quien la emitió no tenía `pos.wallet.load` (solo lo decide la cola
+     *   offline, `WalletLoadPermission`). La venta YA EMITIDA se guarda igual
+     *   (context/08 §53) — con su factura y su cobro — pero las cargas NO se
+     *   acreditan: quedan retenidas y marcadas en `meta.walletLoadWithheld`
+     *   para que el comercio las revise desde el detalle de la transacción.
+     */
+    public function save(SaleInput $input, bool $walletLoadAuthorized = true): SaleResult
     {
         // ── B1: idempotencia — la cola offline puede reenviar el mismo UID ────
         // Si el UID ya existe EN ESTE TENANT, la venta ya se registró: duplicate
@@ -146,9 +166,18 @@ final class SaleService
         // del tester). Ver el método para el porqué de precio=0 y por qué NO
         // duplica el descuento de stock del combo.
         $decimals   = $this->currencyDecimals();
+        //
+        // Wallet F2 (context/74): `resolveWalletLoads` corre PRIMERO, sobre el
+        // detalle ya sanitizado: le asigna a cada línea de CARGA el ítem de
+        // sistema y el impuesto del bolsillo, y valida bolsillo + titular
+        // contra la BD. Antes de StartTrans, mismo criterio que add-ons: un
+        // rechazo (422) no deja nada abierto.
         $saleDetail = $this->enrichWithTaxes(
             $this->expandCompoundSelections(
-                $this->expandAddonSelections(saleArraySanitizer($input->sale), $decimals),
+                $this->expandAddonSelections(
+                    $this->resolveWalletLoads($input, saleArraySanitizer($input->sale)),
+                    $decimals
+                ),
                 $decimals
             ),
             $input->ivaRemoved,
@@ -169,8 +198,14 @@ final class SaleService
         // `register.data->>'registerInvoiceAuth'` para esta venta. Si el
         // timbrado de la caja cambia mañana, este documento sigue mostrando
         // (y siendo comparado contra) el timbrado con el que se emitió.
+        //
+        // El consumo con saldo (D12) NO es un documento bajo timbrado: no se
+        // congela serie ni punto de expedición, y su número sale de un
+        // talonario interno propio (`consumo_saldo`, abajo).
         [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration, $invoicePrefix, $invoiceSerie]
-            = $this->resolveFrozenInvoiceAuth($input->invoiceSerie);
+            = $input->type === SaleType::WalletConsumption
+                ? [null, null, null, null, null]
+                : $this->resolveFrozenInvoiceAuth($input->invoiceSerie);
 
         // ¿El timbrado congelado ya estaba VENCIDO en la fecha de la operación?
         // Se calcula acá, en el único lugar por donde pasan los dos caminos de
@@ -205,6 +240,21 @@ final class SaleService
         // El wrapper ya cerró la transacción PDO antes de propagar.
         try {
 
+            // ── Consumo con saldo: número del comprobante interno ─────────────
+            // Talonario propio por caja, SIN serie fiscal (`DocumentSeries::none()`)
+            // y asignado por el SERVIDOR: el consumo solo existe online (§5,
+            // D15), así que no hay número offline que respetar. Dentro de la
+            // transacción: si el consumo no entra, el número vuelve (context/37 D1).
+            $internalNo = null;
+            if ($input->type === SaleType::WalletConsumption) {
+                $internalNo = DocumentNumber::allocate(
+                    self::WALLET_CONSUMPTION_DOCTYPE,
+                    DocumentNumber::SCOPE_REGISTER,
+                    (string) $this->ctx->registerId,
+                    (string) $this->ctx->companyId,
+                );
+            }
+
             // ── B3: construir record de `transaction` ──────────────────────────
             $record = $this->buildTransactionRecord(
                 input:                  $input,
@@ -219,6 +269,8 @@ final class SaleService
                 invoiceAuthExpiredAtEmission: $invoiceAuthExpiredAtEmission,
                 invoicePrefix:          $invoicePrefix,
                 invoiceSerie:           $invoiceSerie,
+                invoiceNoOverride:      $internalNo,
+                walletLoadWithheld:     $walletLoadAuthorized ? null : $this->walletLoadTotal($saleDetail),
             );
 
             // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -233,6 +285,11 @@ final class SaleService
 
                 // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
                 $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
+
+                // ── Wallet F2 (context/74): cargas y débito DENTRO de la venta ──
+                // Si la venta hace rollback, el movimiento se va con ella: nunca
+                // hay saldo cargado sin su factura ni consumo sin su débito.
+                $walletContacts = $this->persistWalletMovements($input, (string) $transId, $saleDetail, $userId, $walletLoadAuthorized);
 
                 // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
                 $this->persistGiftCardRedemptions($input);
@@ -284,6 +341,18 @@ final class SaleService
             // ANTES de lanzar), pero usamos el mensaje de la excepción: es la
             // causa exacta de ESTE fallo, sin riesgo de leer una cascada 25P02.
             $this->abortSale($input, $e->getMessage());
+        } catch (\Punto\Api\Wallet\WalletException $e) {
+            // Una operación de la wallet se negó (saldo que no alcanza, o la
+            // jerarquía/bolsillo cambió entre la validación previa y el lock).
+            // `WalletService` ya marcó la transacción como fallida y cerró SU
+            // nivel; acá se cierra el de la venta, que hace el ROLLBACK de
+            // todo — transacción, líneas, stock y el número interno.
+            $this->db->FailTrans();
+            $this->db->CompleteTrans();
+            if ($e instanceof \Punto\Api\Wallet\WalletInsufficientFundsException) {
+                throw $e; // el endpoint del consumo devuelve cuánto hay (D14)
+            }
+            throw new InvalidSaleInputException($e->getMessage());
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -353,11 +422,23 @@ final class SaleService
                 \Punto\Api\Sales\SaleType::Return => ['sales', 'item_sales', 'payments'],
                 \Punto\Api\Sales\SaleType::CashPurchase, \Punto\Api\Sales\SaleType::CreditPurchase => ['expenses'],
                 \Punto\Api\Sales\SaleType::CreditPayment => ['payments'],
+                // D13: el consumo con saldo no entra a ningún rollup de
+                // ventas/pagos (todos filtran por tipos 0/3/5/6).
+                \Punto\Api\Sales\SaleType::WalletConsumption => [],
                 default => ['sales', 'item_sales', 'payments'],
             };
-            \rollupMarkDirty((string) $this->ctx->companyId, $rollupDomains, $input->date);
+            if ($rollupDomains !== []) {
+                \rollupMarkDirty((string) $this->ctx->companyId, $rollupDomains, $input->date);
+            }
         } catch (\Throwable $e) {
             error_log('[SaleService] rollupMarkDirty: ' . $e->getMessage());
+        }
+
+        // Wallet F2: el aviso de saldo va DESPUÉS del commit de la venta
+        // (`WalletService` no publica cuando corre anidado — un aviso antes
+        // del commit sería de un saldo que todavía puede no existir).
+        if (($walletContacts ?? []) !== []) {
+            (new \Punto\Api\Wallet\WalletService())->publishChange((string) $this->ctx->companyId, $walletContacts);
         }
 
         // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe la
@@ -885,6 +966,8 @@ final class SaleService
         bool $invoiceAuthExpiredAtEmission = false,
         ?string $invoicePrefix = null,
         ?string $invoiceSerie = null,
+        ?int $invoiceNoOverride = null,
+        ?float $walletLoadWithheld = null,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -903,6 +986,12 @@ final class SaleService
         ];
         if ($invoiceAuthExpiredAtEmission) {
             $meta['invoiceAuthExpiredAtEmission'] = true;
+        }
+        // Wallet F2: cargas de saldo emitidas por alguien sin `pos.wallet.load`
+        // (cola offline). Mismo criterio que la marca de arriba: solo existe
+        // cuando pasó, y la lee el detalle de la transacción del panel.
+        if ($walletLoadWithheld !== null && $walletLoadWithheld > 0) {
+            $meta['walletLoadWithheld'] = ['reason' => 'permission', 'amount' => $walletLoadWithheld];
         }
 
         return [
@@ -956,7 +1045,9 @@ final class SaleService
             'toDate'                 => null,            // path simple
             'transactionName'        => $input->ident !== null ? strip_tags($input->ident) : null,
             'transactionNote'        => $input->note  !== null ? strip_tags($input->note)  : null,
-            'invoiceNo'              => $input->invoiceNo,
+            // El consumo con saldo trae su número del talonario interno que
+            // asigna el servidor (`consumo_saldo`); el resto, el del device.
+            'invoiceNo'              => $invoiceNoOverride ?? $input->invoiceNo,
             // mig 145 — timbrado CONGELADO al emitir (resuelto en save(), ANTES
             // de este builder — ver resolveFrozenInvoiceAuth()). null para
             // saveQuote() (no pasa estos parámetros): una cotización no es un
@@ -1088,6 +1179,185 @@ final class SaleService
         if ($input->tags) {
             $this->persistSaleTags($input->tags, $transId);
         }
+    }
+
+    /**
+     * Wallet F2 (context/74) — prepara las líneas de CARGA DE SALDO de una venta.
+     *
+     * El POS manda la línea con `walletLoad: {pocketId}` y SIN ítem (no conoce
+     * el de sistema, y así una caja puede emitir su primera carga sin red,
+     * D15). Acá, antes de abrir la transacción:
+     *
+     *   - se valida lo que depende de la BD: el cliente es un TITULAR (§3.1: a
+     *     un hijo solo se le transfiere), el bolsillo existe y está activo, y
+     *     el monto es positivo;
+     *   - se le asigna el ítem de sistema "Carga de saldo" (`WalletLoadItem`)
+     *     y el nombre canónico de la línea;
+     *   - se congela en la línea el impuesto DEL BOLSILLO (mig 234), que
+     *     `enrichWithTaxes()` usa en vez del del ítem;
+     *   - se fija el MONTO que entra al saldo: el neto de la línea
+     *     (`total - totalDiscount`), que es exactamente lo que se cobró por ella
+     *     — el descuento de venta ya viene prorrateado por línea desde el POS.
+     *
+     * El movimiento `load` en sí se escribe DENTRO de la transacción
+     * (`persistWalletMovements`): si la venta hace rollback, no hay saldo.
+     *
+     * Rechaza con 422 (`InvalidSaleInputException`): una venta con carga no
+     * puede persistirse "a medias". El POS bloquea estos casos antes de emitir
+     * (cliente titular obligatorio, sin crédito), así que por la cola offline
+     * solo llega uno si la jerarquía cambió entre la emisión y el sync — y ahí
+     * lo correcto es que la cola lo muestre, no inventar a quién cargarle.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     * @return array<int,array<string,mixed>>
+     */
+    private function resolveWalletLoads(SaleInput $input, array $saleDetail): array
+    {
+        $hasLoad = false;
+        foreach ($saleDetail as $sD) {
+            if (is_array($sD['walletLoad'] ?? null)) {
+                $hasLoad = true;
+                break;
+            }
+        }
+        if (!$hasLoad) {
+            return $saleDetail;
+        }
+
+        if ($input->type !== SaleType::Cashsale) {
+            throw new InvalidSaleInputException('La carga de saldo se cobra en el momento, no a crédito');
+        }
+        if ($input->clientId === null) {
+            throw new InvalidSaleInputException('Para cargar saldo hay que elegir al cliente');
+        }
+
+        $companyId = (string) $this->ctx->companyId;
+        $contact   = $this->db->Execute(
+            'SELECT parentcontactid FROM contact WHERE contactid = ? AND companyid = ? AND type = 1 LIMIT 1',
+            [$input->clientId, $companyId]
+        );
+        if (!$contact || $contact->EOF) {
+            throw new InvalidSaleInputException('Cliente no encontrado');
+        }
+        if (!empty($contact->fields['parentcontactid'])) {
+            throw new InvalidSaleInputException(
+                'A un cliente a cargo no se le carga saldo: se le transfiere desde su titular'
+            );
+        }
+
+        $wallet  = new \Punto\Api\Wallet\WalletService();
+        $itemId  = \Punto\Api\Wallet\WalletLoadItem::ensure($companyId);
+        $pockets = [];
+
+        foreach ($saleDetail as $i => $sD) {
+            if (!is_array($sD['walletLoad'] ?? null)) {
+                continue;
+            }
+            $pocketId = (string) ($sD['walletLoad']['pocketId'] ?? '');
+            if (!array_key_exists($pocketId, $pockets)) {
+                $pocket = $wallet->findPocket($companyId, $pocketId);
+                if ($pocket === null) {
+                    throw new InvalidSaleInputException('Bolsillo no encontrado');
+                }
+                if (!$pocket['active']) {
+                    throw new InvalidSaleInputException('El bolsillo "' . $pocket['name'] . '" está desactivado');
+                }
+                $pockets[$pocketId] = $pocket;
+            }
+            $pocket = $pockets[$pocketId];
+
+            $amount = round((float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0), 2);
+            if (!is_finite($amount) || $amount <= 0) {
+                throw new InvalidSaleInputException('El monto de la carga tiene que ser mayor a cero');
+            }
+
+            $saleDetail[$i]['itemId']     = $itemId;
+            $saleDetail[$i]['name']       = \Punto\Api\Wallet\WalletLoadItem::NAME . ' · ' . $pocket['name'];
+            $saleDetail[$i]['walletLoad'] = [
+                'pocketId'   => $pocketId,
+                'pocketName' => $pocket['name'],
+                'amount'     => $amount,
+                'taxId'      => $pocket['taxId'],
+                'taxRate'    => $pocket['taxRate'],
+                'taxKind'    => $pocket['taxKind'],
+            ];
+        }
+
+        return $saleDetail;
+    }
+
+    /** Suma de lo que las líneas de carga acreditarían (ya resuelto). */
+    private function walletLoadTotal(array $saleDetail): float
+    {
+        $sum = 0.0;
+        foreach ($saleDetail as $sD) {
+            if (is_array($sD['walletLoad'] ?? null) && isset($sD['walletLoad']['amount'])) {
+                $sum += (float) $sD['walletLoad']['amount'];
+            }
+        }
+        return round($sum, 2);
+    }
+
+    /**
+     * Wallet F2 — los movimientos de saldo de esta transacción, DENTRO de ella.
+     *
+     *   - Venta con líneas de carga → un `load` por línea en el bolsillo del
+     *     titular, modo A congelado (§4), origen = esta venta.
+     *   - Consumo con saldo → UN `spend` por el neto del comprobante contra el
+     *     bolsillo elegido. `WalletService` chequea y debita bajo el mismo lock
+     *     (§5): si no alcanza lanza `WalletInsufficientFundsException` con lo
+     *     disponible y `save()` hace rollback de TODO el comprobante.
+     *
+     * El autor de cada movimiento es el usuario de la venta (el operador que
+     * la emitió; en el consumo, el del PIN).
+     *
+     * @param array<int,array<string,mixed>> $saleDetail detalle ya resuelto por `resolveWalletLoads()`
+     * @return list<string> contactos cuyo saldo cambió (para el aviso post-commit)
+     */
+    private function persistWalletMovements(SaleInput $input, string $transId, array $saleDetail, string $userId, bool $walletLoadAuthorized = true): array
+    {
+        $companyId = (string) $this->ctx->companyId;
+        $wallet    = new \Punto\Api\Wallet\WalletService();
+
+        if ($input->type === SaleType::WalletConsumption) {
+            $pay = $input->payment[0] ?? [];
+            $wallet->spend(
+                $companyId,
+                (string) $input->clientId,
+                (string) $input->walletPocketId,
+                (float) ($pay['total'] ?? 0),
+                self::WALLET_SOURCE_CONSUMPTION,
+                $transId,
+                $userId,
+            );
+            return [(string) $input->clientId];
+        }
+
+        // Carga emitida sin permiso (cola offline): la venta entra, la carga no.
+        // Queda marcada en `meta.walletLoadWithheld` (ver `save()`).
+        if (!$walletLoadAuthorized) {
+            return [];
+        }
+
+        $loaded = false;
+        foreach ($saleDetail as $sD) {
+            $wl = $sD['walletLoad'] ?? null;
+            if (!is_array($wl) || !isset($wl['amount'])) {
+                continue;
+            }
+            $wallet->load(
+                $companyId,
+                (string) $input->clientId,
+                (string) $wl['pocketId'],
+                (float) $wl['amount'],
+                \Punto\Api\Wallet\WalletService::BILLING_MODE_V1,
+                self::WALLET_SOURCE_LOAD,
+                $transId,
+                $userId,
+            );
+            $loaded = true;
+        }
+        return $loaded ? [(string) $input->clientId] : [];
     }
 
     /**
@@ -2248,9 +2518,9 @@ final class SaleService
         // invirtiendo signos — eso es 35e. SaleInput::fromPayload ya garantiza
         // type ∈ {0,3} (Cashsale/Creditsale) vía isSimplePathEligible, pero lo
         // afirmamos acá para que el invariante sea explícito en el money path.
-        if (!$input->type->isSimplePathEligible()) {
+        if (!$input->type->movesStock()) {
             throw new InvalidSaleInputException(
-                'persistItemsAndStock solo soporta cashsale/creditsale; type=' . $input->type->value
+                'persistItemsAndStock solo soporta cashsale/creditsale/consumo con saldo; type=' . $input->type->value
             );
         }
 
@@ -3029,10 +3299,29 @@ final class SaleService
                 $kind = 'exempt';
             }
 
+            // Carga de saldo (wallet F2): la tasa es la del BOLSILLO, resuelta
+            // server-side en `resolveWalletLoads()` — nunca la del ítem de
+            // sistema (no tiene) ni la del payload. Y va SIEMPRE incluida: el
+            // cliente paga X y recibe X de saldo, así que X es el bruto con
+            // impuesto adentro, sin importar el modo de la sucursal.
+            $forceIncluded = false;
+            if (is_array($sD['walletLoad'] ?? null) && array_key_exists('taxKind', $sD['walletLoad'])) {
+                $taxId = $sD['walletLoad']['taxId'] ?? null;
+                $rate  = (float) ($sD['walletLoad']['taxRate'] ?? 0);
+                $kind  = (string) $sD['walletLoad']['taxKind'];
+                if ($ivaRemoved) {
+                    $rate = 0.0;
+                    $kind = 'exempt';
+                }
+                $forceIncluded = true;
+            }
+
             // toBoolOrNull y no (bool): `data->>'itemTaxIncluded'` devuelve el
             // booleano del JSONB como STRING — "false" casteado con (bool) da
             // true, y el override "IVA no incluido" del ítem se perdería.
-            $taxIncluded = self::toBoolOrNull($meta['taxIncludedRaw'] ?? null) ?? $outletTaxIncludedDefault;
+            $taxIncluded = $forceIncluded
+                ? true
+                : (self::toBoolOrNull($meta['taxIncludedRaw'] ?? null) ?? $outletTaxIncludedDefault);
 
             $saleDetail[$i]['taxId']       = $taxId;
             $saleDetail[$i]['taxRate']     = $rate;

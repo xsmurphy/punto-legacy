@@ -46,6 +46,12 @@ export const SaleType = {
   Schedule: 13,
   /** Nota de crédito de compra (el proveedor nos acredita/devuelve) */
   PurchaseCreditNote: 14,
+  /**
+   * Consumo con saldo (wallet, context/74 D12): comprobante INTERNO — saca
+   * stock, no suma a ventas, no mueve caja, no se factura. La venta es la
+   * CARGA del saldo.
+   */
+  WalletConsumption: 15,
 } as const
 
 export type SaleType = (typeof SaleType)[keyof typeof SaleType]
@@ -82,6 +88,7 @@ export const SALE_TYPE_LABELS: Record<SaleType, string> = {
   [SaleType.Order]: "Orden",
   [SaleType.Schedule]: "Cita",
   [SaleType.PurchaseCreditNote]: "Nota de crédito de compra",
+  [SaleType.WalletConsumption]: "Consumo con saldo",
 }
 
 /** Normaliza a un valor del dominio; `null` si no es un tipo conocido. */

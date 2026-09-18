@@ -2,6 +2,7 @@
 
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
+import { WALLET_POCKET_NO_TAX } from "@/lib/types/wallet"
 import type {
   WalletAdjustPayload,
   WalletBalance,
@@ -30,11 +31,23 @@ export function useWalletPockets(options?: { enabled?: boolean }) {
   })
 }
 
+/**
+ * Form → contrato de `/v1/wallet?resource=pockets`: "sin impuesto" viaja como
+ * `taxId: ''` (el select no admite un valor vacío, ver `WALLET_POCKET_NO_TAX`).
+ */
+function toPocketBody(values: Partial<WalletPocketPayload>): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...values }
+  if (values.taxId !== undefined) {
+    body.taxId = values.taxId === WALLET_POCKET_NO_TAX ? "" : values.taxId
+  }
+  return body
+}
+
 export function useCreateWalletPocket() {
   const qc = useQueryClient()
   return useMutation<WalletPocket, Error, WalletPocketPayload>({
     mutationFn: (body) =>
-      api.post<WalletPocket>("/v1/wallet?resource=pockets", body as unknown as Record<string, unknown>),
+      api.post<WalletPocket>("/v1/wallet?resource=pockets", toPocketBody(body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wallet"] })
     },
@@ -47,7 +60,7 @@ export function useUpdateWalletPocket() {
     mutationFn: ({ id, values }) =>
       api.put<WalletPocket>(
         `/v1/wallet?resource=pockets&id=${encodeURIComponent(id)}`,
-        values as unknown as Record<string, unknown>,
+        toPocketBody(values),
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wallet"] })

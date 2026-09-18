@@ -304,6 +304,18 @@ final class Money
                     $line['selections'] = $selections;
                 }
 
+                // Carga de saldo (wallet F2, context/74). Whitelist explícita:
+                // del POS viaja SOLO el bolsillo. El ítem, el impuesto y el
+                // monto que entra al saldo los resuelve SaleService contra la
+                // BD — el cliente nunca elige con qué tasa se factura una
+                // carga. Misma regla que `selections`: la key solo existe si el
+                // cliente la mandó.
+                if (array_key_exists('walletLoad', $value) && is_array($value['walletLoad'])) {
+                    $line['walletLoad'] = [
+                        'pocketId' => markupt2HTML(['text' => (string) ($value['walletLoad']['pocketId'] ?? ''), 'type' => 'HtM']),
+                    ];
+                }
+
                 $out[] = $line;
             }
 

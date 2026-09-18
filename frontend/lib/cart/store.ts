@@ -108,6 +108,18 @@ export interface CartLine {
     code: string
   }
   /**
+   * CARGA DE SALDO (wallet F2, context/74) — la línea que agrega "Cargar
+   * saldo". Es una línea de VENTA como cualquier otra (se factura y se cobra
+   * con los medios normales, también sin red); el servidor le asigna el ítem
+   * de sistema y el impuesto del bolsillo, y acredita el neto en el bolsillo
+   * dentro de la misma transacción. `itemId` viaja vacío a propósito: el POS
+   * no conoce el ítem de sistema. `pocketName` es solo para mostrar.
+   */
+  walletLoad?: {
+    pocketId: string
+    pocketName: string
+  }
+  /**
    * Impuesto del ítem al momento de agregarse (F2b, context/38) — se busca
    * en `useCatalogStore.taxes` por este id dentro de `selectCartIva`. `null`
    * = sin taxId (ítem sin impuesto en catálogo, o línea armada por un flujo

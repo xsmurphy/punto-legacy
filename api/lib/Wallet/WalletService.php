@@ -72,14 +72,25 @@ final class WalletService
     // Bolsillos (catálogo del comercio)
     // ═══════════════════════════════════════════════════════════════════════
 
-    /** @return list<array{id: string, name: string, active: bool, createdAt: string}> */
+    /**
+     * SELECT del bolsillo con su impuesto de carga (mig 234). `tax.rate/kind`
+     * son la fuente numérica cuando existen (mig 120); si no, se derivan del
+     * nombre legacy — mismo criterio que `SaleService::enrichWithTaxes()`.
+     */
+    private const POCKET_SELECT =
+        'SELECT p.id, p.name, p.active, p.created_at, p.taxid,
+                t.name AS taxname, t.rate AS taxrate, t.kind AS taxkind
+           FROM wallet_pocket p
+           LEFT JOIN tax t ON t.taxid = p.taxid AND t.companyid = p.companyid';
+
+    /** @return list<array{id: string, name: string, active: bool, createdAt: string, taxId: ?string, taxName: ?string, taxRate: float, taxKind: string}> */
     public function listPockets(string $companyId, bool $onlyActive = false): array
     {
-        $sql = 'SELECT id, name, active, created_at FROM wallet_pocket WHERE companyid = ?';
+        $sql = self::POCKET_SELECT . ' WHERE p.companyid = ?';
         if ($onlyActive) {
-            $sql .= ' AND active';
+            $sql .= ' AND p.active';
         }
-        $sql .= ' ORDER BY lower(name)';
+        $sql .= ' ORDER BY lower(p.name)';
 
         $rs  = $this->db()->Execute($sql, [$companyId]);
         $out = [];
@@ -96,20 +107,27 @@ final class WalletService
             return null;
         }
         $rs = $this->db()->Execute(
-            'SELECT id, name, active, created_at FROM wallet_pocket WHERE id = ? AND companyid = ?',
+            self::POCKET_SELECT . ' WHERE p.id = ? AND p.companyid = ?',
             [$pocketId, $companyId]
         );
         return ($rs && !$rs->EOF) ? $this->pocketRow($rs->fields) : null;
     }
 
-    public function createPocket(string $companyId, string $name): array
+    /**
+     * Alta de un bolsillo. `$taxId` es el impuesto con el que se FACTURAN sus
+     * cargas (§4, mig 234): sin indicarlo toma el impuesto por defecto del
+     * comercio — el primero de su catálogo —, y `''` lo deja explícitamente
+     * sin impuesto (cargas exentas).
+     */
+    public function createPocket(string $companyId, string $name, ?string $taxId = null): array
     {
         $name = $this->cleanPocketName($name);
         $this->assertPocketNameFree($companyId, $name, null);
+        $taxId = $taxId === null ? $this->defaultTaxId($companyId) : $this->cleanTaxId($companyId, $taxId);
 
         $rs = $this->db()->Execute(
-            'INSERT INTO wallet_pocket (companyid, name) VALUES (?, ?) RETURNING id',
-            [$companyId, $name]
+            'INSERT INTO wallet_pocket (companyid, name, taxid) VALUES (?, ?, ?) RETURNING id',
+            [$companyId, $name, $taxId]
         );
         $id = (string) $rs->fields['id'];
 
@@ -130,6 +148,40 @@ final class WalletService
 
         realtimePublish('wallet', 'update', $pocketId, 'all', $companyId);
         return $this->findPocket($companyId, $pocketId) ?? [];
+    }
+
+    /**
+     * Cambia el impuesto de las cargas FUTURAS del bolsillo (`''`/null = sin
+     * impuesto). Las ya emitidas no cambian: su tasa quedó congelada en la
+     * línea de la venta (`enrichWithTaxes`), como la de cualquier producto.
+     */
+    public function setPocketTax(string $companyId, string $pocketId, ?string $taxId): array
+    {
+        $this->requirePocket($companyId, $pocketId);
+        $taxId = $this->cleanTaxId($companyId, (string) ($taxId ?? ''));
+        $this->db()->Execute(
+            'UPDATE wallet_pocket SET taxid = ? WHERE id = ? AND companyid = ?',
+            [$taxId, $pocketId, $companyId]
+        );
+
+        realtimePublish('wallet', 'update', $pocketId, 'all', $companyId);
+        return $this->findPocket($companyId, $pocketId) ?? [];
+    }
+
+    /**
+     * Impuesto con el que se factura una carga a este bolsillo, resuelto para
+     * el motor de impuestos de la venta. Lo usa `SaleService` al congelar la
+     * línea de la carga; nunca sale del payload del POS.
+     *
+     * @return array{taxId: ?string, rate: float, kind: string}
+     */
+    public function loadTax(string $companyId, string $pocketId): array
+    {
+        $pocket = $this->findPocket($companyId, $pocketId);
+        if ($pocket === null) {
+            throw new WalletException('Bolsillo no encontrado', 404);
+        }
+        return ['taxId' => $pocket['taxId'], 'rate' => $pocket['taxRate'], 'kind' => $pocket['taxKind']];
     }
 
     /**
@@ -826,12 +878,51 @@ final class WalletService
 
     private function pocketRow($f): array
     {
+        $taxId = ($f['taxid'] ?? null) ? (string) $f['taxid'] : null;
+        if ($taxId === null) {
+            [$rate, $kind] = [0.0, 'exempt'];
+        } elseif (($f['taxrate'] ?? null) !== null && ($f['taxkind'] ?? null) !== null) {
+            [$rate, $kind] = [(float) $f['taxrate'], (string) $f['taxkind']];
+        } else {
+            [$rate, $kind] = \Punto\Api\Taxes\TaxService::deriveRateKindFromName((string) ($f['taxname'] ?? ''));
+        }
         return [
             'id'        => (string) $f['id'],
             'name'      => (string) $f['name'],
             'active'    => self::bool($f['active']),
             'createdAt' => (string) $f['created_at'],
+            'taxId'     => $taxId,
+            'taxName'   => $taxId !== null ? (string) ($f['taxname'] ?? '') : null,
+            'taxRate'   => (float) $rate,
+            'taxKind'   => (string) $kind,
         ];
+    }
+
+    /** Impuesto por defecto del comercio: el primero de su catálogo (mismo orden que `TaxService::list()`). */
+    private function defaultTaxId(string $companyId): ?string
+    {
+        $rs = $this->db()->Execute(
+            'SELECT taxid FROM tax WHERE companyid = ? ORDER BY sortorder NULLS LAST, name LIMIT 1',
+            [$companyId]
+        );
+        return ($rs && !$rs->EOF) ? (string) $rs->fields['taxid'] : null;
+    }
+
+    /** `''` = sin impuesto; si no, tiene que ser un impuesto de ESTE comercio. */
+    private function cleanTaxId(string $companyId, string $taxId): ?string
+    {
+        $taxId = trim($taxId);
+        if ($taxId === '') {
+            return null;
+        }
+        if (!self::isUuid($taxId)) {
+            throw new WalletException('Impuesto inválido');
+        }
+        $rs = $this->db()->Execute('SELECT 1 FROM tax WHERE taxid = ? AND companyid = ?', [$taxId, $companyId]);
+        if (!$rs || $rs->EOF) {
+            throw new WalletException('Impuesto no encontrado', 404);
+        }
+        return $taxId;
     }
 
     private function movementRow($f): array

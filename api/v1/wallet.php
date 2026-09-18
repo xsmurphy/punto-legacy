@@ -4,9 +4,9 @@
  *
  *   GET  /v1/wallet?resource=pockets[&active=1]            → { pockets: [...] }
  *   POST /v1/wallet?resource=pockets                       → crea un bolsillo (201)
- *        body: { name, active? }
- *   PUT  /v1/wallet?resource=pockets&id=<uuid>             → renombra y/o activa-desactiva
- *        body: { name?, active? }
+ *        body: { name, active?, taxId? }   taxId ausente = impuesto por defecto; '' = sin impuesto
+ *   PUT  /v1/wallet?resource=pockets&id=<uuid>             → renombra, activa-desactiva y/o cambia el impuesto
+ *        body: { name?, active?, taxId? }
  *   GET  /v1/wallet?resource=balances&contactId=<uuid>     → { balances: [...] }
  *   GET  /v1/wallet?resource=movements&contactId=<uuid>[&pocketId=&limit=&beforeSeq=]
  *                                                          → { movements: [...], nextBeforeSeq }
@@ -92,7 +92,13 @@ try {
             }
             if ($method === 'POST') {
                 $requireManage();
-                $pocket = $svc->createPocket($companyId, (string) ($_POST['name'] ?? ''));
+                // `taxId` (mig 234): impuesto de las CARGAS del bolsillo (§4).
+                // Ausente = el por defecto del comercio; '' = sin impuesto.
+                $pocket = $svc->createPocket(
+                    $companyId,
+                    (string) ($_POST['name'] ?? ''),
+                    array_key_exists('taxId', $_POST) ? (string) $_POST['taxId'] : null,
+                );
                 // El form del catálogo manda `active` también en el alta.
                 if (array_key_exists('active', $_POST)
                     && filter_var($_POST['active'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) === false) {
@@ -108,6 +114,9 @@ try {
                 $pocket = null;
                 if (array_key_exists('name', $_POST)) {
                     $pocket = $svc->renamePocket($companyId, $id, (string) $_POST['name']);
+                }
+                if (array_key_exists('taxId', $_POST)) {
+                    $pocket = $svc->setPocketTax($companyId, $id, (string) ($_POST['taxId'] ?? ''));
                 }
                 if (array_key_exists('active', $_POST)) {
                     $active = filter_var($_POST['active'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);

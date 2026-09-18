@@ -79,6 +79,7 @@ import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner"
 import { formatMoney, formatAmount } from "@/lib/format-money"
+import { usePosWalletBalances } from "@/hooks/use-pos-wallet-balances"
 import { usePosUIStore } from "@/lib/ui/store"
 import { ProductSearchDialog } from "@/components/register/product-search-dialog"
 import { CustomerDialog } from "@/components/register/customer-dialog"
@@ -881,6 +882,15 @@ function CustomerChip({
   priceListName: string | null
 }) {
   const setCustomer = useCartStore((s) => s.setCustomer)
+  const config = useCatalogStore((s) => s.config)
+  // Saldo por bolsillo del cliente elegido (wallet F2, context/74 D7). Solo
+  // online: sin red no se muestra nada — un saldo viejo leído como el de ahora
+  // es peor que ninguno, y el cobro con saldo lo decide el servidor igual.
+  const wallet = usePosWalletBalances(customer?.id)
+  const walletText = (wallet.data?.balances ?? [])
+    .filter((b) => b.active || b.balance !== 0)
+    .map((b) => `${b.name} ${formatMoney(b.balance, config)}`)
+    .join(" · ")
 
   if (!customer) {
     // Sin cliente pero con lista elegida a mano (sale-options-drawer.tsx):
@@ -905,8 +915,21 @@ function CustomerChip({
     <div className="flex items-center gap-2 px-3 py-1.5">
       <div className="flex-1 min-w-0">
         <p className="truncate text-xs font-medium text-foreground lg:text-sm">{customer.name}</p>
-        {customer.tin && (
-          <p className="text-[10px] text-muted-foreground lg:text-[11px]">{customer.tin}</p>
+        {/* Con la wallet activa la línea del RUC existe SIEMPRE y con alto fijo:
+            el saldo llega después (online) y no puede empujar el carrito
+            (posiciones estables, context/14 R10). */}
+        {(customer.tin || wallet.enabled) && (
+          <p className={cn(
+            "flex gap-2 text-[10px] text-muted-foreground lg:text-[11px]",
+            wallet.enabled && "h-4 lg:h-[18px]",
+          )}>
+            {customer.tin && <span className="shrink-0">{customer.tin}</span>}
+            {wallet.enabled && walletText && (
+              <span className="ml-auto truncate tabular-nums" title={walletText}>
+                {walletText}
+              </span>
+            )}
+          </p>
         )}
         {priceListName && (
           <Badge variant="secondary" className="mt-0.5 max-w-full gap-1 px-1.5 text-[10px] lg:text-[11px]">

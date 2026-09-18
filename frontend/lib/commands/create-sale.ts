@@ -121,6 +121,12 @@ export interface SaleItem {
    * — ver el docblock de `SaleService::expandAddonSelections`.
    */
   selections?: { optionId: string; qty: number }[]
+  /**
+   * Carga de saldo (wallet F2, context/74): SOLO el bolsillo. El ítem, el
+   * impuesto y el monto que entra al saldo los resuelve `SaleService` contra
+   * la BD (`Money::sanitizeSaleArray` descarta cualquier otra clave).
+   */
+  walletLoad?: { pocketId: string }
 }
 
 /**
@@ -253,6 +259,13 @@ export interface CreateSalePayload {
    * Maps a `SaleInput::$invoiceSerie` (key `invoiceserie`).
    */
   invoiceserie: string
+  /**
+   * Wallet F2: afirmación firmada del operador del PIN AL EMITIR, en toda venta
+   * con CARGA de saldo. Si la venta se sincroniza por la cola offline, el
+   * servidor evalúa `pos.wallet.load` contra ESTA persona, no contra quien
+   * sincroniza (`WalletLoadPermission`). Ausente en el resto de las ventas.
+   */
+  walletLoadAuth?: string | null
 }
 
 export interface CreateSaleResult {
@@ -413,6 +426,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
           })),
         }
       : {}),
+    ...(line.walletLoad ? { walletLoad: { pocketId: line.walletLoad.pocketId } } : {}),
   }))
 
   // El vale ya se cobró al emitirse (context/36, decisión 5): sus líneas
