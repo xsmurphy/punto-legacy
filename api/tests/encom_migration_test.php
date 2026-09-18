@@ -644,12 +644,12 @@ try {
     );
 
     // El JS del form vivo antepone el código de país del desplegable cuando lo
-    // tipeado es numérico, sin quitar el 0 (verificado 2026-09-18).
+    // tipeado es numérico; lo guardado va SIN el 0 troncal (verificado 2026-09-18).
     parse_str(LoginBodyProbe::body('0984123456', 'x', '+595'), $phoneFields);
 
     check(
-        'L2 · un celular viaja con el código de país ADELANTE y sin quitar el 0 (como el navegador)',
-        ($phoneFields['email'] ?? '') === '+5950984123456',
+        'L2 · un celular viaja con el código de país ADELANTE y sin el 0 troncal (como está guardado)',
+        ($phoneFields['email'] ?? '') === '+595984123456',
         'email = ' . var_export($phoneFields['email'] ?? null, true),
         $failures, $checks
     );

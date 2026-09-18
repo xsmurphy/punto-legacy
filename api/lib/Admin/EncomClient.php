@@ -301,7 +301,13 @@ class EncomClient implements EncomSource
      *     mandaría "+595+595981…". Un identificador que ya empieza con `+` lo
      *     escribió el operador completo, así que viaja tal cual (no es
      *     numérico según `^\d+$`).
-     *   - El 0 inicial NO se quita: el navegador no lo quita.
+     *   - El 0 inicial (prefijo troncal) SÍ se quita. El navegador no lo quita,
+     *     pero el legacy compara el celular carácter por carácter contra lo
+     *     guardado, y lo guardado va SIN el 0: verificado 2026-09-18 en el
+     *     network del login vivo de un cliente real, que entra con
+     *     `+595984…` (tipeó el número sin el 0). El operador del migrador
+     *     escribe el celular como se usa en el país (`0984…`), así que sin
+     *     quitarlo mandaba `+5950984…` y el legacy lo rechazaba.
      *   - Cualquier otra cosa (email) viaja tal cual, sin código.
      *
      * El código se valida siempre que venga (`+` y 1 a 4 dígitos) y es
@@ -332,7 +338,7 @@ class EncomClient implements EncomSource
             );
         }
 
-        return $phoneCode . $identifier;
+        return $phoneCode . ltrim($identifier, '0');
     }
 
     /** Solo dígitos: lo que el form legacy trata como celular (ver `composeIdentifier()`). */

@@ -251,8 +251,18 @@ Verificado contra el HTML vivo de `panel.encom.com.py/login`. El form tiene un
 solo campo (`name="email"`) para email o celular, y **antes de enviar el JS le
 antepone el código de país** elegido en un desplegable (`+595` si no se tocó)
 cuando lo tipeado es numérico (`$.isNumeric`), sin tocar nada más:
-`0984123456` viaja como `+5950984123456` (el 0 NO se quita). Con un email no
-antepone nada. El POST es `/login?login=true&gtoken=` con `{email, password}`.
+`0984123456` viaja como `+5950984123456` (el navegador no quita el 0). Con un
+email no antepone nada. El POST es `/login?login=true&gtoken=` con `{email, password}`.
+
+**Corrección del mismo día — el 0 troncal SÍ se quita.** El legacy busca el
+celular por igualdad exacta contra `contactPhone`, y lo guardado va SIN el 0:
+el network del login vivo de un cliente real muestra `email=+595984906513`
+(el cliente tipea el número sin el 0). El operador del migrador lo escribe con
+el 0 (`0984…`), así que `composeIdentifier()` hace `código + ltrim(número, '0')`.
+Replicar al navegador al pie de la letra mandaba `+5950984…`, que no existe.
+reCAPTCHA: probado 2026-09-18 con una cuenta inexistente, el login vivo NO
+exige `gtoken` (responde "Usuario o contraseña incorrectos"), así que no era
+la causa.
 
 El docblock de `EncomClient::login()` afirmaba que el identificador viajaba
 "TAL CUAL": era falso para celulares, y por eso quien entra al legacy con su
