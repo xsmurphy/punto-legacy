@@ -42,15 +42,16 @@ export interface PairedScreenContext {
   /** Nombres de etapas de órdenes renombradas por el comercio (mismo campo que el bootstrap). */
   orderStatusLabels?: OrderStatusLabels
   /**
-   * El comercio exige el ROSTRO para marcar asistencia (context/83): el reloj
-   * no ofrece "Usar código".
+   * El comercio habilitó marcar con CÓDIGO además del rostro (context/83).
+   * Solo con esto en true el reloj ofrece "Usar código".
    *
    * Opcional porque el contexto CACHEADO de una versión anterior no lo trae
    * (este hook reusa el último contexto conocido cuando no hay red), y ausente
-   * tiene que significar el default del comercio: el código disponible. Es un
-   * dato para PINTAR — quien rechaza una marcación con código es el servidor.
+   * tiene que significar el default del comercio, que desde 2026-09-18 es el
+   * rostro solo. Es un dato para PINTAR — quien rechaza una marcación con
+   * código es el servidor.
    */
-  attendanceFaceOnly?: boolean
+  attendanceAllowPin?: boolean
 }
 
 export type PairState = "unpaired" | "connecting" | "ready"

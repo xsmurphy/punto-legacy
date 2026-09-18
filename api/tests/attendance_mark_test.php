@@ -87,15 +87,20 @@ function contarMarcas(string $companyId, string $employeeId): int
 }
 
 /**
- * Prende o apaga "marcar solo con el rostro" en el comercio.
+ * Prende o apaga "permitir marcar con código" en el comercio.
  *
  * Escribe la MISMA clave que escribe Ajustes (`config.settingObj`, sin
  * migración) con el mismo 1/0 que usa `SettingsService::updateGeneral()`, y
  * después invalida el cache por request igual que hace el CRUD real. Escribir
  * a mano un `true`/`false` JSON acá probaría un formato que el form nunca
  * produce.
+ *
+ * `$on = true` significa CÓDIGO HABILITADO. La clave se llamaba
+ * `attendanceFaceOnly` (negada) hasta que el owner invirtió el default el
+ * 2026-09-18: ahora ausente = solo rostro, y el nombre positivo es el que hace
+ * que "ausente" caiga del lado correcto sin backfill.
  */
-function setFaceOnly(string $companyId, bool $on): void
+function setAllowPin(string $companyId, bool $on): void
 {
     $row = ncmExecute(
         "SELECT config->>'settingObj' AS so FROM company WHERE companyId = ? LIMIT 1",
@@ -105,7 +110,7 @@ function setFaceOnly(string $companyId, bool $on): void
     if (!is_array($obj)) {
         $obj = [];
     }
-    $obj['attendanceFaceOnly'] = $on ? 1 : 0;
+    $obj['attendanceAllowPin'] = $on ? 1 : 0;
 
     // `to_jsonb(?::text)`: `settingObj` se guarda como el TEXTO de un JSON
     // adentro de `config`, no como un objeto anidado — es lo que escribe
@@ -413,15 +418,38 @@ try {
     // (G) El interruptor "marcar con código" del comercio (context/83)
     // ═══════════════════════════════════════════════════════════════════════
     //
-    // Es la ÚNICA excepción al fail-open, así que se ejercita entera: que
-    // prendido no cambie nada, que apagado rechace el código, que apagado NO
-    // toque el rostro, y que el default de un comercio que nunca tocó la clave
-    // siga siendo "disponible" (el flag es negativo justamente para eso).
+    // Es la ÚNICA excepción al fail-open, así que se ejercita entera: que el
+    // default de un comercio que nunca tocó la clave sea SOLO ROSTRO (owner
+    // 2026-09-18 — el flag es positivo justamente para eso), que prendido el
+    // código entre, que apagado se rechace, y que apagado NO toque el rostro.
     echo "\n=== (G) Interruptor de marcación con código ===\n";
 
-    check('(G0) por default el comercio deja marcar con código (clave ausente)',
-        AttendanceSettings::faceOnly($companyId) === false,
-        'faceOnly() dio true sin que nadie tocara la config', $failures, $checks);
+    check('(G0) por default el comercio NO deja marcar con código (clave ausente)',
+        AttendanceSettings::allowPin($companyId) === false,
+        'allowPin() dio true sin que nadie tocara la config', $failures, $checks);
+
+    $rechazoPorDefault = null;
+    try {
+        $svc->mark($companyId, [
+            'opId'          => opId('default-pin'),
+            'employeeId'    => $sinHorario['id'],
+            'pinHash'       => hash('sha256', '8265'),
+            'kind'          => 'in',
+            'markedAt'      => $dia . 'T07:55:00-03:00',
+            'method'        => 'pin',
+            'outletId'      => $outletId,
+            'noPhotoReason' => 'no_camera',
+        ]);
+    } catch (\RuntimeException $e) {
+        $rechazoPorDefault = $e;
+    }
+    check('(G0b) y el rechazo es REAL, no solo el resolver: sin tocar nada, el código no entra',
+        $rechazoPorDefault !== null,
+        'la marcación por código entró con la clave ausente', $failures, $checks);
+
+    // Se prende como lo prende Ajustes: una clave más en `config.settingObj`,
+    // sin migración. `forget()` es lo que hace el CRUD real al guardar.
+    setAllowPin($companyId, true);
 
     $antesDelSwitch = contarMarcas($companyId, $sinHorario['id']);
 
@@ -443,9 +471,8 @@ try {
         $conCodigo['duplicate'] === false && $conCodigo['mark']['method'] === 'pin',
         json_encode($conCodigo), $failures, $checks);
 
-    // Se apaga como lo apaga Ajustes: una clave más en `config.settingObj`,
-    // sin migración. `forget()` es lo que hace el CRUD real al guardar.
-    setFaceOnly($companyId, true);
+    // Y se apaga por el mismo camino.
+    setAllowPin($companyId, false);
 
     $rechazoPorCodigo = null;
     try {
@@ -506,18 +533,18 @@ try {
         && $reenvioViejo['mark']['id'] === $conCodigo['mark']['id'],
         json_encode($reenvioViejo), $failures, $checks);
 
-    setFaceOnly($companyId, false);
+    setAllowPin($companyId, true);
     check('(G5) volver a prender el interruptor rehabilita el código',
-        AttendanceSettings::faceOnly($companyId) === false,
-        'faceOnly() siguió en true después de apagar la clave', $failures, $checks);
+        AttendanceSettings::allowPin($companyId) === true,
+        'allowPin() siguió en false después de prender la clave', $failures, $checks);
 
 } finally {
     // El interruptor es del TENANT del fixture, no de las personas que el
     // arnés creó: si algo tiró en el medio, la clave queda escrita y la
-    // próxima corrida arranca con el código apagado (y (G1) falla sin que
-    // nadie haya roto nada). Se limpia siempre.
+    // próxima corrida arranca con el código PRENDIDO (y (G0b) falla sin que
+    // nadie haya roto nada). Se devuelve siempre al default, que es apagado.
     try {
-        setFaceOnly($companyId, false);
+        setAllowPin($companyId, false);
     } catch (\Throwable) {
         // Sin conexión no hay nada que limpiar; el error real ya se está
         // propagando y taparlo con este sería peor.

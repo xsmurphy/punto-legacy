@@ -199,7 +199,7 @@ const settingsSchema = z.object({
   // context/83 — el reloj de marcación exige el rostro. En negativo a
   // propósito, igual que `stockCountRecordOnly`: el default del comercio es que
   // el código esté disponible, y un flag ausente en el JSONB vale falso.
-  attendanceFaceOnly: z.boolean(),
+  attendanceAllowPin: z.boolean(),
   // D7/E1b de context/48-escalamiento-de-datos.md — editable desde
   // /settings/cierre-de-periodo (page propia), no desde este modal. Vive en
   // el schema porque el form hidrata desde el GET; ninguna sección de este
@@ -289,7 +289,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "stockCountBlind", "stockCountRecordOnly", "stockCountFromRegister",
     "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
-    "attendanceFaceOnly",
+    "attendanceAllowPin",
     "orderStatusLabels",
   ],
   apariencia: [],
@@ -478,7 +478,7 @@ function SettingsPageInner() {
       autoSendDocs: !!data.autoSendDocs,
       weightBarcodes: !!data.weightBarcodes,
       deletedItemsHistory: !!data.deletedItemsHistory,
-      attendanceFaceOnly: !!data.attendanceFaceOnly,
+      attendanceAllowPin: !!data.attendanceAllowPin,
       agentName: data.agentName ?? "",
       agentPersonality: data.agentPersonality ?? "professional",
       agentBusinessContext: data.agentBusinessContext ?? "",
@@ -1150,15 +1150,16 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
             contrato de sección sin dar nada a cambio — mismo criterio que
             dejó "Pagos a proveedores" en este tab.
 
-            Nombrado en positivo hacia el ROSTRO y no en negativo hacia el
-            código, para que el toggle apagado sea el default del comercio (el
-            código disponible) y el form no tenga que invertir el valor entre
-            la pantalla y lo que se guarda. */}
+            El interruptor está en positivo hacia el CÓDIGO y arranca apagado
+            (owner 2026-09-18): el reloj identifica por rostro, y el código —que
+            se presta, que es justamente lo que el rostro viene a resolver— es
+            algo que el comercio agrega si lo necesita. Apagado = el default,
+            así el form no invierte nada entre lo que se ve y lo que se guarda. */}
         <ToggleField
           form={form}
-          name="attendanceFaceOnly"
-          label="Marcar asistencia solo con el rostro"
-          desc="El reloj de la entrada deja de ofrecer el código y cada persona marca poniendo la cara. Quien todavía no tenga el rostro registrado no va a poder marcar hasta que se lo registres."
+          name="attendanceAllowPin"
+          label="Permitir marcar con código"
+          desc="Además del rostro, el reloj de la entrada ofrece marcar con un código personal. Sirve para quien todavía no tenga el rostro registrado; tené en cuenta que un código se le puede pasar a un compañero."
         />
       </Section>
 
@@ -1807,7 +1808,7 @@ function emptyValues(): SettingsFormValues {
     autoSendDocs: false,
     weightBarcodes: false,
     deletedItemsHistory: false,
-    attendanceFaceOnly: false,
+    attendanceAllowPin: false,
     settingPeriodCloseMonths: 1,
     agentName: "",
     agentPersonality: "professional",

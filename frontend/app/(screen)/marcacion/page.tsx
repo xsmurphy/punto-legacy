@@ -64,6 +64,33 @@
  * habilita, el registro de rostro— viven siempre en las mismas coordenadas. El
  * bloque central cambia de contenido (hora, saludo, aviso) pero no de lugar, y
  * el anillo de estado se pinta sobre el borde que ya existe.
+ *
+ * ── También es un celular colgado en la entrada ───────────────────────────
+ *
+ * El reloj se parea en cualquier aparato, y muchos comercios cuelgan un
+ * teléfono viejo. Eso cambia tres cosas, todas acá:
+ *
+ *   - **Alto real, no `100vh`.** En un navegador móvil `h-screen` cuenta la
+ *     barra de direcciones que se esconde al scrollear, así que el pie queda
+ *     debajo del borde. `h-dvh` es el alto que de verdad se ve.
+ *   - **La pantalla no se puede dormir.** Con el bloqueo del sistema, quien
+ *     llega encuentra un rectángulo negro y tiene que despertar el aparato
+ *     antes de marcar (`hooks/use-wake-lock.ts`).
+ *   - **Los tamaños de texto bajan en pantalla angosta.** Un nombre largo a
+ *     `text-6xl` en 390 px se desarma. Los saltos son por ancho de viewport y
+ *     NO por estado, así que ningún elemento se mueve según lo que esté
+ *     pasando (§10 sigue en pie).
+ *
+ * El video es `object-cover`: en retrato recorta los costados del cuadro de la
+ * cámara en vez de deformarlo o dejar bandas.
+ *
+ * ── Suena (context/83 §9.5: la persona no mira la pantalla) ───────────────
+ *
+ * Quien marca pasa caminando. El saludo en pantalla no alcanza, así que hay dos
+ * avisos —"listo" y "no te reconozco"— en `lib/clock/sounds.ts`. El audio
+ * arranca MUDO por la política de autoplay de los navegadores y se desbloquea
+ * con el primer gesto que reciba este aparato; si nunca recibe ninguno, no
+ * suena nada y no pasa nada más.
  */
 
 import * as React from "react"
@@ -80,6 +107,14 @@ import { usePairedScreen } from "@/hooks/use-paired-screen"
 import { usePendingOpsSync } from "@/hooks/use-pending-ops-sync"
 import { useClockRoster } from "@/hooks/use-clock-roster"
 import { useCameraStream } from "@/hooks/use-camera-stream"
+import { useWakeLock } from "@/hooks/use-wake-lock"
+import { closeToneAudio } from "@/lib/audio/tones"
+import {
+  canPlayUnknown,
+  playClockSuccess,
+  playClockUnknown,
+  unlockClockSound,
+} from "@/lib/clock/sounds"
 import { captureJpeg, type NoPhotoReason } from "@/lib/pos/attendance-photo"
 import {
   lastKnownMark,
@@ -144,16 +179,51 @@ export default function MarcacionPage() {
   // marcaciones: no hay ninguna otra pantalla que encole algo acá.
   usePendingOpsSync()
 
+  // La pantalla no se duerme mientras esto esté abierto. Sin soporte del
+  // navegador no hace nada — ver el hook.
+  useWakeLock()
+
+  // ── El audio, que nace mudo ───────────────────────────────────────────────
+  //
+  // El primer gesto que reciba el aparato desbloquea el `AudioContext`: puede
+  // ser el toque del pareo, abrir el teclado del código, o cualquier toque en
+  // la pantalla. Un reloj recién colgado que nadie tocó todavía no suena, y eso
+  // es aceptable — lo que no puede es tirar un error por intentarlo.
+  React.useEffect(() => {
+    const onGesture = () => {
+      void unlockClockSound()
+    }
+    window.addEventListener("pointerdown", onGesture, { once: true, capture: true })
+    window.addEventListener("keydown", onGesture, { once: true, capture: true })
+    return () => {
+      window.removeEventListener("pointerdown", onGesture, true)
+      window.removeEventListener("keydown", onGesture, true)
+      // El contexto se cierra al salir: esta pantalla queda abierta días y un
+      // `AudioContext` colgado por cada remount agota el límite del navegador.
+      closeToneAudio()
+    }
+  }, [])
+
+  /**
+   * Cuándo sonó por última vez el aviso de "no te reconozco".
+   *
+   * En una ref y no en estado: no redibuja nada, y el bucle de reconocimiento
+   * lo consulta varias veces por segundo.
+   */
+  const lastUnknownSoundRef = React.useRef<number | null>(null)
+
   const outletId = ctx?.outletId ?? ""
 
   // ¿Este comercio deja marcar con código? Se resuelve ACÁ arriba y no junto al
   // resto de los derivados de abajo porque un efecto lo necesita (el atajo del
   // teclado físico), y los efectos viven antes del corte por `pairState`.
   //
-  // Ausente = el default del comercio: disponible. Ver el docblock — un
-  // contexto cacheado por una versión anterior no trae la clave, y leerla como
-  // "apagado" dejaría relojes sin teclado por una actualización.
-  const allowCode = ctx?.attendanceFaceOnly !== true
+  // Ausente = el default del comercio, que desde 2026-09-18 es SOLO ROSTRO: el
+  // código lo prende quien lo necesita, en Ajustes. Un contexto cacheado por
+  // una versión anterior tampoco trae la clave, y ahí "ausente" cae del mismo
+  // lado que el default nuevo — el servidor rechaza igual una marcación con
+  // código que este reloj no debería haber ofrecido.
+  const allowCode = ctx?.attendanceAllowPin === true
   const roster = useClockRoster(outletId, pairState === "ready")
   const employees = React.useMemo(() => roster.data?.employees ?? [], [roster.data])
   const submit = useSubmitAttendanceMark()
@@ -252,6 +322,15 @@ export default function MarcacionPage() {
     // todos esos momentos la pantalla ya está ocupada con una persona.
     paused: phase.kind !== "idle" || codeOpen || pendingEnrollment !== null,
     onIdentified: (employeeId) => identifyRef.current(employeeId),
+    // Hay alguien parado y no es nadie de los registrados. El bucle avisa en
+    // cada vuelta mientras siga ahí, así que el freno de los 10 s va acá: sin
+    // él, el reloj le sonaría sin parar a la persona que busca su código.
+    onUnmatched: () => {
+      const now = Date.now()
+      if (!canPlayUnknown(lastUnknownSoundRef.current, now)) return
+      lastUnknownSoundRef.current = now
+      playClockUnknown()
+    },
   })
 
   // ── Registrar una marcación ───────────────────────────────────────────────
@@ -358,6 +437,14 @@ export default function MarcacionPage() {
     return () => clearTimeout(t)
   }, [phase])
 
+  // La campanita del saludo. También suena en el saludo REPETIDO (el de quien
+  // marcó recién y sigue parado ahí): para esa persona su marca está puesta, y
+  // el silencio la haría dudar. La ventana de repetición de `session-marks.ts`
+  // ya impide que esto se convierta en un loop.
+  React.useEffect(() => {
+    if (phase.kind === "greeting") playClockSuccess()
+  }, [phase])
+
   // Teclado físico: tipear un dígito abre el teclado en pantalla con ese dígito
   // puesto. Así el comercio que tiene la tablet con teclado sigue marcando sin
   // tocar nada, sin que el código ocupe la pantalla.
@@ -431,7 +518,10 @@ export default function MarcacionPage() {
     // pantalla elige su tono (ver `lib/screens/theme.ts`). El reloj es siempre
     // oscuro y no tiene selector — es una cámara en vivo a pantalla completa, y
     // en claro el marco pelea con la imagen.
-    <div className="dark relative h-screen w-full overflow-hidden bg-background text-foreground">
+    // `h-dvh` y no `h-screen`: en un celular `100vh` incluye la barra de
+    // direcciones que se esconde sola, y con ella el pie de la pantalla queda
+    // fuera de la vista.
+    <div className="dark relative h-dvh w-full overflow-hidden bg-background text-foreground">
       {/* El video, siempre montado y siempre del tamaño de la pantalla.
           `scale-x-[-1]`: espejado, como un espejo real — sin esto la persona se
           mueve para el lado contrario al acomodarse. */}
@@ -483,7 +573,7 @@ export default function MarcacionPage() {
           así que si fuera después taparía sus controles. `pointer-events-none`
           por el mismo motivo — lo único que se toca acá adentro es el registro
           de rostro, que lo reactiva. */}
-      <main className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+      <main className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-4 text-center sm:px-6">
         {pendingEnrollment ? (
           // Registro de un rostro. Lo habilitó el panel para ESTA persona: la
           // pantalla no elige a quién registra (ver `<FaceEnrollment>`).
@@ -500,19 +590,23 @@ export default function MarcacionPage() {
           </div>
         ) : phase.kind === "greeting" ? (
           <>
-            <p className="text-3xl font-medium text-muted-foreground">
+            <p className="text-2xl font-medium text-muted-foreground sm:text-3xl">
               {phase.type === "in" ? "Bienvenido" : "Adiós"}
             </p>
-            <p className="text-6xl font-semibold tracking-tight text-balance">{phase.name}</p>
+            <p className="text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+              {phase.name}
+            </p>
           </>
         ) : phase.kind === "error" ? (
-          <p className="text-4xl font-semibold tracking-tight text-balance">
+          <p className="text-2xl font-semibold tracking-tight text-balance sm:text-4xl">
             No se pudo registrar. Probá otra vez.
           </p>
         ) : nobodyLoaded ? (
           <>
             <UserCheck className="size-10 text-muted-foreground" />
-            <p className="text-3xl font-semibold tracking-tight">Todavía nadie puede marcar</p>
+            <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
+              Todavía nadie puede marcar
+            </p>
             <p className="text-base text-muted-foreground text-balance">
               Cargá al personal de esta sucursal para habilitar la marcación.
             </p>
@@ -520,7 +614,7 @@ export default function MarcacionPage() {
         ) : nobodyIdentifiable ? (
           <>
             <ScanFace className="size-10 text-muted-foreground" />
-            <p className="text-3xl font-semibold tracking-tight">
+            <p className="text-2xl font-semibold tracking-tight sm:text-3xl">
               Todavía nadie se puede identificar
             </p>
             <p className="text-base text-muted-foreground text-balance">
@@ -533,7 +627,7 @@ export default function MarcacionPage() {
           <>
             {/* La hora: lo único que ocupa el centro mientras no hay nadie. Que
                 avance a la vista también dice que la pantalla está viva. */}
-            <p className="text-8xl font-semibold tracking-tight tabular-nums">
+            <p className="text-7xl font-semibold tracking-tight tabular-nums sm:text-8xl">
               {now ? now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""}
             </p>
             <p className="text-base text-muted-foreground first-letter:uppercase">
@@ -554,7 +648,21 @@ export default function MarcacionPage() {
       </main>
 
       {/* ── Encabezado ── */}
-      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-4 p-6">
+      {/* El `pt`/`pb` con las variables de área segura es por el celular
+          colgado en la entrada: la app se instala con la barra de estado
+          translúcida, así que sin esto el nombre del comercio queda debajo de
+          la hora del sistema y el botón del código debajo de la barra de
+          gestos. Las variables salen de `globals.css` § "Áreas seguras" — es la
+          única fuente, y el guard `lib/pos/__tests__/safe-area.test.ts` lo
+          verifica. El encabezado descuenta el eje superior y el pie el
+          inferior: UNA vez cada uno, que es la regla — por eso el padding
+          seguro no tiene variante `sm:`, solo la tienen los lados.
+
+          `safe-area-x` es por el APAISADO: en un teléfono acostado el notch se
+          come un lateral, y ahí es donde están el nombre del comercio y el
+          botón del código. En retrato los insets laterales son 0, así que no
+          cambia nada. */}
+      <header className="safe-area-x absolute inset-x-0 top-0 flex items-start justify-between gap-4 px-4 pb-4 pt-[max(1rem,var(--safe-t))] sm:px-6 sm:pb-6">
         <div className="min-w-0">
           <p className="truncate text-lg font-semibold">{ctx?.companyName}</p>
           <p className="truncate text-sm text-muted-foreground">{ctx?.outletName}</p>
@@ -569,7 +677,7 @@ export default function MarcacionPage() {
       </header>
 
       {/* ── Pie: el código, discreto ── */}
-      <footer className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-6">
+      <footer className="safe-area-x absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 px-4 pt-4 pb-[max(1rem,var(--safe-b))] sm:px-6 sm:pt-6">
         {/* Existe siempre, con o sin texto: sin esto el botón del código se
             correría de lugar según la cola. */}
         <p className="min-h-9 text-sm text-muted-foreground">

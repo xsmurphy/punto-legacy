@@ -28,10 +28,11 @@ use Punto\Api\Storage\S3Client;
  * salida, una fecha ilegible o un `opId` ausente. Ahí no hay marcación que
  * salvar: hay un cliente mandando cualquier cosa.
  *
- * ── La ÚNICA excepción al fail-open: el comercio apagó el código ────────────
+ * ── La ÚNICA excepción al fail-open: el comercio no habilitó el código ──────
  *
- * `attendanceFaceOnly` (ver `AttendanceSettings`) rechaza una marcación nueva
- * con `method='pin'`. No contradice al D4: el fail-open protege a la persona de
+ * Sin `attendanceAllowPin` (ver `AttendanceSettings` — apagado por default
+ * desde 2026-09-18) se rechaza una marcación nueva con `method='pin'`. No
+ * contradice al D4: el fail-open protege a la persona de
  * fallas del APARATO —la cámara, la red, el PIN rotado—, cosas que ella no
  * puede resolver parada frente a la tablet. Esto es otra categoría: es el
  * comercio diciendo que marcar con código no cuenta como marcar. Guardarla
@@ -284,7 +285,7 @@ final class AttendanceService
         // se edita. Ver el docblock de la clase para por qué esta es la única
         // excepción al fail-open y por qué la carrera con la cola offline se
         // rechaza en vez de perdonarse.
-        if ($method === 'pin' && AttendanceSettings::faceOnly($companyId)) {
+        if ($method === 'pin' && !AttendanceSettings::allowPin($companyId)) {
             throw new \RuntimeException('La marcación con código está desactivada');
         }
 

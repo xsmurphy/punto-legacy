@@ -94,6 +94,15 @@ export interface UseFaceRecognitionOptions {
   paused?: boolean
   /** Se llama UNA vez cuando alguien queda identificado con prueba de vida. */
   onIdentified?: (employeeId: string) => void
+  /**
+   * Hubo una cara SOSTENIDA delante de la cámara (una ventana entera de
+   * lecturas, ~1 s) y no se pareció a nadie de los registrados.
+   *
+   * Se llama en cada tick mientras esa persona siga ahí —el bucle mira ~3 veces
+   * por segundo—, así que quien la use tiene que poner su propio freno. El
+   * aviso sonoro del reloj lo hace en `lib/clock/sounds.ts`.
+   */
+  onUnmatched?: () => void
 }
 
 export interface UseFaceRecognition {
@@ -118,6 +127,7 @@ export function useFaceRecognition({
   enabled,
   paused = false,
   onIdentified,
+  onUnmatched,
 }: UseFaceRecognitionOptions): UseFaceRecognition {
   const [status, setStatus] = React.useState<FaceEngineStatus>("off")
   const [facePresent, setFacePresent] = React.useState(false)
@@ -137,6 +147,8 @@ export function useFaceRecognition({
   candidatesRef.current = candidates
   const onIdentifiedRef = React.useRef(onIdentified)
   onIdentifiedRef.current = onIdentified
+  const onUnmatchedRef = React.useRef(onUnmatched)
+  onUnmatchedRef.current = onUnmatched
   const pausedRef = React.useRef(paused)
   pausedRef.current = paused
 
@@ -225,7 +237,13 @@ export function useFaceRecognition({
           employeeId: result.matched ? result.match.employeeId : null,
         }
 
-        if (!result.matched) return
+        if (!result.matched) {
+          // Cara sostenida que no es de nadie registrado. Se avisa SIEMPRE y el
+          // freno lo pone quien escucha: acá no se sabe cuánto hace que suena
+          // ni si esta pantalla hace ruido.
+          onUnmatchedRef.current?.()
+          return
+        }
 
         if (performance.now() < cooldownUntilRef.current) return
 

@@ -224,7 +224,11 @@ export default function DisplayPage() {
   const visibleColumns = threeColsFit ? COLUMNS : COLUMNS.filter((c) => c.status === selectedStatus)
 
   return (
-    <div className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col bg-background text-foreground`}>
+    // `safe-area` en la raíz: superficie de fondo plano de borde a borde (ver
+    // globals.css § "Áreas seguras"). Sin esto el título de la sucursal queda
+    // debajo de la barra de estado en un aparato con notch; sin recortes, los
+    // cuatro insets son 0 y no cambia nada.
+    <div className={`${mode === "dark" ? "dark " : ""}safe-area flex h-screen flex-col bg-background text-foreground`}>
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <h1 className="text-xl font-semibold">Despacho — {ctx?.outletName ?? ""}</h1>
         {loading && <RefreshCw className="size-4 animate-spin text-muted-foreground" />}

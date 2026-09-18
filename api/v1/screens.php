@@ -117,8 +117,9 @@ if ($method === 'GET' && $resource === 'context') {
         // nombre de campo y normalizador que `/v1/bootstrap`. La pantalla lo
         // vuelve a pedir cuando llega el evento `setting` (usePairedScreen).
         'orderStatusLabels' => \Punto\Api\Orders\OrderStatusLabels::forJson($company['orderStatusLabels'] ?? null),
-        // El reloj de marcación exige el ROSTRO (context/83): con esto en true
-        // no ofrece "Usar código". Viaja por acá y no por un endpoint propio
+        // El reloj de marcación identifica por ROSTRO y, por default, SOLO por
+        // rostro (owner 2026-09-18): solo con esto en true ofrece "Usar
+        // código". Viaja por acá y no por un endpoint propio
         // porque es lo mismo que el resto de este payload —cómo arma su pantalla
         // una pantalla pareada— y porque el refresco ya está resuelto: al llegar
         // el evento `setting`, `usePairedScreen` vuelve a pedir el contexto.
@@ -127,7 +128,7 @@ if ($method === 'GET' && $resource === 'context') {
         // marcación con código (`AttendanceService::mark()`). Se lee con el
         // mismo resolver para que la pantalla no ofrezca lo que el alta va a
         // rechazar.
-        'attendanceFaceOnly' => \Punto\Api\Hr\AttendanceSettings::faceOnlyFromSettingObj($obj),
+        'attendanceAllowPin' => \Punto\Api\Hr\AttendanceSettings::allowPinFromSettingObj($obj),
     ]);
     exit;
 }
