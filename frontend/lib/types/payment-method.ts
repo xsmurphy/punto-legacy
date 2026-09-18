@@ -23,6 +23,10 @@ export interface PaymentMethod {
   sortOrder: number | null
   /** Cuenta de Finanzas asignada. Null = cae en Efectivo (fallback). */
   accountId: string | null
+  /** Comisión de la procesadora en % sobre cada cobro. Null = sin comisión. */
+  feePercent: number | null
+  /** Monto fijo que la procesadora cobra por operación. Null = sin monto fijo. */
+  feeFixed: number | null
 }
 
 export interface PaymentMethodPayload {
@@ -34,4 +38,7 @@ export interface PaymentMethodPayload {
   identifierPlaceholder?: string
   color?: string
   accountId?: string | null
+  /** String del input de porcentaje ('' = sin comisión); el backend lo parsea. */
+  feePercent?: string
+  feeFixed?: number | null
 }
