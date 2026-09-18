@@ -591,7 +591,48 @@ check('(S5) un lote que ALCANZA no abre nada — no hay faltante que reponer',
     $res3['created'] === [] && $res3['existing'] === [],
     json_encode($res3), $failures, $checks);
 
+// Alcance por sucursal (context/25): un usuario acotado a OTRA sucursal no
+// abre necesidades en esta. Tiene que cortar ANTES de estimar o escribir.
+$otraSucursal = 'ba7c0009-0000-4000-8000-000000000001';
+$antesS6 = (int) (ncmExecute(
+    "SELECT COUNT(*) AS n FROM replenishment_need WHERE companyid = ? AND origin = 'production_batch'",
+    [$companyId]
+)['n'] ?? 0);
+$codigoS6 = null;
+try {
+    $needs->createFromBatch($companyId, $userId, $outletId, $lineasFalta, null, [$otraSucursal]);
+} catch (\InvalidArgumentException $e) {
+    $codigoS6 = (int) $e->getCode();
+}
+$despuesS6 = (int) (ncmExecute(
+    "SELECT COUNT(*) AS n FROM replenishment_need WHERE companyid = ? AND origin = 'production_batch'",
+    [$companyId]
+)['n'] ?? 0);
+check('(S6) una sucursal fuera del alcance del usuario corta con 403 y no escribe nada',
+    $codigoS6 === 403 && $despuesS6 === $antesS6,
+    'código = ' . var_export($codigoS6, true) . ", filas antes/después = {$antesS6}/{$despuesS6}", $failures, $checks);
+
 // El arnés no se lleva su basura: estas necesidades no son fixture de nadie.
 ncmExecute("DELETE FROM replenishment_need WHERE companyid = ? AND origin = 'production_batch'", [$companyId]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// (T) El listado de lotes respeta el alcance por sucursal (context/25).
+// El endpoint pasa `allowedOutletIds`; `[]` = usuario global.
+// ─────────────────────────────────────────────────────────────────────────────
+echo "\n=== (T) el listado de lotes respeta el alcance por sucursal ===\n";
+
+$listaGlobal = $batches->list($companyId, ['allowedOutletIds' => []]);
+$listaPropia = $batches->list($companyId, ['allowedOutletIds' => [$outletId]]);
+$listaAjena  = $batches->list($companyId, ['allowedOutletIds' => [$otraSucursal]]);
+
+check('(T1) un usuario global ve los lotes de la sucursal (hay al menos los de (E))',
+    count($listaGlobal) > 0,
+    'lotes = ' . count($listaGlobal), $failures, $checks);
+check('(T2) acotado a ESTA sucursal ve los mismos lotes que el global',
+    count($listaPropia) === count($listaGlobal),
+    'propia = ' . count($listaPropia) . ', global = ' . count($listaGlobal), $failures, $checks);
+check('(T3) acotado a OTRA sucursal no ve ninguno de esta',
+    $listaAjena === [],
+    'ajena = ' . count($listaAjena), $failures, $checks);
 
 harnessFinish($failures, $checks);

@@ -557,7 +557,11 @@ final class ProductionBatchService
                        (SELECT COUNT(*) FROM production_order po WHERE po.batchid = pb.batchid) AS linecount,
                        (SELECT COALESCE(SUM(po.qtyplanned), 0) FROM production_order po WHERE po.batchid = pb.batchid) AS qtytotal
                   FROM production_batch pb
-                 WHERE ' . implode(' AND ', $where) . '
+                 WHERE ' . implode(' AND ', $where)
+            // Alcance por sucursal del usuario (context/25): `[]` = global y
+            // el fragmento sale vacío. Interpolado y no bindeado a propósito —
+            // `sqlFilter` re-valida cada uuid, así no desalinea los `?`.
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('pb.outletid', (array) ($filters['allowedOutletIds'] ?? [])) . '
                  ORDER BY pb.created_at DESC
                  LIMIT 500';
 

@@ -57,6 +57,39 @@ $action    = $_GET['action'] ?? null;
 global $db;
 $svc = new \Punto\Api\Production\ProductionBatchService($db);
 
+/*
+ * Alcance por sucursal (context/25): un usuario con sucursales asignadas en
+ * `contact_outlet` opera SOLO esas — también acá. El endpoint no lo aplicaba
+ * en ningún camino (hallazgo del review 2026-09-17): con `production.manage`
+ * se podía leer la demanda, estimar, listar y confirmar lotes de cualquier
+ * sucursal del tenant pasando su `outletId`.
+ *
+ * Se resuelve UNA vez y se aplica en el embudo de cada camino, no dentro de
+ * cada método del servicio: el servicio también lo llama `ReplenishmentService`
+ * (que ya aplica su propio alcance), y un segundo chequeo adentro sería una
+ * segunda definición del mismo criterio.
+ */
+$scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
+
+/** Corta con 403 si la sucursal pedida está fuera del alcance del usuario. */
+$requireOutlet = static function (string $outletId) use ($scope, $companyId): void {
+    if (!\Punto\Api\Outlets\OutletScope::allows($scope, $outletId, $companyId)) {
+        apiError('No tenés acceso a esa sucursal', 403);
+    }
+};
+
+/**
+ * Trae un lote SOLO si es de una sucursal del alcance. Afuera responde 404 y
+ * no 403, a propósito: un 403 confirmaría que ese id existe en otra sucursal.
+ */
+$findScoped = static function (string $batchId) use ($svc, $scope, $companyId): array {
+    $batch = $svc->find($companyId, $batchId);
+    if ($batch === null || !\Punto\Api\Outlets\OutletScope::allows($scope, (string) ($batch['outletId'] ?? ''), $companyId)) {
+        apiError('Lote de producción no encontrado', 404);
+    }
+    return $batch;
+};
+
 switch ($method) {
     case 'GET':
         // Alimentador del lote: de la cola de órdenes a las líneas
@@ -70,6 +103,7 @@ switch ($method) {
             if ($outletId === '') {
                 apiError('outletId es requerido', 422);
             }
+            $requireOutlet($outletId);
             // Rango de días de entrega a traer (context/79 D2, ampliado a rango
             // el 2026-09-17). Ausente = hoy, que es el comportamiento previo:
             // la cola sin fecha más lo vencido. `date` sigue aceptándose como
@@ -91,9 +125,7 @@ switch ($method) {
         }
 
         if ($id !== null) {
-            $batch = $svc->find($companyId, (string) $id);
-            if ($batch === null) apiError('Lote de producción no encontrado', 404);
-            apiOk($batch);
+            apiOk($findScoped((string) $id));
             break;
         }
         $filters = [
@@ -102,7 +134,14 @@ switch ($method) {
             'from'     => $_GET['from'] ?? null,
             'to'       => $_GET['to'] ?? null,
         ];
-        apiOk(['batches' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''))]);
+        $filters = array_filter($filters, static fn ($v) => $v !== null && $v !== '');
+        // Pedir una sucursal fuera del alcance es un 403, no una lista vacía:
+        // "no hay lotes" diría algo falso sobre esa sucursal.
+        if (isset($filters['outletId'])) {
+            $requireOutlet((string) $filters['outletId']);
+        }
+        $filters['allowedOutletIds'] = $scope;
+        apiOk(['batches' => $svc->list($companyId, $filters)]);
         break;
 
     case 'POST':
@@ -116,12 +155,19 @@ switch ($method) {
             if ($outletId === '') {
                 apiError('outletId es requerido', 422);
             }
+            $requireOutlet($outletId);
             try {
                 apiOk($svc->estimate($companyId, $outletId, (array) ($_POST['lines'] ?? []), $locationId));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
             break;
+        }
+
+        // confirm/cancel operan sobre un lote existente: se valida que sea de
+        // una sucursal del alcance ANTES de tocarlo.
+        if ($id !== null) {
+            $findScoped((string) $id);
         }
 
         if ($id !== null && $action === 'confirm') {
@@ -147,6 +193,12 @@ switch ($method) {
             apiError('action inválida (esperado: confirm|cancel)', 422);
         }
 
+        // Sin outletId lo rechaza el servicio con su 422 de siempre; con uno
+        // fuera del alcance, 403 antes de crear nada.
+        $createOutlet = (string) ($_POST['outletId'] ?? '');
+        if ($createOutlet !== '') {
+            $requireOutlet($createOutlet);
+        }
         try {
             $newId = $svc->create($companyId, $userId, $_POST);
             apiOk($svc->find($companyId, $newId), 201);
