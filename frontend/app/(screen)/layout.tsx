@@ -1,4 +1,5 @@
 import "@/app/globals.css"
+import { fontVariables } from "@/app/fonts"
 import { ThemeProvider } from "@/components/theme-provider"
 import { Toaster } from "@/components/ui/sonner"
 
@@ -6,7 +7,7 @@ export const metadata = { title: "Punto — Pantalla cliente" }
 
 export default function ScreenLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning className={`antialiased ${fontVariables}`}>
       <body className="font-sans">
         {/* forcedTheme=light: piso neutro para todo este grupo de rutas —
             nunca deben heredar el theme del panel/POS (compartían storage

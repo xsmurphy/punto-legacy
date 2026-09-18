@@ -1,3 +1,4 @@
+import { fontVariables } from "@/app/fonts"
 import * as React from "react"
 import type { Viewport } from "next"
 import { SidebarInset } from "@/components/ui/sidebar"
@@ -61,7 +62,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
       <PosAuthGuard>
         <PosOrderStatusLabels>
           <ChunkErrorListener />
-          {/* Marca `<html>` mientras el POS está montado. De ahí cuelgan TODAS
+          {/* Marca `<html lang="es" className={`antialiased ${fontVariables}`}>` mientras el POS está montado. De ahí cuelgan TODAS
               las reglas propias de la caja (typography de los campos y mínimo
               táctil, en `app/globals.css`): una clase en el shell no alcanzaba
               porque lo que se portalea —diálogos, drawers, dropdowns, toasts—
