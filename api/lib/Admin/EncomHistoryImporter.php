@@ -118,6 +118,13 @@ final class EncomHistoryImporter
     private int $comprasCompletadas = 0;
     private int $comprasConProveedorCorregido = 0;
 
+    /**
+     * Se apaga al primer error INESPERADO de `completarVenta()`: una falla
+     * sistémica (columna, permisos) daría un error idéntico por cada venta
+     * ya importada —miles— y enterraría la causa. Se reporta una vez.
+     */
+    private bool $completarVentasRoto = false;
+
     /** Artículos cuyas líneas entraron SIN costo, para la bitácora. */
     private array $sinCostoLineas = [];
 
@@ -796,6 +803,9 @@ final class EncomHistoryImporter
      */
     private function completarVenta(string $txId, string $legacyId, string $customerId): string
     {
+        if ($this->completarVentasRoto) {
+            return 'noop';
+        }
         try {
             $row = \ncmExecute(
                 "UPDATE transaction SET customerId = ?
@@ -808,7 +818,12 @@ final class EncomHistoryImporter
             if (str_contains($e->getMessage(), 'period_closed')) {
                 return 'closed';
             }
-            $this->fail('sales_history', 'Venta ' . $legacyId . ': no se pudo completar el cliente: ' . $e->getMessage());
+            $this->completarVentasRoto = true;
+            $this->fail(
+                'sales_history',
+                'Venta ' . $legacyId . ': no se pudo completar el cliente: ' . $e->getMessage()
+                . ' No se intenta completar ninguna otra venta en esta corrida (el error no es de esta fila).'
+            );
             return 'noop';
         }
 
