@@ -194,10 +194,10 @@ if ($method === 'POST') {
         'ignoreInternal', 'stockCountBlind', 'stockCountRecordOnly', 'stockCountFromRegister',
         'blockUsedDocNo', 'autoSendDocs',
         'weightBarcodes', 'deletedItemsHistory',
-        // context/83 — el reloj exige el rostro y deja de aceptar el código.
-        // Sin esta línea el toggle de Ajustes "guarda" sin persistir nada:
-        // este allowlist es el que decide qué llega a updateGeneral().
-        'attendanceFaceOnly',
+        // context/83 — el reloj acepta el código además del rostro. Apagado por
+        // default. Sin esta línea el toggle de Ajustes "guarda" sin persistir
+        // nada: este allowlist es el que decide qué llega a updateGeneral().
+        'attendanceAllowPin',
         // D2 de context/40-anulacion-y-nota-credito.md — devoluciones.
         'settingReturnAllowIngredientReversal',
     ];

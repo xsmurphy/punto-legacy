@@ -165,6 +165,23 @@ const EXPECTED_INSETS: Record<string, Record<"t" | "r" | "b" | "l", number>> = {
   "components/ui/dialog.tsx": { t: 3, r: 2, b: 2, l: 1 },
   "components/ui/drawer.tsx": { t: 0, r: 1, b: 1, l: 1 },
   "components/layout/pos-sidebar.tsx": { t: 1, r: 0, b: 1, l: 0 },
+  // El reloj de marcación (2026-09-18). No es del POS pero apoya igual en los
+  // dos bordes: es una cámara a pantalla completa y muchos comercios lo cuelgan
+  // en un celular, así que sin esto el nombre del comercio queda debajo del
+  // reloj del sistema y el botón del código debajo de la barra de gestos.
+  // Encabezado = eje superior, pie = eje inferior, uno cada uno. Los laterales
+  // van 2 porque son DOS superficies distintas apoyadas en los mismos bordes
+  // (encabezado y pie), no el mismo borde descontado dos veces: en apaisado el
+  // notch se come un lateral y ahí viven el nombre del comercio y el botón del
+  // código.
+  "app/(screen)/marcacion/page.tsx": { t: 1, r: 2, b: 1, l: 2 },
+  // Las otras tres pantallas pareadas (2026-09-18). Son superficies de fondo
+  // plano pintadas de borde a borde, así que descuentan los cuatro ejes en la
+  // raíz con la utilidad `safe-area` — una sola aplicación cada una. En un
+  // televisor o una tablet sin recortes los insets valen 0 y no cambia nada.
+  "app/(screen)/kds/page.tsx": { t: 1, r: 1, b: 1, l: 1 },
+  "app/(screen)/display/page.tsx": { t: 1, r: 1, b: 1, l: 1 },
+  "app/(screen)/checkout/page.tsx": { t: 1, r: 1, b: 1, l: 1 },
 }
 
 /**

@@ -271,7 +271,12 @@ export default function CheckoutPage() {
   }
 
   return (
-    <div className={`${mode === "dark" ? "dark " : ""}relative w-full min-h-screen bg-background text-foreground`}>
+    // `safe-area` en la raíz: superficie de fondo plano de borde a borde (ver
+    // globals.css § "Áreas seguras"). Los dos controles de la esquina son
+    // `absolute` y se posicionan contra la caja de padding de este mismo
+    // elemento, así que bajan con él y dejan de caer dentro de la barra de
+    // estado. Sin recortes en el aparato, los cuatro insets son 0.
+    <div className={`${mode === "dark" ? "dark " : ""}safe-area relative w-full min-h-screen bg-background text-foreground`}>
       {/* Selector de tono — top-right, discreto: es la pantalla del cliente,
           no un control de operador. Mismo tratamiento visual apagado que el
           botón de fullscreen de al lado (opacidad baja, sin robarle foco al

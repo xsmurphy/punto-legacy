@@ -769,7 +769,13 @@ export default function KdsPage() {
     // la barra y el recall los leen con useOrderStatusLabels().
     <OrderStatusLabelsProvider labels={ctx?.orderStatusLabels}>
       <div
-        className={`${mode === "dark" ? "dark " : ""}flex h-screen flex-col overflow-hidden bg-background text-foreground`}
+        // `safe-area` (los cuatro lados) en la raíz: es una superficie de fondo
+        // plano que se pinta de borde a borde, que es justo el caso donde
+        // globals.css § "Áreas seguras" dice que corresponde acá. Sin esto, en
+        // un teléfono o una tablet con notch la primera fila de comandas queda
+        // debajo del reloj del sistema. En una pantalla sin recortes los cuatro
+        // insets son 0 y no cambia nada.
+        className={`${mode === "dark" ? "dark " : ""}safe-area flex h-screen flex-col overflow-hidden bg-background text-foreground`}
       >
         <main className="min-h-0 flex-1 p-2">
           {/* El resumen reemplaza el ÁREA de comandas, no la pantalla: la barra

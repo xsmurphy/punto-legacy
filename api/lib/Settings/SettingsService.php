@@ -199,12 +199,13 @@ final class SettingsService
             'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
             'deletedItemsHistory' => $this->truthy($obj['deletedItemsHistory'] ?? null),
-            // El reloj de marcación exige el ROSTRO: marcar con código queda
-            // apagado (context/83). En negativo y leído por el MISMO resolver
-            // que usan el alta de la marcación y el contexto del reloj — si
-            // este form lo interpretara por su cuenta, el switch podría decir
-            // una cosa y el servidor hacer otra. Ver `AttendanceSettings`.
-            'attendanceFaceOnly'  => \Punto\Api\Hr\AttendanceSettings::faceOnlyFromSettingObj($obj),
+            // El reloj de marcación identifica por rostro; marcar con código es
+            // lo que el comercio PRENDE (context/83, apagado por default). Leído
+            // por el MISMO resolver que usan el alta de la marcación y el
+            // contexto del reloj — si este form lo interpretara por su cuenta, el
+            // switch podría decir una cosa y el servidor hacer otra. Ver
+            // `AttendanceSettings`.
+            'attendanceAllowPin'  => \Punto\Api\Hr\AttendanceSettings::allowPinFromSettingObj($obj),
             // Asistente IA — nombre y personalidad por empresa. Viven como claves
             // top-level de `config` (igual que settingName/settingAddress: ninguna
             // de las dos es columna real de `company`, así que ncmUpdate las
@@ -457,9 +458,9 @@ final class SettingsService
             'weightBarcodes'      => 'weightBarcodes',
             'deletedItemsHistory' => 'deletedItemsHistory',
             // Ver el comentario en general(): el flag vive acá, sin migración,
-            // y en negativo para que "ausente" sea el default correcto (el
-            // código disponible) en todo el parque que ya existe.
-            'attendanceFaceOnly'  => 'attendanceFaceOnly',
+            // y en positivo para que "ausente" sea el default correcto — que
+            // desde 2026-09-18 es el rostro solo.
+            'attendanceAllowPin'  => 'attendanceAllowPin',
         ];
         $presentFlags = array_intersect_key($flagMap, $f);
         if ($presentFlags) {

@@ -105,13 +105,14 @@ export interface SettingsGeneral {
   weightBarcodes: boolean
   deletedItemsHistory: boolean
   /**
-   * context/83 — el reloj de marcación exige el ROSTRO: deja de ofrecer el
-   * código y el servidor rechaza una marcación nueva hecha con él.
+   * context/83 — el reloj de marcación acepta el código ADEMÁS del rostro.
    *
-   * En negativo (`faceOnly` y no `allowPin`) porque el default del comercio es
-   * que el código esté disponible, y un flag ausente en el JSONB vale falso.
+   * APAGADO por default (owner 2026-09-18): sin esto en true el reloj no ofrece
+   * "Usar código" y el servidor rechaza una marcación nueva hecha con él. Por
+   * eso está en positivo — un flag ausente en el JSONB vale falso, que es
+   * exactamente el default que se quiere.
    */
-  attendanceFaceOnly: boolean
+  attendanceAllowPin: boolean
 
   // D7/E1b de context/48-escalamiento-de-datos.md — ancho de la ventana
   // abierta de cierre de período (mes en curso + N meses anteriores).
