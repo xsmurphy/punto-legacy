@@ -22,7 +22,8 @@ declare(strict_types=1);
  *      (son dos dominios distintos); sin el host del POS no se pide NADA.
  *   G. PREREQUISITO — sin sucursales migradas, el histórico aborta con UN
  *      error que nombra la causa, no con uno por venta.
- *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`).
+ *   L. LOGIN — los `name` del form del deploy vivo (`email`/`password`) y el
+ *      código de país que el navegador le antepone a un celular.
  *   X. EXPORT — el mapeo de cada dominio de `/fetchs`.
  *   A. Import completo — conteos por dominio y entidades realmente creadas.
  *   R. COMBOS Y RECETAS — la composición inline se resuelve por el mapa; lo que
@@ -413,9 +414,9 @@ final class HostProbeClient extends EncomClient
  */
 final class LoginBodyProbe extends EncomClient
 {
-    public static function body(string $identifier, string $password): string
+    public static function body(string $identifier, string $password, string $phoneCode = ''): string
     {
-        return parent::loginBody($identifier, $password);
+        return parent::loginBody($identifier, $password, $phoneCode);
     }
 }
 
@@ -642,12 +643,66 @@ try {
         $failures, $checks
     );
 
-    parse_str(LoginBodyProbe::body('0981 123456', 'x'), $phoneFields);
+    // El JS del form vivo antepone el código de país del desplegable cuando lo
+    // tipeado es numérico, sin quitar el 0 (verificado 2026-09-18).
+    parse_str(LoginBodyProbe::body('0984123456', 'x', '+595'), $phoneFields);
 
     check(
-        'L2 · el identificador viaja TAL CUAL (un celular no se pasa a E.164)',
-        ($phoneFields['email'] ?? '') === '0981 123456',
+        'L2 · un celular viaja con el código de país ADELANTE y sin quitar el 0 (como el navegador)',
+        ($phoneFields['email'] ?? '') === '+5950984123456',
         'email = ' . var_export($phoneFields['email'] ?? null, true),
+        $failures, $checks
+    );
+
+    parse_str(LoginBodyProbe::body('cliente@example.com', 'x', '+54'), $mailFields);
+
+    check(
+        'L3 · un email viaja tal cual aunque venga un código de país',
+        ($mailFields['email'] ?? '') === 'cliente@example.com',
+        'email = ' . var_export($mailFields['email'] ?? null, true),
+        $failures, $checks
+    );
+
+    parse_str(LoginBodyProbe::body('+595984123456', 'x', '+595'), $plusFields);
+
+    check(
+        'L4 · un número que ya trae "+" no se toca (no se duplica el código)',
+        ($plusFields['email'] ?? '') === '+595984123456',
+        'email = ' . var_export($plusFields['email'] ?? null, true),
+        $failures, $checks
+    );
+
+    // Con espacios `$.isNumeric` da false y el navegador no antepone nada.
+    parse_str(LoginBodyProbe::body('0981 123456', 'x', '+595'), $spaceFields);
+
+    check(
+        'L5 · con espacios no es "numérico": viaja tal cual, sin código (igual que el navegador)',
+        ($spaceFields['email'] ?? '') === '0981 123456',
+        'email = ' . var_export($spaceFields['email'] ?? null, true),
+        $failures, $checks
+    );
+
+    $rechazos = [];
+    foreach (
+        [
+            'código inválido' => ['0984123456', '595'],
+            'código largo'    => ['0984123456', '+59512'],
+            'código basura'   => ['cliente@example.com', '+5a'],
+            'celular sin código' => ['0984123456', ''],
+        ] as $caso => [$idf, $code]
+    ) {
+        try {
+            LoginBodyProbe::body($idf, 'x', $code);
+            $rechazos[$caso] = 'NO lanzó';
+        } catch (\Punto\Api\Admin\EncomMigrationException $e) {
+            $rechazos[$caso] = $e->status() === 422 ? 'ok' : 'status ' . $e->status();
+        }
+    }
+
+    check(
+        'L6 · código de país inválido o celular sin código se rechazan con 422 (antes de tocar la red)',
+        array_unique(array_values($rechazos)) === ['ok'],
+        json_encode($rechazos, JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
 

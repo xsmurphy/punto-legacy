@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { toast } from "sonner"
+import { isSupportedCountry, type CountryCode } from "libphonenumber-js"
 
 import {
   Dialog,
@@ -29,6 +30,15 @@ import {
   useAdminTenantOutlets,
   useAdminCreateMigration,
 } from "@/hooks/use-admin"
+import { SUPPORTED_COUNTRIES, getCountry } from "@/lib/countries"
+
+/**
+ * Lo que el form del legacy trata como celular: SOLO dígitos. Es la regla de
+ * `EncomClient::composeIdentifier()` (espejo de `$.isNumeric` del JS legacy):
+ * con eso, el navegador le antepone el código de país elegido. Con espacios,
+ * guiones o un "+" adelante viaja tal cual y no hace falta el código.
+ */
+const isPhoneIdentifier = (v: string) => /^\d+$/.test(v.trim())
 
 const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
   {
@@ -115,10 +125,15 @@ export function MigrationFormDialog({
 }) {
   const [companyId, setCompanyId] = React.useState("")
   const [search, setSearch] = React.useState("")
-  // Un solo campo de texto: el login del legacy resuelve si es email o
-  // celular. No se valida ni se normaliza acá — cualquier transformación
-  // cambiaría la credencial que el cliente usa todos los días.
+  // Un solo campo de texto: email o celular, tal como lo tipea el cliente.
+  // Si es un celular, el form legacy le antepone el código de país de un
+  // desplegable; acá se elige aparte y el backend los junta igual que el
+  // navegador (context/77 §4). No se normaliza nada más.
   const [identifier, setIdentifier] = React.useState("")
+  // Sin default cableado: arranca con el país de la empresa destino, y el
+  // operador lo cambia si el cliente entra con un celular de otro país.
+  const [phoneCountry, setPhoneCountry] = React.useState<CountryCode | "">("")
+  const [phoneCountryTouched, setPhoneCountryTouched] = React.useState(false)
   const [password, setPassword] = React.useState("")
   const [domains, setDomains] = React.useState<string[]>(ALL_DOMAINS)
   const [registerOutletId, setRegisterOutletId] = React.useState("")
@@ -126,6 +141,7 @@ export function MigrationFormDialog({
   const [historyTo, setHistoryTo] = React.useState("")
 
   const wantsHistory = domains.some((d) => HISTORY_DOMAINS.includes(d))
+  const isPhone = isPhoneIdentifier(identifier)
 
   const companies = useAdminCompanies({ limit: 30, q: search || undefined })
   const outlets = useAdminTenantOutlets(companyId)
@@ -138,6 +154,8 @@ export function MigrationFormDialog({
       setCompanyId("")
       setSearch("")
       setIdentifier("")
+      setPhoneCountry("")
+      setPhoneCountryTouched(false)
       setPassword("")
       setDomains(ALL_DOMAINS)
       setRegisterOutletId("")
@@ -146,6 +164,26 @@ export function MigrationFormDialog({
     }
   }, [open])
 
+  // El país de la empresa elegida propone el código, mientras el operador no
+  // haya elegido otro a mano.
+  // `undefined` = la empresa no está en la página de resultados actual (la
+  // búsqueda cambió): no se pisa lo que ya se había propuesto.
+  const companyCountry = (companies.data?.rows ?? []).find((c) => c.id === companyId)?.country
+  React.useEffect(() => {
+    if (phoneCountryTouched || companyId === "" || companyCountry === undefined) return
+    const iso = companyCountry.trim().toUpperCase()
+    setPhoneCountry(iso !== "" && isSupportedCountry(iso) ? (iso as CountryCode) : "")
+  }, [companyId, companyCountry, phoneCountryTouched])
+
+  // El país de la empresa puede no estar en la lista corta del selector.
+  const phoneCountries = React.useMemo(
+    () =>
+      phoneCountry !== "" && !SUPPORTED_COUNTRIES.some((c) => c.code === phoneCountry)
+        ? [...SUPPORTED_COUNTRIES, getCountry(phoneCountry)]
+        : SUPPORTED_COUNTRIES,
+    [phoneCountry],
+  )
+
   const toggleDomain = (key: string, on: boolean) => {
     setDomains((prev) => (on ? [...new Set([...prev, key])] : prev.filter((d) => d !== key)))
   }
@@ -153,6 +191,7 @@ export function MigrationFormDialog({
   const canSubmit =
     companyId !== "" &&
     identifier.trim() !== "" &&
+    (!isPhone || phoneCountry !== "") &&
     password.trim() !== "" &&
     domains.length > 0 &&
     !create.isPending
@@ -163,6 +202,7 @@ export function MigrationFormDialog({
       {
         companyId,
         identifier: identifier.trim(),
+        phoneCode: isPhone && phoneCountry !== "" ? `+${getCountry(phoneCountry).dialCode}` : undefined,
         password,
         domains,
         registerOutletId: registerOutletId || undefined,
@@ -220,14 +260,39 @@ export function MigrationFormDialog({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
               <Label htmlFor="migration-identifier">Usuario del legacy</Label>
-              <Input
-                id="migration-identifier"
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                autoComplete="off"
-              />
+              <div className="flex gap-2">
+                {isPhone && (
+                  <Select
+                    value={phoneCountry}
+                    onValueChange={(v) => {
+                      setPhoneCountry(v as CountryCode)
+                      setPhoneCountryTouched(true)
+                    }}
+                  >
+                    <SelectTrigger aria-label="Código de país" className="w-28 shrink-0">
+                      {/* El trigger es angosto: muestra solo el código; la lista, país y código. */}
+                      <SelectValue placeholder="País">
+                        {phoneCountry !== "" ? `+${getCountry(phoneCountry).dialCode}` : undefined}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {phoneCountries.map((c) => (
+                        <SelectItem key={c.code} value={c.code}>
+                          {c.name} +{c.dialCode}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <Input
+                  id="migration-identifier"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
               <p className="text-sm text-muted-foreground">
-                Email o número de celular con el que el cliente entra al panel legacy.
+                Email o celular, escrito como el cliente lo tipea al entrar al panel legacy.
               </p>
             </div>
 
