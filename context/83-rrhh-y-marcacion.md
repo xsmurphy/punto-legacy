@@ -1,7 +1,8 @@
 # RRHH básico + marcación de asistencia (quiosco facial)
 
-**Estado: plan CERRADO, sin implementar. D1-D10 cerradas por el owner
-(D1/D3 el 2026-09-17; D2 y D4-D10 aprobadas en bloque el 2026-09-17).**
+**Estado: plan CERRADO. F0-F2 implementadas 2026-09-17; REFACTOR 2026-09-18
+en curso (§9, decisiones del owner que SUPERSEDEN D2 y parte de D3/D4):
+usuario=empleado, reloj de marcación como dispositivo propio, PIN opcional.**
 
 ## §0 El pedido
 
@@ -214,3 +215,37 @@ probado en vez de estrenar hardware y modelo el mismo día.
   movimiento del ledger financiero existente; un libro aparte no concilia.
 - **Meter el salario/legajo en `user`** — mezcla credencial con relación
   laboral y deja sin legajo al personal que no opera el sistema.
+
+
+## §9 REFACTOR 2026-09-18 — usuario = empleado, reloj dedicado, PIN opcional
+
+Tres correcciones del owner sobre lo implementado, todas en la misma
+dirección: menos entidades, menos superficies, menos credenciales.
+
+**§9.1 — D2 SUPERSEDED: una persona = UN usuario.** "No entiendo por qué está
+separado usuario de empleado… una misma persona como usuario tiene un PIN y
+como empleado tiene otro PIN, ¿cuál es el punto?" La entidad `employee`
+separada compraba dos cosas (historial que sobrevive, personal sin login) que
+se logran igual con el modelo simple: el legajo pasa a ser EXTENSIÓN del
+usuario (satélite del `contact` type=0, con sus fechas), y el personal que no
+opera es un usuario SIN PERMISOS. Muere `employee.userid` (el vínculo
+opcional), muere el doble PIN, y las comisiones/ventas por empleado quedan
+atribuidas a la misma identidad sin mapeo. Contracara resuelta: los que no
+operan NO aparecen en la pantalla de bloqueo del POS (se filtra por permiso).
+NO hay consideración de cobro por usuario — descartado explícito por el owner.
+
+**§9.2 — El reloj de marcación es un DISPOSITIVO propio, no una pantalla del
+POS.** "En las empresas los lectores de huella no están en el POS — ahí solo
+opera el cajero." La marcación quedó en `/pos` por plomería (pairing, cámara,
+offline, roster descargado), no por producto. Se corrige: tipo de dispositivo
+`clock` ("Reloj de marcación") junto a caja/KDS/pantalla — se parea cualquier
+tablet desde Configuración › Dispositivos, arranca a pantalla completa en
+marcación y no hace NADA más. La sección Marcación se ELIMINA del menú del
+POS; el roster de empleados deja de bajar a las cajas y baja SOLO al reloj.
+El enrolamiento desde el legajo apunta al reloj de la sucursal.
+
+**§9.3 — PIN de marcación OPCIONAL.** El que solo marca asistencia pone la
+cara y listo; el PIN es únicamente el respaldo de quien lo tiene (los
+operadores ya tienen el suyo, único). Sin rostro enrolado y sin PIN no se
+puede marcar: el reloj lo dice en una línea y se resuelve enrolando.
+`employee.markpinhash` muere con la unificación — un solo PIN por persona.
