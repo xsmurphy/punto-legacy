@@ -498,31 +498,14 @@ if ($isRegisterDevice) {
     // la caja no necesita que nadie le mande una lista.
     $payload['stockCountFromRegister'] = $countSettings->fromRegister();
 
-    // ── Quiénes pueden marcar asistencia en esta sucursal (context/83 F1) ──
+    // El roster de MARCACIÓN ya no baja acá (context/83 §9.2). La marcación
+    // dejó de ser una pantalla del POS y pasó a ser un dispositivo propio —el
+    // reloj, `device.module='clock'`—, así que la lista del personal y sus
+    // hashes de PIN bajan SOLO a ese aparato, por `/v1/attendance?resource=roster`.
     //
-    // Mismo gate que el roster del lock screen —device que ES una caja— y por
-    // la misma razón: la lista lleva `markPinHash`, que es SHA-256 sin sal de 4
-    // dígitos. Una pantalla de cliente o un KDS no tienen por qué recibirla, y
-    // el panel menos.
-    //
-    // Baja en el BOOTSTRAP y no por un endpoint propio porque la marcación es
-    // offline-nativa (D7): el quiosco valida el PIN localmente contra estos
-    // hashes, exactamente como el lock screen valida el del operador. Un dato
-    // que la caja necesita SIN RED tiene que viajar en el snapshot, no en una
-    // llamada que va a fallar justo cuando hace falta.
-    //
-    // `lastKind`/`lastMarkedAt` viajan para que el quiosco pueda PROPONER
-    // entrada o salida sin preguntar. Es una sugerencia, no una regla: el
-    // empleado la puede cambiar de un toque, porque sin red el dato es viejo
-    // por definición (marcó en la otra tablet hace una hora) y hacerlo
-    // vinculante convertiría un dato desactualizado en una marcación mal
-    // tipificada.
-    //
-    // RRHH es CORE (owner 2026-09-17, context/83 §D9 superseded): como
-    // facturación o compras, no se activa por módulo. El roster baja siempre;
-    // un comercio sin empleados cargados recibe la lista vacía y listo.
-    $payload['employees'] = (new \Punto\Api\Hr\AttendanceService())
-        ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
+    // Que la caja dejara de recibirla es la mitad del cambio, no un efecto
+    // secundario: en la caja opera el cajero, y no tiene por qué tener en su
+    // tablet los nombres y los códigos de todo el equipo.
 }
 
 apiOk($payload);
