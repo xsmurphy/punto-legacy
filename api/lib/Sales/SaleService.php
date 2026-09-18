@@ -183,6 +183,10 @@ final class SaleService
             $input->ivaRemoved,
             $decimals
         );
+        // Wallet (context/74 §13): el consumo con saldo congela el valor de
+        // LISTA de cada línea, resuelto acá y no leído del payload. Lectura
+        // pura, antes de StartTrans como el resto de esta cadena.
+        $saleDetail = $this->freezeWalletListTotals($input, $saleDetail, $decimals);
         $totalUnits = countUnitSold($saleDetail);
 
         // ── B1: resolver userId + responsibleId ──────────────────────────────
@@ -2698,6 +2702,12 @@ final class SaleService
             if ($cogsVal !== null) {
                 $records['itemSoldCOGS'] = flipOnReturn($typeStr, $cogsVal);
             }
+            // Valor de lista congelado (mig 235): solo lo trae la línea que
+            // `freezeWalletListTotals()` resolvió. Omitido si no, por lo mismo
+            // que el COGS: NULL es "no se sabe", un 0 sería "valía nada".
+            if (isset($sD['listTotal'])) {
+                $records['itemSoldListTotal'] = flipOnReturn($typeStr, (float) $sD['listTotal']);
+            }
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
@@ -3382,6 +3392,96 @@ final class SaleService
      * (5 líneas, contextos de dominio distintos) en vez de forzar un import
      * cross-módulo por un helper tan chico.
      */
+    /**
+     * Wallet (context/74 §13) — congela el VALOR DE LISTA de cada línea de un
+     * consumo con saldo (tipo 15) en `listTotal` → `itemSold.itemSoldListTotal`
+     * (mig 235). Es lo que el reporte de bolsillos compara contra lo que se
+     * debitó para mostrar consumos cobrados por menos de lo que valían.
+     *
+     * Por qué hace falta: el consumo no entra al arqueo ni al margen (D12), así
+     * que un precio bajado en la caja no quedaría expuesto en ningún lado, y
+     * lo que ya se guarda no alcanza para reconstruirlo — el bruto de la línea
+     * es el que eligió la caja y el total de la transacción es el `subtotal`
+     * del payload.
+     *
+     * De dónde sale el precio, por tipo de línea:
+     *   - Línea de producto: `PriceListService::resolvePriceBatch()` con el
+     *     cliente y la sucursal del comprobante (lista del cliente → lista de
+     *     la sucursal → precio del ítem) — el mismo resolver que usa la caja
+     *     para poner el precio. NO se toma una lista elegida a mano en la caja:
+     *     no viaja en el payload, y si viajara, una caja alterada mandaría la
+     *     lista más barata y la diferencia desaparecería del control.
+     *   - Hija de add-on o de combo (marcada por el servidor al expandir): su precio YA lo
+     *     puso el servidor desde la BD (`expandAddonSelections`,
+     *     `expandCompoundSelections`), así que su valor de lista es su total.
+     *
+     * Solo el tipo 15: una venta normal ya queda expuesta en el arqueo y el
+     * margen, y resolver listas en cada venta sumaría consultas al camino más
+     * caliente del sistema sin una pantalla que las lea.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail detalle ya expandido y con impuestos
+     * @return array<int,array<string,mixed>>
+     */
+    private function freezeWalletListTotals(SaleInput $input, array $saleDetail, int $decimals): array
+    {
+        if ($input->type !== SaleType::WalletConsumption) {
+            return $saleDetail;
+        }
+
+        // Hija = la marca que pone el SERVIDOR al expandir, nunca `type`: el
+        // `type` de la línea viene del payload, y una caja alterada que marcara
+        // un producto como `addon` se llevaría su precio bajado como "lista" y
+        // borraría la diferencia. `Money::sanitizeSaleArray` no deja pasar
+        // estas dos claves desde el payload.
+        $isChild = static fn (array $sD): bool => !empty($sD['addonParentUid']) || !empty($sD['compoundParentUid']);
+
+        $itemIds = [];
+        foreach ($saleDetail as $sD) {
+            if (!empty($sD['itemId']) && ($sD['type'] ?? '') !== 'discount' && !$isChild($sD)) {
+                $itemIds[(string) $sD['itemId']] = true;
+            }
+        }
+
+        $listPrice = [];
+        if ($itemIds !== []) {
+            $ids = array_keys($itemIds);
+            $rs  = $this->db->Execute(
+                'SELECT itemid, itemprice FROM item WHERE companyid = ? AND itemid IN ('
+                    . implode(',', array_fill(0, count($ids), '?')) . ')',
+                array_merge([(string) $this->ctx->companyId], $ids)
+            );
+            $items = [];
+            while ($rs && !$rs->EOF) {
+                $items[] = ['itemId' => (string) $rs->fields['itemid'], 'basePrice' => (float) ($rs->fields['itemprice'] ?? 0)];
+                $rs->MoveNext();
+            }
+            $resolved = (new \Punto\Api\Services\PriceListService($this->ctx))->resolvePriceBatch(
+                (string) $this->ctx->companyId,
+                $items,
+                $input->clientId,
+                (string) $this->ctx->outletId,
+            );
+            foreach ($resolved as $r) {
+                $listPrice[(string) $r['itemId']] = (float) $r['price'];
+            }
+        }
+
+        foreach ($saleDetail as $i => $sD) {
+            if (empty($sD['itemId']) || ($sD['type'] ?? '') === 'discount') {
+                continue;
+            }
+            if ($isChild($sD)) {
+                $saleDetail[$i]['listTotal'] = round((float) ($sD['total'] ?? 0), $decimals);
+                continue;
+            }
+            $unit = $listPrice[(string) $sD['itemId']] ?? null;
+            if ($unit !== null) {
+                $saleDetail[$i]['listTotal'] = round($unit * (float) ($sD['count'] ?? 0), $decimals);
+            }
+        }
+        return $saleDetail;
+    }
+
     private function currencyDecimals(): int
     {
         $row  = ncmExecute(

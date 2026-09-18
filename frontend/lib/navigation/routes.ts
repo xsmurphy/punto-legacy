@@ -59,6 +59,7 @@ import {
   UserCog,
   Users,
   Wallet,
+  WalletCards,
   Warehouse,
 } from "lucide-react"
 
@@ -533,6 +534,20 @@ export const PANEL_ROUTES: RouteEntry[] = [
     paletteGroup: "Reportes",
     requires: "reports.sales.view",
     keywords: ["summary", "resumen", "totales", "ventas totales", "kpi"],
+  },
+  {
+    // Pestaña de Ventas desde 2026-09-18 (context/74 §13), no página propia:
+    // la entrada existe para que quien busca "saldo" o "bolsillos" llegue.
+    // Mismo gate que el endpoint: `reports.sales.view` + módulo `wallet`.
+    to: "/reports/sales?tab=bolsillos",
+    title: "Bolsillos",
+    paletteTitle: "Reportes · Bolsillos",
+    icon: WalletCards,
+    surface: "palette",
+    paletteGroup: "Reportes",
+    requires: "reports.sales.view",
+    requiresModule: "wallet",
+    keywords: ["wallet", "saldo", "bolsillos", "consumido", "cargado", "diferencias", "saldo de clientes"],
   },
   {
     to: "/reports/summary-year",
