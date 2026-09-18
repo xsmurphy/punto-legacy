@@ -37,6 +37,8 @@ export interface SitemapEntry {
   requires?: string
   /** Todos estos permisos adicionales son necesarios. */
   requiresAll?: string[]
+  /** Alcanza con uno de estos. */
+  requiresAny?: string[]
   /** Módulo del tenant que tiene que estar activo. */
   requiresModule?: string
 }
@@ -50,6 +52,7 @@ function flatten(routes: typeof PANEL_ROUTES, app: SitemapEntry["app"]): Sitemap
     keywords: r.keywords,
     requires: r.requires,
     requiresAll: r.requiresAll,
+    requiresAny: r.requiresAny,
     requiresModule: r.requiresModule,
   }))
 }

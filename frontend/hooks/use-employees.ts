@@ -1,7 +1,7 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { api } from "@/lib/api-client"
+import { api, ApiError } from "@/lib/api-client"
 
 /**
  * Legajo de empleados (RRHH, context/83 §9.1, migs 229 + 233).
@@ -170,8 +170,9 @@ export interface EmployeeFilters {
 
 const KEY = ["employees"] as const
 
-export function useEmployees(filters: EmployeeFilters = {}) {
+export function useEmployees(filters: EmployeeFilters = {}, enabled = true) {
   return useQuery<Employee[]>({
+    enabled,
     queryKey: [...KEY, filters],
     queryFn: async () => {
       const params = new URLSearchParams()
@@ -189,10 +190,26 @@ export function useEmployees(filters: EmployeeFilters = {}) {
   })
 }
 
+/**
+ * El legajo de una persona, o `null` si todavía no tiene.
+ *
+ * "Sin legajo" no es un error: desde que Equipo lista a TODAS las personas del
+ * comercio, la ficha se abre igual para quien nunca tuvo uno cargado y ofrece
+ * cargarlo. Devolver `null` en vez de propagar el 404 es lo que deja a la
+ * pantalla distinguir "esta persona no tiene legajo" de "no se pudo cargar", que
+ * se ven distinto y se resuelven distinto.
+ */
 export function useEmployee(id: string | undefined) {
-  return useQuery<Employee>({
+  return useQuery<Employee | null>({
     queryKey: [...KEY, "detail", id],
-    queryFn: () => api.get<Employee>(`/v1/employees?id=${id}`),
+    queryFn: async () => {
+      try {
+        return await api.get<Employee>(`/v1/employees?id=${id}`)
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null
+        throw e
+      }
+    },
     enabled: !!id,
     staleTime: 30 * 1000,
   })
@@ -272,6 +289,23 @@ export function useCancelFaceEnrollment() {
     mutationFn: (id) => api.post(`/v1/employees?id=${id}&action=face-cancel`, {}),
     onSuccess: invalidate,
   })
+}
+
+/**
+ * La foto con la que se registró el rostro, como `Blob`.
+ *
+ * El vector no viaja nunca (ver `EmployeeFace`), pero la foto sí se puede
+ * mirar: es cómo se comprueba que la que quedó registrada es la persona del
+ * legajo y no otra. Pasa por `api.getBlob` y no por un `<img src>` porque el
+ * objeto es PRIVADO en S3 y el endpoint exige el Bearer del panel — mismo
+ * camino que los adjuntos y que la foto de una marcación.
+ *
+ * Quien lo llama arma el object URL y lo revoca.
+ */
+export function fetchEmployeeFacePhoto(employeeId: string): Promise<Blob> {
+  return api.getBlob(
+    `/v1/employees?resource=face-photo&id=${encodeURIComponent(employeeId)}`,
+  )
 }
 
 /** Borra el rostro registrado. El legajo no se toca. */

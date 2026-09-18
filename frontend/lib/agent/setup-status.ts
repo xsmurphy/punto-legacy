@@ -375,7 +375,7 @@ function checkRegisters(registers: unknown): SetupCheck {
 function checkTeam(users: unknown): SetupCheck {
   const id = "team"
   const title = "Equipo con PIN de caja"
-  const where = "Equipo (/contacts?type=0)"
+  const where = "Equipo (/employees)"
   const rows = failed(users) ? null : rowsFrom(users, "users")
 
   if (rows === null) return unreadable(id, title, "el equipo", ["create_user"], where)
