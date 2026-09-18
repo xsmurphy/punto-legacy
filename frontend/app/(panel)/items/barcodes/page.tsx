@@ -189,7 +189,7 @@ function Toolbar({
         </Button>
 
         <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase">Modelo</Label>
+          <Label>Modelo</Label>
           <Select value={size} onValueChange={(v) => setSize(v as typeof size)}>
             <SelectTrigger className="h-8 w-32">
               <SelectValue />
@@ -204,7 +204,7 @@ function Toolbar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase">Columnas</Label>
+          <Label>Columnas</Label>
           <Select value={String(cols)} onValueChange={(v) => setCols(Number(v) as typeof cols)}>
             <SelectTrigger className="h-8 w-32">
               <SelectValue />
@@ -220,7 +220,7 @@ function Toolbar({
         </div>
 
         <div className="flex flex-col gap-1">
-          <Label className="text-[10px] uppercase">Altura (cm)</Label>
+          <Label>Altura (cm)</Label>
           <Input
             type="number"
             min={1}

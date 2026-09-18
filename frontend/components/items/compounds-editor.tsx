@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/empty-state"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Command,
   CommandEmpty,
@@ -311,9 +312,9 @@ function IngredientPicker({
   return (
     <div className="flex flex-wrap items-end gap-2 rounded-md border bg-muted/20 p-3">
       <div className="flex flex-1 flex-col gap-1.5 min-w-[240px]">
-        <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Label>
           Ingrediente
-        </label>
+        </Label>
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <Button
@@ -387,9 +388,9 @@ function IngredientPicker({
       </div>
 
       <div className="flex flex-col gap-1.5 w-24">
-        <label className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        <Label>
           Cantidad
-        </label>
+        </Label>
         <Input
           value={qty}
           onChange={(e) => setQty(e.target.value)}

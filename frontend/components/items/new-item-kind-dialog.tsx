@@ -56,7 +56,7 @@ export function NewItemKindDialog() {
           <div className="flex flex-col gap-5">
             {GROUPS.map((g) => (
               <div key={g.key} className="flex flex-col gap-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <p className="text-sm font-medium">
                   {g.key}
                 </p>
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
