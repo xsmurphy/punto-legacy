@@ -50,7 +50,13 @@ const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
   {
     key: "customers",
     title: "Clientes",
-    detail: "Con documento, teléfono, dirección, saldo a favor y línea de crédito.",
+    detail:
+      "Con documento, teléfono, dirección, saldo a favor y línea de crédito. Un cliente repetido con el mismo documento se une al que ya existe; si su teléfono ya lo tiene otro cliente o no es válido, entra sin teléfono y el número queda en la nota.",
+  },
+  {
+    key: "suppliers",
+    title: "Proveedores",
+    detail: "Con su RUC, teléfono y dirección. Las compras históricas se vinculan a ellos.",
   },
   {
     key: "config",
@@ -78,7 +84,7 @@ const DOMAINS: Array<{ key: string; title: string; detail: string }> = [
     key: "sales_history",
     title: "Ventas históricas",
     detail:
-      "Las ventas del rango elegido, con sus líneas, como registro contable: alimentan reportes, balance y cuentas por cobrar. NO tocan el stock, la caja, la numeración fiscal ni la facturación electrónica. Cada línea guarda el costo ACTUAL del artículo, porque el sistema anterior no expone el costo del día de la venta: el margen histórico es una aproximación. Conviene cargar los costos ANTES de importar — un artículo sin costo deja esa línea sin margen, y cargárselo después no la corrige.",
+      "Las ventas del rango elegido, con sus líneas, como registro contable: alimentan reportes, balance y cuentas por cobrar. NO tocan el stock, la caja, la numeración fiscal ni la facturación electrónica. Cada línea guarda el costo con el que se vendió en el sistema anterior; si no lo tiene, el costo actual del artículo.",
   },
   {
     key: "purchases_history",

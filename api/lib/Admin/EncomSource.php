@@ -95,6 +95,14 @@ interface EncomSource
     public function customers(): array;
 
     /**
+     * @return array<int,array> Proveedores del comercio (`ID`, `name`, `tin`,
+     *         `contact`, `phone`, `email`, `address`). No salen de `/fetchs`
+     *         —el bootstrap del POS solo trae clientes— sino de la tabla de
+     *         contactos del panel (context/77 §17.14).
+     */
+    public function suppliers(): array;
+
+    /**
      * @return array<int,array> Usuarios del comercio, con su PIN de caja y el
      *         nombre del rol que tenían en el legacy.
      */

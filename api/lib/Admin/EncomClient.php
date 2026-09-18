@@ -129,6 +129,22 @@ class EncomClient implements EncomSource
     /** Techo de páginas por listado: un rango que no corta es un error. */
     private const MAX_PAGES = 200;
 
+    /**
+     * Techo del listado SIN tope (`nolimit=1`).
+     *
+     * No es nuestro: es el `LIMIT 10000` que `getTableLimits()` del legacy
+     * pone cuando le piden `nolimit` (leído en su código, context/77 §17.14).
+     * Una respuesta de exactamente estas filas es, otra vez, la firma de un
+     * techo y no del volumen: el rango se parte en dos y se lee cada mitad.
+     */
+    private const NOLIMIT_CAP = 10000;
+
+    /**
+     * Ventana mínima que se sigue partiendo. Un minuto con 10.000 filas no es
+     * un comercio: es un dato roto, y partir sin fin no lo arregla.
+     */
+    private const MIN_SPLIT_SECONDS = 60;
+
     private float $lastCallAt = 0.0;
 
     /**
@@ -1190,10 +1206,13 @@ class EncomClient implements EncomSource
         foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
             $out[] = [
-                // El id de la FILA es el de la línea, no el de la venta: sirve
-                // para no volver a asentarla en una corrida posterior.
-                'ID'           => $row['id'],
-                'saleRef'      => $cSale !== null ? trim((string) ($cells[$cSale] ?? '')) : '',
+                // El `data-id` de la fila es el de la VENTA —`enc(transactionId)`,
+                // el MISMO que trae el listado de ventas en su `data-id`, leído
+                // en el código del legacy—, no el de la línea. Por eso es la
+                // referencia con la que la línea se pega a su venta: exacta, sin
+                // depender del número de documento (que se repite entre cajas).
+                // La identidad de la LÍNEA la pone `lineKeys()` abajo.
+                'saleRef'      => $cSale !== null ? trim((string) ($cells[$cSale] ?? '')) : (string) $row['id'],
                 'docNumber'    => $cDoc !== null ? trim((string) ($cells[$cDoc] ?? '')) : '',
                 'date'         => $cDate !== null ? trim((string) ($cells[$cDate] ?? '')) : '',
                 'legacyItemId' => '',
@@ -1214,7 +1233,7 @@ class EncomClient implements EncomSource
             ];
         }
 
-        return $out;
+        return self::lineKeys($out, 'saleRef', ['docNumber', 'date', 'itemName', 'sku', 'qty', 'total']);
     }
 
 
@@ -1360,9 +1379,12 @@ class EncomClient implements EncomSource
     /**
      * Líneas de TODAS las compras del rango, en UNA request.
      *
-     * A diferencia de las ventas, el legacy sí tiene un detalle por rango. Se
-     * juntan con su cabecera por `#Documento`: el listado de detalle no trae
-     * el id de la compra.
+     * A diferencia de las ventas, el legacy sí tiene un detalle por rango.
+     * Cada línea se pega a su compra por `purchaseRef` —el `id=` del
+     * `data-load` de la fila, que es el id de la compra— y solo si falta por
+     * `#Documento`. Hasta 2026-09-18 se creía que el detalle no traía el id
+     * de la compra, y peor: como sus filas no tienen `data-id`, el parser las
+     * descartaba TODAS (§17.14).
      */
     public function purchaseLines(string $from, string $to): array
     {
@@ -1414,6 +1436,12 @@ class EncomClient implements EncomSource
         foreach ($tabla['rows'] as $row) {
             $cells = $row['cells'];
             $out[] = [
+                // La compra a la que pertenece, por su id del legacy: el `id=`
+                // del `data-load` de la fila (la única referencia que trae,
+                // ver `EncomParse::htmlRows()`). Es el MISMO `enc(transactionId)`
+                // que el listado de compras trae en su `data-id`, así que pega
+                // exacto; el `#Documento` queda de respaldo.
+                'purchaseRef' => (string) $row['id'],
                 'docNumber' => trim((string) ($cells[$cDoc] ?? '')),
                 'supplier'  => $cSupplier !== null ? trim((string) ($cells[$cSupplier] ?? '')) : '',
                 'outlet'    => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',
@@ -1425,7 +1453,7 @@ class EncomClient implements EncomSource
             ];
         }
 
-        return $out;
+        return self::lineKeys($out, 'purchaseRef', ['docNumber', 'itemName', 'qty', 'total']);
     }
 
     /**
@@ -1475,6 +1503,71 @@ class EncomClient implements EncomSource
                 'note'     => $cNote !== null ? trim((string) ($cells[$cNote] ?? '')) : '',
                 'type'     => $cType !== null ? trim((string) ($cells[$cType] ?? '')) : '',
                 'total'    => self::numCell($cells[$cTotal] ?? null),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * PROVEEDORES del comercio.
+     *
+     * No están en `/fetchs`: el bootstrap del POS filtra `type = 1` (el POS
+     * vende, no compra), así que la única superficie es la tabla del panel
+     * `a_contacts?action=generalTable&rol=supplier` (leída en el código del
+     * legacy). Pasa por el mismo lector paginado que el resto de los
+     * listados del panel.
+     *
+     * El id de la fila es `enc(contactId)`. El listado de COMPRAS no lo trae
+     * —trae el NOMBRE del proveedor—, así que el histórico los empareja por
+     * nombre contra los proveedores ya migrados.
+     *
+     * ⚠ El legacy oculta del listado los proveedores que exceden el tope de
+     * su plan (`max_suppliers`). Esos no se pueden leer por acá: sus compras
+     * entran sin proveedor y quedan nombradas en la bitácora.
+     *
+     * @return array<int,array<string,string>>
+     */
+    public function suppliers(): array
+    {
+        $tabla   = $this->pagedTable('los proveedores', '/a_contacts', [
+            'action' => 'generalTable',
+            'rol'    => 'supplier',
+        ]);
+        $headers = $tabla['headers'];
+
+        $cName    = EncomParse::columnIndex($headers, ['RAZON SOCIAL', 'NOMBRE']);
+        // La columna del identificador fiscal se titula con `TIN_NAME`, que
+        // CAMBIA POR PAÍS (RUC, CUIT, NIT...): se busca por los nombres
+        // conocidos, nunca por posición.
+        $cTin     = EncomParse::columnIndexExact($headers, ['RUC', 'CUIT', 'CUIL', 'NIT', 'RUT', 'RFC', 'TIN', 'CI']);
+        $cContact = EncomParse::columnIndex($headers, ['ENCARGAD']);
+        $cPhone   = EncomParse::columnIndex($headers, ['TELEFONO']);
+        $cEmail   = EncomParse::columnIndex($headers, ['EMAIL', 'CORREO']);
+        $cAddress = EncomParse::columnIndex($headers, ['DIRECCION']);
+
+        if ($tabla['rows'] === [] && $headers === []) {
+            return [];
+        }
+        if ($cName === null) {
+            throw new EncomMigrationException(
+                'El listado de proveedores del sistema legacy no tiene la columna del nombre. Encabezados '
+                . 'recibidos: ' . ($headers === [] ? '(ninguno)' : implode(' | ', $headers)) . '.',
+                502
+            );
+        }
+
+        $out = [];
+        foreach ($tabla['rows'] as $row) {
+            $cells = $row['cells'];
+            $out[] = [
+                'ID'      => (string) $row['id'],
+                'name'    => trim((string) ($cells[$cName] ?? '')),
+                'tin'     => $cTin !== null ? trim((string) ($cells[$cTin] ?? '')) : '',
+                'contact' => $cContact !== null ? trim((string) ($cells[$cContact] ?? '')) : '',
+                'phone'   => $cPhone !== null ? trim((string) ($cells[$cPhone] ?? '')) : '',
+                'email'   => $cEmail !== null ? trim((string) ($cells[$cEmail] ?? '')) : '',
+                'address' => $cAddress !== null ? trim((string) ($cells[$cAddress] ?? '')) : '',
             ];
         }
 
@@ -1532,7 +1625,20 @@ class EncomClient implements EncomSource
             return ['headers' => $headers, 'rows' => $filas];
         }
 
-        $probadas = [];
+        // ── Primero, SIN OFFSET ─────────────────────────────────────────
+        // Paginar por offset sobre estos listados es frágil por construcción:
+        // el legacy ordena SOLO por fecha (`ORDER BY transactionDate DESC`), y
+        // todas las líneas de una venta comparten esa fecha. MySQL no
+        // garantiza el orden entre empates de una request a otra, así que una
+        // venta partida en el borde de dos páginas puede devolver una línea
+        // dos veces y otra ninguna. `nolimit=1` trae la ventana entera en UNA
+        // request, y así no hay borde donde perder nada (context/77 §17.14).
+        $entero = $this->sinTope($que, $path, $params);
+        if ($entero !== null) {
+            return ['headers' => $headers, 'rows' => $entero];
+        }
+
+        $probadas = ['nolimit'];
         foreach (self::paginadores() as $convencion => $armar) {
             $probadas[] = $convencion;
 
@@ -1552,6 +1658,126 @@ class EncomClient implements EncomSource
             . 'nada y completa lo que falte.',
             502
         );
+    }
+
+    /**
+     * La ventana ENTERA en una request (`nolimit=1`), o null si este deploy
+     * no lo respeta.
+     *
+     * `nolimit` lo resuelve `getTableLimits()` del legacy como `LIMIT 10000`
+     * sin OFFSET. La prueba de que se respetó es que vuelvan MÁS filas que el
+     * tope: con el tope exacto no se sabe si lo ignoró o si justo había 100,
+     * y ahí se cae a la paginación verificada de siempre (que ese caso lo
+     * resuelve con una página vacía).
+     *
+     * Si vuelven exactamente 10.000, la ventana es más grande que el techo:
+     * se parte el rango `from`/`to` por la mitad y se lee cada una por el
+     * mismo camino (recursivo, hasta una ventana mínima). Las mitades no se
+     * pisan: `BETWEEN` es cerrado en las dos puntas, así que la segunda
+     * arranca un segundo después.
+     *
+     * @return array<int,array{id:string,cells:array<int,string>}>|null
+     */
+    private function sinTope(string $que, string $path, array $params): ?array
+    {
+        $filas = $this->rowsOf($path, array_merge($params, ['nolimit' => 1]));
+        $n     = count($filas);
+
+        if ($n <= self::CAP_SIZE) {
+            return null;
+        }
+        if ($n < self::NOLIMIT_CAP) {
+            return $filas;
+        }
+
+        $ventana = self::ventana($params);
+        if ($ventana === null || $ventana[1] - $ventana[0] < self::MIN_SPLIT_SECONDS) {
+            throw new EncomExportTruncatedException(
+                'El sistema legacy devolvió ' . self::NOLIMIT_CAP . ' filas de ' . $que . ', que es su techo, en '
+                . 'una ventana que no se puede partir más. El export se corta acá en vez de asentar un período '
+                . 'incompleto.',
+                502
+            );
+        }
+
+        [$desde, $hasta] = $ventana;
+        $medio = intdiv($desde + $hasta, 2);
+
+        $primera = $this->pagedTable($que, $path, array_merge($params, [
+            'from' => self::fechaLegacy($desde),
+            'to'   => self::fechaLegacy($medio),
+        ]));
+        $segunda = $this->pagedTable($que, $path, array_merge($params, [
+            'from' => self::fechaLegacy($medio + 1),
+            'to'   => self::fechaLegacy($hasta),
+        ]));
+
+        return array_merge($primera['rows'], $segunda['rows']);
+    }
+
+    /**
+     * El rango `from`/`to` de un pedido como segundos, o null si no tiene.
+     *
+     * Se lee y se escribe en UTC a propósito: es el mismo texto que el legacy
+     * compara contra su DATETIME sin zona, y pasarlo por la zona del proceso
+     * podría correr una mitad una hora en un cambio de horario.
+     *
+     * @return array{0:int,1:int}|null
+     */
+    private static function ventana(array $params): ?array
+    {
+        $utc = new \DateTimeZone('UTC');
+        $a   = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', (string) ($params['from'] ?? ''), $utc);
+        $b   = \DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', (string) ($params['to'] ?? ''), $utc);
+        if ($a === false || $b === false || $b < $a) {
+            return null;
+        }
+        return [$a->getTimestamp(), $b->getTimestamp()];
+    }
+
+    private static function fechaLegacy(int $ts): string
+    {
+        return (new \DateTimeImmutable('@' . $ts))->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Claves ESTABLES de las líneas de un log (ítems vendidos, detalle de
+     * compras), en el campo `ID` de cada una.
+     *
+     * ── Por qué hace falta ───────────────────────────────────────────────
+     * Estos logs NO traen un id de línea: el `data-id` de la fila es el de su
+     * VENTA (`enc(transactionId)`, leído en el código del legacy), y el
+     * detalle de compras ni eso. Usar ese id como identidad de la línea hacía
+     * dos daños a la vez (2026-09-18): la paginación veía "filas repetidas"
+     * cada vez que una venta de varias líneas quedaba partida entre dos
+     * páginas —y abortaba el dominio—, y la idempotencia por línea marcaba la
+     * PRIMERA línea de cada venta y daba por asentadas todas las demás.
+     *
+     * La clave sale del contenido que no cambia entre corridas (documento,
+     * fecha, artículo, cantidad, total) más un ORDINAL entre líneas idénticas
+     * del mismo documento: dos cafés iguales en la misma venta son dos líneas,
+     * no una repetida. No entran el IVA ni el costo: el legacy reescribe el
+     * IVA de una línea al LEERLA (`a_report_products`, cuando IVA ≥ total) y
+     * la clave cambiaría de una corrida a otra.
+     *
+     * @param array<int,array<string,mixed>> $lineas
+     * @param array<int,string>              $campos las claves de cada línea que la identifican
+     * @return array<int,array<string,mixed>>
+     */
+    public static function lineKeys(array $lineas, string $refField, array $campos): array
+    {
+        $vistas = [];
+        foreach ($lineas as $i => $linea) {
+            $partes = [(string) ($linea[$refField] ?? '')];
+            foreach ($campos as $c) {
+                $partes[] = (string) ($linea[$c] ?? '');
+            }
+            $base = implode("\x1f", $partes);
+            $k    = $vistas[$base] = ($vistas[$base] ?? -1) + 1;
+
+            $lineas[$i]['ID'] = 'L' . sha1($base . "\x1f" . $k);
+        }
+        return $lineas;
     }
 
     /**
@@ -1584,7 +1810,9 @@ class EncomClient implements EncomSource
             return null;
         }
 
-        $vistos = self::idsDe($filas);
+        // Huellas de FILA, no ids: en los logs de líneas el id es el de la
+        // VENTA y lo comparten todas sus líneas (ver `huella()`).
+        $vistos = self::huellasDe($filas);
 
         for ($n = 1; $n < self::MAX_PAGES; $n++) {
             // ── El offset avanza por filas LEÍDAS, no por página pedida ────
@@ -1603,7 +1831,7 @@ class EncomClient implements EncomSource
 
             $repetidas = 0;
             foreach ($pagina as $fila) {
-                if (isset($vistos[$fila['id']])) {
+                if (isset($vistos[self::huella($fila)])) {
                     $repetidas++;
                 }
             }
@@ -1617,16 +1845,22 @@ class EncomClient implements EncomSource
                     return null;   // el offset no se respeta: probar la que sigue
                 }
 
+                // El mensaje dice lo que de verdad pasa: el período que se
+                // estaba leyendo NO se asienta, y lo que ya se había asentado
+                // de períodos anteriores queda (y relanzar lo completa). Decía
+                // "no se importa nada de este dominio" mientras 753 cabeceras
+                // ya estaban escritas (2026-09-18).
                 throw new EncomExportTruncatedException(
                     'El listado del sistema legacy dejó de avanzar en la página ' . ($n + 1) . ': devolvió filas '
-                    . 'que ya había devuelto antes. No hay forma de saber qué quedó afuera, así que no se importa '
-                    . 'nada de este dominio en vez de asentar un período incompleto.',
+                    . 'que ya había devuelto antes. No hay forma de saber qué quedó afuera, así que el período que se '
+                    . 'estaba leyendo NO se asienta y el dominio se corta acá. Lo que ya se había asentado de períodos '
+                    . 'anteriores queda marcado: relanzar no lo duplica.',
                     502
                 );
             }
 
             foreach ($pagina as $fila) {
-                $vistos[$fila['id']] = true;
+                $vistos[self::huella($fila)] = true;
                 $filas[] = $fila;
             }
         }
@@ -1682,18 +1916,37 @@ class EncomClient implements EncomSource
     }
 
     /**
-     * Ids de fila como claves, para preguntar por pertenencia.
+     * Huellas de fila como claves, para preguntar por pertenencia.
      *
      * @param array<int,array{id:string,cells:array<int,string>}> $filas
      * @return array<string,true>
      */
-    private static function idsDe(array $filas): array
+    private static function huellasDe(array $filas): array
     {
         $out = [];
         foreach ($filas as $fila) {
-            $out[(string) $fila['id']] = true;
+            $out[self::huella($fila)] = true;
         }
         return $out;
+    }
+
+    /**
+     * Identidad de una FILA para saber si una página la repite.
+     *
+     * El id solo no alcanza: en los logs de líneas es el de la venta o la
+     * compra, y lo comparten todas sus líneas. Con el id como identidad, una
+     * venta de tres líneas partida entre dos páginas se leía como "el listado
+     * no avanza" y abortaba el dominio (job 71e8282d, 2026-09-18). Id + celdas
+     * distingue líneas; dos líneas IDÉNTICAS de la misma venta partidas justo
+     * en el borde darían un falso positivo, que aborta ruidoso —el lado
+     * correcto para equivocarse— y que `nolimit` hace improbable porque ese
+     * camino ni siquiera pagina.
+     *
+     * @param array{id:string,cells:array<int,string>} $fila
+     */
+    private static function huella(array $fila): string
+    {
+        return sha1((string) $fila['id'] . "\x1f" . implode("\x1f", $fila['cells'] ?? []));
     }
 
     /**

@@ -154,7 +154,8 @@ final class TagService
         return $this->findIdByName($companyId, $name);
     }
 
-    private function findIdByName(string $companyId, string $name): ?string
+    /** `tagId` de la etiqueta con ese nombre (case-insensitive), o null. */
+    public function findIdByName(string $companyId, string $name): ?string
     {
         $rs = $this->db->Execute(
             'SELECT tagId FROM tag

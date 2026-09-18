@@ -80,10 +80,25 @@ final class EncomParse
             }
             // El id de la fila no está siempre en el mismo atributo: las
             // transacciones usan `data-id`, otras tablas del legacy usan `id` a
-            // secas. Mirar solo uno saltea filas en silencio.
+            // secas, y el DETALLE DE COMPRAS no trae ninguno de los dos —solo
+            // `data-load="…?action=edit&id=<compra>"`—. Mirar solo los dos
+            // primeros descartaba TODAS sus filas como si fueran el <thead>:
+            // así entraron 246 compras sin una sola línea (2026-09-18,
+            // context/77 §17.14).
+            //
+            // OJO con qué ES este id: la REFERENCIA del documento al que
+            // pertenece la fila, no una identidad de la fila. En los logs de
+            // líneas (ítems vendidos, detalle de compras) varias filas
+            // comparten el id de su venta/compra. Quien necesite identificar
+            // una LÍNEA usa `EncomClient::lineKeys()`.
             $id = trim($tr->getAttribute('data-id'));
             if ($id === '') {
                 $id = trim($tr->getAttribute('id'));
+            }
+            if ($id === '') {
+                $id = self::idFromLink($tr->getAttribute('data-load'))
+                    ?? self::idFromLink($tr->getAttribute('data-url'))
+                    ?? '';
             }
             if ($id === '') {
                 continue;   // la fila del <thead> y el <tfoot>
@@ -112,6 +127,27 @@ final class EncomParse
         }
 
         return $out;
+    }
+
+    /**
+     * El `id=` del link de una fila (`data-load` / `data-url`), o null.
+     *
+     * Es la única referencia al documento que traen algunas tablas del
+     * legacy (el detalle de compras: `?action=edit&id=<compra>&ro=1`).
+     */
+    private static function idFromLink(string $link): ?string
+    {
+        $link = html_entity_decode(trim($link), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if ($link === '') {
+            return null;
+        }
+        $query = (string) (parse_url($link, PHP_URL_QUERY) ?? '');
+        if ($query === '') {
+            return null;
+        }
+        parse_str($query, $params);
+        $id = trim((string) ($params['id'] ?? ''));
+        return $id !== '' ? $id : null;
     }
 
     /**

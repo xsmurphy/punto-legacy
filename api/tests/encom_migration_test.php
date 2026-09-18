@@ -38,6 +38,20 @@ declare(strict_types=1);
  *   E. RECHAZO por punto de expedición duplicado — aborta el dominio SIN
  *      importar ninguna caja.
  *   Z. Barrido de credenciales huérfanas (TTL 24 h).
+ *
+ * Job 71e8282d (2026-09-18) — cada bug arreglado tiene su caso:
+ *   T. TAXONOMÍAS — una categoría/marca que ya existe por nombre (otro case)
+ *      se REUSA y se mapea, no choca contra el UNIQUE.
+ *   K. CLIENTES DUPLICADOS — política del owner: documento repetido unifica,
+ *      teléfono repetido o inválido entra sin teléfono con el número en la
+ *      nota; el cliente sin id del legacy queda NOMBRADO en el error.
+ *   V. PROVEEDORES — se migran como contactos type 2 y la compra se cuelga
+ *      del proveedor, no del cliente homónimo.
+ *   W. LOG DE ÍTEMS — el `data-id` es el de la VENTA: una venta partida entre
+ *      páginas no aborta, cada línea entra una vez, y `nolimit` lee de una.
+ *   J. COMPLETAR — relanzar completa las compras que entraron sin líneas ni
+ *      proveedor (y descarta el alias viejo que apuntaba a un cliente).
+ *   U7. "Jefe" → Dueño (decisión del owner).
  */
 
 require_once __DIR__ . '/_harness.php';
@@ -55,6 +69,11 @@ $companyF  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6dbbcc';
 // tope de filas por request (P), la sonda del detalle (S), el detalle apagado
 // (T) y el latido del job (R).
 $companyG  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6dddee';
+// Casos del job 71e8282d (2026-09-18).
+$companyH  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0011';   // U7 — rol "Jefe"
+$companyI  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0022';   // T — taxonomías que ya existen
+$companyJ  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0033';   // J — completar compras
+$companyK  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0044';   // K — clientes duplicados
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -147,6 +166,10 @@ class FixtureEncomClient extends EncomClient
             $path === '/a_report_purchases' && $action === 'general'       => 'panel-purchases.json',
             $path === '/a_report_purchases' && $action === 'detailTable'   => 'panel-purchase-lines.json',
             $path === '/a_report_expenses'  && $action === 'generalTable'  => 'panel-expenses.json',
+            // Proveedores: no están en /fetchs (el bootstrap del POS solo trae
+            // clientes), salen de la tabla de contactos del panel.
+            $path === '/a_contacts' && $action === 'generalTable'
+                && ($params['rol'] ?? '') === 'supplier'                   => 'panel-suppliers.json',
             default                                                        => '',
         };
 
@@ -285,6 +308,175 @@ class ListadoLargoEncomClient extends FixtureEncomClient
             return (string) json_encode(['table' => '']);
         }
 
+        return parent::get($path, $params, $allowRedirect);
+    }
+}
+
+/**
+ * El LOG DE ÍTEMS VENDIDOS con el shape REAL del legacy: el `data-id` de cada
+ * fila es el de su VENTA (`enc(transactionId)` en `a_report_products.php`), así
+ * que todas las líneas de una venta comparten id.
+ *
+ * Es el incidente del job 71e8282d: con el id de la venta como identidad de la
+ * fila, una venta de tres líneas partida entre dos páginas se leía como "el
+ * listado dejó de avanzar" y abortaba el dominio; y como la idempotencia por
+ * línea usaba ese mismo id, solo habría entrado la PRIMERA línea de cada venta.
+ *
+ * `$nolimit`: si el deploy respeta `nolimit=1` (la ventana entera, sin OFFSET).
+ */
+final class LogPartidoEncomClient extends FixtureEncomClient
+{
+    /** @var array<int,array<string,mixed>> */
+    public array $pedidosLog = [];
+
+    public function __construct(
+        string $dir,
+        private readonly int $ventas,
+        private readonly bool $nolimit,
+        private readonly int $porPagina = 50,
+        // Un log que devuelve SIEMPRE el tope, ignore lo que se le pida.
+        private readonly bool $truncado = false,
+        private readonly string $prefijo = 'lp-',
+    ) {
+        parent::__construct($dir);
+    }
+
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        $action = (string) ($params['action'] ?? '');
+
+        if ($path === '/a_report_transactions' && $action === 'detailTable') {
+            $filas = '';
+            for ($i = 0; $i < $this->ventas; $i++) {
+                $filas .= '<tr data-id="' . $this->prefijo . $i . '">'
+                    . '<td data-order="' . $this->prefijo . $i . '">x</td>'
+                    . '<td data-order="16543210">16543210</td>'
+                    . '<td data-order="001-001-' . (5000 + $i) . '">x</td>'
+                    . '<td data-order="2026-08-10 12:00:00">10 ago</td><td data-order="12:00">12:00</td>'
+                    . '<td data-order="">-</td><td data-order="">-</td><td data-order="">-</td>'
+                    . '<td data-order="Pedro Cajero">Pedro Cajero</td><td data-order="Casa Central">Casa Central</td>'
+                    . '<td data-order="Caja Uno">Caja Uno</td><td data-order="Sí">Sí</td><td data-order="Efectivo">Efectivo</td>'
+                    . '<td data-order="">-</td><td data-order="">-</td><td data-order="Factura">Factura</td>'
+                    . '<td data-order="Contado">Contado</td><td data-order="0">0</td><td data-order="2727">x</td>'
+                    . '<td data-order="273">x</td><td data-order="2727">x</td><td data-order="3000">x</td></tr>';
+            }
+            $thead = '<thead><tr><th>ID</th><th>#Autorización</th><th>#Documento</th><th>Fecha</th><th>Hora</th>'
+                . '<th>Vencimiento</th><th>Cliente</th><th>RUC</th><th>Usuario</th><th>Sucursal</th>'
+                . '<th>Caja</th><th>Caja FE Activa</th><th>M.de Pago</th><th>Nota</th><th>Etiquetas</th>'
+                . '<th>Tipo Documento</th><th>Tipo</th><th>Descuento</th><th>Subtotal</th><th>IVA</th>'
+                . '<th>Total Gravado</th><th>Total</th></tr></thead>';
+            return (string) json_encode(['table' => $thead . '<tbody>' . $filas . '</tbody>']);
+        }
+
+        if ($path === '/a_report_products' && $action === 'detailTable') {
+            $this->pedidosLog[] = $params;
+
+            // 3 líneas por venta, en el orden del legacy (por fecha: las de una
+            // venta quedan juntas). La venta 0 trae DOS líneas IDÉNTICAS: son
+            // dos cafés, no una fila repetida.
+            $todas = [];
+            for ($i = 0; $i < $this->ventas; $i++) {
+                $arts = $i === 0 ? ['Cafe Doble', 'Cafe Doble', 'Tostado'] : ['Cafe Doble', 'Tostado', 'Jugo'];
+                foreach ($arts as $art) {
+                    $todas[] = [$i, $art];
+                }
+            }
+
+            if ($this->truncado) {
+                $desde   = 0;
+                $cuantas = 100;
+            } elseif (!empty($params['nolimit']) && $this->nolimit) {
+                $desde = 0;
+                $cuantas = count($todas);
+            } elseif (isset($params['part'])) {
+                $desde   = (int) ($params['offset'] ?? 0);
+                $cuantas = min((int) ($params['limit'] ?? 100), $this->porPagina);
+            } else {
+                $desde   = 0;
+                $cuantas = 100;   // el tope del legacy
+            }
+
+            $filas = '';
+            foreach (array_slice($todas, $desde, $cuantas) as [$i, $art]) {
+                $filas .= '<tr data-id="' . $this->prefijo . $i . '" class="clickrow pointer">'
+                    . '<td>Casa Central</td><td>Caja Uno</td><td class="text-right">001-001-' . (5000 + $i) . '</td>'
+                    . '<td>Pedro Cajero</td><td data-filter=""></td>'
+                    . '<td data-order="2026-08-10 12:00:00">10 ago</td>'
+                    . '<td data-filter=""> ' . $art . ' </td><td> </td><td> </td><td> </td>'
+                    . '<td class="tdNumeric" data-order="1"> 1 </td><td class="tdNumeric" data-order="0"> 0 </td>'
+                    . '<td class="tdNumeric" data-order="400"> 400 </td><td class="tdNumeric" data-order="91"> 91 </td>'
+                    . '<td class="tdNumeric" data-order="0"> 0 </td><td class="tdNumeric" data-order="600"> 600 </td>'
+                    . '<td class="tdNumeric" data-order="1000"> 1.000 </td></tr>';
+            }
+            $thead = '<thead class="text-u-c"><tr><th class="ignored">Sucursal</th><th>Caja</th><th># Documento</th>'
+                . '<th>Usuario</th><th>Cliente</th><th class="no-search">Fecha</th><th>Nombre</th><th>Código/SKU</th>'
+                . '<th>Marca</th><th>Categoría</th><th>Cantidad</th><th>Comisión</th><th>Costo</th><th>IVA</th>'
+                . '<th>Descuentos</th><th>Utilidad</th><th>Total</th></tr></thead>';
+            return (string) json_encode(['table' => $thead . '<tbody>' . $filas . '</tbody>']);
+        }
+
+        return parent::get($path, $params, $allowRedirect);
+    }
+}
+
+/** Legacy cuyo equipo tiene usuarios de rol "Jefe", el más alto de su escala. */
+final class JefeEncomClient extends FixtureEncomClient
+{
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        if ($load === 'users') {
+            return [
+                ['userId' => 'usr-j1', 'name' => 'Duenio Del Comercio', 'roleName' => 'Jefe', 'role' => '1'],
+                ['userId' => 'usr-j2', 'name' => 'Soporte Sistema Anterior', 'roleName' => 'Jefe', 'role' => '1'],
+                ['userId' => 'usr-j3', 'name' => 'Admin Base', 'roleName' => 'Admin. Base', 'role' => '3'],
+                ['userId' => 'usr-j4', 'name' => 'Cajero Base', 'roleName' => 'Cajero Base', 'role' => '5'],
+            ];
+        }
+        return parent::fetch($load, $outletHash);
+    }
+}
+
+/**
+ * Clientes con los tres casos de duplicado del job 71e8282d, más la fila sin
+ * id propio del legacy (contacto sin `contactUID`).
+ */
+final class DuplicadosEncomClient extends FixtureEncomClient
+{
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        if ($load === 'customers') {
+            return [
+                ['customerId' => 'dup-a', 'name' => 'Juan Perez', 'ci' => '1234567', 'phone' => '0981555111'],
+                // 1. MISMO documento: la misma persona cargada dos veces.
+                ['customerId' => 'dup-b', 'name' => 'JUAN PEREZ', 'ci' => '1.234.567', 'phone' => '0981999888'],
+                // 2. OTRA persona con el teléfono de dup-a.
+                ['customerId' => 'dup-c', 'name' => 'Otra Persona', 'ci' => '7654321', 'phone' => '0981555111',
+                 'note' => 'Cliente de los martes'],
+                // 3. Teléfono que no es un número.
+                ['customerId' => 'dup-d', 'name' => 'Tel Malo', 'ci' => '1111111', 'phone' => '12'],
+                // 1 y 2 a la vez: manda el documento.
+                ['customerId' => 'dup-e', 'name' => 'Juan P.', 'ci' => '1234567', 'phone' => '0981555111'],
+                // Sin id del legacy.
+                ['name' => 'Cliente Sin Id', 'ci' => '9999999'],
+            ];
+        }
+        return parent::fetch($load, $outletHash);
+    }
+}
+
+/**
+ * El legacy como lo leía el migrador ANTES del arreglo: el detalle de compras
+ * no devuelve ninguna fila legible. Sirve para dejar una compra importada SIN
+ * líneas —el estado en que quedaron las 246 del job 71e8282d— y probar que
+ * relanzar la completa.
+ */
+final class SinDetalleComprasEncomClient extends FixtureEncomClient
+{
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        if ($path === '/a_report_purchases' && ($params['action'] ?? '') === 'detailTable') {
+            return '';
+        }
         return parent::get($path, $params, $allowRedirect);
     }
 }
@@ -498,6 +690,10 @@ $fixtures = __DIR__ . '/fixtures/encom';
 
 cleanup($companyId);
 cleanup($companyB);
+cleanup($companyH);
+cleanup($companyI);
+cleanup($companyJ);
+cleanup($companyK);
 cleanup($companyC);
 cleanup($companyE);
 cleanup($companyF);
@@ -794,14 +990,54 @@ try {
     seedCompany($companyId, 'Comercio Migrado SA');
 
     $run1 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
-        ->run(['catalog', 'customers', 'config', 'users', 'payments', 'stock']);
+        ->run(['catalog', 'customers', 'suppliers', 'config', 'users', 'payments', 'stock']);
 
     $p1 = $run1['progress'];
 
+    // Los únicos errores esperados son los de COMPOSICIÓN: el fixture trae a
+    // propósito tres combos que no se pueden componer (R1), y desde el job
+    // 71e8282d toda falla deja su línea en `errors` en vez de solo sumar al
+    // contador (R7).
+    $erroresNoCompound = array_values(array_filter(
+        $run1['errors'],
+        static fn(array $e) => ($e['domain'] ?? '') !== 'compound'
+    ));
     check(
-        'A1 · no hubo errores en el import',
-        $run1['errors'] === [],
+        'A1 · no hubo errores en el import (fuera de los combos que el fixture rompe a propósito)',
+        $erroresNoCompound === [],
         'errores: ' . json_encode($run1['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── V. Proveedores ────────────────────────────────────────────────
+    check(
+        'V1 · los 3 proveedores del panel entran como contactos PROVEEDOR (type 2)',
+        ($p1['supplier']['imported'] ?? 0) === 3
+            && (int) scalar('SELECT count(*) FROM contact WHERE companyId = ? AND type = 2', [$companyId]) === 3,
+        'progress.supplier = ' . json_encode($p1['supplier'] ?? null)
+            . ' · errores = ' . json_encode($run1['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    $supRuiz = EncomMigrationService::mapped($companyId, 'supplier', 'sup-1');
+    check(
+        'V2 · el proveedor conserva razón social, RUC y encargado (no se confunde con el CLIENTE homónimo)',
+        $supRuiz !== null
+            && (string) scalar('SELECT contactName FROM contact WHERE contactId = ?', [$supRuiz]) === 'Carlos Ruiz'
+            && (string) scalar('SELECT contactTIN FROM contact WHERE contactId = ?', [$supRuiz]) === '4567890-1'
+            && (string) scalar("SELECT data->>'contactSecondName' FROM contact WHERE contactId = ?", [$supRuiz]) === 'Carlos'
+            && $supRuiz !== EncomMigrationService::mapped($companyId, 'customer', 'cus-2'),
+        'supplier sup-1 → ' . var_export($supRuiz, true),
+        $failures, $checks
+    );
+
+    $supMalo = EncomMigrationService::mapped($companyId, 'supplier', 'sup-3');
+    check(
+        'V3 · el proveedor con teléfono inválido entra SIN teléfono y con el número en la nota',
+        $supMalo !== null
+            && (string) scalar('SELECT COALESCE(contactPhone, \'\') FROM contact WHERE contactId = ?', [$supMalo]) === ''
+            && str_contains((string) scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$supMalo]), '123'),
+        'nota = ' . var_export($supMalo === null ? null : scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$supMalo]), true),
         $failures, $checks
     );
 
@@ -937,9 +1173,14 @@ try {
         $failures, $checks
     );
 
+    // Los errores de COMPOSICIÓN son los combos que el fixture rompe a
+    // propósito (R1/R7) y no tienen que ver con los costos.
     check(
         'Q7 · el dominio catálogo no registró errores por la falta de costos',
-        $runSinCostos['errors'] === [],
+        array_values(array_filter(
+            $runSinCostos['errors'],
+            static fn(array $e) => ($e['domain'] ?? '') !== 'compound'
+        )) === [],
         'errores = ' . json_encode($runSinCostos['errors'], JSON_UNESCAPED_UNICODE),
         $failures, $checks
     );
@@ -988,17 +1229,40 @@ try {
         $failures, $checks
     );
 
+    $errText = json_encode($run1['errors'], JSON_UNESCAPED_UNICODE);
+
     check(
-        'R5 · el combo con un componente inexistente NO se inventa: queda anotado para revisar',
-        str_contains($logText, 'Revisar a mano') && str_contains($logText, 'Combo Roto'),
-        "log = $logText",
+        'R5 · el combo con un componente inexistente NO se inventa: queda como ERROR para revisar, con el id',
+        str_contains($errText, 'Revisar a mano') && str_contains($errText, 'Combo Roto')
+            && str_contains($errText, 'itm-999'),
+        "errors = $errText",
         $failures, $checks
     );
 
     check(
         'R6 · el combo con opciones elegibles tampoco se inventa (en Punto son grupos de add-ons)',
-        str_contains($logText, 'Armá tu plato'),
-        "log = $logText",
+        str_contains($errText, 'Armá tu plato') || str_contains($logText, 'Armá tu plato'),
+        "errors = $errText · log = $logText",
+        $failures, $checks
+    );
+
+    // Job 71e8282d: "compound failed 2" con UNA sola explicación, y en el log
+    // en vez de en los errores. Cada falla contada tiene que tener su línea.
+    $erroresCompound = array_values(array_filter(
+        $run1['errors'],
+        static fn(array $e) => ($e['domain'] ?? '') === 'compound'
+    ));
+    check(
+        'R7 · cada composición fallida deja SU línea en errors (3 fallidas → 3 errores)',
+        count($erroresCompound) === ($p1['compound']['failed'] ?? -1),
+        'failed = ' . json_encode($p1['compound'] ?? null) . ' · errores compound = ' . json_encode($erroresCompound, JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'R8 · y el mensaje dice POR QUÉ el componente no está (el legacy solo exporta lo activo y vendible)',
+        str_contains($errText, 'vendibles'),
+        "errors = $errText",
         $failures, $checks
     );
 
@@ -1230,6 +1494,199 @@ try {
         $failures, $checks
     );
 
+    // ── U7. "Jefe" → Dueño (decisión del owner, 2026-09-18) ────────────
+    // En el legacy "Jefe" es el rol MÁS ALTO y lo tiene el administrador
+    // principal. No matcheaba ninguna palabra clave y caía al más bajo: el
+    // dueño del comercio entraba como Cajero (job 71e8282d).
+    seedCompany($companyH, 'Comercio Con Jefe SA');
+    $runJefe = (new EncomImportService($companyH, new JefeEncomClient($fixtures), null))->run(['config', 'users']);
+
+    $rolDe = static function (string $cid, string $legacy): ?string {
+        $id = EncomMigrationService::mapped($cid, 'user', $legacy);
+        return $id === null ? null : (string) scalar(
+            "SELECT t.taxonomyname FROM contact c
+               JOIN taxonomy t ON t.taxonomyid::text = c.role AND t.taxonomytype = 'role'
+              WHERE c.contactId = ?",
+            [$id]
+        );
+    };
+
+    check(
+        'U7 · el "Jefe" del legacy entra como Dueño; Admin. Base → Encargado; Cajero Base → Cajero',
+        $rolDe($companyH, 'usr-j1') === 'Dueño'
+            && $rolDe($companyH, 'usr-j3') === 'Encargado'
+            && $rolDe($companyH, 'usr-j4') === 'Cajero',
+        'roles = ' . json_encode([
+            $rolDe($companyH, 'usr-j1'), $rolDe($companyH, 'usr-j3'), $rolDe($companyH, 'usr-j4'),
+        ], JSON_UNESCAPED_UNICODE) . ' · errores = ' . json_encode($runJefe['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    $logJefe = json_encode($runJefe['log'], JSON_UNESCAPED_UNICODE);
+    check(
+        'U8 · la cuenta de soporte con rol "Jefe" entra por la misma regla, y la bitácora pide confirmarla',
+        $rolDe($companyH, 'usr-j2') === 'Dueño'
+            && str_contains($logJefe, 'Soporte Sistema Anterior')
+            && str_contains($logJefe, 'TODOS los permisos'),
+        "log = $logJefe",
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // T. TAXONOMÍAS que ya existen por nombre (job 71e8282d)
+    // ══════════════════════════════════════════════════════════════════
+    // El comercio ya tenía "bebidas" y "COMBOS" cargadas en Punto; el legacy
+    // trae "Bebidas" y "Combos". Antes: 23505 contra uq_category_company_name,
+    // la categoría "fallida" y sus artículos sin categoría.
+    seedCompany($companyI, 'Comercio Con Catalogo Previo SA');
+    $catSvc = new \Punto\Api\Categories\CategoryService($db);
+    $bebidasPrevia = $catSvc->create($companyI, ['name' => 'bebidas']);
+    $combosPrevia  = $catSvc->create($companyI, ['name' => 'COMBOS']);
+    $catsAntes     = countOf('category', $companyI);
+
+    $runTax = (new EncomImportService($companyI, new FixtureEncomClient($fixtures), null))->run(['catalog']);
+    $errTax = array_values(array_filter(
+        $runTax['errors'],
+        static fn(array $e) => in_array($e['domain'] ?? '', ['category', 'brand', 'tag', 'item'], true)
+    ));
+
+    check(
+        'T1 · la categoría que ya existe (otro case) NO falla: se reusa y queda mapeada a la existente',
+        $errTax === []
+            && ($runTax['progress']['category']['failed'] ?? -1) === 0
+            && EncomMigrationService::mapped($companyI, 'category', 'cat-100') === $bebidasPrevia
+            && EncomMigrationService::mapped($companyI, 'category', 'cat-300') === $combosPrevia,
+        'progress.category = ' . json_encode($runTax['progress']['category'] ?? null)
+            . ' · errores = ' . json_encode($errTax, JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'T2 · no se duplica: solo se crean las 2 categorías que faltaban (4 del legacy − 2 reusadas)',
+        countOf('category', $companyI) === $catsAntes + 2,
+        'categorías antes/después = ' . $catsAntes . '/' . countOf('category', $companyI),
+        $failures, $checks
+    );
+
+    $itmCafeI = EncomMigrationService::mapped($companyI, 'item', 'itm-1');
+    check(
+        'T3 · y el artículo queda colgado de la categoría REUSADA (antes entraba sin categoría)',
+        $itmCafeI !== null
+            && (int) scalar('SELECT count(*) FROM item_category WHERE itemId = ? AND categoryId = ?', [$itmCafeI, $bebidasPrevia]) === 1,
+        'item_category del café = ' . json_encode(scalar('SELECT categoryId FROM item_category WHERE itemId = ? LIMIT 1', [$itmCafeI ?? ''])),
+        $failures, $checks
+    );
+
+    check(
+        'T4 · la bitácora dice cuáles se reusaron',
+        str_contains(json_encode($runTax['log'], JSON_UNESCAPED_UNICODE), 'se reusaron'),
+        'log = ' . json_encode($runTax['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // T5/T6. El estado en que quedaron los artículos del job 71e8282d: la
+    // categoría falló, el artículo entró SIN categoría y es idempotente, así
+    // que relanzar lo salteaba y quedaba así para siempre.
+    $db->Execute('UPDATE item SET categoryId = NULL WHERE itemId = ?', [$itmCafeI]);
+    $db->Execute('DELETE FROM item_category WHERE itemId = ?', [$itmCafeI]);
+    // Y uno que el comercio recategorizó a mano después: NO se toca.
+    $itmMedialunaI = EncomMigrationService::mapped($companyI, 'item', 'itm-2');
+    $db->Execute('UPDATE item SET categoryId = ? WHERE itemId = ?', [$combosPrevia, $itmMedialunaI]);
+    $db->Execute('DELETE FROM item_category WHERE itemId = ?', [$itmMedialunaI]);
+    $db->Execute('INSERT INTO item_category (itemId, categoryId, isPrimary) VALUES (?, ?, TRUE)', [$itmMedialunaI, $combosPrevia]);
+
+    $runTax2 = (new EncomImportService($companyI, new FixtureEncomClient($fixtures), null))->run(['catalog']);
+
+    check(
+        'T5 · relanzar le COMPLETA la categoría al artículo ya importado que había quedado sin ella',
+        (string) scalar('SELECT categoryId FROM item WHERE itemId = ?', [$itmCafeI]) === $bebidasPrevia
+            && (int) scalar('SELECT count(*) FROM item_category WHERE itemId = ? AND categoryId = ?', [$itmCafeI, $bebidasPrevia]) === 1,
+        'categoryId = ' . var_export(scalar('SELECT categoryId FROM item WHERE itemId = ?', [$itmCafeI]), true)
+            . ' · log = ' . json_encode($runTax2['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'T6 · y NO pisa la categoría que el comercio eligió a mano después de migrar',
+        (string) scalar('SELECT categoryId FROM item WHERE itemId = ?', [$itmMedialunaI]) === $combosPrevia
+            && (int) scalar('SELECT count(*) FROM item_category WHERE itemId = ?', [$itmMedialunaI]) === 1,
+        'categoryId medialuna = ' . var_export(scalar('SELECT categoryId FROM item WHERE itemId = ?', [$itmMedialunaI]), true),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // K. CLIENTES DUPLICADOS — política del owner (2026-09-18)
+    // ══════════════════════════════════════════════════════════════════
+    seedCompany($companyK, 'Comercio Con Duplicados SA');
+    $runDup = (new EncomImportService($companyK, new DuplicadosEncomClient($fixtures), null))->run(['customers']);
+    $idA = EncomMigrationService::mapped($companyK, 'customer', 'dup-a');
+
+    check(
+        'K1 · documento repetido: NO se crea otro contacto, el id del legacy se mapea al que ya lo tiene',
+        $idA !== null
+            && EncomMigrationService::mapped($companyK, 'customer', 'dup-b') === $idA
+            && (int) scalar('SELECT count(*) FROM contact WHERE companyId = ? AND type = 1', [$companyK]) === 3,
+        'dup-a=' . var_export($idA, true) . ' dup-b=' . var_export(EncomMigrationService::mapped($companyK, 'customer', 'dup-b'), true)
+            . ' clientes=' . scalar('SELECT count(*) FROM contact WHERE companyId = ? AND type = 1', [$companyK])
+            . ' · errores = ' . json_encode($runDup['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'K2 · documento Y teléfono repetidos a la vez: manda el documento (se unifica)',
+        EncomMigrationService::mapped($companyK, 'customer', 'dup-e') === $idA,
+        'dup-e → ' . var_export(EncomMigrationService::mapped($companyK, 'customer', 'dup-e'), true),
+        $failures, $checks
+    );
+
+    $idC = EncomMigrationService::mapped($companyK, 'customer', 'dup-c');
+    $notaC = $idC === null ? '' : (string) scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$idC]);
+    check(
+        'K3 · teléfono de OTRA persona: entra sin teléfono, con el número en la nota y sin perder la nota que traía',
+        $idC !== null && $idC !== $idA
+            && (string) scalar('SELECT COALESCE(contactPhone, \'\') FROM contact WHERE contactId = ?', [$idC]) === ''
+            && str_contains($notaC, '0981555111') && str_contains($notaC, 'Cliente de los martes'),
+        'nota = ' . var_export($notaC, true),
+        $failures, $checks
+    );
+
+    $idD = EncomMigrationService::mapped($companyK, 'customer', 'dup-d');
+    check(
+        'K4 · teléfono inválido: entra sin teléfono y con el número original en la nota',
+        $idD !== null
+            && (string) scalar('SELECT COALESCE(contactPhone, \'\') FROM contact WHERE contactId = ?', [$idD]) === ''
+            && str_contains((string) scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$idD]), 'no es válido'),
+        'nota = ' . var_export($idD === null ? null : scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$idD]), true),
+        $failures, $checks
+    );
+
+    $errDup = json_encode($runDup['errors'], JSON_UNESCAPED_UNICODE);
+    check(
+        'K5 · el cliente sin id del legacy es el ÚNICO error, y lo NOMBRA (antes: "una fila vino sin identificador")',
+        count($runDup['errors']) === 1 && str_contains($errDup, 'Cliente Sin Id'),
+        "errors = $errDup",
+        $failures, $checks
+    );
+
+    $logDup = json_encode($runDup['log'], JSON_UNESCAPED_UNICODE);
+    check(
+        'K6 · la bitácora cuenta cada caso con ejemplos (unificados, teléfono repetido, teléfono inválido)',
+        str_contains($logDup, 'UNIFICARON') && str_contains($logDup, 'ya lo tiene otro cliente')
+            && str_contains($logDup, 'no es válido'),
+        "log = $logDup",
+        $failures, $checks
+    );
+
+    $contactosDup = (int) scalar('SELECT count(*) FROM contact WHERE companyId = ?', [$companyK]);
+    (new EncomImportService($companyK, new DuplicadosEncomClient($fixtures), null))->run(['customers']);
+    check(
+        'K7 · re-correr no crea contactos ni reescribe la nota',
+        (int) scalar('SELECT count(*) FROM contact WHERE companyId = ?', [$companyK]) === $contactosDup
+            && (string) scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$idC ?? '']) === $notaC,
+        'contactos antes/después = ' . $contactosDup . '/' . scalar('SELECT count(*) FROM contact WHERE companyId = ?', [$companyK]),
+        $failures, $checks
+    );
+
     // ══════════════════════════════════════════════════════════════════
     // P. Medios de pago
     // ══════════════════════════════════════════════════════════════════
@@ -1427,8 +1884,15 @@ try {
     ];
 
     $run2 = (new EncomImportService($companyId, new FixtureEncomClient($fixtures), null))
-        ->run(['catalog', 'customers', 'config', 'users', 'payments', 'stock']);
+        ->run(['catalog', 'customers', 'suppliers', 'config', 'users', 'payments', 'stock']);
     $p2 = $run2['progress'];
+
+    check(
+        'V4 · re-correr no duplica proveedores (3 salteados, ninguno nuevo)',
+        ($p2['supplier']['imported'] ?? -1) === 0 && ($p2['supplier']['skipped'] ?? 0) === 3,
+        'progress.supplier = ' . json_encode($p2['supplier'] ?? null),
+        $failures, $checks
+    );
 
     check(
         'B1 · la segunda corrida no importa artículos ni clientes nuevos',
@@ -1854,6 +2318,27 @@ try {
         $failures, $checks
     );
 
+    $compraId = EncomMigrationService::mapped($companyId, 'purchase_history', 'pur-1');
+    check(
+        'H13b · la compra entra CON sus 2 líneas (las filas del detalle no traen data-id: se leen por su data-load)',
+        $compraId !== null
+            && (int) scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraId]) === 2
+            && ($ph['purchases_history']['lines'] ?? 0) === 2,
+        'líneas = ' . var_export($compraId === null ? null : scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraId]), true)
+            . ' · progress = ' . json_encode($ph['purchases_history'] ?? null)
+            . ' · log = ' . json_encode($runH['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'V5 · y queda colgada del PROVEEDOR migrado, no del cliente homónimo "Carlos Ruiz"',
+        $compraId !== null
+            && (string) scalar('SELECT supplierId FROM transaction WHERE transactionId = ?', [$compraId])
+                === (string) EncomMigrationService::mapped($companyId, 'supplier', 'sup-1'),
+        'supplierId = ' . var_export($compraId === null ? null : scalar('SELECT supplierId FROM transaction WHERE transactionId = ?', [$compraId]), true),
+        $failures, $checks
+    );
+
     check(
         'H14 · los 2 movimientos de caja entran con su signo (type 1 = ingreso, NULL = extracción)',
         ($ph['expenses_history']['imported'] ?? 0) === 2
@@ -1959,8 +2444,8 @@ try {
     // Sin esto el corte sería carísimo: probar convenciones inventadas contra
     // el servidor del cliente, una request por cada una, por mes.
     check(
-        'P2 · y antes de abortar solo gasta 3 pedidos (el listado + una sonda por convención)',
-        count($topeCli->pedidos) === 3,
+        'P2 · y antes de abortar solo gasta 4 pedidos (el listado + nolimit + una sonda por convención)',
+        count($topeCli->pedidos) === 4,
         'pedidos = ' . count($topeCli->pedidos) . ' → ' . json_encode($topeCli->pedidos),
         $failures, $checks
     );
@@ -1981,8 +2466,8 @@ try {
     // avanzara de a 1000 (lo PEDIDO) en vez de por filas leídas, se saltearía
     // todo lo del medio y este caso daría 100.
     check(
-        'P4 · el offset avanza por filas LEÍDAS: 6 pedidos (listado + sonda + 3 páginas + la vacía)',
-        count($pagCli->pedidos) === 6,
+        'P4 · el offset avanza por filas LEÍDAS: 7 pedidos (listado + nolimit + sonda + 3 páginas + la vacía)',
+        count($pagCli->pedidos) === 7,
         'pedidos = ' . count($pagCli->pedidos) . ' → ' . json_encode($pagCli->pedidos),
         $failures, $checks
     );
@@ -2022,6 +2507,158 @@ try {
             "SELECT transactionUnitsSold FROM transaction WHERE transactionId = ?",
             [(string) ($f1['transactionid'] ?? '')]
         ), true),
+        $failures, $checks
+    );
+
+    // ── W. El log de ítems con el data-id de la VENTA (job 71e8282d) ──
+    // 40 ventas × 3 líneas = 120 filas: más que el tope, así que hay que
+    // paginar. Con páginas de 50, la venta 16 queda partida entre la 1 y la 2.
+    $opsW = ['historyFrom' => '2026-08-01', 'historyTo' => '2026-08-31'];
+    $linW = static fn() => (int) scalar(
+        "SELECT count(*) FROM itemSold i JOIN migration_map m ON m.puntoid::uuid = i.transactionid
+          WHERE m.companyid = ? AND m.domain = 'sale_history' AND m.legacyid LIKE 'lp-%'",
+        [$companyG]
+    );
+
+    $cliW   = new LogPartidoEncomClient($fixtures, 40, false, 50);
+    $runW   = (new EncomImportService($companyG, $cliW, null))->run(['sales_history'], $opsW);
+    $errW   = json_encode($runW['errors'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'W1 · una venta de varias líneas partida entre dos páginas NO se lee como "el listado no avanza"',
+        !str_contains($errW, 'dejó de avanzar') && ($runW['progress']['sales_history']['imported'] ?? 0) === 40,
+        'progress = ' . json_encode($runW['progress']['sales_history'] ?? null) . " · errors = $errW",
+        $failures, $checks
+    );
+
+    check(
+        'W2 · entran las 120 líneas: TODAS las de cada venta, no solo la primera (la idempotencia es por línea)',
+        $linW() === 120,
+        'líneas = ' . $linW() . " · errors = $errW",
+        $failures, $checks
+    );
+
+    $idVenta0 = EncomMigrationService::mapped($companyG, 'sale_history', 'lp-0');
+    check(
+        'W3 · dos líneas IDÉNTICAS de la misma venta son dos líneas, no una repetida',
+        $idVenta0 !== null && (int) scalar(
+            "SELECT count(*) FROM itemSold WHERE transactionId = ? AND itemSoldDescription = 'Cafe Doble'",
+            [$idVenta0]
+        ) === 2,
+        'cafés de lp-0 = ' . var_export($idVenta0 === null ? null : scalar(
+            "SELECT count(*) FROM itemSold WHERE transactionId = ? AND itemSoldDescription = 'Cafe Doble'", [$idVenta0]
+        ), true),
+        $failures, $checks
+    );
+
+    (new EncomImportService($companyG, new LogPartidoEncomClient($fixtures, 40, true), null))->run(['sales_history'], $opsW);
+    check(
+        'W4 · re-correr (ahora por la vía sin tope) no agrega una sola línea',
+        $linW() === 120,
+        'líneas tras re-correr = ' . $linW(),
+        $failures, $checks
+    );
+
+    $cliNL = new LogPartidoEncomClient($fixtures, 40, true);
+    (new EncomImportService($companyG, $cliNL, null))->run(['sales_history'], $opsW);
+    check(
+        'W5 · con nolimit el log entero sale en 2 pedidos (el listado con tope + la ventana sin OFFSET)',
+        count($cliNL->pedidosLog) === 2 && !empty($cliNL->pedidosLog[1]['nolimit']),
+        'pedidos al log = ' . json_encode($cliNL->pedidosLog),
+        $failures, $checks
+    );
+
+    // ── W6/W7. Un log truncado corta el mes SIN escribir cabeceras ────
+    // Job 71e8282d: el log de ítems abortaba DESPUÉS de asentar las 753
+    // cabeceras de enero, y el mensaje decía "no se importa nada". Ahora los
+    // dos logs se leen antes de escribir.
+    $runT = (new EncomImportService($companyG, new LogPartidoEncomClient($fixtures, 40, false, 50, true, 'lt-'), null))
+        ->run(['sales_history'], $opsW);
+    $errT = json_encode($runT['errors'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'W6 · si el log de ítems del mes viene truncado, NO se asienta ni una cabecera de ese mes',
+        (int) scalar(
+            "SELECT count(*) FROM migration_map WHERE companyid = ? AND domain = 'sale_history' AND legacyid LIKE 'lt-%'",
+            [$companyG]
+        ) === 0
+            && ($runT['progress']['sales_history']['imported'] ?? -1) === 0,
+        'cabeceras lt- = ' . scalar(
+            "SELECT count(*) FROM migration_map WHERE companyid = ? AND domain = 'sale_history' AND legacyid LIKE 'lt-%'",
+            [$companyG]
+        ) . " · errors = $errT",
+        $failures, $checks
+    );
+
+    check(
+        'W7 · y el job lo dice (TRUNCADO), sin afirmar nada falso sobre lo ya asentado',
+        str_contains($errT, 'TRUNCADO') && !str_contains($errT, 'no se importa nada'),
+        "errors = $errT",
+        $failures, $checks
+    );
+
+    // ── J. Relanzar COMPLETA las compras que entraron incompletas ──────
+    // El estado en que quedaron las 246 compras del job 71e8282d: asentadas
+    // sin una línea (el parser descartaba el detalle) y colgadas de un
+    // contacto que no es proveedor (la búsqueda no filtraba por tipo, y el
+    // alias `supplier_name` quedó apuntando a un CLIENTE).
+    seedCompany($companyJ, 'Comercio A Completar SA');
+    (new EncomImportService($companyJ, new FixtureEncomClient($fixtures), null))
+        ->run(['catalog', 'customers', 'config', 'users']);
+    $clienteRuizJ = EncomMigrationService::mapped($companyJ, 'customer', 'cus-2');
+
+    (new EncomImportService($companyJ, new SinDetalleComprasEncomClient($fixtures), null))
+        ->run(['purchases_history'], $histOpts);
+    $compraJ = EncomMigrationService::mapped($companyJ, 'purchase_history', 'pur-1');
+
+    // Lo que dejó el código VIEJO y el nuevo ya no produce: la compra colgada
+    // del cliente homónimo y el alias por nombre apuntando a ese cliente.
+    $db->Execute('UPDATE transaction SET supplierId = ? WHERE transactionId = ?', [$clienteRuizJ, $compraJ]);
+    EncomMigrationService::remember($companyJ, 'supplier_name', 'carlos ruiz', (string) $clienteRuizJ, null);
+
+    check(
+        'J0 · (preparación) la compra quedó como en el incidente: sin líneas y colgada del CLIENTE',
+        $compraJ !== null
+            && (int) scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ]) === 0
+            && (string) scalar('SELECT supplierId FROM transaction WHERE transactionId = ?', [$compraJ]) === (string) $clienteRuizJ,
+        'compra = ' . var_export($compraJ, true),
+        $failures, $checks
+    );
+
+    $runJ = (new EncomImportService($companyJ, new FixtureEncomClient($fixtures), null))
+        ->run(['suppliers', 'purchases_history'], $histOpts);
+
+    check(
+        'J1 · relanzar le agrega sus 2 líneas a la compra ya importada (sin crear otra compra)',
+        (int) scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? '']) === 2
+            && (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ? AND transactionType IN (1, 4)', [$companyJ]) === 1,
+        'líneas = ' . scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? ''])
+            . ' · errores = ' . json_encode($runJ['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'J2 · y la cuelga del PROVEEDOR: el alias viejo que apuntaba al cliente se descarta',
+        (string) scalar('SELECT supplierId FROM transaction WHERE transactionId = ?', [$compraJ ?? ''])
+            === (string) EncomMigrationService::mapped($companyJ, 'supplier', 'sup-1')
+            && EncomMigrationService::mapped($companyJ, 'supplier_name', 'carlos ruiz') !== $clienteRuizJ,
+        'supplierId = ' . var_export(scalar('SELECT supplierId FROM transaction WHERE transactionId = ?', [$compraJ ?? '']), true),
+        $failures, $checks
+    );
+
+    check(
+        'J3 · la bitácora dice que completó compras ya importadas',
+        str_contains(json_encode($runJ['log'], JSON_UNESCAPED_UNICODE), 'COMPLETARON'),
+        'log = ' . json_encode($runJ['log'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    (new EncomImportService($companyJ, new FixtureEncomClient($fixtures), null))
+        ->run(['suppliers', 'purchases_history'], $histOpts);
+    check(
+        'J4 · una tercera corrida no agrega nada (las líneas de compra también son idempotentes)',
+        (int) scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? '']) === 2,
+        'líneas = ' . scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? '']),
         $failures, $checks
     );
 
@@ -2193,6 +2830,10 @@ try {
     cleanup($companyE);
     cleanup($companyF);
     cleanup($companyG);
+    cleanup($companyH);
+    cleanup($companyI);
+    cleanup($companyJ);
+    cleanup($companyK);
     // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
     // línea, una segunda corrida del arnés contra la misma base encontraría el
     // período ya cerrado y H17 pasaría por el motivo equivocado.
