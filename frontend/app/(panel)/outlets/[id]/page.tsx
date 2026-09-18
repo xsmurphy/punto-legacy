@@ -1,11 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Boxes, Calculator, Loader2, Pencil, Star, Store, Trash2 } from "lucide-react"
+import { Loader2, Pencil, Star, Trash2 } from "lucide-react"
 import { isValidPhoneNumber } from "libphonenumber-js"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
@@ -14,18 +14,15 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { EmptyState } from "@/components/empty-state"
-import { FormSection } from "@/components/forms/form-section"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
 import { RowActions } from "@/components/data-table/row-actions"
 import { RegistersTab } from "@/components/outlets/registers-tab"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AddressMapParser } from "@/components/geo/address-map-parser"
-import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 import {
   Select,
   SelectContent,
@@ -63,7 +60,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -85,6 +81,9 @@ import {
   type OutletLocation,
 } from "@/hooks/use-outlet-locations"
 import { BackLink } from "@/components/page/back-link"
+import { EntityShell } from "@/components/page/entity-shell"
+import { OutletSummaryTab } from "@/components/outlets/outlet-summary-tab"
+import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import type { OutletFormValues } from "@/lib/types/outlet"
 
 const outletSchema = z.object({
@@ -113,8 +112,14 @@ const outletSchema = z.object({
   priceListId: z.string().nullable(),
 })
 
-/** Tabs deep-linkeables por `?tab=`: cualquier otro valor cae en la ficha. */
-const OUTLET_TABS = ["general", "depositos", "cajas"] as const
+/**
+ * `?tab=` viejos → pestaña vigente. La ficha ("Sucursal", clave `general`) es
+ * la pestaña Datos desde 2026-09-18 (context/84 §3). `depositos` y `cajas`
+ * conservan su clave: hay links a `?tab=cajas` desde Facturación electrónica.
+ */
+const OUTLET_TAB_ALIASES: Record<string, string> = {
+  general: "datos",
+}
 
 export default function OutletEditPage() {
   // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
@@ -130,7 +135,6 @@ function OutletEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
   const router = useRouter()
-  const searchParams = useSearchParams()
 
   // Esta página es SOLO edición. El modo "new" (el route param literal
   // `new`, que Next matchea contra `[id]`) murió con el paywall del alta:
@@ -168,33 +172,8 @@ function OutletEditPageInner() {
     defaultValues: emptyValues(),
   })
 
-  // `?tab=cajas` deja linkear DERECHO al timbrado de la caja desde otra
-  // pantalla — lo usa "Corregir y emitir de nuevo" de Facturación electrónica
-  // cuando SIFEN rechaza por timbrado (context/28 §F7 N2): mandar al operador
-  // a la sucursal y que busque solo la pestaña es media indicación.
-  const tabParam = searchParams.get("tab")
-  const [activeTab, setActiveTab] = React.useState(
-    (OUTLET_TABS as readonly string[]).includes(tabParam ?? "") ? (tabParam as string) : "general",
-  )
-  // "depositos"/"cajas" quedan afuera del mapa: son listados propios (sin
-  // campos del form), no hay nada ahí que pueda quedar "invisible".
-  const { tabsWithErrors, onInvalid } = useFormTabErrors({
-    form,
-    // Un solo tab de formulario: perfil, contacto, datos fiscales y ubicación
-    // son la ficha de la sucursal, no cuatro pantallas. El hook se mantiene
-    // igual de necesario — si el usuario submitea parado en Depósitos o Cajas,
-    // esto lo devuelve al formulario, enfoca el campo inválido y avisa.
-    fields: {
-      general: [
-        "name", "description", "status", "ecom", "priceListId",
-        "address", "phone", "whatsApp", "email",
-        "billingName", "ruc", "taxId", "taxIncluded", "purchaseOrderNo",
-        "lat", "lng",
-      ],
-    },
-    onTabChange: setActiveTab,
-    tabLabels: { general: "Sucursal" },
-  })
+  const registers = useRegistersAdmin()
+  const locations = useOutletLocations(isNew ? "" : id)
 
   // Reset form cuando llegan los datos del backend (sólo en edit).
   React.useEffect(() => {
@@ -255,28 +234,31 @@ function OutletEditPageInner() {
     )
   }
 
+  // Cuántas cajas y depósitos tiene: atributos de la sucursal, en el
+  // encabezado (no un bloque del Resumen).
+  const registerCount = (registers.data?.registers ?? []).filter((r) => r.outletId === id).length
+  const locationCount = locations.data?.length ?? 0
+  const facts = [
+    data?.address || null,
+    registers.data ? `${registerCount} ${registerCount === 1 ? "caja" : "cajas"}` : null,
+    locations.data ? `${locationCount} ${locationCount === 1 ? "depósito" : "depósitos"}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <BackLink href="/outlets" label="Volver a sucursales" />
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold">
-                {isLoading ? (
-                  <Skeleton className="h-7 w-48" />
-                ) : (
-                  data?.name || "Sucursal"
-                )}
-              </h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <EntityShell
+          back={{ href: "/outlets", label: "Volver a sucursales" }}
+          title={data?.name || "Sucursal"}
+          isLoading={isLoading}
+          status={data && data.status !== 1 ? <Badge variant="outline">Inactiva</Badge> : null}
+          subtitle={facts || null}
+          actions={
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
-                  <Trash2 className="size-4" />
-                </Button>
+                <Button variant="outline">Eliminar</Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
@@ -296,53 +278,29 @@ function OutletEditPageInner() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-
-            <Button type="submit" disabled={update.isPending || isLoading}>
-              {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-              Guardar
-            </Button>
-          </div>
-        </header>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* -mx-2 px-2 permite scroll horizontal en mobile sin cortar el foco */}
-          <div className="-mx-2 overflow-x-auto px-2">
-            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-              <TabsTrigger value="general" className="gap-1.5">
-                <Store className="size-3.5" />
-                Sucursal
-                {tabsWithErrors.has("general") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="depositos" className="gap-1.5">
-                <Boxes className="size-3.5" />
-                Depósitos
-              </TabsTrigger>
-              <TabsTrigger value="cajas" className="gap-1.5">
-                <Calculator className="size-3.5" />
-                Cajas
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          {/* Ficha completa en dos columnas. `items-start` para que cada
-              sección se quede en su alto y no se estire a la más larga. */}
-          <TabsContent value="general" className="mt-6">
-            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          }
+          summary={<OutletSummaryTab outletId={id} />}
+          // Perfil, contacto, datos fiscales y ubicación son LA ficha de la
+          // sucursal, no cuatro pantallas: una sola pestaña Datos (antes se
+          // llamaba "Sucursal").
+          data={
+            <FormSectionColumns>
               <GeneralTab form={form} priceLists={priceLists ?? []} />
               <ContactoTab form={form} />
               <FiscalTab form={form} availableTaxes={data?.availableTaxes ?? []} />
               <UbicacionTab form={form} />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="depositos" className="mt-6">
-            <LocationsSection outletId={id} />
-          </TabsContent>
-
-          <TabsContent value="cajas" className="mt-6">
-            <RegistersTab outletId={id} />
-          </TabsContent>
-        </Tabs>
+            </FormSectionColumns>
+          }
+          extraTabs={[
+            { key: "depositos", label: "Depósitos", content: <LocationsSection outletId={id} /> },
+            // `?tab=cajas` deja linkear DERECHO al timbrado de la caja desde
+            // otra pantalla — lo usa "Corregir y emitir de nuevo" de
+            // Facturación electrónica (context/28 §F7 N2).
+            { key: "cajas", label: "Cajas", content: <RegistersTab outletId={id} /> },
+          ]}
+          tabAliases={OUTLET_TAB_ALIASES}
+          save={{ pending: update.isPending }}
+        />
       </form>
     </Form>
   )
@@ -393,12 +351,7 @@ function GeneralTab({
         name="status"
         render={({ field }) => (
           <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-            <div>
-              <FormLabel className="text-sm">Sucursal activa</FormLabel>
-              <FormDescription className="text-xs">
-                Si está apagada no aparece en la caja ni en reportes.
-              </FormDescription>
-            </div>
+            <FormLabel>Sucursal activa</FormLabel>
             <FormControl>
               <Switch checked={field.value} onCheckedChange={field.onChange} />
             </FormControl>
@@ -410,12 +363,7 @@ function GeneralTab({
         name="ecom"
         render={({ field }) => (
           <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-            <div>
-              <FormLabel className="text-sm">E-commerce</FormLabel>
-              <FormDescription className="text-xs">
-                Marca para sucursales sin punto físico (solo online).
-              </FormDescription>
-            </div>
+            <FormLabel>E-commerce</FormLabel>
             <FormControl>
               <Switch checked={field.value} onCheckedChange={field.onChange} />
             </FormControl>
@@ -522,12 +470,7 @@ function FiscalTab({
         name="taxIncluded"
         render={({ field }) => (
           <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-            <div>
-              <FormLabel className="text-sm">Precio incluye impuesto</FormLabel>
-              <FormDescription className="text-xs">
-                Si está prendido, el precio de venta ya incluye el IVA.
-              </FormDescription>
-            </div>
+            <FormLabel>Precio incluye impuesto</FormLabel>
             <FormControl>
               <Switch checked={field.value} onCheckedChange={field.onChange} />
             </FormControl>
@@ -790,23 +733,14 @@ function LocationsSection({ outletId }: { outletId: string }) {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle>Depósitos</CardTitle>
-          <CardDescription>Subdivisión del stock dentro de esta sucursal</CardDescription>
-        </div>
+        <CardTitle>Depósitos</CardTitle>
         <Button type="button" onClick={openCreate} size="sm">Agregar depósito</Button>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : locations.length === 0 ? (
-          <EmptyState
-            icon={Boxes}
-            title="Sin depósitos"
-            description="Los depósitos subdividen el stock dentro de esta sucursal."
-            actions={<Button onClick={openCreate}>Agregar depósito</Button>}
-            ghost={2}
-          />
+          <p className="text-sm text-muted-foreground">Sin depósitos.</p>
         ) : (
           <Table>
             <TableHeader>

@@ -21,7 +21,7 @@ import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useAttendanceReport } from "@/hooks/use-attendance"
 import { AttendanceMarksTab } from "@/components/domain/reports/attendance/attendance-marks-tab"
-import { KpiCard } from "@/components/domain/contacts/kpi-card"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { formatMinutes } from "@/components/domain/reports/attendance/attendance-format"
 import type { TenantLocaleConfig } from "@/lib/tenant-locale"
 
@@ -45,7 +45,7 @@ export function EmployeeAttendanceTab({
   const summary = data?.employees?.[0]
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <DateRangePicker value={range} onChange={setRange} />
         <Button asChild variant="outline" size="sm">
@@ -56,15 +56,12 @@ export function EmployeeAttendanceTab({
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <KpiCard
-          label="Horas trabajadas"
-          value={isLoading ? null : formatMinutes(summary?.workedMinutes ?? 0)}
-        />
-        <KpiCard label="Días con marcación" value={isLoading ? null : (summary?.days ?? 0)} />
-        <KpiCard label="Llegadas tarde" value={isLoading ? null : (summary?.lateCount ?? 0)} />
-        <KpiCard label="Para revisar" value={isLoading ? null : (summary?.needsReview ?? 0)} />
-      </div>
+      <StatsRow>
+        <StatTile label="Horas trabajadas" value={formatMinutes(summary?.workedMinutes ?? 0)} emphasis isLoading={isLoading} />
+        <StatTile label="Días con marcación" value={summary?.days ?? 0} isLoading={isLoading} />
+        <StatTile label="Llegadas tarde" value={summary?.lateCount ?? 0} isLoading={isLoading} />
+        <StatTile label="Para revisar" value={summary?.needsReview ?? 0} isLoading={isLoading} />
+      </StatsRow>
 
       <AttendanceMarksTab rows={data?.marks ?? []} isLoading={isLoading} />
     </div>

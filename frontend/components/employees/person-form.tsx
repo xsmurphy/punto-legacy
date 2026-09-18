@@ -62,7 +62,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -594,12 +593,7 @@ export function PersonFormSections({
           name="active"
           render={({ field }) => (
             <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border p-4">
-              <div className="flex flex-col gap-1">
-                <FormLabel className="font-normal">Puede entrar al sistema</FormLabel>
-                <FormDescription>
-                  Sin esto, sus datos quedan pero no puede iniciar sesión.
-                </FormDescription>
-              </div>
+              <FormLabel className="font-normal">Puede entrar al sistema</FormLabel>
               <FormControl>
                 <Switch checked={field.value} onCheckedChange={field.onChange} />
               </FormControl>

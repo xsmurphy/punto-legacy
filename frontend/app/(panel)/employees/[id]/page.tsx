@@ -12,28 +12,18 @@
  * El formulario en sí es `components/employees/person-form.tsx`, compartido con
  * el alta desde Equipo — el mismo componente, no una copia.
  *
- * Las otras pestañas no editan datos de identidad: Resumen mira, Horario y
- * Rostro son partes del mismo formulario que necesitan su propio espacio, y
- * Asistencia es historial.
+ * Armazón: `EntityShell` (context/84 §3) — Resumen → Datos → Asistencia.
+ * Horario y Rostro eran pestañas con su propio Guardar; son partes del mismo
+ * formulario y pasaron a secciones de Datos (`?tab=horario|rostro` → datos).
  */
 
 import * as React from "react"
-import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
-import {
-  BarChart3,
-  CalendarClock,
-  IdCard,
-  Loader2,
-  ScanFace,
-  UserCheck,
-} from "lucide-react"
+import { useParams } from "next/navigation"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
 import {
   Form,
@@ -44,13 +34,18 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { FormSection } from "@/components/forms/form-section"
+import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
+import { BackLink } from "@/components/page/back-link"
+import { EntityShell, entityInitials } from "@/components/page/entity-shell"
 
 import { EmployeeAttachments } from "@/components/employees/employee-attachments"
 import { EmployeeFaceField } from "@/components/employees/employee-face-field"
 import { EmployeeScheduleField } from "@/components/employees/employee-schedule-field"
 import { EmployeeFacePhoto } from "@/components/employees/employee-face-photo"
-import { EmployeeSummaryTab } from "@/components/employees/employee-summary-tab"
+import {
+  EmployeeSummaryTab,
+  useEmployeeMonthAttendance,
+} from "@/components/employees/employee-summary-tab"
 import { EmployeeAttendanceTab } from "@/components/employees/employee-attendance-tab"
 import { EmployeeHeaderActions } from "@/components/employees/employee-header-actions"
 import {
@@ -64,14 +59,13 @@ import { useTeamMember } from "@/hooks/use-team"
 import { useEmployee } from "@/hooks/use-employees"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ApiError } from "@/lib/api-client"
-import { BackLink } from "@/components/page/back-link"
-import { formatDate } from "@/lib/format-date"
+import { formatDate, formatDateTime } from "@/lib/format-date"
 
-const TAB_KEYS = ["resumen", "datos", "horario", "rostro", "asistencia"] as const
-type TabKey = (typeof TAB_KEYS)[number]
-
-/** Las pestañas que EDITAN — las que muestran el botón de guardar. */
-const FORM_TABS: TabKey[] = ["datos", "horario", "rostro"]
+/** `?tab=` viejos: Horario y Rostro son secciones de Datos desde 2026-09-18. */
+const EMPLOYEE_TAB_ALIASES: Record<string, string> = {
+  horario: "datos",
+  rostro: "datos",
+}
 
 export default function EmployeeDetailPage() {
   // `useSearchParams()` necesita un Suspense boundary en el App Router —
@@ -85,9 +79,6 @@ export default function EmployeeDetailPage() {
 
 function EmployeeDetailPageInner() {
   const { id } = useParams<{ id: string }>()
-  const router = useRouter()
-  const pathname = usePathname()
-  const searchParams = useSearchParams()
 
   const canViewHr = usePermission("hr.employees.view")
   const canManageHr = usePermission("hr.employees.manage")
@@ -114,40 +105,9 @@ function EmployeeDetailPageInner() {
   const { form, submit, isPending } = controller
   const canEdit = canManageUsers || canManageHr
 
-  const sections = React.useMemo(() => {
-    const out: { key: TabKey; label: string; icon: React.ReactNode }[] = [
-      { key: "resumen", label: "Resumen", icon: <BarChart3 className="size-3.5" /> },
-    ]
-    if (canViewHr || canViewUsers) {
-      out.push({ key: "datos", label: "Datos", icon: <IdCard className="size-3.5" /> })
-    }
-    if (canViewHr) {
-      out.push(
-        { key: "horario", label: "Horario", icon: <CalendarClock className="size-3.5" /> },
-        { key: "rostro", label: "Rostro", icon: <ScanFace className="size-3.5" /> },
-      )
-    }
-    if (canViewAttendance) {
-      out.push({ key: "asistencia", label: "Asistencia", icon: <UserCheck className="size-3.5" /> })
-    }
-    return out
-  }, [canViewHr, canViewUsers, canViewAttendance])
-
-  const requested = searchParams.get("tab")
-  const available = sections.map((s) => s.key)
-  const tab: TabKey =
-    requested && (available as string[]).includes(requested)
-      ? (requested as TabKey)
-      : (available[0] ?? "resumen")
-
-  const setTab = React.useCallback(
-    (v: string) => {
-      const params = new URLSearchParams(searchParams.toString())
-      params.set("tab", v)
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
-    },
-    [pathname, router, searchParams],
-  )
+  // Marcaciones del mes: el encabezado muestra la última (misma consulta que
+  // el Resumen, react-query la pide una vez).
+  const monthAttendance = useEmployeeMonthAttendance(id, canViewAttendance && employee !== null)
 
   useAgentPageSnapshot(
     name
@@ -182,190 +142,154 @@ function EmployeeDetailPageInner() {
     )
   }
 
+  // ── Encabezado: quién es y cómo marca ──────────────────────────────────────
+  // El puesto, desde cuándo está y cómo marca son ATRIBUTOS: van acá como dato
+  // y no en bloques propios del Resumen (owner 2026-09-18, anti-patrón de
+  // context/84 §2.1).
+  const role = [
+    employee?.jobTitle,
+    user.data?.roleName,
+    employee?.outletName ?? user.data?.outletNames?.join(", "),
+  ]
+    .filter(Boolean)
+    .join(" · ")
+  const lastMark = (() => {
+    const marks = monthAttendance.data?.marks ?? []
+    if (marks.length === 0) return null
+    // El backend no garantiza orden: la más reciente por fecha.
+    return marks.reduce((a, b) => (a.markedAt >= b.markedAt ? a : b))
+  })()
+  const facts = [
+    employee?.hireDate ? `En el equipo desde ${formatDate(employee.hireDate)}` : null,
+    employee
+      ? employee.face
+        ? `Rostro registrado${employee.face.enrolledAt ? ` el ${formatDate(employee.face.enrolledAt)}` : ""}`
+        : "Sin rostro registrado"
+      : null,
+    employee?.hasPin || user.data?.lockPass ? "Tiene código" : "Sin código",
+    lastMark ? `Última marcación: ${formatDateTime(lastMark.markedAt)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+
+  // ── Datos: UN solo formulario, por secciones ──────────────────────────────
+  // Identidad, acceso, trabajo y remuneración (el formulario compartido con el
+  // alta), y además Horario y Rostro, que antes eran pestañas propias con su
+  // propio Guardar. Datos es el único lugar de edición (context/84 §3).
+  const canSeeData = canViewHr || canViewUsers
+  const dataTab = !canSeeData ? (
+    <p className="text-sm text-muted-foreground">No tenés permiso para ver los datos de esta persona.</p>
+  ) : isLoading ? (
+    // Recién cuando las DOS consultas resolvieron: el formulario se llena con
+    // las dos filas y montarlo antes dejaría escribir sobre campos que todavía
+    // no llegaron — y guardarlos vacíos.
+    <FormSkeleton />
+  ) : (
+    <FormSectionColumns>
+      <PersonFormSections controller={controller} isCreate={false} showRolesLink />
+      {canViewHr && (
+        <FormSection title="Horario">
+          <FormField
+            control={form.control}
+            name="schedule"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <fieldset disabled={!canManageHr} className="m-0 border-0 p-0">
+                    <EmployeeScheduleField value={field.value} onChange={field.onChange} />
+                  </fieldset>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </FormSection>
+      )}
+      {canViewHr && (
+        <FormSection title="Reconocimiento por rostro">
+          <FormField
+            control={form.control}
+            name="biometricConsent"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border p-4">
+                <div className="flex flex-col gap-1">
+                  <FormLabel className="font-normal">
+                    La persona aceptó que se la identifique por su rostro
+                  </FormLabel>
+                  {/* Consecuencia de destildarlo, no una explicación: borra un
+                      dato biométrico (context/83, biometría = dato sensible). */}
+                  <FormDescription>Al desmarcarlo, el rostro se borra.</FormDescription>
+                </div>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} disabled={!canManageHr} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          <EmployeeFaceField employee={employee ?? undefined} consentChecked={form.watch("biometricConsent")} />
+        </FormSection>
+      )}
+      {canViewHr && (
+        <FormSection title="Foto registrada">
+          <EmployeeFacePhoto employee={employee} />
+        </FormSection>
+      )}
+      {/* Los adjuntos cuelgan de una fila que ya existe. */}
+      {employee !== null && canViewHr && (
+        <FormSection title="Archivos">
+          <EmployeeAttachments employeeId={id} />
+        </FormSection>
+      )}
+    </FormSectionColumns>
+  )
+
   return (
-    <div className="flex flex-col gap-4">
-      <BackLink href="/employees" label="Volver a Equipo" />
-
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(async (values) => {
-            await submit(values)
-          })}
-          className="flex flex-col gap-6"
-        >
-          <header className="flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <Avatar className="size-9 shrink-0">
-                <AvatarFallback className="text-xs font-medium">
-                  {isLoading ? "…" : initials(name)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex min-w-0 flex-col">
-                <h1 className="truncate text-2xl font-semibold leading-tight">
-                  {isLoading ? <Skeleton className="h-7 w-48" /> : name || "Persona"}
-                </h1>
-                {isLoading ? (
-                  <Skeleton className="mt-1 h-4 w-56" />
-                ) : (
-                  <p className="truncate text-sm text-muted-foreground">
-                    {[
-                      employee?.jobTitle,
-                      user.data?.roleName,
-                      employee?.outletName ?? user.data?.outletNames?.join(", "),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ") || "Sin puesto asignado"}
-                  </p>
-                )}
-              </div>
+    <Form {...form}>
+      <form
+        onSubmit={form.handleSubmit(async (values) => {
+          await submit(values)
+        })}
+      >
+        <EntityShell
+          back={{ href: "/employees", label: "Volver a Equipo" }}
+          title={name || "Persona"}
+          isLoading={isLoading}
+          avatar={
+            <Avatar className="size-10 shrink-0">
+              <AvatarFallback className="text-sm font-medium">
+                {isLoading ? "…" : entityInitials(name)}
+              </AvatarFallback>
+            </Avatar>
+          }
+          status={<StatusBadge employee={employee} userActive={user.data?.status === 1} />}
+          subtitle={
+            <div className="flex flex-col gap-0.5">
+              <span>{role || "Sin puesto asignado"}</span>
+              {facts && <span>{facts}</span>}
             </div>
-
-            <div className="flex shrink-0 items-center gap-2">
-              <StatusBadge
-                isLoading={isLoading}
-                employee={employee}
-                userActive={user.data?.status === 1}
-              />
-              <EmployeeHeaderActions employee={employee} canManage={canManageHr} />
-              {FORM_TABS.includes(tab) && canEdit && !isLoading && (
-                <Button type="submit" size="sm" disabled={isPending}>
-                  {isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                  Guardar
-                </Button>
-              )}
-            </div>
-          </header>
-
-          <Tabs value={tab} onValueChange={setTab}>
-            <div className="-mx-2 overflow-x-auto px-2">
-              <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-                {sections.map((s) => (
-                  <TabsTrigger key={s.key} value={s.key} className="gap-1.5">
-                    {s.icon}
-                    {s.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
-
-            <TabsContent value="resumen" className="mt-6">
-              {tab === "resumen" && (
-                <EmployeeSummaryTab
-                  employeeId={id}
-                  employee={employee}
-                  user={user.data ?? null}
-                  isLoading={isLoading}
-                  canViewAttendance={canViewAttendance}
-                />
-              )}
-            </TabsContent>
-
-            {/* UN solo formulario, por secciones: identidad, acceso, trabajo y
-                remuneración. Un nombre, un selector de sucursal, un código. */}
-            <TabsContent value="datos" className="mt-6">
-              {/* Recién cuando las DOS consultas resolvieron: el formulario se
-                  llena con las dos filas y montarlo antes dejaría escribir
-                  sobre campos que todavía no llegaron — y guardarlos vacíos. */}
-              {tab === "datos" && isLoading && <FormSkeleton />}
-              {tab === "datos" && !isLoading && (
-                <div className="flex flex-col gap-6">
-                  <PersonFormSections
-                    controller={controller}
-                    isCreate={false}
-                    showRolesLink
-                  />
-                  {/* Los adjuntos cuelgan de una fila que ya existe. */}
-                  {employee !== null && canViewHr && (
-                    <FormSection title="Archivos">
-                      <EmployeeAttachments employeeId={id} />
-                    </FormSection>
-                  )}
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="horario" className="mt-6">
-              {tab === "horario" && isLoading && <FormSkeleton />}
-              {tab === "horario" && !isLoading && (
-                <FormSection title="Horario">
-                  <FormField
-                    control={form.control}
-                    name="schedule"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormDescription>
-                          Sin horario cargado, el reporte muestra las horas trabajadas pero
-                          no las llegadas tarde.
-                        </FormDescription>
-                        <FormControl>
-                          <fieldset disabled={!canManageHr} className="m-0 border-0 p-0">
-                            <EmployeeScheduleField
-                              value={field.value}
-                              onChange={field.onChange}
-                            />
-                          </fieldset>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </FormSection>
-              )}
-            </TabsContent>
-
-            <TabsContent value="rostro" className="mt-6">
-              {tab === "rostro" && isLoading && <FormSkeleton />}
-              {tab === "rostro" && !isLoading && (
-                <div className="flex flex-col gap-6">
-                  <FormSection title="Reconocimiento por rostro">
-                    <div className="flex flex-col gap-5">
-                      <FormField
-                        control={form.control}
-                        name="biometricConsent"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between gap-4 rounded-lg border p-4">
-                            <div className="flex flex-col gap-1">
-                              <FormLabel className="font-normal">
-                                La persona aceptó que se la identifique por su rostro
-                              </FormLabel>
-                              <FormDescription>
-                                Se puede desmarcar cuando quiera. Al desmarcarlo, el rostro
-                                se borra.
-                              </FormDescription>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                                disabled={!canManageHr}
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                      <EmployeeFaceField
-                        employee={employee ?? undefined}
-                        consentChecked={form.watch("biometricConsent")}
-                      />
-                    </div>
-                  </FormSection>
-
-                  <FormSection title="Foto registrada">
-                    <EmployeeFacePhoto employee={employee} />
-                  </FormSection>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="asistencia" className="mt-6">
-              {tab === "asistencia" && (
-                <EmployeeAttendanceTab employeeId={id} bootstrap={bootstrap} />
-              )}
-            </TabsContent>
-          </Tabs>
-        </form>
-      </Form>
-    </div>
+          }
+          actions={<EmployeeHeaderActions employee={employee} canManage={canManageHr} />}
+          summary={
+            <EmployeeSummaryTab
+              employeeId={id}
+              employee={employee}
+              isLoading={isLoading}
+              canViewAttendance={canViewAttendance}
+            />
+          }
+          data={dataTab}
+          extraTabs={[
+            canViewAttendance && {
+              key: "asistencia",
+              label: "Asistencia",
+              content: <EmployeeAttendanceTab employeeId={id} bootstrap={bootstrap} />,
+            },
+          ]}
+          tabAliases={EMPLOYEE_TAB_ALIASES}
+          save={canEdit && canSeeData ? { pending: isPending } : undefined}
+        />
+      </form>
+    </Form>
   )
 }
 
@@ -381,15 +305,12 @@ function FormSkeleton() {
 }
 
 function StatusBadge({
-  isLoading,
   employee,
   userActive,
 }: {
-  isLoading: boolean
   employee: { active: boolean; status: number; endDate: string | null } | null
   userActive: boolean
 }) {
-  if (isLoading) return <Skeleton className="h-5 w-16" />
   if (employee && employee.status === 1 && !employee.active) {
     return (
       <Badge variant="outline">
@@ -402,14 +323,4 @@ function StatusBadge({
   ) : (
     <Badge variant="outline">Inactivo</Badge>
   )
-}
-
-function initials(name: string | null | undefined): string {
-  if (!name) return "?"
-  return name
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0].toUpperCase())
-    .join("")
 }

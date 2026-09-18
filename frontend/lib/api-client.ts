@@ -98,6 +98,15 @@ const baseUrl = () => {
   return "/api"
 }
 
+const OUTLET_SCOPE_HEADER = "X-Outlet-Id"
+
+function hasExplicitOutletScope(headers: HeadersInit | undefined): boolean {
+  if (!headers) return false
+  if (headers instanceof Headers) return headers.has(OUTLET_SCOPE_HEADER)
+  if (Array.isArray(headers)) return headers.some(([k]) => k.toLowerCase() === OUTLET_SCOPE_HEADER.toLowerCase())
+  return Object.keys(headers).some((k) => k.toLowerCase() === OUTLET_SCOPE_HEADER.toLowerCase())
+}
+
 async function request<T>(
   path: string,
   init: RequestInit = {},
@@ -138,7 +147,7 @@ async function request<T>(
   if (typeof window !== "undefined") {
     const scopeRaw = window.localStorage.getItem(VIEW_SCOPE_KEY)
     if (scopeRaw && scopeRaw !== "") {
-      baseHeaders["X-Outlet-Id"] = scopeRaw
+      baseHeaders[OUTLET_SCOPE_HEADER] = scopeRaw
     }
   }
 
@@ -194,10 +203,15 @@ async function request<T>(
     //
     // El `reason` lo pone el backend a propósito solo para el realm `panel`: es
     // el único que tiene estado persistido que limpiar.
+    //
+    // Con un alcance EXPLÍCITO por request (`outletScope`) no se limpia nada:
+    // el rechazo es de esa lectura puntual, no de la preferencia guardada, y
+    // borrarla le cambiaría al usuario la sucursal de todo el panel.
     if (
       res.status === 403 &&
       envelope?.error?.details?.reason === "outlet_out_of_scope" &&
       !retriedOutOfScope &&
+      !hasExplicitOutletScope(headers) &&
       typeof window !== "undefined"
     ) {
       setViewScope(null)
@@ -341,8 +355,18 @@ export const api = {
    * se salta la credencial del panel y el view-scope, que es exactamente cómo
    * el chart de ingresos quedó en 401 al migrar a Bearer.
    */
-  get: <T>(path: string, init?: Pick<RequestInit, "signal">) =>
-    request<T>(path, { method: "GET", ...init }),
+  get: <T>(path: string, init?: Pick<RequestInit, "signal"> & { outletScope?: string }) =>
+    request<T>(path, {
+      method: "GET",
+      signal: init?.signal,
+      // Alcance de sucursal EXPLÍCITO para esta lectura, en vez del que eligió
+      // el usuario en el selector del logo. Es el mismo header `X-Outlet-Id`
+      // (el backend lo valida contra las sucursales del usuario igual que el
+      // del selector), así que no abre nada que el usuario no pudiera ver
+      // eligiendo esa sucursal arriba. Lo usa la ficha de una sucursal: su
+      // Resumen es de ESA sucursal aunque el selector diga otra o "Todas".
+      ...(init?.outletScope ? { headers: { [OUTLET_SCOPE_HEADER]: init.outletScope } } : {}),
+    }),
   post: <T>(path: string, body?: Json) =>
     request<T>(path, {
       method: "POST",

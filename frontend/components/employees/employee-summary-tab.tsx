@@ -1,12 +1,14 @@
 "use client"
 
 /**
- * Resumen de la ficha: el tablero de la persona.
+ * Resumen de la ficha de una persona: cómo viene este mes.
  *
- * Es lo que se mira sin buscar nada — cómo viene este mes: cuánto vendió,
- * cuánto trabajó, cuánto cobra y cómo marca. No pide cargar nada ni explica qué
- * falta: lo que no tiene dato muestra su cero y listo (decisión del owner
- * 2026-09-18 — acá no se administra nada, se mira).
+ * Referencia visual: el dashboard de Ventas (context/84 §2.1) — números en
+ * StatTile gris con comparación contra el período anterior, gráficos en cards
+ * blancas. Lo que NO va acá (owner 2026-09-18, captura de este mismo Resumen
+ * como anti-patrón): el puesto, "en el equipo desde", cómo marca y la última
+ * marcación son ATRIBUTOS de la persona y viven en el encabezado de la ficha;
+ * la remuneración se ve y se edita en Datos.
  *
  * El mes es FIJO y no el rango compartido del panel: este bloque responde "cómo
  * viene este mes", y si siguiera al rango que quedó puesto en un reporte diría
@@ -18,213 +20,251 @@
  * Del MISMO `/v1/reports/users` que Reportes › Equipo, vista `summary`. No hay
  * un cálculo propio acá: la atribución de una venta a una persona es
  * `COALESCE(itemSold.userId, transaction.userId)` y vive en `UsersService`.
- * Duplicarla sería tener dos números distintos para la misma pregunta.
+ * Ese endpoint no filtra por usuario —devuelve el ranking del equipo y la
+ * serie diaria de cada uno— así que la fila y la serie se buscan acá. Va
+ * detrás de `reports.sales.view`: quien no puede ver los montos del equipo
+ * tampoco los ve por esta puerta.
  *
- * Ese endpoint no filtra por usuario —devuelve el ranking del equipo— así que
- * la fila se busca acá. Y va detrás de `reports.sales.view`: quien no puede ver
- * los montos del equipo tampoco los ve por esta puerta.
+ * Las horas salen de `/v1/attendance` acotado a la persona: `pairedMinutes`
+ * viaja en la marca que CIERRA cada par, así que sumarlo por día no cuenta dos
+ * veces el mismo tramo.
  *
  * Las COMISIONES todavía no existen como dato (son el tarifario de la F4): no
- * se muestra una card con un número inventado.
+ * se muestra un número inventado.
  */
 
 import * as React from "react"
-import { ScanFace, KeyRound } from "lucide-react"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { format, startOfWeek, subWeeks } from "date-fns"
+import { es } from "date-fns/locale"
 
-import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { KpiCard } from "@/components/domain/contacts/kpi-card"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { useAttendanceReport } from "@/hooks/use-attendance"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type UsersSummaryResponse } from "@/hooks/use-reports"
 import { usePermission } from "@/hooks/use-permissions"
 import { formatMinutes } from "@/components/domain/reports/attendance/attendance-format"
-import { PERIOD_LABEL } from "@/lib/employees/person-form"
 import type { Employee } from "@/hooks/use-employees"
-import type { TeamMember } from "@/hooks/use-team"
 import { formatMoney } from "@/lib/format-money"
-import { formatDate, formatDateTime } from "@/lib/format-date"
+import { pctDelta, shiftRangeBackwards } from "@/lib/reports/previous-range"
+
+const WEEKS = 8
+const pad = (n: number) => String(n).padStart(2, "0")
+const day = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
 /** Primer día del mes en curso y hoy, en el formato que espera el backend. */
 function monthRange(): { from: string; to: string } {
-  const pad = (n: number) => String(n).padStart(2, "0")
   const now = new Date()
-  const first = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01 00:00:00`
-  const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} 23:59:59`
-  return { from: first, to: today }
+  return { from: `${day(new Date(now.getFullYear(), now.getMonth(), 1))} 00:00:00`, to: `${day(now)} 23:59:59` }
 }
+
+/** Las últimas {WEEKS} semanas (lunes a hoy), para los gráficos. */
+function weeksRange(): { from: string; to: string; starts: Date[] } {
+  const now = new Date()
+  const first = startOfWeek(subWeeks(now, WEEKS - 1), { weekStartsOn: 1 })
+  const starts = Array.from({ length: WEEKS }, (_, i) => new Date(first.getFullYear(), first.getMonth(), first.getDate() + i * 7))
+  return { from: `${day(first)} 00:00:00`, to: `${day(now)} 23:59:59`, starts }
+}
+
+/** Índice de la semana (0..WEEKS-1) de un "YYYY-MM-DD", o -1 si cae afuera. */
+function weekIndex(isoDay: string, starts: Date[]): number {
+  const [y, m, d] = isoDay.slice(0, 10).split("-").map(Number)
+  const t = new Date(y, m - 1, d).getTime()
+  for (let i = starts.length - 1; i >= 0; i--) {
+    if (t >= starts[i].getTime()) return i
+  }
+  return -1
+}
+
+/**
+ * Marcaciones del mes de la persona — el Resumen y el encabezado de la ficha
+ * (última marcación) leen la MISMA consulta; react-query la pide una vez.
+ */
+export function useEmployeeMonthAttendance(employeeId: string, enabled: boolean) {
+  const range = React.useMemo(monthRange, [])
+  return useAttendanceReport({ ...range, employeeId }, enabled)
+}
+
+const salesChartConfig = { total: { label: "Vendido", color: "var(--chart-1)" } } satisfies ChartConfig
+const hoursChartConfig = { hours: { label: "Horas", color: "var(--chart-2)" } } satisfies ChartConfig
 
 export function EmployeeSummaryTab({
   employeeId,
   employee,
-  user,
   isLoading,
   canViewAttendance,
 }: {
   employeeId: string
   employee: Employee | null
-  user: TeamMember | null
   isLoading: boolean
   canViewAttendance: boolean
 }) {
   const canViewSales = usePermission("reports.sales.view")
   const { data: bootstrap } = useBootstrap()
-  const money = React.useCallback(
-    (v: number) => formatMoney(v, bootstrap ?? null),
-    [bootstrap],
-  )
+  const money = React.useCallback((v: number) => formatMoney(v, bootstrap ?? null), [bootstrap])
   const range = React.useMemo(monthRange, [])
+  // Mismo largo, inmediatamente antes: la comparación de los reportes.
+  const prevRange = React.useMemo(() => shiftRangeBackwards(range.from, range.to), [range])
+  const weeks = React.useMemo(weeksRange, [])
+  const withAttendance = canViewAttendance && employee !== null
 
-  const attendance = useAttendanceReport(
-    { ...range, employeeId },
-    canViewAttendance && employee !== null,
-  )
-  const sales = useReport<UsersSummaryResponse>("users", {
-    ...range,
+  const attendance = useEmployeeMonthAttendance(employeeId, withAttendance)
+  const attendancePrev = useAttendanceReport({ ...prevRange, employeeId }, withAttendance)
+  const attendanceWeeks = useAttendanceReport({ from: weeks.from, to: weeks.to, employeeId }, withAttendance)
+
+  const sales = useReport<UsersSummaryResponse>("users", { ...range, params: { view: "summary" }, enabled: canViewSales })
+  const salesPrev = useReport<UsersSummaryResponse>("users", { ...prevRange, params: { view: "summary" }, enabled: canViewSales })
+  const salesWeeks = useReport<UsersSummaryResponse>("users", {
+    from: weeks.from,
+    to: weeks.to,
     params: { view: "summary" },
     enabled: canViewSales,
   })
 
-  const summary = attendance.data?.employees?.[0]
-  // La más reciente del mes. El backend no garantiza orden, así que se elige
-  // por fecha en vez de confiar en la primera fila.
-  const lastMark = React.useMemo(() => {
-    const marks = attendance.data?.marks ?? []
-    if (marks.length === 0) return null
-    return marks.reduce((a, b) => (a.markedAt >= b.markedAt ? a : b))
-  }, [attendance.data?.marks])
-
   // El ranking solo trae a quien vendió: la ausencia de la fila ES el cero.
-  const mine = React.useMemo(
-    () => sales.data?.ranking?.find((r) => r.userId === employeeId) ?? null,
-    [sales.data?.ranking, employeeId],
-  )
+  const mine = sales.data?.ranking?.find((r) => r.userId === employeeId) ?? null
+  const minePrev = salesPrev.data?.ranking?.find((r) => r.userId === employeeId) ?? null
+  const summary = attendance.data?.employees?.[0]
+  const summaryPrev = attendancePrev.data?.employees?.[0]
+
+  const series = React.useMemo(() => {
+    const out = weeks.starts.map((s) => ({ week: format(s, "d MMM", { locale: es }), total: 0, hours: 0 }))
+    for (const p of salesWeeks.data?.daily ?? []) {
+      if (p.userId !== employeeId) continue
+      const i = weekIndex(p.date, weeks.starts)
+      if (i >= 0) out[i].total += Number(p.total) || 0
+    }
+    for (const m of attendanceWeeks.data?.marks ?? []) {
+      if (!m.pairedMinutes) continue
+      const i = weekIndex(m.localDay, weeks.starts)
+      if (i >= 0) out[i].hours += m.pairedMinutes / 60
+    }
+    return out.map((w) => ({ ...w, hours: Math.round(w.hours * 10) / 10 }))
+  }, [salesWeeks.data, attendanceWeeks.data, weeks, employeeId])
 
   if (isLoading) {
     return (
       <div className="flex flex-col gap-3">
-        <Skeleton className="h-16 w-full" />
         <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-64 w-full" />
       </div>
     )
   }
 
-  const pay = payLine(employee, money)
+  if (!canViewSales && !withAttendance) {
+    return <p className="text-sm text-muted-foreground">Sin datos de ventas ni de asistencia para mostrar.</p>
+  }
+
+  const tickets = mine?.tickets ?? 0
+  const total = mine?.total ?? 0
+  const worked = summary?.workedMinutes ?? 0
+  const late = summary?.lateCount ?? 0
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Puesto
-          </span>
-          <span className="text-sm font-medium">{employee?.jobTitle ?? "Sin asignar"}</span>
-          {employee?.outletName && (
-            <span className="text-xs text-muted-foreground">· {employee.outletName}</span>
-          )}
-        </div>
-        {employee?.hireDate && (
-          <span className="text-xs text-muted-foreground">
-            En el equipo desde {formatDate(employee.hireDate)}
-          </span>
-        )}
-      </div>
-
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Este mes
-      </p>
-      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+    <div className="flex flex-col gap-6">
+      <StatsRow>
         {canViewSales && (
           <>
-            <KpiCard
+            <StatTile
+              label="Vendido este mes"
+              value={money(total)}
+              emphasis
+              delta={{ pct: pctDelta(total, minePrev?.total ?? 0) }}
+              isLoading={sales.isLoading || salesPrev.isLoading}
+            />
+            <StatTile
               label="Ventas"
-              value={sales.isLoading ? null : (mine?.tickets ?? 0)}
-            />
-            <KpiCard
-              label="Vendido"
-              value={sales.isLoading ? null : money(mine?.total ?? 0)}
+              value={tickets}
+              delta={{ pct: pctDelta(tickets, minePrev?.tickets ?? 0) }}
+              isLoading={sales.isLoading || salesPrev.isLoading}
             />
           </>
         )}
-        {canViewAttendance && (
+        {withAttendance && (
           <>
-            <KpiCard
+            <StatTile
               label="Horas trabajadas"
-              value={attendance.isLoading ? null : formatMinutes(summary?.workedMinutes ?? 0)}
+              value={formatMinutes(worked)}
+              delta={{ pct: pctDelta(worked, summaryPrev?.workedMinutes ?? 0) }}
+              isLoading={attendance.isLoading || attendancePrev.isLoading}
             />
-            <KpiCard
+            <StatTile
               label="Llegadas tarde"
-              value={attendance.isLoading ? null : (summary?.lateCount ?? 0)}
+              value={late}
+              delta={{ pct: pctDelta(late, summaryPrev?.lateCount ?? 0), higherIsBetter: false }}
+              isLoading={attendance.isLoading || attendancePrev.isLoading}
             />
           </>
         )}
-        <KpiCard label="Remuneración" value={pay} />
-        <KpiCard
-          label="Última marcación"
-          value={
-            !canViewAttendance
-              ? "—"
-              : attendance.isLoading
-                ? null
-                : lastMark
-                  ? formatDateTime(lastMark.markedAt)
-                  : "—"
-          }
-        />
-      </div>
+      </StatsRow>
 
-      <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Cómo marca
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2.5">
-          <ScanFace className="size-4 text-muted-foreground" />
-          <span className="text-sm">Rostro</span>
-          <span className="ml-auto">
-            {employee?.face ? (
-              <Badge variant="secondary">
-                Registrado
-                {employee.face.enrolledAt ? ` el ${formatDate(employee.face.enrolledAt)}` : ""}
-              </Badge>
-            ) : (
-              <Badge variant="outline">Sin registrar</Badge>
-            )}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2.5">
-          <KeyRound className="size-4 text-muted-foreground" />
-          <span className="text-sm">Código</span>
-          <span className="ml-auto">
-            {employee?.hasPin || user?.lockPass ? (
-              <Badge variant="secondary">Tiene código</Badge>
-            ) : (
-              <Badge variant="outline">Sin código</Badge>
-            )}
-          </span>
-        </div>
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {canViewSales && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Ventas por semana</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {salesWeeks.isLoading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <ChartContainer config={salesChartConfig} className="h-[220px] w-full">
+                  <BarChart data={series} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} tickFormatter={compact} />
+                    <ChartTooltip
+                      cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => <span className="font-medium tabular-nums">{money(Number(value) || 0)}</span>}
+                        />
+                      }
+                    />
+                    <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        )}
+        {withAttendance && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Horas por semana</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {attendanceWeeks.isLoading ? (
+                <Skeleton className="h-[220px] w-full" />
+              ) : (
+                <ChartContainer config={hoursChartConfig} className="h-[220px] w-full">
+                  <BarChart data={series} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+                    <ChartTooltip cursor={{ fill: "var(--accent)", opacity: 0.4 }} content={<ChartTooltipContent />} />
+                    <Bar dataKey="hours" fill="var(--color-hours)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )
 }
 
-/**
- * El esquema de remuneración en una línea.
- *
- * Los tres componentes CONVIVEN (D1 de context/83): no es un enum, así que se
- * listan los que estén cargados y se separan con `·`.
- */
-function payLine(employee: Employee | null, money: (v: number) => string): string {
-  if (!employee) return "—"
-  const parts: string[] = []
-  if (employee.fixedAmount !== null) {
-    const period = employee.fixedPeriod ? PERIOD_LABEL[employee.fixedPeriod] : null
-    parts.push(
-      period
-        ? `${money(employee.fixedAmount)} ${period.toLowerCase()}`
-        : money(employee.fixedAmount),
-    )
-  }
-  if (employee.hourlyRate !== null) parts.push(`${money(employee.hourlyRate)} por hora`)
-  if (employee.commissions) parts.push("Comisiona")
-  return parts.length > 0 ? parts.join(" · ") : "—"
+function compact(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}K`
+  return String(v)
 }
