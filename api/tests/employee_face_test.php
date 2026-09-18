@@ -109,12 +109,23 @@ $employees = new EmployeeService($faces);
 
 $creados = [];
 
-/** Alta de un legajo del arnés. Devuelve la fila. */
+/**
+ * Alta de un legajo del arnés. Devuelve la fila.
+ *
+ * Crea primero la PERSONA: desde la mig 233 el legajo es un satélite 1:1 del
+ * `contact` type=0 y no existe sin ella.
+ */
 $altaEmpleado = function (array $extra = []) use ($employees, $companyId, $outletId, $adminId, &$creados): array {
+    $contactId = ncmExecute('SELECT gen_random_uuid() AS id')['id'];
+    ncmExecute(
+        'INSERT INTO contact (contactId, contactName, companyId, type, contactStatus)
+         VALUES (?, ?, ?, 0, 1)',
+        [$contactId, 'Rostro Test ' . bin2hex(random_bytes(4)), $companyId]
+    );
     $row = $employees->create($companyId, array_merge([
-        'fullName' => 'Rostro Test ' . bin2hex(random_bytes(4)),
-        'hireDate' => '2026-01-01',
-        'outletId' => $outletId,
+        'contactId' => $contactId,
+        'hireDate'  => '2026-01-01',
+        'outletId'  => $outletId,
     ], $extra), $adminId);
     $creados[] = $row['id'];
     return $row;
@@ -189,7 +200,7 @@ try {
     $faces->openEnrollment($companyId, $ana['id'], $adminId);
     $faces->enroll($companyId, $ana['id'], tomas(9), MODELO, $outletId);
     $row = ncmExecute(
-        'SELECT COUNT(*) AS n FROM employee_face WHERE companyid = ? AND employeeid = ?',
+        'SELECT COUNT(*) AS n FROM employee_face WHERE companyid = ? AND contactid = ?',
         [$companyId, $ana['id']]
     );
     check('(B6) volver a registrar REEMPLAZA: una fila por persona y modelo',
@@ -331,7 +342,8 @@ try {
 } finally {
     // Limpieza: rostros y ventanas caen por CASCADE al borrar el legajo.
     foreach ($creados as $employeeId) {
-        ncmExecute('DELETE FROM employee WHERE employeeid = ? AND companyid = ?', [$employeeId, $companyId]);
+        // Borrar la persona se lleva legajo, rostro y habilitación por CASCADE.
+        ncmExecute('DELETE FROM contact WHERE contactId = ? AND companyId = ?', [$employeeId, $companyId]);
     }
 }
 
