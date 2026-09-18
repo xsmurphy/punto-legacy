@@ -135,7 +135,9 @@ if ($method === 'POST') {
         error_log('[FinanceLedger] recordPurchase falló para id=' . $id . ': ' . $e->getMessage());
     }
 
-    apiOk(['id' => $id]);
+    // Artículos que la compra dejó bajo el margen objetivo del comercio
+    // (vacío si la alerta está apagada) — el panel ofrece corregir el precio.
+    apiOk(['id' => $id, 'marginAlerts' => $svc->marginAlerts()]);
 }
 
 if ($method === 'DELETE' && $resource === 'creditNote') {

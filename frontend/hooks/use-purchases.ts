@@ -233,15 +233,37 @@ export function usePurchase(id: string | null) {
   })
 }
 
+/**
+ * Artículo que una compra dejó por debajo del margen objetivo del comercio
+ * (`settingObj.marginTarget`). Lo calcula el backend (`MarginAlert`) con el
+ * mismo costo que congela la venta; llega vacío si la alerta está apagada.
+ */
+export interface MarginAlertRow {
+  itemId: string
+  name: string
+  /** Costo unitario después de la compra (con IVA incluido). */
+  cost: number
+  /** Precio base actual. */
+  price: number
+  /** Margen actual en % sobre el precio. */
+  marginPct: number
+  suggestedPrice: number
+}
+
+export interface CreatePurchaseResult {
+  id: string
+  marginAlerts?: MarginAlertRow[]
+}
+
 /** Crea una compra. Invalida `purchases` al éxito para refrescar el listado. */
 export function useCreatePurchase() {
   const qc = useQueryClient()
-  return useMutation<{ id: string }, Error, PurchaseCreatePayload>({
+  return useMutation<CreatePurchaseResult, Error, PurchaseCreatePayload>({
     // api.post espera `Json` (Record<string, unknown> | unknown[]); el cast
     // refleja que PurchaseCreatePayload es JSON-compatible aunque TS no infiera
     // index signature por los keys opcionales.
     mutationFn: (payload) =>
-      api.post<{ id: string }>(
+      api.post<CreatePurchaseResult>(
         "/v1/purchases",
         payload as unknown as Record<string, unknown>,
       ),

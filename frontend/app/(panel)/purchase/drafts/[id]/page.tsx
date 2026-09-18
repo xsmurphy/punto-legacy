@@ -44,10 +44,12 @@ import {
   type ExtractedInvoiceItem,
 } from "@/hooks/use-purchase-drafts"
 import type {
+  MarginAlertRow,
   PurchaseCondition,
   PurchaseCreatePayload,
   PurchaseFormItem,
 } from "@/hooks/use-purchases"
+import { MarginAlertDialog } from "@/components/domain/purchases/margin-alert-dialog"
 import type { Tax } from "@/lib/types/tax"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
@@ -89,6 +91,11 @@ export default function PurchaseDraftReviewPage() {
 
   const approveDraft = useApprovePurchaseDraft()
   const rejectDraft = useRejectPurchaseDraft()
+  // Alerta de margen tras aprobar: filas + a dónde navegar al cerrarla.
+  const [marginAlerts, setMarginAlerts] = React.useState<{
+    rows: MarginAlertRow[]
+    next: string
+  } | null>(null)
 
   const [supplierId, setSupplierId] = React.useState("")
   const [supplierName, setSupplierName] = React.useState("")
@@ -322,10 +329,13 @@ export default function PurchaseDraftReviewPage() {
         toast.warning(result.warning)
       }
       toast.success(result.alreadyApproved ? "Este borrador ya estaba aprobado" : "Compra registrada")
-      if (result.transactionId) {
-        router.push(`/purchase/${result.transactionId}`)
+      const next = result.transactionId ? `/purchase/${result.transactionId}` : "/purchase/drafts"
+      // Si la compra dejó artículos bajo el margen objetivo, se navega recién
+      // al cerrar el diálogo — navegar antes lo desmontaría con la página.
+      if (result.marginAlerts && result.marginAlerts.length > 0) {
+        setMarginAlerts({ rows: result.marginAlerts, next })
       } else {
-        router.push("/purchase/drafts")
+        router.push(next)
       }
     } catch (err) {
       toast.error("No se pudo aprobar el borrador", {
@@ -346,6 +356,16 @@ export default function PurchaseDraftReviewPage() {
       })
     }
   }
+
+  // Se arma una vez y se pinta en las dos ramas que puede estar mostrando la
+  // página al aprobar: la de revisión (antes del refetch) y la de "ya
+  // aprobada" (después). Si viviera en una sola, el refetch lo desmontaría.
+  const marginDialog = marginAlerts ? (
+    <MarginAlertDialog
+      alerts={marginAlerts.rows}
+      onDone={() => router.push(marginAlerts.next)}
+    />
+  ) : null
 
   if (isLoading) {
     return (
@@ -430,6 +450,7 @@ export default function PurchaseDraftReviewPage() {
   if (draft.status === "approved") {
     return (
       <div className="flex flex-col gap-4">
+        {marginDialog}
         <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={FileText}
@@ -469,6 +490,7 @@ export default function PurchaseDraftReviewPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      {marginDialog}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink href="/purchase/drafts" label="Volver a borradores" />

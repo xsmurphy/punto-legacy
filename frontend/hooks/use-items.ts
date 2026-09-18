@@ -157,6 +157,24 @@ export function useRenameItem() {
   })
 }
 
+/**
+ * Cambia SOLO el precio base de un artículo. Mismo PUT parcial que
+ * `useRenameItem` (el endpoint acepta cualquier subset de campos), así pasa
+ * por el camino normal de edición del ítem — permisos, auditoría y sync en
+ * tiempo real incluidos. Lo usa la alerta de margen de compras.
+ */
+export function useUpdateItemPrice() {
+  const qc = useQueryClient()
+  return useMutation<ItemFull, Error, { itemId: string; price: number }>({
+    mutationFn: ({ itemId, price }) =>
+      api.put<ItemFull>(`/v1/items?id=${itemId}`, { itemPrice: price }),
+    onSuccess: (_, { itemId }) => {
+      qc.invalidateQueries({ queryKey: ["items"] })
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
+    },
+  })
+}
+
 export function useItem(id: string | undefined) {
   return useQuery<ItemFull>({
     queryKey: ["items", id],

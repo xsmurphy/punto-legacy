@@ -205,6 +205,13 @@ if ($method === 'POST') {
         if ($present($k)) { $fields[$k] = $b($k); }
     }
 
+    // Margen objetivo de la alerta de compras (%). Vacío = apagada. La
+    // validación de rango vive en `MarginAlert::parseTarget()`, que aplica
+    // SettingsService al guardar y la compra al leer.
+    if ($present('marginTarget')) {
+        $fields['marginTarget'] = $s('marginTarget');
+    }
+
     // Listas fijas de conteo de stock (D3 de context/63). Viajan como UN
     // string JSON, igual que `currencies` más arriba: son objetos anidados con
     // un array adentro, y un POST form-encoded no los transporta sin inventar

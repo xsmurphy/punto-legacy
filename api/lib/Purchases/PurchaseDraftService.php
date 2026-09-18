@@ -416,6 +416,7 @@ final class PurchaseDraftService
                 'transactionId'   => (string) $row['transactionid'],
                 'alreadyApproved' => true,
                 'warning'         => null,
+                'marginAlerts'    => [],
             ];
         }
 
@@ -427,6 +428,7 @@ final class PurchaseDraftService
                 'transactionId'   => $row['transactionid'] !== null ? (string) $row['transactionid'] : null,
                 'alreadyApproved' => true,
                 'warning'         => null,
+                'marginAlerts'    => [],
             ];
         }
         if ($status === 'rejected') {
@@ -485,6 +487,9 @@ final class PurchaseDraftService
             'transactionId'   => $transactionId,
             'alreadyApproved' => false,
             'warning'         => $warning,
+            // Artículos que quedaron bajo el margen objetivo (vacío si la
+            // alerta está apagada). Mismo cálculo que el alta manual.
+            'marginAlerts'    => $purchases->marginAlerts(),
         ];
     }
 

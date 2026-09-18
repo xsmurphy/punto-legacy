@@ -21,7 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
+import {
+  useCreatePurchase,
+  type MarginAlertRow,
+  type PurchaseFormItem,
+} from "@/hooks/use-purchases"
+import { MarginAlertDialog } from "@/components/domain/purchases/margin-alert-dialog"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
@@ -120,6 +125,7 @@ export default function NewPurchasePage() {
   const [costCenterId, setCostCenterId] = React.useState("")
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([emptyLine()])
+  const [marginAlerts, setMarginAlerts] = React.useState<MarginAlertRow[] | null>(null)
 
   // Setear outlet por default cuando llega el bootstrap.
   React.useEffect(() => {
@@ -326,13 +332,18 @@ export default function NewPurchasePage() {
   async function registrar() {
     if (!pendiente) return
     try {
-      await createPurchase.mutateAsync(pendiente)
+      const result = await createPurchase.mutateAsync(pendiente)
       // Carga de alto volumen: NO navegamos. Reseteamos el form para cargar la
       // siguiente factura de inmediato. La sucursal se conserva (suelen cargar
       // un lote de la misma); el resto vuelve a default.
       toast.success("Compra registrada — cargá la siguiente")
       setPendiente(null)
       resetForm()
+      // Artículos que la compra dejó bajo el margen objetivo: el diálogo se
+      // abre sobre el form ya limpio, sin frenar la carga de la siguiente.
+      if (result.marginAlerts && result.marginAlerts.length > 0) {
+        setMarginAlerts(result.marginAlerts)
+      }
     } catch (err) {
       // El diálogo se cierra igual: el error va al toast y el form conserva los
       // datos para corregir y reintentar.
@@ -437,6 +448,10 @@ export default function NewPurchasePage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {marginAlerts && (
+        <MarginAlertDialog alerts={marginAlerts} onDone={() => setMarginAlerts(null)} />
+      )}
 
       {/* Layout 2-col: izquierda datos generales, derecha items + totales */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
