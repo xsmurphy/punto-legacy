@@ -1,6 +1,7 @@
 # 74 — Módulo Wallet multi-nivel
 
-> Estado: **F1 y F2 implementadas 2026-09-18** (núcleo §11, caja §12). F3-F5 pendientes.
+> Estado: **F1 y F2 implementadas 2026-09-18** (núcleo §11, caja §12), más el
+> **reporte de bolsillos** (§13, mismo día). F3-F5 pendientes.
 > Módulo NUEVO, diseñado desde cero: no se construye sobre giftcard ni sobre el
 > crédito interno existentes (§9). La v1 es deliberadamente chica (§2).
 > **Todas las decisiones de la v1 están cerradas** (2026-09-16).
@@ -430,17 +431,20 @@ sin permiso / sin afirmación / afirmación adulterada / con permiso.
 
 ### 12.5 Qué quedó fuera
 
-- **PENDIENTE PRIORITARIO — monto del consumo confiado desde el POS.** El
-  subtotal del comprobante de consumo (y por lo tanto el débito) sale del
-  payload de la caja, con la misma confianza que una venta normal: un cliente
-  alterado podría consumir por menos de lo que vale. Va como fast-follow junto
-  con el reporte "consumido con saldo" — recalcular el precio server-side
-  contra el catálogo/lista de precios.
+- ~~**PENDIENTE PRIORITARIO — monto del consumo confiado desde el POS.**~~
+  **RESUELTO 2026-09-18 (§13)** como CONTROL, no como rechazo: el consumo
+  congela en cada línea el valor de lista resuelto en el servidor (mig 235) y
+  el reporte de bolsillos muestra cada consumo debitado por debajo de ese
+  valor, separando lo que la caja declaró como descuento de lo que no tiene
+  explicación, con usuario y caja. El débito sigue saliendo del payload a
+  propósito: rechazar un consumo por precio le cortaría al cajero descuentos y
+  listas que hoy puede aplicar con permiso; lo que faltaba era que la
+  diferencia fuera VISIBLE, porque el consumo no pasa por arqueo ni margen.
 - **Carga retenida sin resolución en el sistema**: `meta.walletLoadWithheld`
   se ve en el detalle, pero no hay acción para acreditarla o devolverla (hoy
   se resuelve con un ajuste manual del bolsillo o una devolución de la venta).
-- **Reporte "consumido con saldo"** en los reportes de productos: el dato ya
-  está (itemSold con precio y COGS del tipo 15), falta la sección.
+- ~~**Reporte "consumido con saldo"**~~ **RESUELTO 2026-09-18 (§13)**: tabla
+  "Consumido por producto" dentro de la pestaña Bolsillos de Ventas.
 - **Devolución de un consumo** (`refund` existe en el servicio, sin UI ni
   flujo en la caja).
 - Hijos y transferencias en UI (F3), interfaz del titular (F4), modo B (F5).
@@ -450,3 +454,91 @@ sin permiso / sin afirmación / afirmación adulterada / con permiso.
 - El comprobante de consumo sale por el binding "Recibo": un comercio sin
   impresora asignada a Recibo no lo imprime solo (se reimprime a mano).
 
+## 13. Reporte de bolsillos — implementado (2026-09-18)
+
+Branch `frontend/wallet-reporte` (toca `api/` y `frontend/`). Es el control
+que faltaba para el P1 de §12.5: el importe de un consumo lo manda la caja, y
+a diferencia de una venta, el consumo no entra al arqueo ni al margen (D12),
+así que un precio bajado no quedaba expuesto en ningún lado.
+
+**Dónde vive.** Pestaña **Bolsillos** del reporte de Ventas
+(`/reports/sales?tab=bolsillos`), junto a Dashboard / Transacciones / Pagos /
+Cotizaciones; visible solo con el módulo `wallet` activo. No es un reporte
+suelto en el índice (regla del owner: acoplar a lo que existe) — la carga ES
+una venta y el consumo es la otra mitad de esa plata. Entrada de paleta
+"Reportes · Bolsillos" con `requiresModule: 'wallet'`.
+
+**Valor de lista: NO era derivable, se congela.** Lo que ya se guardaba no
+alcanza: `itemSoldTotal` es el bruto que eligió la caja (si bajó el precio,
+la línea ya viene baja) y `transactionTotal` es el `subtotal` del payload, ni
+siquiera la suma de las líneas. Mig 235: `itemsold.itemsoldlisttotal`
+(unidades × precio de lista, redondeado a los decimales del comercio, mismo
+grano que `itemsoldtotal`). Lo escribe `SaleService::freezeWalletListTotals()`
+SOLO para el tipo 15, antes de abrir la transacción:
+- línea de producto: `PriceListService::resolvePriceBatch()` con el cliente y
+  la sucursal del comprobante (lista del cliente → de la sucursal → precio
+  del ítem), el mismo resolver que usa la caja;
+- hija de add-on o de combo: su precio ya lo puso el servidor desde la BD, su
+  lista es su total.
+La lista elegida A MANO en la caja NO se considera: no viaja en el payload, y
+si viajara, una caja alterada mandaría la más barata y borraría la diferencia.
+Consecuencia declarada: un consumo con lista manual aparece como diferencia
+sin descuento. Los consumos anteriores a la mig quedan en NULL y no se
+evalúan (inventarles la lista con el catálogo de hoy daría diferencias falsas).
+
+**La cuenta, por consumo** (`WalletReportService::differencesCte`, una sola
+definición para KPIs, detalle y agrupaciones). Lo cobrado es el DÉBITO real
+(`wallet_movement` `spend`), no el total declarado:
+- diferencia = max(lista − debitado, 0)
+- con descuento = min(diferencia, descuento registrado en el comprobante)
+- sin descuento = el resto: precio de línea bajado, lista manual o total
+  declarado menor a la suma de las líneas.
+
+**Pantalla** (arquetipo Reporte, `context/84` §4):
+- KPIs `StatTile` con delta contra el período anterior: Cargado (cargas
+  acreditadas: `load` con origen venta, por fecha de la venta — una carga
+  retenida `walletLoadWithheld` no cuenta), Consumido (débitos), **Saldo por
+  entregar** (el pasivo: último `balanceafter` de cada cliente × bolsillo a la
+  fecha de fin), **Diferencias detectadas** (las sin descuento, KPI principal).
+- Gráfico cargado vs consumido por día (card blanca).
+- "Diferencias contra el precio de lista": por usuario (el operador del PIN)
+  y por caja, más el detalle por consumo en `DataTable` con export.
+- Por bolsillo: cargado / consumido / saldo, fila de total en gris.
+- Consumido por producto (`DataTable` con export), aparte de lo vendido
+  cobrado. Las hijas de combo no se listan (valor cero, su costo está en el
+  combo); las de add-on sí.
+
+**Backend.** `GET /v1/reports/wallet?dataset=summary|full` (realms `panel` y
+`api`), gate `reports.sales.view` + módulo `wallet` verificado server-side.
+Alcance de sucursal con `Roc::build(..., 't')` sobre `transaction`: cargas y
+consumos se acotan como cualquier reporte de ventas. **El saldo por entregar
+NO se acota**: el saldo es del comercio (§3.1) y no hay forma honesta de
+partirlo por sucursal. Sin rollup: lee `transaction` tipo 15 +
+`wallet_movement` + `itemsold` del rango con índices existentes; el volumen de
+consumos es una fracción de las ventas.
+
+**Tests.** `wallet_report_test.php` (26 checks) en `run_wallet_test.sh`,
+contra Postgres real y en un día aislado al azar: lista congelada del
+catálogo y de la lista del cliente, venta normal sin lista, KPIs sobre un set
+conocido, período anterior vacío, diferencias con y sin descuento con su
+usuario y su caja, total declarado menor que las líneas, productos/bolsillos/
+día a día, saldo = suma de los saldos del comercio, y por el endpoint real:
+usuario acotado a una sucursal no ve el consumo de otra, global sí, módulo
+apagado 403.
+
+**Qué NO está.** Acción sobre una diferencia (hoy se corrige con un ajuste
+del bolsillo o hablando con el cajero); la devolución de un consumo (§12.5)
+tampoco se refleja todavía en "Consumido".
+
+**Gap de F2 encontrado en el review (NO resuelto acá):** anular una venta de
+CARGA (`SaleVoidService`, tipos 0/3) no revierte el `load` del bolsillo: la
+factura queda anulada y el saldo sigue acreditado. El reporte excluye las
+cargas anuladas de "Cargado", así que ese saldo aparece en "Saldo por
+entregar" sin carga que lo respalde — es la señal visible hasta que la
+anulación revierta la carga (o la rechace si el saldo ya se consumió).
+
+Otros dos detalles de la cuenta: "descuento registrado" es el mayor entre el
+del comprobante y la suma de los de sus líneas; y qué línea es hija de un
+add-on/combo lo decide la marca que pone el servidor al expandir, nunca el
+`type` del payload (una caja que marcara un producto como `addon` se habría
+llevado su precio bajado como lista).

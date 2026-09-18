@@ -3411,7 +3411,7 @@ final class SaleService
      *     para poner el precio. NO se toma una lista elegida a mano en la caja:
      *     no viaja en el payload, y si viajara, una caja alterada mandaría la
      *     lista más barata y la diferencia desaparecería del control.
-     *   - Hija de add-on o de combo (`type` addon/compound): su precio YA lo
+     *   - Hija de add-on o de combo (marcada por el servidor al expandir): su precio YA lo
      *     puso el servidor desde la BD (`expandAddonSelections`,
      *     `expandCompoundSelections`), así que su valor de lista es su total.
      *
@@ -3428,7 +3428,12 @@ final class SaleService
             return $saleDetail;
         }
 
-        $isChild = static fn (array $sD): bool => in_array($sD['type'] ?? '', ['addon', 'compound'], true);
+        // Hija = la marca que pone el SERVIDOR al expandir, nunca `type`: el
+        // `type` de la línea viene del payload, y una caja alterada que marcara
+        // un producto como `addon` se llevaría su precio bajado como "lista" y
+        // borraría la diferencia. `Money::sanitizeSaleArray` no deja pasar
+        // estas dos claves desde el payload.
+        $isChild = static fn (array $sD): bool => !empty($sD['addonParentUid']) || !empty($sD['compoundParentUid']);
 
         $itemIds = [];
         foreach ($saleDetail as $sD) {

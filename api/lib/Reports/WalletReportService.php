@@ -27,6 +27,13 @@ use Punto\Api\Sales\SaleType;
  *   con descuento = min(diferencia, descuento registrado en el comprobante)
  *   sin descuento = diferencia − con descuento
  *
+ * "Descuento registrado" es el mayor entre el del comprobante y la suma de los
+ * de sus líneas: la caja manda los dos iguales, pero un descuento declarado
+ * solo por línea no se le puede cargar al usuario como faltante.
+ *
+ * "Cargado" excluye las ventas de carga ANULADAS. (Anular la venta hoy no
+ * revierte el `load` del bolsillo — gap de F2 anotado en context/74 §13.)
+ *
  * "Con descuento" es plata que la caja declaró como descuento (el POS lo pide
  * con su permiso); "sin descuento" es la que no tiene explicación en el
  * documento: precio de la línea bajado, lista elegida a mano, o un total
@@ -76,7 +83,7 @@ final class WalletReportService
                FROM wallet_movement m
                JOIN transaction t
                  ON t.transactionid = m.sourceid AND t.companyid = m.companyid
-              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ?
+              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ? AND t.voidedat IS NULL
                 AND t.transactiondate BETWEEN ? AND ?' . $roc,
             [$companyId, SaleService::WALLET_SOURCE_LOAD, $from, $to]
         );
@@ -138,7 +145,7 @@ final class WalletReportService
         $type = SaleType::WalletConsumption->value;
         $eps  = self::EPS;
         $sql = "WITH c AS (
-                    SELECT t.transactionid, t.transactiondate, t.invoiceno, t.userid,
+                    SELECT t.companyid, t.transactionid, t.transactiondate, t.invoiceno, t.userid,
                            t.registerid, t.outletid, t.customerid,
                            COALESCE(t.transactiondiscount, 0) AS discount,
                            -m.amount AS charged, m.pocketid
@@ -151,6 +158,7 @@ final class WalletReportService
                 ), l AS (
                     SELECT i.transactionid,
                            SUM(i.itemsoldlisttotal) AS listvalue,
+                           SUM(COALESCE(i.itemsolddiscount, 0)) AS linediscount,
                            bool_and(i.itemsoldlisttotal IS NOT NULL) AS complete
                       FROM itemsold i
                      WHERE i.companyid = ?
@@ -158,13 +166,15 @@ final class WalletReportService
                        AND i.transactionid IN (SELECT transactionid FROM c)
                      GROUP BY i.transactionid
                 ), d AS (
-                    SELECT c.*, l.listvalue, GREATEST(l.listvalue - c.charged, 0) AS gap
+                    SELECT c.*, l.listvalue,
+                           GREATEST(c.discount, l.linediscount) AS recorded,
+                           GREATEST(l.listvalue - c.charged, 0) AS gap
                       FROM c JOIN l ON l.transactionid = c.transactionid
                      WHERE l.complete
                 ), dd AS (
                     SELECT d.*,
-                           LEAST(d.gap, d.discount)         AS registered,
-                           GREATEST(d.gap - d.discount, 0) AS unexplained
+                           LEAST(d.gap, d.recorded)         AS registered,
+                           GREATEST(d.gap - d.recorded, 0) AS unexplained
                       FROM d
                      WHERE d.gap > {$eps}
                 )";
@@ -227,7 +237,7 @@ final class WalletReportService
                FROM wallet_movement m
                JOIN transaction t
                  ON t.transactionid = m.sourceid AND t.companyid = m.companyid
-              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ?
+              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ? AND t.voidedat IS NULL
                 AND t.transactiondate BETWEEN ? AND ?' . $roc . '
               GROUP BY 1',
             [$companyId, SaleService::WALLET_SOURCE_LOAD, $from, $to]
@@ -275,7 +285,7 @@ final class WalletReportService
                             SUM(i.itemsoldunits) AS units,
                             SUM(i.itemsoldtotal - COALESCE(i.itemsolddiscount, 0)) AS value
                        FROM itemsold i
-                       LEFT JOIN item it ON it.itemid = i.itemid
+                       LEFT JOIN item it ON it.itemid = i.itemid AND it.companyid = i.companyid
                       WHERE i.companyid = ?
                         AND i.itemsolddate BETWEEN ? AND ?
                         AND i.transactionid IN (SELECT transactionid FROM c)
@@ -329,7 +339,7 @@ final class WalletReportService
                FROM wallet_movement m
                JOIN transaction t
                  ON t.transactionid = m.sourceid AND t.companyid = m.companyid
-              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ?
+              WHERE m.companyid = ? AND m.type = \'load\' AND m.sourcetype = ? AND t.voidedat IS NULL
                 AND t.transactiondate BETWEEN ? AND ?' . $roc . '
               GROUP BY m.pocketid',
             [$companyId, SaleService::WALLET_SOURCE_LOAD, $from, $to]
@@ -385,10 +395,10 @@ final class WalletReportService
                             p.name AS pocketname,
                             dd.listvalue, dd.charged, dd.discount, dd.registered, dd.unexplained
                        FROM dd
-                       LEFT JOIN contact u  ON u.contactid = dd.userid
-                       LEFT JOIN register r ON r.registerid = dd.registerid
-                       LEFT JOIN contact cu ON cu.contactid = dd.customerid
-                       LEFT JOIN wallet_pocket p ON p.id = dd.pocketid
+                       LEFT JOIN contact u  ON u.contactid = dd.userid AND u.companyid = dd.companyid
+                       LEFT JOIN register r ON r.registerid = dd.registerid AND r.companyid = dd.companyid
+                       LEFT JOIN contact cu ON cu.contactid = dd.customerid AND cu.companyid = dd.companyid
+                       LEFT JOIN wallet_pocket p ON p.id = dd.pocketid AND p.companyid = dd.companyid
                       ORDER BY dd.unexplained DESC, dd.transactiondate DESC
                       LIMIT ' . self::DIFF_ROW_LIMIT,
             $params
@@ -416,8 +426,8 @@ final class WalletReportService
 
         return [
             'rows'       => $rows,
-            'byUser'     => $this->groupDifferences($cte, $params, 'dd.userid', 'u.contactname', 'LEFT JOIN contact u ON u.contactid = dd.userid'),
-            'byRegister' => $this->groupDifferences($cte, $params, 'dd.registerid', 'r.registername', 'LEFT JOIN register r ON r.registerid = dd.registerid'),
+            'byUser'     => $this->groupDifferences($cte, $params, 'dd.userid', 'u.contactname', 'LEFT JOIN contact u ON u.contactid = dd.userid AND u.companyid = dd.companyid'),
+            'byRegister' => $this->groupDifferences($cte, $params, 'dd.registerid', 'r.registername', 'LEFT JOIN register r ON r.registerid = dd.registerid AND r.companyid = dd.companyid'),
         ];
     }
 

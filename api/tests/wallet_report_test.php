@@ -374,6 +374,16 @@ try {
     $r = wcall($q, $tokG, 'all');
     check('(f4) módulo apagado → 403', $r['status'] === 403, $r['body'], $failures, $checks);
     $modules->toggle($companyId, 'wallet', true);
+
+    // ═════════════════════════════════════════════════════════════════════════
+    echo "\n=== (g) la caja no puede disfrazar un producto de add-on ===\n";
+    // Va al final a propósito: suma un consumo más y los KPIs de arriba ya se
+    // midieron. El `type` de la línea viene del payload; si decidiera qué es
+    // una hija, la lista de este producto sería su propio precio bajado.
+    $c7 = $consume($saleA, WR_T1, WR_OPX, [array_merge($item(5000), ['type' => 'addon'])], '11:00:00');
+    $r = $lt($c7);
+    check('(g1) línea con type=addon del payload: la lista sigue siendo la del catálogo (11.000)',
+        near((float) $r['l'], 11000), json_encode($r), $failures, $checks);
 } finally {
     ncmExecute('DELETE FROM auth_session WHERE useragent = ?', [WR_MARCA]);
     $modules->toggle($companyId, 'wallet', false);

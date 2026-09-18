@@ -37,6 +37,10 @@
  * Permisos: las dos vistas ya se gateaban con la MISMA clave
  * (`reports.sales.view`, el gate real de `api/v1/reports/`), así que la fusión
  * no cambia quién ve qué — ver `lib/navigation/routes.ts`.
+ *
+ * Bolsillos (context/74 §13, 2026-09-18): quinta pestaña, solo con el módulo
+ * `wallet` activo. Mismo permiso que el resto; el endpoint además exige el
+ * módulo. Con el módulo apagado `?tab=bolsillos` cae al Dashboard.
  */
 
 import * as React from "react"
@@ -49,19 +53,24 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { SalesDashboardTab } from "@/components/domain/reports/sales/sales-dashboard-tab"
 import { BackLink } from "@/components/page/back-link"
 import { TransactionsList } from "@/components/domain/transactions/transactions-list"
+import { SalesWalletTab } from "@/components/domain/reports/sales/sales-wallet-tab"
+import { useModules } from "@/hooks/use-modules"
 
-const TAB_IDS = ["dashboard", "transacciones", "pagos", "cotizaciones"] as const
+const TAB_IDS = ["dashboard", "transacciones", "pagos", "cotizaciones", "bolsillos"] as const
 
 export default function SalesReportPage() {
   const { range, setRange } = useDateRange()
+  const { data: modules } = useModules()
+  const showWallet = modules?.wallet?.enabled === true
   // `?tab=` deep-linkea una pestaña. Lo usan los redirects de las URLs viejas
   // y las entradas de la paleta/sidebar, que sobrevivieron a la fusión: quien
   // busca "transacciones" no tiene por qué saber que ahora vive adentro de
   // Ventas.
   const searchParams = useSearchParams()
   const requested = searchParams.get("tab")
+  const available = TAB_IDS.filter((t) => t !== "bolsillos" || showWallet)
   const initialTab =
-    requested && (TAB_IDS as readonly string[]).includes(requested)
+    requested && (available as readonly string[]).includes(requested)
       ? requested
       : "dashboard"
 
@@ -79,12 +88,15 @@ export default function SalesReportPage() {
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      <Tabs defaultValue={initialTab} className="flex flex-col gap-4">
+      {/* `key`: el módulo llega después del primer render; sin remontar, un
+          `?tab=bolsillos` quedaba en el Dashboard que se eligió antes. */}
+      <Tabs key={initialTab} defaultValue={initialTab} className="flex flex-col gap-4">
         <TabsList>
           <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
           <TabsTrigger value="transacciones">Transacciones</TabsTrigger>
           <TabsTrigger value="pagos">Pagos</TabsTrigger>
           <TabsTrigger value="cotizaciones">Cotizaciones</TabsTrigger>
+          {showWallet && <TabsTrigger value="bolsillos">Bolsillos</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="dashboard" className="m-0">
@@ -102,6 +114,12 @@ export default function SalesReportPage() {
         <TabsContent value="cotizaciones" className="m-0">
           <TransactionsList embeddedRange={range} view="quotes" />
         </TabsContent>
+
+        {showWallet && (
+          <TabsContent value="bolsillos" className="m-0">
+            <SalesWalletTab range={range} />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )
