@@ -63,6 +63,10 @@ final class ModulesService
         // desde la config del módulo; el toggle del módulo los apaga a los
         // dos de una.
         'bancard',
+        // Wallet multi-nivel (context/74): saldo por bolsillos con titular e
+        // hijos. Es de RUBRO (colegios, comedores de empresa, clubes), no
+        // core — un comercio que no lo usa no lo ve (regla de context/83 D9).
+        'wallet',
     ];
 
     /** Módulos que tienen config adicional (admiten action=config). */
@@ -76,6 +80,26 @@ final class ModulesService
     public static function nativeKeys(): array
     {
         return self::NATIVE_KEYS;
+    }
+
+    /**
+     * ¿Está prendido este módulo para el tenant? Mismo resolver que `list()`
+     * (estado por tenant + kill-switch de plataforma), para los endpoints que
+     * gatean server-side en vez de confiar en que el panel esconda el botón.
+     */
+    public function isEnabled($companyId, string $key): bool
+    {
+        if (!in_array($key, self::NATIVE_KEYS, true)) {
+            return false;
+        }
+        $row = ncmExecute(
+            "SELECT * FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId]
+        );
+        if (!$row) {
+            return false;
+        }
+        return ModuleState::enabled($row, $key) && !$this->isKilled($key);
     }
 
     /**

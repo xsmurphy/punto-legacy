@@ -589,6 +589,18 @@ class CompanyAdminService
             $run('DELETE FROM tasks           WHERE companyId = ?', [$id]);
             $run('DELETE FROM cpayments       WHERE companyId = ?', [$id]);
 
+            // ── Paso 4b: wallet (context/74, mig 232) ──────────────────────────
+            // `wallet_movement` es append-only a nivel BD: su trigger solo deja
+            // borrar con la marca de purga de ESTE comercio, local a esta
+            // transacción. Va antes que contact (contactid/actorcontactid) y
+            // que wallet_pocket (FK del bolsillo). La jerarquía de la wallet
+            // (contact.parentcontactid) se rompe acá por la misma razón que
+            // contact.parentId en el paso 0.
+            $run("SELECT set_config('punto.tenant_purge', ?, true)", [$id]);
+            $run('DELETE FROM wallet_movement WHERE companyid = ?', [$id]);
+            $run('DELETE FROM wallet_pocket   WHERE companyid = ?', [$id]);
+            $run('UPDATE contact SET parentcontactid = NULL WHERE companyid = ? AND parentcontactid IS NOT NULL', [$id]);
+
             // ── Paso 5: tablas core (order = FK dependency graph) ──────────────
             // transaction antes que item/contact/register/outlet
             $run('DELETE FROM transaction WHERE companyId = ?', [$id]);

@@ -3,12 +3,15 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard, Trash2 } from "lucide-react"
+import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard, Trash2, Wallet } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CatalogManager, type CatalogField } from "@/components/catalog/catalog-manager"
+import { WalletPocketsTab } from "@/components/domain/wallet/wallet-pockets-tab"
+import { useModules } from "@/hooks/use-modules"
+import { usePermission } from "@/hooks/use-permissions"
 
 import {
   useCategories,
@@ -67,7 +70,14 @@ void useCategory
  * componente genérico CatalogManager con su configuración (hooks, columns,
  * fields).
  */
-type CatalogTabValue = "categories" | "brands" | "tags" | "taxes" | "payment-methods" | "waste-reasons"
+type CatalogTabValue =
+  | "categories"
+  | "brands"
+  | "tags"
+  | "taxes"
+  | "payment-methods"
+  | "waste-reasons"
+  | "wallet-pockets"
 
 const VALID_TABS: CatalogTabValue[] = [
   "categories",
@@ -76,10 +86,16 @@ const VALID_TABS: CatalogTabValue[] = [
   "taxes",
   "payment-methods",
   "waste-reasons",
+  "wallet-pockets",
 ]
 
-function parseTab(raw: string | null): CatalogTabValue {
-  return raw && (VALID_TABS as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
+/**
+ * `available` = las pestañas que este comercio ve. Los bolsillos de la wallet
+ * (context/74) solo existen con el módulo activo y para quien puede
+ * gestionarlos: un deep-link a una pestaña oculta cae en Categorías.
+ */
+function parseTab(raw: string | null, available: CatalogTabValue[]): CatalogTabValue {
+  return raw && (available as string[]).includes(raw) ? (raw as CatalogTabValue) : "categories"
 }
 
 export default function CatalogPage() {
@@ -100,10 +116,17 @@ function CatalogPageInner() {
   // Deep-link vía ?tab=brands|taxes — el modal de Settings → Catálogo lanza
   // con la sección correcta (Categorías/Marcas/Impuestos) según la card que
   // el user clickeó. Default a "categories" cuando el query no viene o no es válido.
-  const tab = parseTab(searchParams.get("tab"))
+  const { data: modules } = useModules()
+  const canManageWallet = usePermission("wallet.manage")
+  const showWallet = !!modules?.wallet?.enabled && canManageWallet
+  const available = React.useMemo(
+    () => VALID_TABS.filter((t) => t !== "wallet-pockets" || showWallet),
+    [showWallet],
+  )
+  const tab = parseTab(searchParams.get("tab"), available)
 
   const onTabChange = (next: string) => {
-    const v = parseTab(next)
+    const v = parseTab(next, available)
     // Reemplaza la URL (sin push para no inflar el history) — el state vive
     // en el query string, persistente a refresh y compartible por link.
     const sp = new URLSearchParams(searchParams.toString())
@@ -130,7 +153,8 @@ function CatalogPageInner() {
       <Tabs value={tab} onValueChange={onTabChange}>
         {/* TabsList full-width 3-col — antes era ancho-contenido y dejaba la
             mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
-        <TabsList className="grid w-full grid-cols-6">
+        {/* Literales completos (no interpolados) para que Tailwind los genere. */}
+        <TabsList className={showWallet ? "grid w-full grid-cols-7" : "grid w-full grid-cols-6"}>
           <TabsTrigger value="categories" className="gap-1.5">
             <Tag className="size-3.5" />
             Categorías
@@ -155,6 +179,12 @@ function CatalogPageInner() {
             <Trash2 className="size-3.5" />
             Motivos de merma
           </TabsTrigger>
+          {showWallet && (
+            <TabsTrigger value="wallet-pockets" className="gap-1.5">
+              <Wallet className="size-3.5" />
+              Bolsillos
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="categories" className="mt-6">
@@ -175,6 +205,11 @@ function CatalogPageInner() {
         <TabsContent value="waste-reasons" className="mt-6">
           <WasteReasonsTab />
         </TabsContent>
+        {showWallet && (
+          <TabsContent value="wallet-pockets" className="mt-6">
+            <WalletPocketsTab />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )
@@ -340,6 +375,7 @@ function TaxesTab() {
     <CatalogManager<Tax, TaxPayload>
       entitySingular="impuesto"
       entityPlural="impuestos"
+      gender="m"
       rows={data?.taxes ?? []}
       isLoading={isLoading}
       useCreate={useCreateTax}
@@ -478,6 +514,7 @@ function PaymentMethodsTab() {
     <CatalogManager<PaymentMethod, PaymentMethodPayload>
       entitySingular="medio de pago"
       entityPlural="medios de pago"
+      gender="m"
       rows={data?.paymentMethods ?? []}
       isLoading={isLoading}
       useCreate={useCreatePaymentMethod}
@@ -565,6 +602,7 @@ function WasteReasonsTab() {
     <CatalogManager<WasteReason, WasteReasonPayload>
       entitySingular="motivo de merma"
       entityPlural="motivos de merma"
+      gender="m"
       rows={data?.wasteReasons ?? []}
       isLoading={isLoading}
       useCreate={useCreateWasteReason}

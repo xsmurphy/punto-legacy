@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Coins, Check, FileText, Tag, Trash2, Search } from "lucide-react"
+import { Loader2, Building2, Coins, Check, FileText, Tag, Trash2, Search, Wallet } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -60,6 +60,8 @@ import { CompanyLogo } from "@/components/settings/company-logo"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
+import { useModules } from "@/hooks/use-modules"
+import { usePermission } from "@/hooks/use-permissions"
 import { PlanPanel } from "@/components/billing/plan-panel"
 import {
   DEFAULT_SETTINGS_SECTION,
@@ -1479,6 +1481,12 @@ function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
   // Cada card lleva al deep-link de su tab en /settings/catalog (?tab=brands|
   // taxes). Antes los 3 cards iban al mismo href y la pagina default arrancaba
   // siempre en Categorías — la card "Impuestos" abría Categorías por bug UX.
+  //
+  // Bolsillos (wallet, context/74): solo con el módulo activo y para quien
+  // puede gestionarlos — misma condición que la pestaña de /settings/catalog.
+  const { data: modules } = useModules()
+  const canManageWallet = usePermission("wallet.manage")
+  const showWallet = !!modules?.wallet?.enabled && canManageWallet
   const links = [
     {
       title: "Categorías",
@@ -1504,6 +1512,16 @@ function CatalogTab({ onNavigate }: { onNavigate?: (href: string) => void }) {
       Icon: Trash2,
       href: "/settings/catalog?tab=waste-reasons",
     },
+    ...(showWallet
+      ? [
+          {
+            title: "Bolsillos",
+            description: "Bolsillos para separar el saldo de los clientes.",
+            Icon: Wallet,
+            href: "/settings/catalog?tab=wallet-pockets",
+          },
+        ]
+      : []),
   ]
   // Si nos pasan onNavigate (modal context), cerramos el modal antes de navegar
   // — sin esto, Next.js cambia de ruta pero el Dialog queda montado encima de

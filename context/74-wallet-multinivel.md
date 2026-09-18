@@ -1,9 +1,9 @@
 # 74 — Módulo Wallet multi-nivel
 
-> Estado: **plan sin implementar** (2026-09-16). Módulo NUEVO, diseñado desde
-> cero: no se construye sobre giftcard ni sobre el crédito interno existentes
-> (§9). La v1 es deliberadamente chica (§2). **Todas las decisiones de la v1
-> están cerradas** (2026-09-16).
+> Estado: **F1 implementada 2026-09-18** (núcleo, ver §11). F2-F5 pendientes.
+> Módulo NUEVO, diseñado desde cero: no se construye sobre giftcard ni sobre el
+> crédito interno existentes (§9). La v1 es deliberadamente chica (§2).
+> **Todas las decisiones de la v1 están cerradas** (2026-09-16).
 
 ## 1. Qué es
 
@@ -211,3 +211,83 @@ decide con este módulo funcionando.
   sin conexión.** Deja bolsillos negativos con dos cajas.
 - **Leer el modo de facturación de la configuración vigente.** Refactura saldos
   ya facturados.
+
+## 11. F1 — implementado (2026-09-18)
+
+Branch `frontend/wallet-f1`. Núcleo completo; la caja y las pantallas de
+hijos/transferencias NO están.
+
+**Schema — mig 232.** `contact.parentcontactid` (columna NUEVA: la
+`contact.parentId` legacy tiene semántica de franquicia, mig 08, y no se
+reusa), `wallet_pocket`, `wallet_movement` con `seq BIGSERIAL` para ordenar
+(los UUID son v4). Invariantes en la BD, no solo en PHP:
+
+- `CHECK (balanceafter >= 0)` — nunca negativo.
+- Trigger `trg_wallet_movement_chain`: `balanceafter` = anterior + `amount`.
+  Así el último `balanceafter` ES la suma y leer el saldo es O(1).
+- Trigger append-only: UPDATE/DELETE/TRUNCATE lanzan. Única excepción: la
+  purga del tenant desde `/admin` (`CompanyAdminService::hardDelete()`), que
+  setea `set_config('punto.tenant_purge', <companyId>, true)` y solo borra
+  filas de ESE comercio.
+- CHECKs de signo por tipo, `billingmode` obligatorio en `load`,
+  `transfergroupid` si y solo si `transfer`, motivo obligatorio en `adjust`.
+- FK compuesta `(pocketid, companyid)`: un movimiento no apunta al bolsillo de
+  otro comercio.
+- Trigger `trg_contact_parent_guard`: padre del mismo comercio, un solo nivel.
+  CHECK de no auto-referencia.
+
+**Servicio — `api/lib/Wallet/WalletService.php`.** Expone TODAS las
+operaciones de la v1 para que F2/F3 solo las cableen: `load`, `spend`,
+`refund`, `adjust`, `transfer`, `setParent`, más el catálogo de bolsillos y
+las lecturas. Reglas:
+
+- Toda operación que mueve saldo toma `pg_advisory_xact_lock` por
+  (contacto, bolsillo) DENTRO de la transacción antes de leer el saldo. La
+  transferencia toma los dos en orden por clave. Las que dependen de la
+  jerarquía (cargar, transferir) leen el contacto `FOR SHARE`; `setParent` lo
+  toma `FOR UPDATE`.
+- Aritmética en centavos enteros.
+- `spend` sin saldo lanza `WalletInsufficientFundsException` con `available`
+  (lo que había, leído bajo el lock) — es lo que la caja necesita para D6.
+- Anidable: si corre dentro de otra transacción (la venta de F2) NO publica
+  realtime; el orquestador llama a `publishChange()` tras su commit. El lock
+  se suelta en el commit de la venta.
+- `refund` exige el origen del pago que revierte y nunca devuelve más de lo
+  pagado con ese origen.
+- **Decisión tomada dentro del brief**: `setParent` exige que el contacto que
+  cambia de lugar en la jerarquía tenga todos sus bolsillos en cero (un
+  titular con saldo que pasa a hijo, o un hijo que cambia de titular,
+  rompería la trazabilidad de §3.1). Se vacía antes con un ajuste.
+- Solo clientes (`contact.type = 1`); el autor es siempre un usuario del
+  comercio (`type = 0`).
+
+**API — `api/v1/wallet.php`** (realm `panel`): catálogo de bolsillos
+(listar/crear/renombrar/activar, sin borrar), saldos por bolsillo,
+movimientos paginados por cursor `seq`, y `adjust`. NO expone cargar, pagar,
+revertir ni transferir: eso es F2/F3. Permisos `wallet.view` / `wallet.manage`
+(grupo Contactos, `since` 12, sin seed — el Dueño las tiene por serlo). Sin
+alcance por sucursal (el saldo es del comercio). Módulo activable `wallet`
+(`ModulesService::NATIVE_KEYS`), gateado también server-side con el nuevo
+`ModulesService::isEnabled()`.
+
+**Panel.** Sin pantallas nuevas en el menú:
+
+- Bolsillos: pestaña de Ajustes → Catálogo (`/settings/catalog?tab=wallet-pockets`),
+  junto a medios de pago e impuestos, más su card en la sección Catálogo de
+  `/settings`. Visible con el módulo activo y `wallet.manage`. `CatalogManager`
+  ganó `useDelete` opcional (un bolsillo no se borra) y género gramatical.
+- Saldo: bloque dentro de la pestaña "Financiero" de la ficha del cliente
+  (saldo por bolsillo + movimientos en DataTable + "Ajustar" con MoneyInput y
+  motivo obligatorio). Solo `variant="panel"`.
+- El módulo aparece en `/modules` (categoría Cobros) y "Configurar" lleva a la
+  pestaña de bolsillos.
+
+**Tests.** `bash api/tests/run_wallet_test.sh` — 75 checks contra Postgres
+real, incluida la carrera real de dos procesos pagando el mismo saldo (se
+verificó que sin el lock falla).
+
+**Qué NO está.** Cargar con una venta y pagar con saldo en la caja (F2, con
+claves `pos.*` propias contra el operador del PIN); alta de hijos, filtro que
+los oculta en listados (D11) y transferencia en UI (F3 — `setParent` y
+`transfer` ya existen en el servicio); interfaz del titular/hijo (F4); modo B
+(F5).

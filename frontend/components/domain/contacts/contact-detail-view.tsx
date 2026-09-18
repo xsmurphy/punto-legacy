@@ -108,6 +108,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePermission } from "@/hooks/use-permissions"
 import { useModules } from "@/hooks/use-modules"
+import { WalletSection } from "@/components/domain/wallet/wallet-section"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
 import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
@@ -261,6 +262,16 @@ export function ContactDetailView({
   // compras veía "Órdenes" y se comía un 403. Mismo espejo que los dos de
   // arriba.
   const canViewCustomers = usePermission("contacts.customer.view")
+  // Saldo de la wallet (context/74) dentro del tab "Financiero": solo panel
+  // (`/v1/wallet` es realm `panel`), con el módulo activo y con permiso —
+  // `wallet.manage` alcanza para leer, igual que en el endpoint.
+  const canViewWallet = usePermission("wallet.view")
+  const canManageWallet = usePermission("wallet.manage")
+  const showWallet =
+    variant === "panel" &&
+    !modulesLoading &&
+    modules?.wallet?.enabled === true &&
+    (canViewWallet || canManageWallet)
 
   const onSubmit = async (values: ContactFormValues) => {
     try {
@@ -358,6 +369,7 @@ export function ContactDetailView({
           isLoading={analytics.isLoading}
           bootstrap={bootstrap}
           variant={variant}
+          wallet={showWallet ? { canManage: canManageWallet } : null}
         />
       )}
       {tab === "transactions" && <ContactTransactionsTab customerId={customerId} />}
@@ -1683,6 +1695,7 @@ function FinancialTab({
   isLoading,
   bootstrap,
   variant,
+  wallet,
 }: {
   customerId: string
   contactName: string
@@ -1692,6 +1705,8 @@ function FinancialTab({
   /** "panel" | "pos" — pasado tal cual a `AccountStatementSection` para que
    *  el click de fila no navegue fuera del POS. Ver docblock del archivo. */
   variant: "panel" | "pos"
+  /** Saldo de la wallet (context/74). `null` = no se muestra (ver el gate). */
+  wallet: { canManage: boolean } | null
 }) {
   const f = analytics?.financial
   return (
@@ -1717,6 +1732,7 @@ function FinancialTab({
           )}
         </CardContent>
       </Card>
+      {wallet && <WalletSection contactId={customerId} canManage={wallet.canManage} />}
       <AccountStatementSection
         contactId={customerId}
         contactType={1}

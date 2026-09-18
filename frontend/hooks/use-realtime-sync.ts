@@ -255,6 +255,10 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // panel encienda el modo de captura en la caja sin que nadie la toque, y que
   // un egreso le saque el rostro cacheado en el momento.
   employee:          [["employees"]],
+  // wallet (wallet.php, context/74). Un solo prefijo: bolsillos, saldos y
+  // movimientos cuelgan de `["wallet"]` (`use-wallet.ts`). Un débito en una
+  // caja (F2) mueve el saldo que el panel está mostrando en la ficha.
+  wallet:            [["wallet"]],
   // attendance (attendance.php, context/83 F1). La entity la deriva el
   // publisher del path `/v1/attendance` — "attendance" no tiene plural que
   // singularizar, así que sale tal cual.
