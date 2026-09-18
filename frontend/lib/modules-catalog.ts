@@ -40,6 +40,7 @@ import {
   ReceiptText,
   CreditCard,
   QrCode,
+  Wallet,
 } from "lucide-react"
 
 import type {
@@ -200,6 +201,23 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
         ? { label: `${count} espacios`, complete: true }
         : { label: "Sin espacios definidos", complete: false }
     },
+  },
+  {
+    // Saldo de clientes por bolsillos, con titular e hijos (context/74). Es de
+    // RUBRO —colegios, comedores de empresa, clubes—, no core: nace apagado.
+    //
+    // `configHref` y no un dialog: lo configurable es el catálogo de
+    // bolsillos, que vive con el resto de los catálogos del comercio (medios
+    // de pago, impuestos) en Ajustes → Catálogos, no detrás del switch.
+    key: "wallet",
+    kind: "module",
+    title: "Saldo de clientes",
+    description: "Saldo a favor por bolsillos, con titulares y personas a cargo.",
+    icon: Wallet,
+    category: "Cobros",
+    configKind: "none",
+    status: "available",
+    configHref: "/settings/catalog?tab=wallet-pockets",
   },
   {
     key: "production",

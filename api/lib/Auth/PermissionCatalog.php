@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 11;
+    public const CURRENT_VERSION = 12;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -247,6 +247,26 @@ final class PermissionCatalog
             // el resto las recibe cuando un admin las tilda.
             ['id' => 'hr.attendance.view',       'label' => 'Ver asistencia',         'group' => 'RRHH', 'since' => 11],
             ['id' => 'hr.attendance.review',     'label' => 'Revisar marcaciones',    'group' => 'RRHH', 'since' => 11],
+
+            // ── Saldo de clientes / Wallet (context/74, F1) ──────────────────
+            //
+            // `view` para ver saldos y movimientos en la ficha del cliente,
+            // `manage` para el catálogo de bolsillos y los ajustes manuales.
+            // Separadas porque un ajuste CREA o QUITA saldo sin venta de por
+            // medio: quien mira el saldo de un cliente no tiene por qué poder
+            // inventarle plata.
+            //
+            // Sin prefijo `pos.`: gobiernan el PANEL. Cargar y pagar con saldo
+            // desde la caja (F2) tendrán sus propias claves `pos.*`, evaluadas
+            // contra el operador del PIN — `unlock-pin.php` no baja al
+            // dispositivo nada que no empiece con `pos.`.
+            //
+            // Ninguna va a un seed de `RoleService::SEED_PERMISSIONS`: el
+            // módulo es de rubro y nace apagado; el Dueño las tiene por serlo y
+            // el resto las recibe cuando un admin las tilda. `since` = 12 y
+            // claves NUEVAS: el caso seguro del backfill.
+            ['id' => 'wallet.view',              'label' => 'Ver saldo de clientes',     'group' => 'Contactos', 'since' => 12],
+            ['id' => 'wallet.manage',            'label' => 'Gestionar bolsillos y ajustar saldo', 'group' => 'Contactos', 'since' => 12],
 
             ['id' => 'reports.sales.view',       'label' => 'Reportes de ventas',     'group' => 'Reportes'],
             ['id' => 'reports.drawers.view',     'label' => 'Reportes de cajas',      'group' => 'Reportes'],
