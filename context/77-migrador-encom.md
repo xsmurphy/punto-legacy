@@ -1515,5 +1515,4 @@ dos tenants tiene períodos cerrados.
 
 **Qué hacer con los tenants ya migrados.** Deployado esto, relanzar
 `sales_history` con el mismo rango: las ventas se saltean (idempotentes) y
-se completan con su cliente. Es una request paceada por página del listado,
-no por venta.
+se completan con su cliente.
