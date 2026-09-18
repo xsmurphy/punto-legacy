@@ -5,6 +5,7 @@ namespace Punto\Api\Reports;
 
 use Punto\Api\Sales\SaleService;
 use Punto\Api\Sales\SaleType;
+use Punto\Api\Wallet\WalletService;
 
 /**
  * Reporte de BOLSILLOS (wallet, context/74 §13): cuánto se cargó, cuánto se
@@ -31,8 +32,17 @@ use Punto\Api\Sales\SaleType;
  * de sus líneas: la caja manda los dos iguales, pero un descuento declarado
  * solo por línea no se le puede cargar al usuario como faltante.
  *
- * "Cargado" excluye las ventas de carga ANULADAS. (Anular la venta hoy no
- * revierte el `load` del bolsillo — gap de F2 anotado en context/74 §13.)
+ * "Cargado" es NETO de lo que se devolvió (context/74 §13, mig 236):
+ *
+ *   cargado = cargas de ventas NO anuladas (por fecha de la venta)
+ *           − reversas por nota de crédito (`load_reversal` con origen
+ *             `return`, por fecha de la nota de crédito)
+ *
+ * Una venta de carga ANULADA no entra por ningún lado: su carga se excluye y
+ * su reversa (origen `sale_void`) también — netean cero. El saldo por entregar
+ * sí las ve a las dos (es la suma de todos los movimientos), así que cuadra.
+ * Cargas anuladas ANTES de la mig 236 quedaron sin reversa: salen de
+ * "Cargado" pero siguen en el saldo — el diagnóstico está en context/74 §13.
  *
  * "Con descuento" es plata que la caja declaró como descuento (el POS lo pide
  * con su permiso); "sin descuento" es la que no tiene explicación en el
@@ -87,6 +97,7 @@ final class WalletReportService
                 AND t.transactiondate BETWEEN ? AND ?' . $roc,
             [$companyId, SaleService::WALLET_SOURCE_LOAD, $from, $to]
         );
+        $returned = array_sum($this->returnedLoads($from, $to, $roc, $companyId, 'NULL'));
 
         [$cte, $params] = $this->differencesCte($from, $to, $roc, $companyId);
         $cons = $db->Execute(
@@ -103,7 +114,7 @@ final class WalletReportService
         );
 
         return [
-            'loaded'       => round((float) ($loaded->fields['total'] ?? 0), 2),
+            'loaded'       => round((float) ($loaded->fields['total'] ?? 0) - $returned, 2),
             'consumed'     => round((float) ($cons->fields['consumed'] ?? 0), 2),
             'consumptions' => (int) ($cons->fields['n'] ?? 0),
             'liability'    => round(array_sum(array_column($this->liabilityByPocket($to, $companyId), 'balance')), 2),
@@ -215,6 +226,39 @@ final class WalletReportService
     }
 
     /**
+     * Carga DEVUELTA con nota de crédito en el período (context/74 §13):
+     * `load_reversal` con origen `return`, fechada y acotada por sucursal por
+     * la NOTA DE CRÉDITO (el documento que la originó), igual que una
+     * devolución en cualquier reporte de ventas. Positivo = lo que se resta
+     * de "Cargado". Las reversas por ANULACIÓN no entran: su carga ya está
+     * excluida (ver el docblock de la clase).
+     *
+     * @param string $groupExpr expresión SQL de agrupación (constante del
+     *                          código, nunca input) o 'NULL' para el total
+     * @return array<string,float> clave de grupo => monto
+     */
+    private function returnedLoads(string $from, string $to, string $roc, string $companyId, string $groupExpr): array
+    {
+        global $db;
+        $rs = $db->Execute(
+            'SELECT ' . $groupExpr . ' AS k, SUM(-m.amount) AS total
+               FROM wallet_movement m
+               JOIN transaction t
+                 ON t.transactionid = m.sourceid AND t.companyid = m.companyid
+              WHERE m.companyid = ? AND m.type = \'load_reversal\' AND m.sourcetype = ?
+                AND t.transactiondate BETWEEN ? AND ?' . $roc . '
+              GROUP BY 1',
+            [$companyId, WalletService::SOURCE_RETURN, $from, $to]
+        );
+        $out = [];
+        while ($rs && !$rs->EOF) {
+            $out[(string) ($rs->fields['k'] ?? '')] = (float) $rs->fields['total'];
+            $rs->MoveNext();
+        }
+        return $out;
+    }
+
+    /**
      * Cargado y consumido por día, con TODOS los días del rango (el gráfico
      * no puede saltearse los días en cero).
      *
@@ -248,6 +292,11 @@ final class WalletReportService
                 $days[$k]['loaded'] = round((float) $rs->fields['total'], 2);
             }
             $rs->MoveNext();
+        }
+        foreach ($this->returnedLoads($from, $to, $roc, $companyId, "to_char(t.transactiondate, 'YYYY-MM-DD')") as $k => $v) {
+            if (isset($days[$k])) {
+                $days[$k]['loaded'] = round($days[$k]['loaded'] - $v, 2);
+            }
         }
 
         [$cte, $params] = $this->differencesCte($from, $to, $roc, $companyId);
@@ -350,6 +399,11 @@ final class WalletReportService
                 $rows[$id]['loaded'] = round((float) $rs->fields['total'], 2);
             }
             $rs->MoveNext();
+        }
+        foreach ($this->returnedLoads($from, $to, $roc, $companyId, 'm.pocketid') as $id => $v) {
+            if (isset($rows[$id])) {
+                $rows[$id]['loaded'] = round($rows[$id]['loaded'] - $v, 2);
+            }
         }
 
         [$cte, $params] = $this->differencesCte($from, $to, $roc, $companyId);

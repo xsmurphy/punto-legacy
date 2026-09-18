@@ -5,6 +5,8 @@ namespace Punto\Api\Services;
 
 use Punto\Api\EInvoice\EInvoiceService;
 use Punto\Api\Finance\FinanceLedger;
+use Punto\Api\Wallet\WalletLoadAlreadyUsedException;
+use Punto\Api\Wallet\WalletService;
 
 /**
  * SaleVoidService — anulación de ventas (F1 + F2 de
@@ -115,6 +117,18 @@ final class SaleVoidService
             return [
                 'allowed'   => false,
                 'reason'    => 'Esta venta tiene recibos de cobro vigentes: anulalos primero.',
+                'expiresAt' => $expiresAt,
+            ];
+        }
+
+        // Venta de CARGA de saldo cuyo saldo el cliente ya usó (context/74
+        // §13): el guard real es `WalletService::reverseLoads()` dentro de
+        // `void()`; esto es para que la UI muestre el motivo antes.
+        $shortfall = (new WalletService())->loadReversalShortfall($companyId, $transactionId);
+        if ($shortfall !== null) {
+            return [
+                'allowed'   => false,
+                'reason'    => (new WalletLoadAlreadyUsedException($shortfall['pocketName'], $shortfall['available'], $shortfall['required']))->getMessage(),
                 'expiresAt' => $expiresAt,
             ];
         }
@@ -263,8 +277,26 @@ final class SaleVoidService
         $restocked = 0;
         $wasted    = 0;
         $einvoiceCancelled = false;
+        $walletContacts    = [];
 
         try {
+            // 0. Venta de CARGA de saldo (context/74 §13): revertir lo que
+            // acreditó, PRIMERO — antes de tocar nada más y, sobre todo, antes
+            // de la cancelación síncrona en SIFEN (paso 5), que es lo único que
+            // un rollback no deshace. Si el cliente ya usó parte del saldo, el
+            // bolsillo no alcanza, se lanza `WalletLoadAlreadyUsedException` y
+            // la anulación entera se rechaza: ni la venta queda anulada ni el
+            // saldo cambia. Bajo el lock del bolsillo, contra los consumos.
+            $walletContacts = (new WalletService())->reverseLoads(
+                $companyId,
+                $transactionId,
+                null,
+                WalletService::SOURCE_SALE_VOID,
+                $transactionId,
+                $userId,
+                'Anulación de la venta: ' . $reason,
+            )['contactIds'];
+
             // 1. Marcar la venta anulada — SIN tocar transactionType.
             // transactioncomplete=TRUE también acá: una venta a crédito
             // anulada ya no es una deuda pendiente — sin esto seguiría
@@ -364,6 +396,12 @@ final class SaleVoidService
             if ($failed) {
                 apiError('No se pudo anular la venta: la transacción abortó', 500);
             }
+        } catch (WalletLoadAlreadyUsedException $e) {
+            // Mismo rollback limpio; 409 con el motivo legible para el cajero
+            // y los montos para la UI.
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiConflict($e->getMessage(), $e->details());
         } catch (AmbiguousStockLineException $e) {
             // 422, no 409: es un error de INPUT del request (líneas ambiguas),
             // no un conflicto de estado de la venta — mismo rollback limpio
@@ -387,6 +425,11 @@ final class SaleVoidService
             realtimePublish('transaction', 'update', $transactionId, 'all');
         } catch (\Throwable $e) {
             // Ignorar — no crítico.
+        }
+        // El saldo revertido: el aviso sale recién ahora, cuando la reversa
+        // existe (nunca antes del commit — WalletService no publica anidado).
+        if ($walletContacts !== []) {
+            (new WalletService())->publishChange($companyId, $walletContacts);
         }
 
         // Rollup: marcar sucio el día de la venta anulada (F4, context/40 +

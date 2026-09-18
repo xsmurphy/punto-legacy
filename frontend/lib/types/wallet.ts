@@ -2,7 +2,7 @@
  * Wallet multi-nivel (context/74). Shapes de `/v1/wallet`.
  */
 
-export type WalletMovementType = "load" | "transfer" | "spend" | "refund" | "adjust"
+export type WalletMovementType = "load" | "load_reversal" | "transfer" | "spend" | "refund" | "adjust"
 
 export interface WalletPocket {
   id: string
@@ -47,6 +47,8 @@ export interface WalletMovement {
   counterpartName: string | null
   sourceType: string | null
   sourceId: string | null
+  /** En un `load_reversal`: la carga que revierte. */
+  reversesMovementId: string | null
   reason: string | null
   actorId: string
   actorName: string | null

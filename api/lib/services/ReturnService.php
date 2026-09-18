@@ -5,6 +5,8 @@ namespace Punto\Api\Services;
 
 use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Documents\DocumentSeries;
+use Punto\Api\Wallet\WalletLoadItem;
+use Punto\Api\Wallet\WalletService;
 
 /**
  * Servicio de devoluciones (transactionType = 6).
@@ -348,6 +350,7 @@ final class ReturnService
         $returnTotal      = 0.0;   // bruto devuelto (espeja itemSoldTotal)
         $returnDiscount   = 0.0;   // descuento proporcional devuelto
         $processedItems   = [];
+        $walletContacts   = [];
 
         try {
             // Lock de la fila padre — evita que dos requests concurrentes lean
@@ -713,6 +716,22 @@ final class ReturnService
                 }
             }
 
+            // Carga de saldo devuelta (context/74 §13): lo que se devuelve de
+            // la línea de carga se le saca al bolsillo, en esta misma
+            // transacción y bajo el lock del bolsillo. Si el cliente ya usó
+            // ese saldo, `WalletLoadAlreadyUsedException` revierte la
+            // devolución entera (numeración de la NC incluida).
+            $walletContacts = $this->reverseWalletLoad(
+                $companyId,
+                $parentTransactionId,
+                (string) $newTransactionId,
+                $userId,
+                $processedItems,
+                $aggregatedLines,
+                $alreadyByItem,
+                $note,
+            );
+
             if ($refundMode === 'credit' && !empty($parent['customerid'])) {
                 $db->Execute(
                     'UPDATE contact SET contactstorecredit = contactstorecredit + ?
@@ -772,6 +791,11 @@ final class ReturnService
             throw $e;
         }
 
+        // Saldo revertido: el aviso sale recién con la devolución confirmada.
+        if ($walletContacts !== []) {
+            (new WalletService())->publishChange($companyId, $walletContacts);
+        }
+
         // Finanzas Fase 3: la devolución saca plata de la caja, así que genera
         // su movimiento derivado igual que una venta genera el suyo
         // (SaleService → recordSale). Post-commit y best-effort: un fallo del
@@ -823,6 +847,79 @@ final class ReturnService
             'wasted'                => $wasted,
             'customerCreditApplied' => $refundMode === 'credit' ? abs($returnNet) : null,
         ];
+    }
+
+    /**
+     * Si la devolución incluye la línea de CARGA DE SALDO (ítem de sistema
+     * `WalletLoadItem`, context/74 F2), revierte en el bolsillo lo que se
+     * devuelve de ella — `WalletService::reverseLoads()`, con origen = la
+     * nota de crédito.
+     *
+     * Cuánto: el NETO devuelto de esa línea (bruto − descuento, el mismo que
+     * sale de la caja). Si esta devolución COMPLETA la línea de carga, se
+     * revierte todo lo que queda de las cargas: las devoluciones parciales
+     * redondean cada una a centavos y la suma puede diferir de la carga en
+     * uno o dos centavos — se absorben acá en vez de dejar un resto colgado.
+     * Nunca más de lo que queda (`reverseLoads()` lo exige).
+     *
+     * Corre DENTRO de la transacción de la devolución, con la fila de la venta
+     * ya lockeada (`FOR UPDATE` en `create()`): lo leído de las cargas no
+     * cambia hasta el commit.
+     *
+     * @param list<array> $processedItems
+     * @param array<string,array> $aggregatedLines
+     * @param array<string,float> $alreadyByItem
+     * @return list<string> contactos cuyo saldo cambió (aviso post-commit)
+     */
+    private function reverseWalletLoad(
+        string $companyId,
+        string $parentTransactionId,
+        string $returnId,
+        string $userId,
+        array $processedItems,
+        array $aggregatedLines,
+        array $alreadyByItem,
+        ?string $note,
+    ): array {
+        $loadItemId = WalletLoadItem::find($companyId);
+        if ($loadItemId === null || !isset($aggregatedLines[$loadItemId])) {
+            return [];
+        }
+
+        $net = 0.0;
+        $qty = 0.0;
+        foreach ($processedItems as $pi) {
+            if ($pi['itemId'] === $loadItemId) {
+                $net += $pi['lineTotal'] - $pi['lineDiscount'];
+                $qty += $pi['qty'];
+            }
+        }
+        $net = round($net, 2);
+        if ($qty <= 0 || $net <= 0) {
+            return [];
+        }
+
+        $wallet    = new WalletService();
+        $remaining = $wallet->loadRemaining($companyId, $parentTransactionId);
+        if ($remaining <= 0) {
+            // Carga retenida por permiso (`meta.walletLoadWithheld`): nunca se
+            // acreditó, no hay nada que sacar.
+            return [];
+        }
+
+        $soldQty   = abs((float) $aggregatedLines[$loadItemId]['itemsoldunits']);
+        $completes = ($alreadyByItem[$loadItemId] ?? 0.0) + $qty >= $soldQty - 0.001;
+        $amount    = (($completes && abs($remaining - $net) < 0.05) || $net > $remaining) ? null : $net;
+
+        return $wallet->reverseLoads(
+            $companyId,
+            $parentTransactionId,
+            $amount,
+            WalletService::SOURCE_RETURN,
+            $returnId,
+            $userId,
+            'Devolución de la carga' . ($note ? ': ' . $note : ''),
+        )['contactIds'];
     }
 
     /**
