@@ -12,9 +12,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Gift } from "lucide-react"
+import { AlertCircle, Gift } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,6 +23,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate, parseNaive } from "@/lib/format-date"
+import { BackLink } from "@/components/page/back-link"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 
 type GiftCardStatus = "expired" | "soon" | "used" | "active"
@@ -181,7 +181,7 @@ export default function GiftcardsReportPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <BackLink />
+        <BackLink href="/reports" label="Volver a reportes" />
         <h1 className="text-2xl font-semibold">Gift Cards activadas</h1>
         <p className="text-sm text-muted-foreground">
           Todas las gift cards emitidas y su estado actual.
@@ -229,21 +229,5 @@ export default function GiftcardsReportPage() {
         }
       />
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

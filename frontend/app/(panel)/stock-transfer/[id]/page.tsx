@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ArrowLeftRight, Printer, XCircle, Loader2 } from "lucide-react"
+import { ArrowLeftRight, Printer, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -34,6 +34,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { buildTicketDataFromStockTransfer } from "@/lib/hardware/printers/build-ticket-data"
+import { BackLink } from "@/components/page/back-link"
 import { formatMoney as _formatMoney } from "@/lib/format"
 
 function formatMoney(v: number): string {
@@ -92,10 +93,7 @@ export default function StockTransferDetailPage() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-muted-foreground">Transferencia no encontrada.</p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver
-        </Button>
+        <BackLink href="/stock-transfer" label="Volver a transferencias" />
       </div>
     )
   }
@@ -132,10 +130,8 @@ export default function StockTransferDetailPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
+          <BackLink href="/stock-transfer" label="Volver a transferencias" />
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
             <h1 className="text-2xl font-semibold">Transferencia de stock</h1>
             <Badge variant={STATUS_VARIANT[transfer.status]}>
               {STATUS_LABEL[transfer.status] ?? "Desconocido"}

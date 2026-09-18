@@ -309,7 +309,7 @@ export function CustomersDashboardTab({
                     <span className="text-2xl font-bold tabular-nums">
                       {formatInt(activos, bootstrap)}
                     </span>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span className="text-sm font-medium">
                       Clientes
                     </span>
                   </div>
@@ -428,7 +428,7 @@ export function CustomersDashboardTab({
           leen contra esa curva. Van a ancho completo porque cada tile lleva un
           motivo de una línea cuando no hay base de comparación. */}
       <div className="flex flex-col gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-sm font-medium">
           Tasas del período
         </p>
         <StatsRow>
@@ -558,7 +558,7 @@ export function CustomersDashboardTab({
         </Card>
 
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-sm font-medium">
             Comportamiento de compra
           </p>
           <StatTile

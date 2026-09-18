@@ -34,7 +34,10 @@ import {
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/stat-tile"
-import { AccountStatementSection } from "@/components/domain/contacts/account-statement-section"
+import {
+  AccountStatementKpis,
+  AccountStatementSection,
+} from "@/components/domain/contacts/account-statement-section"
 
 export type OpenInvoicesState = "income" | "outcome"
 
@@ -220,6 +223,9 @@ export function OpenInvoicesListTab({ state }: { state: OpenInvoicesState }) {
               {isOutcome ? "Facturas a crédito pendientes de pago." : "Facturas a crédito pendientes de cobro."}
             </DialogDescription>
           </DialogHeader>
+          {selectedContact && (
+            <AccountStatementKpis contactId={selectedContact.id} contactType={isOutcome ? 2 : 1} />
+          )}
           {selectedContact && (
             <AccountStatementSection
               contactId={selectedContact.id}

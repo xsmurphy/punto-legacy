@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronsUpDown, Coins, Plus, X } from "lucide-react"
+import { ChevronsUpDown, Plus, X } from "lucide-react"
 import type { UseFormReturn } from "react-hook-form"
 
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/command"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { MoneyInput } from "@/components/ui/money-input"
-import { EmptyState } from "@/components/empty-state"
+import Link from "next/link"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrencies } from "@/hooks/use-items"
 import type { ItemFormValues } from "@/lib/types/item"
@@ -128,18 +128,14 @@ export function CurrencyPriceField({ form }: { form: UseFormReturn<ItemFormValue
 
   if (rows.length === 0 && configured.length === 0) {
     return (
-      <EmptyState
-        icon={Coins}
-        title="Sin monedas extranjeras configuradas"
-        description={
-          <>
-            Agregalas en <strong>Configuración → Monedas</strong> para poder ofrecer
-            este precio en otra divisa.
-          </>
-        }
-        showMarquee={false}
-        className="border-dashed py-6"
-      />
+      // Vacío de una sub-sección del formulario: una línea con el link a
+      // configurar, no un EmptyState de página (context/84 T7).
+      <p className="text-sm text-muted-foreground">
+        Sin monedas extranjeras.{" "}
+        <Link href="/settings?section=monedas" className="text-foreground underline-offset-4 hover:underline">
+          Configurar monedas
+        </Link>
+      </p>
     )
   }
 

@@ -12,9 +12,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
@@ -29,6 +28,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/stat-tile"
+import { BackLink } from "@/components/page/back-link"
 import { RankingBarChart } from "@/components/domain/reports/ranking-bar-chart"
 
 interface RankingRow {
@@ -176,7 +176,7 @@ export function RankingReportPage<TRawRow>({
       {!embedded && (
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink href={backHref} />
+          <BackLink href={backHref} label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">{title}</h1>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
@@ -240,21 +240,5 @@ export function RankingReportPage<TRawRow>({
         }
       />
     </div>
-  )
-}
-
-function BackLink({ href }: { href: string }) {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href={href}>
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

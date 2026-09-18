@@ -40,15 +40,14 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DateRangePicker } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { SalesDashboardTab } from "@/components/domain/reports/sales/sales-dashboard-tab"
+import { BackLink } from "@/components/page/back-link"
 import { TransactionsList } from "@/components/domain/transactions/transactions-list"
 
 const TAB_IDS = ["dashboard", "transacciones", "pagos", "cotizaciones"] as const
@@ -70,7 +69,7 @@ export default function SalesReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Ventas</h1>
           <p className="text-sm text-muted-foreground">
             Cómo vendió el negocio en el período: el panorama comparado con el
@@ -105,21 +104,5 @@ export default function SalesReportPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

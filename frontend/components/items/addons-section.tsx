@@ -452,7 +452,7 @@ function GroupBlock({
       <CardContent className="flex flex-col gap-4 p-4">
         <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[200px] flex-1 flex-col gap-1.5">
-            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Label>
               Nombre del grupo
             </Label>
             <Input
@@ -467,7 +467,7 @@ function GroupBlock({
               números con el mismo nombre y distinto significado según un
               control que quedó atrás es cómo se configura mal una caja. */}
           <div className="flex w-44 flex-col gap-1.5">
-            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Label>
               El límite cuenta
             </Label>
             <Select
@@ -497,7 +497,7 @@ function GroupBlock({
             </Select>
           </div>
           <div className="flex w-20 flex-col gap-1.5">
-            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Label>
               {byQuantity ? "Mín. total" : "Mín"}
             </Label>
             <Input
@@ -511,7 +511,7 @@ function GroupBlock({
             />
           </div>
           <div className="flex w-24 flex-col gap-1.5">
-            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Label>
               {byQuantity ? "Máx. total" : "Máx"}
             </Label>
             <Input
@@ -531,7 +531,7 @@ function GroupBlock({
             />
           </div>
           <div className="flex flex-col items-center gap-1.5">
-            <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <Label>
               Activo
             </Label>
             <Switch

@@ -11,11 +11,10 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
-import { AlertCircle, ArrowLeft, ShieldCheck } from "lucide-react"
+import { AlertCircle, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
@@ -26,6 +25,7 @@ import {
 import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useReport, type AuditRow } from "@/hooks/use-reports"
+import { BackLink } from "@/components/page/back-link"
 
 /** Humaniza method + endpoint a una etiqueta legible. */
 function humanizeAction(method: string, endpoint: string): string {
@@ -172,7 +172,7 @@ export default function AuditReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Auditoría</h1>
           <p className="text-sm text-muted-foreground">
             Registro de acciones realizadas por usuarios del comercio.
@@ -216,21 +216,5 @@ export default function AuditReportPage() {
         }
       />
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

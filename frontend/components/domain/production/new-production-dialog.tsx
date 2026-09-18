@@ -439,7 +439,7 @@ function RecipePreview({
   return (
     <div className="space-y-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-sm font-medium">
           Insumos requeridos
         </p>
         <Badge variant={isEnough ? "secondary" : "destructive"}>

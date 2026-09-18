@@ -13,8 +13,7 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
-import { AlertCircle, ArrowLeft, TrendingDown, TrendingUp, Wallet } from "lucide-react"
+import { AlertCircle, TrendingDown, TrendingUp, Wallet } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +24,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CashflowResponse, type CashflowCategory } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { BackLink } from "@/components/page/back-link"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 
 export default function CashflowReportPage() {
@@ -63,12 +63,7 @@ export default function CashflowReportPage() {
           `align-items: stretch` del flex— salía de borde a borde. */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button variant="ghost" size="sm" asChild className="w-fit -ml-2">
-            <Link href="/reports">
-              <ArrowLeft className="size-4" />
-              Volver a reportes
-            </Link>
-          </Button>
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Flujo de efectivo</h1>
           <p className="text-sm text-muted-foreground">
             Entradas y salidas reales de tus cuentas en el período, con el saldo al
@@ -164,7 +159,7 @@ export default function CashflowReportPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <tr className="border-b text-xs font-medium text-muted-foreground">
                         <th className="py-2 text-left font-semibold">Cuenta</th>
                         <th className="py-2 text-right font-semibold">Inicial</th>
                         <th className="py-2 text-right font-semibold">Entradas</th>

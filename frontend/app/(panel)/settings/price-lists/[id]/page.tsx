@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft, Loader2, Pencil, Trash2, Plus, Check, ChevronsUpDown, X,
+  Loader2, Pencil, Trash2, Plus, Check, ChevronsUpDown, X,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -59,6 +58,7 @@ import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { PriceListItem, PriceListItemInput } from "@/lib/types/price-list"
 import type { ItemListItem } from "@/lib/types/item"
+import { BackLink } from "@/components/page/back-link"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -572,11 +572,7 @@ export default function PriceListDetailPage() {
   if (error) {
     return (
       <div className="flex flex-col gap-4">
-        <Button asChild variant="ghost" size="icon" className="size-8 self-start">
-          <Link href="/settings/price-lists">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </Button>
+        <BackLink href="/settings/price-lists" label="Volver a listas de precios" />
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
           No se pudo cargar la lista. {error.message}
         </div>
@@ -587,13 +583,9 @@ export default function PriceListDetailPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <header className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="size-8 shrink-0">
-            <Link href="/settings/price-lists">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
+      <header className="flex items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <BackLink href="/settings/price-lists" label="Volver a listas de precios" />
           <div>
             {isLoading ? (
               <Skeleton className="h-7 w-48" />

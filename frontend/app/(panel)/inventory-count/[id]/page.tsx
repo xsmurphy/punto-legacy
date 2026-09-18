@@ -3,7 +3,6 @@
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
 import {
-  ArrowLeft,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -53,6 +52,7 @@ import {
 } from "@/hooks/use-inventory-counts"
 import { formatMoney as _formatMoney } from "@/lib/format"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { BackLink } from "@/components/page/back-link"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 function formatMoney(v: number): string {
@@ -297,10 +297,7 @@ export default function InventoryCountDetailPage() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-muted-foreground">Sesión no encontrada.</p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver
-        </Button>
+        <BackLink href="/inventory-count" label="Volver a conteos" />
       </div>
     )
   }
@@ -309,10 +306,8 @@ export default function InventoryCountDetailPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
+          <BackLink href="/inventory-count" label="Volver a conteos" />
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
             <Boxes className="h-5 w-5 text-muted-foreground" />
             <h1 className="text-2xl font-semibold">Conteo de inventario</h1>
             <Badge variant={STATUS_VARIANT[session.status]}>

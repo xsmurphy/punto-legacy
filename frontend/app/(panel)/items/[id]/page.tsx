@@ -6,40 +6,21 @@ import Link from "next/link"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import {
-  ArrowLeft,
-  Loader2,
-  Archive,
-  Boxes,
-  Settings as SettingsIcon,
-  User,
-  ChefHat,
-  Calendar,
-  Check,
-  Images,
-  Package2,
-  Layers,
-} from "lucide-react"
+import { Loader2, Check } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { EmptyState } from "@/components/empty-state"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -63,7 +44,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -87,7 +67,17 @@ import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveCurrencyLabel } from "@/lib/tenant-locale"
 import { useTaxes } from "@/hooks/use-taxes"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
+import { tenantNow } from "@/lib/format-date"
+import { format } from "date-fns"
+import { es } from "date-fns/locale"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import {
   inferKind,
   KIND_META,
@@ -128,7 +118,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { MultiSelect } from "@/components/ui/multi-select"
-import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
+import { BackLink } from "@/components/page/back-link"
+import { EntityShell, type EntityTab } from "@/components/page/entity-shell"
+import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
+import { StatsRow, StatTile } from "@/components/stat-tile"
+import { useReport, type ProductRow, type ProductsReportResponse } from "@/hooks/use-reports"
+import { useItemStockMovements } from "@/hooks/use-item-stock"
+import { usePermission } from "@/hooks/use-permissions"
+import { pctDelta } from "@/lib/reports/previous-range"
 
 const itemSchema = z.object({
   kind: z.enum([
@@ -212,19 +209,19 @@ const itemSchema = z.object({
   itemSessions: z.number().int().nonnegative().nullable(),
 })
 
-/** Tabs válidos para deep-link (`?tab=`) — usado desde el reporte de
- *  Productos para abrir la ficha directo en el historial de movimientos
- *  (`?tab=stock`) en vez de forzar un clic extra. Module-level: no tiene
- *  sentido recrear el array en cada render. */
-const VALID_TABS = [
-  "perfil",
-  "imagenes",
-  "config",
-  "disponibilidad",
-  "stock",
-  "variantes",
-  "produccion",
-] as const
+/**
+ * `?tab=` viejos → pestaña vigente. Perfil, Imágenes, Configuración y
+ * Disponibilidad se fusionaron en Datos (context/84 §3, owner 2026-09-18):
+ * "Datos" es el único lugar donde se edita el artículo. `stock` (lo usa el
+ * reporte de Artículos para abrir el historial), `variantes` y `produccion`
+ * siguen con su clave.
+ */
+const ITEM_TAB_ALIASES: Record<string, string> = {
+  perfil: "datos",
+  imagenes: "datos",
+  config: "datos",
+  disponibilidad: "datos",
+}
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
 const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
@@ -271,31 +268,6 @@ function ItemEditPageInner() {
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
     defaultValues: { ...emptyItemValues(), kind: initialKind },
-  })
-
-  const initialTab = React.useMemo(() => {
-    const t = searchParams.get("tab")
-    return t && (VALID_TABS as readonly string[]).includes(t) ? t : "perfil"
-  }, [searchParams])
-  const [activeTab, setActiveTab] = React.useState(initialTab)
-  // "imagenes", "stock" y "variantes" quedan afuera: no tienen campos del
-  // form de react-hook-form (galería/stock son sus propios editores, y
-  // variantes se renderiza condicional sobre hasVariants).
-  const { tabsWithErrors, onInvalid } = useFormTabErrors({
-    form,
-    fields: {
-      perfil: ["name", "sku", "barcode", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions", "currencies"],
-      config: ["outletIds", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
-      disponibilidad: ["availability"],
-      produccion: ["procedure"],
-    },
-    onTabChange: setActiveTab,
-    tabLabels: {
-      perfil: "Perfil",
-      config: "Configuración",
-      disponibilidad: "Disponibilidad",
-      produccion: "Producción",
-    },
   })
 
   // Para items nuevos: pre-seleccionamos el primer impuesto disponible del
@@ -565,7 +537,7 @@ function ItemEditPageInner() {
   if (error) {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/items" label="Volver a artículos" />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             No se pudo cargar el artículo. {error.message}
@@ -575,207 +547,167 @@ function ItemEditPageInner() {
     )
   }
 
+  const isProductionKind = kind === "produccion_directa" || kind === "produccion_previa"
+
+  // Pestañas propias, después de Resumen y Datos (orden y nombres de esas dos
+  // los fija `EntityShell`). Ninguna edita atributos del artículo: el stock,
+  // las variantes y la composición son colecciones que se editan fila por
+  // fila con sus propios diálogos.
+  const extraTabs: Array<EntityTab | false> = [
+    {
+      key: "stock",
+      label: "Stock",
+      content: (
+<StockTab id={id} form={form} />
+      ),
+    },
+    // Con el ítem sin guardar la pestaña se muestra DESHABILITADA (lo hace el
+    // armazón en el alta), no oculta: las variantes cuelgan de un parentId que
+    // aún no existe, y ocultarla dejaba al usuario activando el switch sin
+    // pista de dónde cargarlas.
+    hasVariants && { key: "variantes", label: "Variantes", content: <VariantsTab parentId={id} /> },
+    // "Producción" solo cuando hay receta que producir; el resto es
+    // "Componentes" — incluye al producto común, cuya composición son sus
+    // add-ons.
+    {
+      key: "produccion",
+      label: isProductionKind ? "Producción" : "Componentes",
+      content: (
+        <ProduccionTab
+          id={id}
+          visibility={visibility}
+          kind={kind}
+          comboPricing={data?.comboPricing}
+        />
+      ),
+    },
+  ]
+
+  const persistedKindLabel = persistedKind ? KIND_META[persistedKind]?.label : null
+
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
-        <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <BackLink />
-            <h1 className="text-2xl font-semibold">
-              {isNew ? "Nuevo artículo" : isLoading ? (
-                <Skeleton className="h-7 w-48" />
-              ) : (
-                data?.itemName || "Artículo"
-              )}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            {!isNew && persistedKind === "produccion_previa" && (
-              <Button variant="outline" size="sm" asChild>
-                <Link href={`/produccion?newItemId=${id}`}>
-                  <ChefHat className="size-4" />
-                  Producir
-                </Link>
-              </Button>
-            )}
-            {!isNew && productionKindUnsaved && (
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span>
-                      <Button variant="outline" size="sm" disabled>
-                        <ChefHat className="size-4" />
-                        Producir
-                      </Button>
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-60">
-                    Guardá los cambios primero — el tipo &quot;Producción previa&quot;
-                    todavía no se aplicó en el artículo.
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            {!isNew && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
-                    <Archive className="size-4" />
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <EntityShell
+          isNew={isNew}
+          back={{ href: "/items", label: "Volver a artículos" }}
+          title={isNew ? "Nuevo artículo" : data?.itemName || "Artículo"}
+          isLoading={isLoading && !isNew}
+          status={
+            data && (toNum(data.itemStatus) ?? 1) !== 1 ? (
+              <Badge variant="outline">Archivado</Badge>
+            ) : null
+          }
+          subtitle={
+            !isNew && data
+              ? [persistedKindLabel, toStr(data.itemSKU) ? `SKU ${toStr(data.itemSKU)}` : null]
+                  .filter(Boolean)
+                  .join(" · ") || null
+              : null
+          }
+          actions={
+            !isNew && (
+              <>
+                {persistedKind === "produccion_previa" && (
+                  <Button variant="outline" asChild>
+                    <Link href={`/produccion?newItemId=${id}`}>Producir</Link>
                   </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>¿Archivar este artículo?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      No se elimina — queda con estado &quot;Archivado&quot;. Lo podés
-                      reactivar volviendo a prender el switch de estado.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={onArchive} disabled={archive.isPending}>
-                      {archive.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
-                      Archivar
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
-            <Button
-              type="submit"
-              disabled={(isNew ? create.isPending : update.isPending) || (isLoading && !isNew)}
-            >
-              {(isNew ? create.isPending : update.isPending) && (
-                <Loader2 className="mr-2 size-4 animate-spin" />
-              )}
-              {isNew ? "Crear artículo" : "Guardar"}
-            </Button>
-          </div>
-        </header>
-
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          {/* Horizontal scroll en mobile — con 7 tabs, grid-cols-7 dejaría
-              cada tab en ~45px y el texto se cortaba. */}
-          <div className="-mx-2 overflow-x-auto px-2">
-            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-              <TabsTrigger value="perfil" className="gap-1.5">
-                <User className="size-3.5" />
-                Perfil
-                {tabsWithErrors.has("perfil") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="imagenes" className="gap-1.5" disabled={isNew}>
-                <Images className="size-3.5" />
-                Imágenes
-              </TabsTrigger>
-              <TabsTrigger value="config" className="gap-1.5">
-                <SettingsIcon className="size-3.5" />
-                Configuración
-                {tabsWithErrors.has("config") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="disponibilidad" className="gap-1.5">
-                <Calendar className="size-3.5" />
-                Disponibilidad
-                {tabsWithErrors.has("disponibilidad") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
-                <Boxes className="size-3.5" />
-                Stock
-              </TabsTrigger>
-              {/* Con el item todavía sin guardar el tab se muestra DESHABILITADO,
-                  no oculto (misma convención que Stock y Producción): las
-                  variantes cuelgan de un parentId que aún no existe. Ocultarlo
-                  dejaba al usuario activando el switch y sin ninguna pista de
-                  dónde cargar las variantes. */}
-              {hasVariants && (
-                <TabsTrigger value="variantes" className="gap-1.5" disabled={isNew}>
-                  <Layers className="size-3.5" />
-                  Variantes
-                </TabsTrigger>
-              )}
-              {/* "Producción" solo cuando hay receta que producir; el resto es
-                  "Componentes" — incluye al producto común, cuya composición
-                  son sus add-ons (antes decía "Producción" y adentro "este
-                  tipo no tiene ingredientes"). */}
-              <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
-                {kind === "produccion_directa" || kind === "produccion_previa" ? (
-                  <>
-                    <ChefHat className="size-3.5" />
-                    Producción
-                  </>
-                ) : (
-                  <>
-                    <Package2 className="size-3.5" />
-                    Componentes
-                  </>
                 )}
-                {tabsWithErrors.has("produccion") && <TabErrorDot />}
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="perfil" className="mt-6">
-            <PerfilTab
-              form={form}
-              visibility={visibility}
-              kind={kind}
-              itemId={isNew ? "" : id}
-              images={(data?.images as ItemImage[] | undefined) ?? []}
-              isNew={isNew}
-              hasVariants={hasVariants}
-              onHasVariantsChange={setHasVariants}
-              savedVariantCount={savedVariantCount}
-            />
-          </TabsContent>
-          <TabsContent value="imagenes" className="mt-6">
-            <ItemGallery
-              itemId={isNew ? "" : id}
-              images={(data?.images as ItemImage[] | undefined) ?? []}
-              disabled={isNew}
-            />
-          </TabsContent>
-          <TabsContent value="config" className="mt-6">
-            <ConfigTab
-              form={form}
-              visibility={visibility}
-              kind={kind}
-              selectedCategories={selectedCategories}
-              onCategoriesChange={setSelectedCategories}
-              selectedBrands={selectedBrands}
-              onBrandsChange={setSelectedBrands}
-              selectedTags={selectedTags}
-              onTagsChange={setSelectedTags}
-            />
-          </TabsContent>
-          <TabsContent value="disponibilidad" className="mt-6">
-            <DisponibilidadTab form={form} />
-          </TabsContent>
-          <TabsContent value="stock" className="mt-6">
-            <StockTab id={id} isNew={isNew} form={form} />
-          </TabsContent>
-          {hasVariants && !isNew && (
-            <TabsContent value="variantes" className="mt-6">
-              <VariantsTab parentId={id} />
-            </TabsContent>
-          )}
-          <TabsContent value="produccion" className="mt-6">
-            <ProduccionTab
-              form={form}
-              id={id}
-              isNew={isNew}
-              visibility={visibility}
-              kind={kind}
-              comboPricing={data?.comboPricing}
-            />
-          </TabsContent>
-        </Tabs>
+                {productionKindUnsaved && (
+                  <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>
+                        <Button variant="outline" disabled>
+                          Producir
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-60">
+                      Guardá los cambios primero: el tipo &quot;Producción previa&quot;
+                      todavía no se aplicó en el artículo.
+                    </TooltipContent>
+                  </Tooltip>
+                  </TooltipProvider>
+                )}
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline">Archivar</Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>¿Archivar este artículo?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        No se elimina — queda con estado &quot;Archivado&quot;. Lo podés
+                        reactivar volviendo a prender el switch de estado.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={onArchive} disabled={archive.isPending}>
+                        {archive.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                        Archivar
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )
+          }
+          summary={isNew ? null : <ItemSummaryTab itemId={id} />}
+          data={
+            <FormSectionColumns>
+              <PerfilSections
+                form={form}
+                visibility={visibility}
+                kind={kind}
+                itemId={isNew ? "" : id}
+                images={(data?.images as ItemImage[] | undefined) ?? []}
+                isNew={isNew}
+                hasVariants={hasVariants}
+                onHasVariantsChange={setHasVariants}
+                savedVariantCount={savedVariantCount}
+              />
+              <FormSection title="Imágenes">
+                {isNew ? (
+                  <p className="text-sm text-muted-foreground">
+                    Las imágenes se cargan después de crear el artículo.
+                  </p>
+                ) : (
+                  <ItemGallery
+                    itemId={id}
+                    images={(data?.images as ItemImage[] | undefined) ?? []}
+                  />
+                )}
+              </FormSection>
+              <ConfigSections
+                form={form}
+                visibility={visibility}
+                kind={kind}
+                selectedCategories={selectedCategories}
+                onCategoriesChange={setSelectedCategories}
+                selectedBrands={selectedBrands}
+                onBrandsChange={setSelectedBrands}
+                selectedTags={selectedTags}
+                onTagsChange={setSelectedTags}
+              />
+              <StockThresholdsSection form={form} />
+              <DisponibilidadSection form={form} />
+              {isProductionKind && <ProcedureSection form={form} />}
+            </FormSectionColumns>
+          }
+          extraTabs={extraTabs}
+          tabAliases={ITEM_TAB_ALIASES}
+          save={{ pending: isNew ? create.isPending : update.isPending }}
+        />
       </form>
     </Form>
   )
 }
 
-// ── PERFIL TAB ──────────────────────────────────────────────────────────────
+// ── DATOS: identidad y precio ───────────────────────────────────────────────
 
-function PerfilTab({
+function PerfilSections({
   form,
   visibility,
   kind,
@@ -804,44 +736,27 @@ function PerfilTab({
   const markup = cost > 0 ? ((price - cost) / cost) * 100 : 0
   const margen = price > 0 ? ((price - cost) / price) * 100 : 0
 
-  // La ficha del artículo va SIEMPRE en dos columnas en desktop.
-  //
-  // Antes el layout dependía de que el tipo tuviera precio Y costo: un "insumo
-  // con stock" no vende, así que no muestra precio, y toda la ficha colapsaba a
-  // una sola columna. Resultado: "Datos básicos" ocupando el ancho completo con
-  // los campos estirados, y el costo empujado tan abajo que había que scrollear
-  // para verlo, con media pantalla vacía al costado.
-  //
-  // Un card con pocos campos al lado de otro no molesta; lo que molesta es una
-  // columna de ancho completo con dos campos y el resto del contenido fuera de
-  // vista.
+  // Secciones de la pestaña Datos: van dentro del `FormSectionColumns` de la
+  // página, que las reparte en dos columnas sin huecos (context/20
+  // 2026-09-09). Por eso devuelve un fragmento y no un contenedor.
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Datos básicos</CardTitle>
-          <CardAction>
-            <FormField
-              control={form.control}
-              name="status"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center gap-2 space-y-0">
-                  <FormLabel className="cursor-pointer text-xs text-muted-foreground">
-                    {field.value ? "Activo" : "Archivado"}
-                  </FormLabel>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
-          </CardAction>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-5">
-          {/* Hero: foto + nombre (prominente) + SKU debajo.
-              Foto cuadrada un poco más grande para balancear con el nombre,
-              y bajada `mt-6` para que el centro quede a la altura del input
-              de Nombre (que vive debajo de su label uppercase). */}
+    <>
+      <FormSection title="Datos básicos">
+          <FormField
+            control={form.control}
+            name="status"
+            render={({ field }) => (
+              <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+                <FormLabel>Activo</FormLabel>
+                <FormControl>
+                  <Switch checked={field.value} onCheckedChange={field.onChange} />
+                </FormControl>
+              </FormItem>
+            )}
+          />
+          {/* Hero: foto + nombre (prominente) + SKU debajo. La foto baja
+              `mt-6` para que su centro quede a la altura del input de Nombre
+              (que vive debajo de su label). */}
           <div className="flex items-start gap-4">
             <ProductPhoto
               itemId={itemId}
@@ -856,9 +771,7 @@ function PerfilTab({
                 name="name"
                 render={({ field }) => (
                   <FormItem className="space-y-1">
-                    <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Nombre
-                    </FormLabel>
+                    <FormLabel>Nombre</FormLabel>
                     <FormControl>
                       <Input
                         placeholder="Ej: Café Espresso"
@@ -884,9 +797,7 @@ function PerfilTab({
                   name="sku"
                   render={({ field }) => (
                     <FormItem className="space-y-1">
-                      <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        SKU / Código
-                      </FormLabel>
+                      <FormLabel>SKU / Código</FormLabel>
                       <FormControl>
                         <Input
                           placeholder="Código interno"
@@ -903,9 +814,7 @@ function PerfilTab({
                   name="barcode"
                   render={({ field }) => (
                     <FormItem className="space-y-1">
-                      <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                        Código de barras
-                      </FormLabel>
+                      <FormLabel>Código de barras</FormLabel>
                       <FormControl>
                         <Input
                           placeholder="Escaneá o escribí el código"
@@ -928,9 +837,7 @@ function PerfilTab({
             name="kind"
             render={({ field }) => (
               <FormItem className="space-y-1.5">
-                <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Tipo de artículo
-                </FormLabel>
+                <FormLabel>Tipo de artículo</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
                     <SelectTrigger>
@@ -950,9 +857,6 @@ function PerfilTab({
                     ))}
                   </SelectContent>
                 </Select>
-                <FormDescription className="text-xs">
-                  {(KIND_META[field.value as ItemKind] ?? KIND_META["producto"]).description}
-                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -965,9 +869,7 @@ function PerfilTab({
               name="packDurationDays"
               render={({ field }) => (
                 <FormItem className="space-y-1.5">
-                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Duración (días)
-                  </FormLabel>
+                  <FormLabel>Duración (días)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -982,10 +884,6 @@ function PerfilTab({
                       }}
                     />
                   </FormControl>
-                  <FormDescription className="text-xs">
-                    Días desde la venta hasta que el pack vence. Los servicios no
-                    consumidos se pierden al vencer.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1001,9 +899,7 @@ function PerfilTab({
               name="itemSessions"
               render={({ field }) => (
                 <FormItem className="space-y-1.5">
-                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Sesiones por venta
-                  </FormLabel>
+                  <FormLabel>Sesiones por venta</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -1018,9 +914,6 @@ function PerfilTab({
                       }}
                     />
                   </FormControl>
-                  <FormDescription className="text-xs">
-                    Al venderse con cliente, agenda esta cantidad de citas.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1036,9 +929,7 @@ function PerfilTab({
               name="giftcardColor"
               render={({ field }) => (
                 <FormItem className="space-y-1.5">
-                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Color de la gift card
-                  </FormLabel>
+                  <FormLabel>Color de la gift card</FormLabel>
                   <FormControl>
                     <div className="flex flex-col gap-3">
                       <div className="grid grid-cols-10 gap-1.5">
@@ -1087,9 +978,7 @@ function PerfilTab({
             name="description"
             render={({ field }) => (
               <FormItem className="space-y-1.5">
-                <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Descripción
-                </FormLabel>
+                <FormLabel>Descripción</FormLabel>
                 <FormControl>
                   <Textarea
                     rows={3}
@@ -1121,14 +1010,11 @@ function PerfilTab({
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-                  <p className="text-xs text-muted-foreground">
-                    Cuando esta activo, precio y costo se definen por variante.
-                  </p>
                   {hasVariants && (
                     <p className="text-xs text-muted-foreground">
                       {isNew
-                        ? "Guardá el producto y cargá las variantes desde el tab Variantes."
-                        : "Cargá las variantes desde el tab Variantes."}
+                        ? "Guardá el producto y cargá las variantes desde la pestaña Variantes."
+                        : "Las variantes se cargan en la pestaña Variantes."}
                     </p>
                   )}
                 </div>
@@ -1153,15 +1039,10 @@ function PerfilTab({
               </div>
             </>
           )}
-        </CardContent>
-      </Card>
+      </FormSection>
 
       {(visibility.showPrice || visibility.showCost) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Precio y costo</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        <FormSection title="Precio y costo">
             {visibility.showPrice && (
               <FormField
                 control={form.control}
@@ -1196,9 +1077,6 @@ function PerfilTab({
                         placeholder="0"
                       />
                     </FormControl>
-                    <FormDescription className="text-xs">
-                      Costo promedio (COGS). Se actualiza solo con movimientos de inventario.
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -1235,33 +1113,25 @@ function PerfilTab({
             {visibility.showPrice && (
               <>
                 <Separator />
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Precio por moneda extranjera
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Si vendés a clientes que pagan en otra moneda, agregá acá el
-                    precio de este ítem en esa divisa. Quitar una moneda deja de
-                    ofrecer el ítem en ella.
-                  </p>
+                <div className="flex flex-col gap-2">
+                  <Label>Precio por moneda extranjera</Label>
                   <CurrencyPriceField form={form} />
                 </div>
               </>
             )}
-          </CardContent>
-        </Card>
+        </FormSection>
       )}
 
       {/* Add-ons (context/41) NO van acá: son composición del artículo y viven
           en la pestaña Componentes con la receta/componentes, para todo tipo
           vendible (decisión del owner 2026-08-09, ver ProduccionTab). */}
-    </div>
+    </>
   )
 }
 
-// ── CONFIGURACIÓN TAB ───────────────────────────────────────────────────────
+// ── DATOS: configuración ────────────────────────────────────────────────────
 
-function ConfigTab({
+function ConfigSections({
   form,
   visibility,
   kind,
@@ -1303,14 +1173,10 @@ function ConfigTab({
   )
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <>
       {/* Categorización */}
       {visibility.showCategorization && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Categorización</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        <FormSection title="Categorización">
             <FormItem>
               <FormLabel>Categorías</FormLabel>
               <CategoriesPicker
@@ -1362,9 +1228,6 @@ function ConfigTab({
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Precarga esta categoría al agregar el ítem a una compra — se puede cambiar por línea sin afectar esta configuración.
-                  </p>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1386,9 +1249,6 @@ function ConfigTab({
                     emptyMessage="Sin sucursales."
                     unitLabels={["sucursal", "sucursales"]}
                   />
-                  <FormDescription className="text-xs">
-                    El artículo aparece en las cajas de las sucursales marcadas.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1415,17 +1275,12 @@ function ConfigTab({
                 )}
               />
             )}
-          </CardContent>
-        </Card>
+          </FormSection>
       )}
 
       {/* Impuestos y descuentos */}
       {(visibility.showTax || visibility.showDiscount) && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Impuestos y descuentos</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        <FormSection title="Impuestos y descuentos">
             {visibility.showTax && (
               <>
                 <FormField
@@ -1460,12 +1315,7 @@ function ConfigTab({
                   name="taxIncluded"
                   render={({ field }) => (
                     <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                      <div>
-                        <FormLabel className="text-sm">IVA incluido</FormLabel>
-                        <FormDescription className="text-xs">
-                          El precio de venta ya incluye el impuesto.
-                        </FormDescription>
-                      </div>
+                      <FormLabel>IVA incluido</FormLabel>
                       <FormControl>
                         <Switch checked={field.value} onCheckedChange={field.onChange} />
                       </FormControl>
@@ -1502,17 +1352,12 @@ function ConfigTab({
                 )}
               />
             )}
-          </CardContent>
-        </Card>
+          </FormSection>
       )}
 
       {/* Comportamiento del precio (avanzado) */}
       {visibility.showPrice && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Comportamiento del precio</CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        <FormSection title="Comportamiento del precio">
             <FormField
               control={form.control}
               name="priceType"
@@ -1530,10 +1375,6 @@ function ConfigTab({
                       <SelectItem value="percent">% sobre el costo</SelectItem>
                     </SelectContent>
                   </Select>
-                  <FormDescription className="text-xs">
-                    En modo % sobre costo, el precio se recalcula automáticamente cuando
-                    cambia el costo promedio.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1594,7 +1435,7 @@ function ConfigTab({
                 name="commissionType"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel className="text-xs">&nbsp;</FormLabel>
+                    <FormLabel className="invisible">Tipo</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -1613,16 +1454,11 @@ function ConfigTab({
                 )}
               />
             </div>
-          </CardContent>
-        </Card>
+          </FormSection>
       )}
 
       {/* Inventario y orden */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Otros ajustes</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
+      <FormSection title="Otros ajustes">
           {visibility.showInventoryInfo && (
             <FormField
               control={form.control}
@@ -1646,10 +1482,6 @@ function ConfigTab({
                       className="tabular-nums"
                     />
                   </FormControl>
-                  <FormDescription className="text-xs">
-                    % de rendimiento perdido al producir o manipular (ej.: carne
-                    con 30% de merma → 1kg crudo rinde 700g útiles).
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -1675,9 +1507,6 @@ function ConfigTab({
                     className="tabular-nums"
                   />
                 </FormControl>
-                <FormDescription className="text-xs">
-                  Menor valor = aparece más arriba en la caja. Default 99999.
-                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -1687,12 +1516,7 @@ function ConfigTab({
             name="ecom"
             render={({ field }) => (
               <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                <div>
-                  <FormLabel className="text-sm">Online</FormLabel>
-                  <FormDescription className="text-xs">
-                    Disponible en el catálogo de e-commerce.
-                  </FormDescription>
-                </div>
+                <FormLabel>Online</FormLabel>
                 <FormControl>
                   <Switch checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
@@ -1704,152 +1528,35 @@ function ConfigTab({
             name="featured"
             render={({ field }) => (
               <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-                <div>
-                  <FormLabel className="text-sm">Destacado</FormLabel>
-                  <FormDescription className="text-xs">
-                    Resalta el artículo en el catálogo y en la caja.
-                  </FormDescription>
-                </div>
+                <FormLabel>Destacado</FormLabel>
                 <FormControl>
                   <Switch checked={field.value} onCheckedChange={field.onChange} />
                 </FormControl>
               </FormItem>
             )}
           />
-        </CardContent>
-      </Card>
-    </div>
+        </FormSection>
+    </>
   )
 }
 
-// ── STOCK TAB ────────────────────────────────────────────────────────────────
+// ── STOCK (pestaña) ──────────────────────────────────────────────────────────
 
-function StockTab({
-  id,
-  isNew,
-  form,
-}: {
-  id: string
-  isNew: boolean
-  form: ReturnType<typeof useForm<ItemFormValues>>
-}) {
-  if (isNew) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Primero creá el artículo. Una vez guardado, podés cargar stock inicial,
-          ver el historial de movimientos y ajustar los depósitos.
-        </CardContent>
-      </Card>
-    )
-  }
-
+function StockTab({ id, form }: { id: string; form: UseFormReturn<ItemFormValues> }) {
   // Se leen del form (no del ítem guardado) para que el semáforo responda
-  // mientras se edita el umbral, sin esperar al guardado.
+  // mientras se edita el umbral en Datos, sin esperar al guardado.
   const minStock = form.watch("minStock")
   const maxStock = form.watch("maxStock")
-
   return (
     <div className="flex flex-col gap-6">
       <ItemStockTab itemId={id} minStock={minStock} maxStock={maxStock} />
-
+      {/* Colección hija: cada depósito se marca y se guarda en el acto, no con
+          el Guardar de Datos. */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
-            Umbrales de stock
-          </CardTitle>
-          <CardDescription>
-            Debajo del mínimo el artículo se marca en el listado como próximo al
-            quiebre; por encima del máximo, como sobrestockeado. Dejalos vacíos
-            para no controlarlos.
-          </CardDescription>
+          <CardTitle>Depósitos donde vive este artículo</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <FormField
-            control={form.control}
-            name="minStock"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Stock mínimo</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
-                    inputMode="decimal"
-                    className="tabular-nums"
-                    placeholder="Sin mínimo"
-                    value={field.value ?? ""}
-                    onChange={(e) =>
-                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
-                    }
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="maxStock"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Stock máximo</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
-                    inputMode="decimal"
-                    className="tabular-nums"
-                    placeholder="Sin máximo"
-                    value={field.value ?? ""}
-                    onChange={(e) =>
-                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
-                    }
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="replenishQty"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Cantidad a reponer o producir</FormLabel>
-                <FormControl>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="any"
-                    inputMode="decimal"
-                    className="tabular-nums"
-                    placeholder="Sin reposición"
-                    value={field.value ?? ""}
-                    onChange={(e) =>
-                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
-                    }
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Depósitos donde vive este artículo</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Marcá los depósitos donde se almacena el stock. En cada sucursal,
-            elegí el <em>default</em> que se usa al vender o producir si no se
-            especifica otro.
-          </p>
+        <CardContent>
           <LocationsEditor itemId={id} />
         </CardContent>
       </Card>
@@ -1857,45 +1564,119 @@ function StockTab({
   )
 }
 
-// ── DISPONIBILIDAD TAB ──────────────────────────────────────────────────────
+// ── DATOS: umbrales de stock, disponibilidad y procedimiento ────────────────
+// Vivían en las pestañas Stock, Disponibilidad y Producción, pero son
+// atributos del artículo que se guardan con el mismo "Guardar": en una pestaña
+// sin ese botón quedaban editables e imposibles de guardar desde ahí. Datos es
+// el único lugar de edición (context/84 §3).
 
-function DisponibilidadTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
-  const availability = form.watch("availability")
-
+function StockThresholdsSection({ form }: { form: UseFormReturn<ItemFormValues> }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">Días y horarios disponibles</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+    <FormSection title="Umbrales de stock">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <FormField
           control={form.control}
-          name="availability.enabled"
+          name="minStock"
           render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-              <div>
-                <FormLabel className="text-sm">Limitar disponibilidad</FormLabel>
-                <FormDescription className="text-xs">
-                  Si está apagado, el ítem se vende todos los días sin restricción
-                  horaria. Encendido = solo los días y rangos configurados abajo.
-                </FormDescription>
-              </div>
+            <FormItem>
+              <FormLabel>Stock mínimo</FormLabel>
               <FormControl>
-                <Switch checked={field.value} onCheckedChange={field.onChange} />
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  className="tabular-nums"
+                  placeholder="Sin mínimo"
+                  value={field.value ?? ""}
+                  onChange={(e) =>
+                    field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
               </FormControl>
+              <FormMessage />
             </FormItem>
           )}
         />
+        <FormField
+          control={form.control}
+          name="maxStock"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Stock máximo</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  className="tabular-nums"
+                  placeholder="Sin máximo"
+                  value={field.value ?? ""}
+                  onChange={(e) =>
+                    field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="replenishQty"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Cantidad a reponer</FormLabel>
+              <FormControl>
+                <Input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  className="tabular-nums"
+                  placeholder="Sin reposición"
+                  value={field.value ?? ""}
+                  onChange={(e) =>
+                    field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </div>
+    </FormSection>
+  )
+}
 
-        {availability?.enabled && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {DAYS.map((day) => (
-              <DaySchedule key={day} day={day} form={form} />
-            ))}
-          </div>
+function DisponibilidadSection({ form }: { form: UseFormReturn<ItemFormValues> }) {
+  const availability = form.watch("availability")
+
+  return (
+    <FormSection title="Disponibilidad">
+      <FormField
+        control={form.control}
+        name="availability.enabled"
+        render={({ field }) => (
+          <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+            <FormLabel>Limitar a días y horarios</FormLabel>
+            <FormControl>
+              <Switch checked={field.value} onCheckedChange={field.onChange} />
+            </FormControl>
+          </FormItem>
         )}
-      </CardContent>
-    </Card>
+      />
+
+      {availability?.enabled && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {DAYS.map((day) => (
+            <DaySchedule key={day} day={day} form={form} />
+          ))}
+        </div>
+      )}
+    </FormSection>
   )
 }
 
@@ -1910,9 +1691,8 @@ function DaySchedule({
   return (
     <div className="flex flex-col gap-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
-        <FormLabel className="text-xs font-semibold uppercase tracking-wide">
-          {DAY_LABELS[day]}
-        </FormLabel>
+        {/* Label suelto y no FormLabel: nombra el día, no un campo del form. */}
+        <Label>{DAY_LABELS[day]}</Label>
         <FormField
           control={form.control}
           name={`availability.days.${day}.enabled`}
@@ -1922,27 +1702,19 @@ function DaySchedule({
         />
       </div>
       {enabled && (
-        <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <FormField
             control={form.control}
             name={`availability.days.${day}.from`}
             render={({ field }) => (
-              <Input
-                type="time"
-                className="tabular-nums h-8 text-xs"
-                {...field}
-              />
+              <Input type="time" className="tabular-nums" aria-label="Desde" {...field} />
             )}
           />
           <FormField
             control={form.control}
             name={`availability.days.${day}.to`}
             render={({ field }) => (
-              <Input
-                type="time"
-                className="tabular-nums h-8 text-xs"
-                {...field}
-              />
+              <Input type="time" className="tabular-nums" aria-label="Hasta" {...field} />
             )}
           />
         </div>
@@ -1951,45 +1723,51 @@ function DaySchedule({
   )
 }
 
-// ── PRODUCCIÓN TAB ──────────────────────────────────────────────────────────
+function ProcedureSection({ form }: { form: UseFormReturn<ItemFormValues> }) {
+  return (
+    <FormSection title="Procedimiento">
+      <FormField
+        control={form.control}
+        name="procedure"
+        render={({ field }) => (
+          <FormItem>
+            <FormControl>
+              <Textarea
+                rows={6}
+                placeholder="Paso a paso de la elaboración (opcional)"
+                aria-label="Procedimiento"
+                {...field}
+              />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </FormSection>
+  )
+}
+
+// ── PRODUCCIÓN / COMPONENTES (pestaña) ──────────────────────────────────────
 
 function ProduccionTab({
-  form,
   id,
-  isNew,
   visibility,
   kind,
   comboPricing,
 }: {
-  form: UseFormReturn<ItemFormValues>
   id: string
-  isNew: boolean
   visibility: KindFieldVisibility
   kind: ItemKind
   /** Solo llega con `kind = combo_fijo` y componentes cargados (F5). */
   comboPricing?: ComboPricing
 }) {
-  if (isNew) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Primero creá el artículo. Una vez guardado, podés cargar acá de qué se
-          compone: receta, componentes del combo o grupos de add-ons, según el
-          tipo.
-        </CardContent>
-      </Card>
-    )
-  }
-
   // Esta pestaña es LA composición del artículo, sea del tipo que sea: receta
   // (producción), componentes (combo fijo), servicios (pack), y — para todo lo
-  // vendible — los grupos de add-ons. Decisión del owner (2026-08-09): la
-  // distinción entre "definición" y "extras opcionales" es de modelado, no
-  // algo que le sirva a quien edita la ficha; "de qué se compone y qué extras
-  // admite" es una sola pregunta y va en un solo lugar. Antes los add-ons
-  // vivían en Perfil y esta pestaña quedaba visible sin uso para un producto
-  // común. Los grupos cuelgan de un itemId real (FK ON DELETE CASCADE), por
-  // eso solo con el ítem ya guardado (isNew ya cortó arriba).
+  // vendible — los grupos de add-ons. Decisión del owner (2026-08-09): "de qué
+  // se compone y qué extras admite" es una sola pregunta y va en un solo
+  // lugar. Los grupos cuelgan de un itemId real (FK ON DELETE CASCADE), por
+  // eso la pestaña se habilita recién con el ítem guardado (lo hace el
+  // armazón en el alta).
   const canSale = KIND_META[kind].backend.itemCanSale === 1
   // Un grupo de combo dinámico es una decisión obligatoria y única ("elegí 1
   // hamburguesa"): arranca en min=1/max=1. El preset opcional del producto
@@ -2007,14 +1785,9 @@ function ProduccionTab({
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Servicios del pack</CardTitle>
+            <CardTitle>Servicios del pack</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-xs text-muted-foreground">
-              Agregá los servicios (o productos) que incluye este pack con la cantidad de
-              canjes disponibles. El cliente los consume desde el POS dentro del período
-              de vigencia configurado en Perfil.
-            </p>
+          <CardContent>
             <PackComponentsEditor itemId={id} />
           </CardContent>
         </Card>
@@ -2030,22 +1803,15 @@ function ProduccionTab({
     return <div className="flex flex-col gap-6">{addons}</div>
   }
 
-  // combo_fijo: usa el mismo CompoundsEditor (table parent → child + quantity)
-  // pero con copy enfocado en la venta del combo, no en producción.
+  // combo_fijo: usa el mismo CompoundsEditor (table parent → child + quantity).
   if (kind === "combo_fijo") {
     return (
       <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Componentes del combo</CardTitle>
+            <CardTitle>Componentes del combo</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-xs text-muted-foreground">
-              Items que se entregan al cliente cuando vende este combo. El{" "}
-              <strong>precio del combo es fijo</strong> (definido en la pestaña
-              Perfil). El costo total se suma del costo de cada componente —
-              sirve para calcular margen del combo vs venderlos por separado.
-            </p>
+          <CardContent>
             <CompoundsEditor itemId={id} kind={kind} />
           </CardContent>
         </Card>
@@ -2056,77 +1822,241 @@ function ProduccionTab({
   }
 
   // Sin receta ni componentes (producto común, servicio, etc.): la
-  // composición del artículo son sus add-ons, si es vendible. Si además no se
-  // vende, no hay nada que componer y se explica por qué.
+  // composición del artículo son sus add-ons, si es vendible.
   if (!visibility.showCompounds) {
     if (addons) return <div className="flex flex-col gap-6">{addons}</div>
     return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Este tipo de artículo no se vende ni tiene ingredientes ni componentes.
-          Si querés agregar una receta o un combo, cambialo a un tipo
-          &quot;Producción&quot; o &quot;Combo&quot; en la pestaña Perfil.
-        </CardContent>
-      </Card>
+      <p className="text-sm text-muted-foreground">
+        Este tipo de artículo no tiene componentes. Para cargar una receta o un
+        combo, cambiá el tipo en Datos.
+      </p>
     )
   }
 
-  // produccion_directa / produccion_previa — receta clásica
+  // produccion_directa / produccion_previa — receta clásica. El procedimiento
+  // escrito es un atributo del artículo: se edita en Datos.
   return (
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Insumos / Receta</CardTitle>
+          <CardTitle>Insumos / Receta</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Materiales que se consumen al{" "}
-            <strong>
-              {kind === "produccion_directa" ? "vender" : "producir un lote de"}
-            </strong>{" "}
-            este artículo. El costo total se suma de cantidad × costo unitario
-            de cada ingrediente.
-          </p>
+        <CardContent>
           <CompoundsEditor itemId={id} kind={kind} />
         </CardContent>
       </Card>
 
       {/* Cuántas unidades salen HOY con el stock de esos insumos. Va debajo de
-          la receta y no arriba porque es su consecuencia, no su encabezado. No
-          se renderiza para un ítem nuevo (todavía no tiene id ni receta), ni
-          cuando el server dice que no hay receta cargada. */}
-      {!isNew && <ProducibleCard itemId={id} />}
-
-      <FormField
-        control={form.control}
-        name="procedure"
-        render={({ field }) => (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base font-semibold tracking-tight">Procedimiento</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <FormItem>
-                <FormControl>
-                  <Textarea
-                    rows={6}
-                    placeholder="Procedimiento para la elaboración (opcional)"
-                    {...field}
-                  />
-                </FormControl>
-                <FormDescription className="text-xs">
-                  Instrucciones paso a paso de cómo preparar este ítem. Visible en el
-                  módulo de producción.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            </CardContent>
-          </Card>
-        )}
-      />
+          la receta y no arriba porque es su consecuencia, no su encabezado. */}
+      <ProducibleCard itemId={id} />
       {addons}
     </div>
   )
+}
+
+// ── RESUMEN ──────────────────────────────────────────────────────────────────
+//
+// Referencia visual: el dashboard de Ventas (context/84 §2.1) — KPIs en
+// StatTile gris con comparación, gráfico y tabla resumen en cards blancas.
+//
+// De dónde sale cada número (sin endpoints nuevos):
+//  - Ventas: `/v1/reports/products?itmId=&month=1&year=` — el reporte de
+//    Artículos filtrado por ESTE ítem, agrupado por mes del año. Es la única
+//    forma exacta que tiene hoy el backend: filtrado por artículo IGNORA el
+//    rango de fechas (`ProductsService::aggregate`), así que un gráfico por
+//    día o por semana no se puede armar sin tocar el backend. Respeta el
+//    alcance de sucursal del selector, como cualquier reporte.
+//  - Stock: el mismo saldo que la pestaña Stock (`inventory-movements`).
+
+type ItemMonthRow = ProductRow & { smonth?: number }
+
+const itemMonthChartConfig = {
+  total: { label: "Ventas", color: "var(--chart-1)" },
+} satisfies ChartConfig
+
+function ItemSummaryTab({ itemId }: { itemId: string }) {
+  const { data: bootstrap } = useBootstrap()
+  const canViewSales = usePermission("reports.sales.view")
+  // Año y mes EN LA ZONA DEL COMERCIO, no del navegador.
+  const today = tenantNow(bootstrap?.timezone)
+  const year = Number(today.slice(0, 4))
+  const month = Number(today.slice(5, 7))
+
+  const sales = useReport<ProductsReportResponse>("products", {
+    params: { view: "general", itmId: itemId, month: "1", year: String(year) },
+    enabled: canViewSales && !!bootstrap,
+  })
+  const stock = useItemStockMovements(itemId, { limit: 1 })
+
+  const months = React.useMemo(() => {
+    const byMonth = new Map<number, ItemMonthRow>()
+    for (const r of (sales.data?.rows ?? []) as ItemMonthRow[]) {
+      if (r.smonth) byMonth.set(r.smonth, r)
+    }
+    return Array.from({ length: 12 }, (_, i) => {
+      const r = byMonth.get(i + 1)
+      const total = Number(r?.total ?? 0)
+      const cogs = Number(r?.cogs ?? 0)
+      const comission = Number(r?.comission ?? 0)
+      return {
+        month: i + 1,
+        label: format(new Date(year, i, 1), "MMM", { locale: es }),
+        usold: Number(r?.usold ?? 0),
+        total,
+        cogs,
+        comission,
+        utility: r?.utility !== undefined ? Number(r.utility) : total - cogs - comission,
+      }
+    })
+  }, [sales.data, year])
+
+  const curr = months[month - 1]
+  // Enero no tiene mes anterior DENTRO de este año: sin comparación, en vez
+  // de compararlo contra cero.
+  const prev = month > 1 ? months[month - 2] : null
+  const yearTotals = months.reduce(
+    (acc, m) => ({
+      usold: acc.usold + m.usold,
+      total: acc.total + m.total,
+      cogs: acc.cogs + m.cogs,
+      comission: acc.comission + m.comission,
+      utility: acc.utility + m.utility,
+    }),
+    { usold: 0, total: 0, cogs: 0, comission: 0, utility: 0 },
+  )
+  const marginPct = curr.total > 0 ? Math.round((curr.utility / curr.total) * 100) : null
+  const salesLoading = sales.isLoading || !bootstrap
+
+  return (
+    <div className="flex flex-col gap-6">
+      <StatsRow>
+        {canViewSales && (
+          <>
+            <StatTile
+              label="Ventas del mes"
+              value={formatMoney(curr.total, bootstrap)}
+              emphasis
+              delta={prev ? { pct: pctDelta(curr.total, prev.total) } : undefined}
+              isLoading={salesLoading}
+            />
+            <StatTile
+              label="Unidades del mes"
+              value={formatInt(curr.usold, bootstrap)}
+              delta={prev ? { pct: pctDelta(curr.usold, prev.usold) } : undefined}
+              isLoading={salesLoading}
+            />
+            <StatTile
+              label="Margen del mes"
+              value={
+                <span className="flex items-baseline gap-2">
+                  {formatMoney(curr.utility, bootstrap)}
+                  {marginPct !== null && (
+                    <span className="text-xs font-normal text-muted-foreground">{marginPct}%</span>
+                  )}
+                </span>
+              }
+              tone={curr.utility < 0 ? "negative" : "neutral"}
+              delta={prev ? { pct: pctDelta(curr.utility, prev.utility) } : undefined}
+              isLoading={salesLoading}
+            />
+          </>
+        )}
+        <StatTile
+          label="Stock actual"
+          value={formatInt(stock.data?.summary.qty ?? 0, bootstrap)}
+          isLoading={stock.isLoading}
+        />
+      </StatsRow>
+
+      {canViewSales && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Ventas por mes</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {salesLoading ? (
+                <Skeleton className="h-[240px] w-full" />
+              ) : (
+                <ChartContainer config={itemMonthChartConfig} className="h-[240px] w-full">
+                  <BarChart data={months} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: number) => compactAmount(v)}
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                      content={
+                        <ChartTooltipContent
+                          formatter={(value) => (
+                            <span className="font-medium tabular-nums">
+                              {formatMoney(Number(value) || 0, bootstrap)}
+                            </span>
+                          )}
+                        />
+                      }
+                    />
+                    <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Acumulado {year}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-1">
+              {salesLoading ? (
+                <Skeleton className="h-40 w-full" />
+              ) : (
+                <>
+                  <SummaryRow label="Unidades vendidas" value={formatInt(yearTotals.usold, bootstrap)} />
+                  <SummaryRow label="Ventas" value={formatMoney(yearTotals.total, bootstrap)} />
+                  <SummaryRow label="Costo" value={`− ${formatMoney(yearTotals.cogs, bootstrap)}`} />
+                  {yearTotals.comission > 0 && (
+                    <SummaryRow label="Comisiones" value={`− ${formatMoney(yearTotals.comission, bootstrap)}`} />
+                  )}
+                  <SummaryRow label="Margen" value={formatMoney(yearTotals.utility, bootstrap)} highlight />
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Fila de tabla resumen; `highlight` = subtotal/total en gris (context/84 §2.1). */
+function SummaryRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-2 px-3 py-2 text-sm",
+        highlight && "rounded-md bg-muted/50 font-semibold",
+      )}
+    >
+      <span className="truncate">{label}</span>
+      <span className="font-medium tabular-nums">{value}</span>
+    </div>
+  )
+}
+
+function compactAmount(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}K`
+  return String(v)
 }
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
@@ -2156,7 +2086,7 @@ function ComboPricingCard({ pricing }: { pricing?: ComboPricing }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">Precio del combo</CardTitle>
+        <CardTitle>Precio del combo</CardTitle>
         <CardAction>
           {isMoreExpensive ? (
             <Badge variant="destructive">Más caro que por separado</Badge>
@@ -2195,21 +2125,11 @@ function ComboPricingCard({ pricing }: { pricing?: ComboPricing }) {
             </div>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {isMoreExpensive ? (
-            <>
-              Este combo cuesta más que comprar sus componentes por separado.
-              Revisá el precio en la pestaña Perfil o las cantidades de la
-              receta.
-            </>
-          ) : (
-            <>
-              Lo que el cliente ahorra comprando el combo en vez de sus
-              componentes sueltos. El descuento queda implícito en el precio —
-              no se imprime como línea aparte en el ticket.
-            </>
-          )}
-        </p>
+        {isMoreExpensive && (
+          <p className="text-sm text-muted-foreground">
+            Revisá el precio en Datos o las cantidades de los componentes.
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -2235,16 +2155,3 @@ function toStr(v: unknown): string {
   }
   return ""
 }
-
-function BackLink() {
-  return (
-    <Link
-      href="/items"
-      className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="size-3.5" />
-      Volver a artículos
-    </Link>
-  )
-}
-

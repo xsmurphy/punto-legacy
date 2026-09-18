@@ -115,7 +115,7 @@ function ReconciliationListView({ onOpen }: { onOpen: (id: string) => void }) {
               onClick={() => onOpen(session.id)}
             >
               <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-                <CardTitle className="text-base font-semibold tracking-tight">
+                <CardTitle>
                   {session.accountName ?? "Cuenta"}
                 </CardTitle>
                 <Badge variant={session.status === "open" ? "outline" : "secondary"}>
@@ -329,7 +329,7 @@ function ReconciliationDetailView({ id, onBack }: { id: string; onBack: () => vo
           <ArrowLeft className="size-4" />
         </Button>
         <div className="flex flex-col">
-          <h2 className="text-lg font-semibold">{session.accountName ?? "Cuenta"}</h2>
+          <h2 className="text-xl font-semibold">{session.accountName ?? "Cuenta"}</h2>
           <p className="text-sm text-muted-foreground">Extracto al {formatDate(session.statementDate)}</p>
         </div>
         <div className="ml-auto">

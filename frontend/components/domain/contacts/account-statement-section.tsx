@@ -70,7 +70,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/data-table/data-table"
 import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
-import { KpiCard } from "@/components/domain/contacts/kpi-card"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
 import { PosTransactionDetailDialog } from "@/components/register/pos-transaction-detail-dialog"
 
@@ -310,67 +310,49 @@ export function AccountStatementSection({
     </Button>
   )
 
-  if (!isLoading && invoices.length === 0) {
-    return (
+  // Contenido en cards blancas con título canónico; los totales NO van acá
+  // adentro (owner 2026-09-18: nada de KPIs anidados dentro de una card, y
+  // "Deuda total" repetía el "Cuentas por cobrar" de arriba). Quien monta la
+  // sección pone los números arriba — la ficha, en su fila de KPIs; el
+  // reporte de cuentas abiertas, con `AccountStatementKpis`.
+  return (
+    <>
       <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">Estado de cuenta</CardTitle>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>Facturas a crédito</CardTitle>
+          {payAction}
         </CardHeader>
         <CardContent>
-          <EmptyState
-            icon={Wallet}
-            title="Sin cuentas pendientes"
-            description={
-              isCustomer
+          {!isLoading && invoices.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {isCustomer
                 ? "Este cliente no tiene facturas a crédito abiertas."
-                : "Este proveedor no tiene facturas a crédito abiertas."
-            }
-          />
+                : "Este proveedor no tiene facturas a crédito abiertas."}
+            </p>
+          ) : (
+            <DataTable
+              tableId={`contact-statement-invoices-${contactType}`}
+              data={invoices}
+              columns={invoiceColumns}
+              getRowId={(r) => r.saleId}
+              isLoading={isLoading}
+              searchPlaceholder="Buscar por documento…"
+              exportFileName="estado-de-cuenta"
+              onRowClick={(row) => openInvoiceRow(row.saleId)}
+              emptyMessage={
+                <EmptyState icon={Wallet} title="Sin facturas" description="Sin facturas a crédito abiertas." />
+              }
+            />
+          )}
         </CardContent>
       </Card>
-    )
-  }
 
-  return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between pb-2">
-        <CardTitle className="text-base font-semibold tracking-tight">Estado de cuenta</CardTitle>
-        {payAction}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-2">
-          <KpiCard label="Deuda total" value={isLoading ? null : formatMoney(summary?.totalDebt, bootstrap)} />
-          <KpiCard
-            label={isCustomer ? "Facturado a crédito" : "Comprado a crédito"}
-            value={isLoading ? null : formatMoney(summary?.totalCredited, bootstrap)}
-          />
-          <KpiCard label={isCustomer ? "Cobrado" : "Pagado"} value={isLoading ? null : formatMoney(summary?.totalPaid, bootstrap)} />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Facturas a crédito
-          </p>
-          <DataTable
-            tableId={`contact-statement-invoices-${contactType}`}
-            data={invoices}
-            columns={invoiceColumns}
-            getRowId={(r) => r.saleId}
-            isLoading={isLoading}
-            searchPlaceholder="Buscar por documento…"
-            exportFileName="estado-de-cuenta"
-            onRowClick={(row) => openInvoiceRow(row.saleId)}
-            emptyMessage={
-              <EmptyState icon={Wallet} title="Sin facturas" description="Sin facturas a crédito abiertas." />
-            }
-          />
-        </div>
-
-        {payments.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {isCustomer ? "Cobros aplicados" : "Pagos aplicados"}
-            </p>
+      {payments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{isCustomer ? "Cobros aplicados" : "Pagos aplicados"}</CardTitle>
+          </CardHeader>
+          <CardContent>
             <DataTable
               tableId={`contact-statement-payments-${contactType}`}
               data={payments}
@@ -381,9 +363,9 @@ export function AccountStatementSection({
               exportFileName={isCustomer ? "cobros-aplicados" : "pagos-aplicados"}
               onRowClick={(row) => openPaymentRow(row.transactionId)}
             />
-          </div>
-        )}
-      </CardContent>
+          </CardContent>
+        </Card>
+      )}
 
       {canRegisterPayment && (
         <MultiInvoicePaymentDialog
@@ -405,6 +387,40 @@ export function AccountStatementSection({
           onOpenChange={(v) => !v && setPosDetailId(null)}
         />
       )}
-    </Card>
+    </>
+  )
+}
+
+/**
+ * Totales del estado de cuenta en StatTile — para quien muestra la sección
+ * sin una fila de KPIs propia (el detalle por contacto de
+ * `/reports/open-invoices`). La ficha de cliente NO lo usa: suma estos mismos
+ * números a su fila de KPIs del tab Financiero, una sola vez.
+ */
+export function AccountStatementKpis({
+  contactId,
+  contactType,
+}: {
+  contactId: string
+  contactType: ContactType
+}) {
+  const { data: bootstrap } = useBootstrap()
+  const isCustomer = contactType === 1
+  const { data, isLoading } = useContactStatement(contactId, contactType)
+  const summary = data?.summary
+  return (
+    <StatsRow>
+      <StatTile label="Deuda total" value={formatMoney(summary?.totalDebt, bootstrap)} emphasis isLoading={isLoading} />
+      <StatTile
+        label={isCustomer ? "Facturado a crédito" : "Comprado a crédito"}
+        value={formatMoney(summary?.totalCredited, bootstrap)}
+        isLoading={isLoading}
+      />
+      <StatTile
+        label={isCustomer ? "Cobrado" : "Pagado"}
+        value={formatMoney(summary?.totalPaid, bootstrap)}
+        isLoading={isLoading}
+      />
+    </StatsRow>
   )
 }

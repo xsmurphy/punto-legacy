@@ -38,7 +38,6 @@ import { useSearchParams } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import {
   AlertCircle,
-  ArrowLeft,
   Building2,
   ListTree,
   Package,
@@ -81,6 +80,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { BackLink } from "@/components/page/back-link"
 
 /** Link al artículo — mismo destino desde Ranking y Detallado (ver punto 2/3
  *  del pedido: un solo historial, enlazado desde ambos lugares en vez de
@@ -120,7 +120,7 @@ export default function ProductsReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Artículos</h1>
           <p className="text-sm text-muted-foreground">
             Qué se vendió en el período: por artículo, por categoría, por marca
@@ -415,21 +415,6 @@ function ChartCard({
   )
 }
 
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
-  )
-}
 
 /* ─────────────────────────── Ranking (view=general) ─────────────────────────── */
 

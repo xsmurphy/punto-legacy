@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Printer, XCircle, Loader2 } from "lucide-react"
+import { Printer, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -33,6 +33,7 @@ import { useRemision, useCancelRemision, REMISION_MOTIVO_LABELS } from "@/hooks/
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
+import { BackLink } from "@/components/page/back-link"
 import { buildTicketDataFromRemision } from "@/lib/hardware/printers/build-ticket-data"
 
 function formatDate(
@@ -87,10 +88,7 @@ export default function RemisionDetailPage() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-muted-foreground">Remisión no encontrada.</p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.back()}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver
-        </Button>
+        <BackLink href="/remisiones" label="Volver a remisiones" />
       </div>
     )
   }
@@ -130,10 +128,8 @@ export default function RemisionDetailPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
+          <BackLink href="/remisiones" label="Volver a remisiones" />
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => router.back()}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
             <h1 className="text-2xl font-semibold">
               Remisión {remision.docNumber !== null ? `Nº ${remision.docNumber}` : ""}
             </h1>

@@ -1,9 +1,9 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { AlertTriangle, ArrowLeft } from "lucide-react"
+import { AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { BackLink } from "@/components/page/back-link"
 import { Card, CardContent } from "@/components/ui/card"
 
 export default function ItemsError({
@@ -19,13 +19,7 @@ export default function ItemsError({
 
   return (
     <div className="flex flex-col gap-4">
-      <Link
-        href="/items"
-        className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        Volver a artículos
-      </Link>
+      <BackLink href="/items" label="Volver a artículos" />
       <Card>
         <CardContent className="flex flex-col items-center gap-4 p-8 text-center">
           <AlertTriangle className="size-8 text-destructive opacity-70" />

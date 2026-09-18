@@ -510,6 +510,49 @@ Detalle operativo completo (checklist pre-merge, ejemplos de código) en
 </div>
 ```
 
+### Ficha de entidad (2026-09-18) — ENFORCEADA
+
+Toda ficha (`/items/[id]`, `/contacts/[id]`, `/employees/[id]`,
+`/outlets/[id]` y cualquiera nueva) se arma con **`EntityShell`**
+(`components/page/entity-shell.tsx`). Estructura fija (`context/84` §3):
+
+```
+BackLink (components/page/back-link.tsx)
+Encabezado: [avatar] h1 · estado (badges)         acciones  [Guardar]
+            subtítulo = solo DATO (RUC, puesto, "cliente desde", cajas…)
+Pestañas:   Resumen → Datos → pestañas propias (solo texto, sin íconos)
+```
+
+- **Resumen** = KPIs en `StatTile`/`StatsRow` gris con `delta` contra el
+  período anterior + contenido (gráficos Recharts, tablas resumen con fila
+  de total en `bg-muted/50`) en cards blancas con `CardTitle` canónico.
+  Referencia visual: el dashboard de Ventas.
+- **Datos** = el ÚNICO lugar donde se editan los atributos, en `FormSection`
+  dentro de `FormSectionColumns`. Todo campo del formulario vive acá: un
+  campo en otra pestaña quedaría sin "Guardar".
+- **Propias** = colecciones hijas que se editan fila por fila (stock,
+  depósitos, cajas, variantes, asistencia).
+- Cada bloque es un KPI, un atributo (badge/texto en el encabezado) o
+  contenido. Nada de una card para un atributo ni el mismo número dos veces.
+
+**Cómo se enforcea** (quien la rompa encuentra la regla acá):
+
+1. **La API del armazón**: `summary` y `data` son props obligatorias; los
+   labels "Resumen"/"Datos" y su orden los fija el componente; las propias
+   solo entran por `extraTabs`; "Guardar" lo pinta el armazón y solo con
+   Datos activa; `?tab=` con `tabAliases` para links viejos. La caja (menú
+   lateral de la ficha de cliente) usa `resolveEntityTabs()` para el mismo
+   orden y nombres.
+2. **Guard de CI** `frontend/lib/ui/__tests__/entity-detail-structure.test.ts`:
+   - `toda página de ficha usa EntityShell (G2)` — `app/(panel)/**/[id]/page.tsx`
+     salvo la allowlist de documentos (`NOT_ENTITY_DETAIL`, con motivo);
+   - `KpiCard murió (G3)` — el archivo no existe y nadie lo importa;
+   - `un solo BackLink (G4)` — nadie define `BackLink`/`BackButton` ni arma
+     un volver con `<ArrowLeft` en el panel;
+   - `sin mayúsculas a mano (G5)` — ningún `uppercase` en className en
+     `app/(panel)`, `components/domain`, `components/items|employees|outlets`.
+   Las allowlists exigen motivo y fallan si la excepción ya no hace falta.
+
 ### Tabs responsivas (patrón finanzas)
 
 Grid en desktop, scroll horizontal en mobile — mismo componente `<Tabs>` de
@@ -795,6 +838,7 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-09-18 | **Ficha de entidad canónica: Resumen → Datos → propias, impuesta por `EntityShell` + guard de CI** (ver §6 "Ficha de entidad"). Las cuatro fichas migraron: artículo (Perfil+Imágenes+Configuración+Disponibilidad fusionados en Datos; umbrales de stock y procedimiento también, porque vivían en pestañas sin Guardar; Resumen nuevo con ventas/margen/stock), cliente (Datos de última a 2ª, Direcciones como sección de Datos, un solo set de KPIs en Financiero, segmento y fechas al encabezado), persona (Horario y Rostro como secciones de Datos; Resumen rehecho desde el anti-patrón) y sucursal ("Sucursal" pasa a Datos; Resumen nuevo con ventas por día). **`KpiCard` se ELIMINA**: todo KPI es `StatTile` (también los `Stat`/`Metric` ad-hoc del dashboard, reposición, agenda y detalle de producción). **`BackLink` único** en `components/page/back-link.tsx` (28 copias reemplazadas). **Mayúsculas a mano eliminadas** del panel y de `components/domain`. `api.get`/`useReport` ganan `outletScope` para que la ficha de sucursal lea SUS números aunque el selector del logo diga otra. Es la regla para toda ficha nueva | — | Owner: "que el usuario, al entrar a cualquier entidad, sepa dónde ver el resumen y dónde editar" — y que lo enforce el código, no solo el doc |
 | 2026-09-18 | **Referencia visual CANÓNICA para toda pantalla con números** (Resumen de fichas, Tableros, Reportes): el dashboard de Ventas, `components/domain/reports/sales/sales-dashboard-tab.tsx`. Lo que la hace buena: KPIs en `StatTile` gris (`Card variant="soft"`) con comparación contra el período anterior; gráficos (Recharts existentes) en cards blancas con `CardTitle`; tablas resumen con las filas de subtotal/total destacadas en fondo gris (`bg-muted/50 font-semibold`); el contraste gris/blanco guía la vista. **Anti-patrón explícito** (captura del owner): el Resumen de `employees/[id]` — todo en cards blancas planas, labels en mayúsculas chiquitas, bloques enteros para un atributo ("PUESTO CEO"), sin jerarquía: "no sabés qué mirar, parece puro texto". **Dos detalles del modelo NO se copian**: sus títulos de card en mayúsculas ("VENTAS", "MEDIOS DE PAGO") —C1— y su subtítulo explicativo —C9—. Detalle en `context/84` §2.1 | — | Owner: el Resumen de una ficha tiene que verse como el dashboard de Ventas |
 | 2026-09-18 | **C8 REVERTIDA: pestañas SIN íconos, siempre** (`TabsTrigger` solo texto). Reemplaza la resolución de C8 de la entrada siguiente (mismo día), que permitía ícono en todas las pestañas o en ninguna | — | Owner |
 | 2026-09-18 | **Resueltas C1-C9 de `context/84` §11 (owner, en bloque).** C1: mayúsculas a mano (`uppercase tracking-*`) PROHIBIDAS — la fila "Label uppercase de bloque" de `context/14` Regla #1 queda superseded. C2: dentro de una card el título de sección es `CardTitle` canónico; `h2 text-xl` solo para secciones de PÁGINA sin card. C3: lista corta embebida = `divide-y`; desde 10 filas, `DataTable` (14 y 20 con el mismo umbral). C4: `EmptyState` solo para página o listado vacío; sub-sección vacía = línea compacta con link. C5: el estado de un documento va en el ENCABEZADO junto al h1 — supersede el "status final al pie" del 2026-06-24. C6: sin stat cards arriba de LISTADOS (sigue vigente); los números van al reporte. C7: sin íconos en títulos (h1/h2/h3, `CardTitle`, headers de `Dialog`) — se borra el `size-5 (header)` de `context/14` Regla #6. C8: ~~las pestañas SON navegación → ícono en todas o en ninguna~~ **REVERTIDA el mismo día: pestañas sin íconos, siempre** (ver entrada de arriba). C9: el subtítulo bajo el h1 es solo DATO (RUC, puesto, contraparte), nunca leyenda explicativa | — | Contradicciones entre `context/14` y `context/20` señaladas en `context/84` |

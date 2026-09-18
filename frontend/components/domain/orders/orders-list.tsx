@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, CalendarClock, ClipboardList } from "lucide-react"
+import { AlertCircle, CalendarClock, ClipboardList } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +21,7 @@ import { useReport, type OrderRow, type OrdersReportResponse } from "@/hooks/use
 import type { Order } from "@/hooks/use-orders"
 import { formatMoney } from "@/lib/format"
 import { formatDate, formatDateTime } from "@/lib/format-date"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Adapta la fila liviana del reporte (`OrderRow`) al shape completo de
@@ -189,7 +189,7 @@ export function OrdersList({ backHref, customerIdFilter, embeddedRange }: Orders
       {!customerIdFilter && !embeddedRange && (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <BackLink backHref={backHref} />
+            <BackLink href={backHref} label={backHref.includes("/pos") ? "" : "Volver a reportes"} />
             <h1 className="text-2xl font-semibold">Órdenes</h1>
             <p className="text-sm text-muted-foreground">
               Órdenes del período con su estado y canal de venta.
@@ -235,22 +235,5 @@ export function OrdersList({ backHref, customerIdFilter, embeddedRange }: Orders
         }
       />
     </div>
-  )
-}
-
-function BackLink({ backHref }: { backHref: string }) {
-  const isPos = backHref.includes("/pos")
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href={backHref}>
-        <ArrowLeft className="size-3.5" />
-        {!isPos && "Volver a reportes"}
-      </Link>
-    </Button>
   )
 }

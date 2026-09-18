@@ -20,9 +20,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { AlertCircle, ArrowLeft, Lock } from "lucide-react"
+import { AlertCircle, Lock } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -35,6 +34,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useDateRange } from "@/hooks/use-date-range"
 import { usePermission } from "@/hooks/use-permissions"
 import { useReport, type OperationsReport } from "@/hooks/use-reports"
+import { BackLink } from "@/components/page/back-link"
 import { shiftRangeBackwards } from "@/lib/reports/previous-range"
 
 const TABS = ["dashboard", "espacios", "listado"] as const
@@ -105,7 +105,7 @@ export default function OrdersReportPage() {
     return (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Órdenes</h1>
         </header>
         <EmptyState
@@ -121,7 +121,7 @@ export default function OrdersReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Órdenes</h1>
           <p className="text-sm text-muted-foreground">
             Cuántas órdenes entraron, cuánto tardó cada etapa y cómo se usaron los
@@ -170,21 +170,5 @@ export default function OrdersReportPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

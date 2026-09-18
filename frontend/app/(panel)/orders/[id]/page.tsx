@@ -28,7 +28,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, ClipboardList, History, Lock, Truck } from "lucide-react"
+import { ClipboardList, History, Lock, Truck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -64,6 +64,7 @@ import { formatMinutes, orderStageDurations } from "@/lib/orders/order-stage-mar
 import { resolveNumberLocale } from "@/lib/tenant-locale"
 import { cn } from "@/lib/utils"
 import type { Bootstrap } from "@/lib/types/bootstrap"
+import { BackLink } from "@/components/page/back-link"
 
 /** Mismo permiso que el reporte desde el que se llega (`/reports/orders`). */
 const VIEW_PERMISSION = "reports.sales.view"
@@ -114,7 +115,7 @@ function OrderDetail({ order, bootstrap }: { order: Order; bootstrap: Bootstrap 
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports/orders?tab=listado" label="Volver a órdenes" />
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold">Orden #{order.orderNumber ?? "—"}</h1>
             <OrderStatusBadge order={order} interactive={false} />
@@ -443,7 +444,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <BackLink />
+        <BackLink href="/reports/orders?tab=listado" label="Volver a órdenes" />
         <h1 className="text-2xl font-semibold">Orden</h1>
       </header>
       {children}
@@ -466,21 +467,5 @@ function DetailSkeleton() {
         <Skeleton className="h-96 w-full" />
       </div>
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports/orders?tab=listado">
-        <ArrowLeft className="size-3.5" />
-        Volver a órdenes
-      </Link>
-    </Button>
   )
 }

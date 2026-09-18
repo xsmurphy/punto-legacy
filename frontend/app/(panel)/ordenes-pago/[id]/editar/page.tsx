@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PaymentOrderForm } from "@/components/domain/purchases/payment-order-form"
 import { usePaymentOrder } from "@/hooks/use-payment-orders"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Edición de una orden de pago — SOLO en borrador.
@@ -37,10 +37,7 @@ export default function EditPaymentOrderPage() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-muted-foreground">Orden de pago no encontrada.</p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.push("/ordenes-pago")}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver
-        </Button>
+        <BackLink href="/ordenes-pago" label="Volver a órdenes de pago" />
       </div>
     )
   }
@@ -52,10 +49,7 @@ export default function EditPaymentOrderPage() {
           Esta orden ya no está en borrador, así que no se edita. Para cambiar lo que se va a pagar,
           cancelala y armá una nueva — así queda rastro de las dos.
         </p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.push(`/ordenes-pago/${id}`)}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver a la orden
-        </Button>
+        <BackLink href={`/ordenes-pago/${id}`} label="Volver a la orden" />
       </div>
     )
   }

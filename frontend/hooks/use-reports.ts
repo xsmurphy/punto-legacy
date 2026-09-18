@@ -25,6 +25,12 @@ export function useReport<T>(
      * no la del device (bug 2026-07-30, /pos > transacciones).
      */
     client?: HttpClient
+    /**
+     * Sucursal FIJA para este reporte, en vez de la del selector del logo
+     * (ver `api.get` → `outletScope`). Solo panel: el POS ya está atado a la
+     * sucursal de su caja.
+     */
+    outletScope?: string
   },
 ) {
   const params = new URLSearchParams()
@@ -48,8 +54,14 @@ export function useReport<T>(
       opts.to ?? "",
       JSON.stringify(opts.params ?? {}),
       client === api ? "panel" : "pos",
+      opts.outletScope ?? "",
     ],
-    queryFn: () => client.get<T>(`/v1/reports/${name}${qs ? `?${qs}` : ""}`),
+    queryFn: () => {
+      const path = `/v1/reports/${name}${qs ? `?${qs}` : ""}`
+      return opts.outletScope && client === api
+        ? api.get<T>(path, { outletScope: opts.outletScope })
+        : client.get<T>(path)
+    },
     staleTime: 60 * 1000, // 1 min — reports cambian con transacciones nuevas
     enabled: opts.enabled ?? true,
     retry: false,

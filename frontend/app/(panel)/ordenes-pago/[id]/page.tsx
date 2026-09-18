@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, CheckCircle2, Loader2, Pencil, Printer, Receipt, Wallet, XCircle } from "lucide-react"
+import { CheckCircle2, Loader2, Pencil, Printer, Receipt, Wallet, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -47,6 +47,7 @@ import {
 import { formatMoney } from "@/lib/format"
 import { formatDate, formatDateTime } from "@/lib/format-date"
 import { printPaymentOrderSheet } from "@/lib/hardware/printers/print-payment-order"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Detalle de una ORDEN DE PAGO — es acá donde se aprueba y se ejecuta.
@@ -113,10 +114,7 @@ export default function PaymentOrderDetailPage() {
     return (
       <div className="flex flex-col gap-4">
         <p className="text-muted-foreground">Orden de pago no encontrada.</p>
-        <Button variant="ghost" className="w-fit" onClick={() => router.push("/ordenes-pago")}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Volver
-        </Button>
+        <BackLink href="/ordenes-pago" label="Volver a órdenes de pago" />
       </div>
     )
   }
@@ -232,10 +230,8 @@ export default function PaymentOrderDetailPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex flex-col gap-1">
+          <BackLink href="/ordenes-pago" label="Volver a órdenes de pago" />
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={() => router.push("/ordenes-pago")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
             <h1 className="text-2xl font-semibold">
               Orden de pago{order.docNumber !== null ? ` N.º ${order.docNumber}` : ""}
             </h1>

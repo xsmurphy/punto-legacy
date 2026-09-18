@@ -19,9 +19,7 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import { useSearchParams } from "next/navigation"
-import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -29,6 +27,7 @@ import { DateRangePicker } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { UsersDashboardTab } from "@/components/domain/reports/users/users-dashboard-tab"
 import { UsersDetailTab } from "@/components/domain/reports/users/users-detail-tab"
+import { BackLink } from "@/components/page/back-link"
 import { UsersCommissionsTab } from "@/components/domain/reports/users/users-commissions-tab"
 
 const TAB_IDS = ["dashboard", "detalle", "comisiones"] as const
@@ -44,7 +43,7 @@ export default function UsersReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Equipo</h1>
           <p className="text-sm text-muted-foreground">
             Ventas, comisiones y ticket promedio por persona del período.
@@ -64,21 +63,5 @@ export default function UsersReportPage() {
         <TabsContent value="comisiones" className="m-0"><UsersCommissionsTab range={range} /></TabsContent>
       </Tabs>
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

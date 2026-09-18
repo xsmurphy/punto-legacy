@@ -12,12 +12,10 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
 import {
   AlertCircle,
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   Coins,
   Pencil,
@@ -68,6 +66,7 @@ import { useUpdateExpense, useDeleteExpense } from "@/hooks/use-expenses"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { EmptyState } from "@/components/empty-state"
+import { BackLink } from "@/components/page/back-link"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 
 export default function ExpensesReportPage() {
@@ -266,7 +265,7 @@ export default function ExpensesReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Movimientos de Caja</h1>
           <p className="text-sm text-muted-foreground">
             Entradas y salidas manuales del cajón. Se crean desde el POS; acá podés editar o eliminar.
@@ -416,20 +415,3 @@ export default function ExpensesReportPage() {
 }
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
-  )
-}
-

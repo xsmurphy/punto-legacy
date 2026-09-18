@@ -584,7 +584,7 @@ function HoursChart({
 function CardHeaderWithExcel({ title }: { title: string }) {
   return (
     <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-      <CardTitle className="text-sm font-medium uppercase tracking-wide">
+      <CardTitle>
         {title}
       </CardTitle>
       {/* TODO: implementar export por sección */}

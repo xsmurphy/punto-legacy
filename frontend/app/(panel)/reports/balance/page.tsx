@@ -14,8 +14,7 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
-import { AlertCircle, ArrowLeft } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -25,6 +24,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type BalanceResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/stat-tile"
+import { BackLink } from "@/components/page/back-link"
 
 /** Etiquetas de los tipos de obligación que devuelve `ObligationsService`. */
 const OBLIGATION_LABELS: Record<string, string> = {
@@ -52,12 +52,7 @@ export default function BalanceReportPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3">
-        <Button variant="ghost" size="sm" asChild className="w-fit -ml-2">
-          <Link href="/reports">
-            <ArrowLeft className="size-4" />
-            Volver a reportes
-          </Link>
-        </Button>
+        <BackLink href="/reports" label="Volver a reportes" />
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Balance</h1>
           <p className="text-sm text-muted-foreground">

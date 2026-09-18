@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Loader2, Package, Plus } from "lucide-react"
+import { Loader2, Plus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { EmptyState } from "@/components/empty-state"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 import { useOutlets } from "@/hooks/use-outlets"
 import { defaultLocationOf, useOutletLocations } from "@/hooks/use-outlet-locations"
@@ -80,65 +80,47 @@ export function ItemStockTab({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* CUÁNTO HAY, primero y grande. Antes el tab abría con precio de compra,
-          costo promedio y stock valorizado —tres cifras en dinero— y las
-          unidades no aparecían en ningún lado. El valorizado importa una vez al
-          mes; cuántas unidades quedan se mira todos los días. */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                Stock actual
-              </div>
-              <div className="mt-1 flex items-baseline gap-3">
-                {summary ? (
-                  <span className={cn("text-4xl font-semibold tabular-nums", estado && STOCK_STATUS_CLASS[estado])}>
-                    {formatInt(summary.qty, bootstrap)}
-                  </span>
-                ) : (
-                  <Skeleton className="h-10 w-28" />
-                )}
+      {/* CUÁNTO HAY, primero y con más peso: las unidades se miran todos los
+          días, el valorizado una vez al mes. Son números → StatTile gris
+          (context/84 §2.1); antes era una card blanca con un label en
+          mayúsculas y tres mini-cifras armadas a mano. */}
+      <StatsRow>
+        <StatTile
+          label="Stock actual"
+          emphasis
+          isLoading={!summary}
+          value={
+            summary && (
+              <span className="flex flex-wrap items-baseline gap-2">
+                <span className={cn(estado && STOCK_STATUS_CLASS[estado])}>
+                  {formatInt(summary.qty, bootstrap)}
+                </span>
                 {estado && estado !== "ok" && (
                   <Badge variant={estado === "quiebre" ? "destructive" : "secondary"}>
                     {STOCK_STATUS_LABEL[estado]}
                   </Badge>
                 )}
-              </div>
-              {(minStock != null || maxStock != null) && (
-                <div className="mt-1.5 text-xs text-muted-foreground tabular-nums">
-                  Mínimo {minStock != null ? formatInt(minStock, bootstrap) : "—"}
-                  {" · "}
-                  Máximo {maxStock != null ? formatInt(maxStock, bootstrap) : "—"}
-                </div>
-              )}
-            </div>
-
-            {/* Las cifras en dinero pasan a segundo plano: siguen estando, pero
-                ya no compiten con la que se viene a buscar. */}
-            <div className="flex flex-wrap gap-x-8 gap-y-2">
-              <MiniStat
-                label="Costo promedio"
-                value={summary ? formatMoney(summary.avgCost, bootstrap) : undefined}
-              />
-              <MiniStat
-                label="Precio de compra"
-                value={lastPurchase ? formatMoney(lastPurchase.price, bootstrap) : undefined}
-              />
-              <MiniStat
-                label="Stock valorizado"
-                value={summary ? formatMoney(summary.totalValue, bootstrap) : undefined}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                {(minStock != null || maxStock != null) && (
+                  <span className="text-xs font-normal text-muted-foreground">
+                    Mínimo {minStock != null ? formatInt(minStock, bootstrap) : "—"}
+                    {" · "}
+                    Máximo {maxStock != null ? formatInt(maxStock, bootstrap) : "—"}
+                  </span>
+                )}
+              </span>
+            )
+          }
+        />
+        <StatTile label="Costo promedio" value={summary ? formatMoney(summary.avgCost, bootstrap) : null} isLoading={!summary} />
+        <StatTile label="Precio de compra" value={lastPurchase ? formatMoney(lastPurchase.price, bootstrap) : null} isLoading={!lastPurchase} />
+        <StatTile label="Stock valorizado" value={summary ? formatMoney(summary.totalValue, bootstrap) : null} isLoading={!summary} />
+      </StatsRow>
 
       <StockBreakdownCard breakdown={breakdown} isLoading={isLoading} bootstrap={bootstrap} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
-          <CardTitle className="text-base font-semibold tracking-tight">Ajustes e historial</CardTitle>
+          <CardTitle>Ajustes e historial</CardTitle>
           <Button size="sm" onClick={() => setAdjustOpen(true)}>
             <Plus className="size-4" />
             Ajustar stock
@@ -152,12 +134,7 @@ export function ItemStockTab({
               <Skeleton className="h-9 w-full" />
             </div>
           ) : items.length === 0 ? (
-            <EmptyState
-              icon={Package}
-              title="Sin movimientos"
-              description="Este ítem todavía no tiene ventas, compras ni ajustes de stock registrados."
-              ghost={false}
-            />
+            <p className="text-sm text-muted-foreground">Sin movimientos de stock.</p>
           ) : (
             <>
               {/* Extracto bancario (pedido del owner, ver context/52 F6):
@@ -275,17 +252,6 @@ function sourceLabel(source: string): string {
 /** Cifra secundaria: misma información que antes, sin robarle la atención al
  *  saldo. Sin card propia — tres cards iguales daban a entender que las tres
  *  cifras pesaban lo mismo. */
-function MiniStat({ label, value }: { label: string; value: string | undefined }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="mt-0.5 text-base font-medium tabular-nums">
-        {value ?? <Skeleton className="h-5 w-20" />}
-      </div>
-    </div>
-  )
-}
-
 /**
  * Dónde está el stock: una fila por sucursal con su detalle por depósito.
  *
@@ -306,7 +272,7 @@ function StockBreakdownCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">Dónde está el stock</CardTitle>
+        <CardTitle>Dónde está el stock</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -315,12 +281,7 @@ function StockBreakdownCard({
             <Skeleton className="h-9 w-full" />
           </div>
         ) : outlets.length === 0 ? (
-          <EmptyState
-            icon={Package}
-            title="Sin stock en ninguna sucursal"
-            description="Cuando entre mercadería por una compra o un ajuste, va a aparecer acá."
-            ghost={false}
-          />
+          <p className="text-sm text-muted-foreground">Sin stock en ninguna sucursal.</p>
         ) : (
           <Table>
             <TableHeader>

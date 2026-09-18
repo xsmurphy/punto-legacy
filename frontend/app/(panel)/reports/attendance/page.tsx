@@ -22,8 +22,6 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
-import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -33,6 +31,7 @@ import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useAttendanceReport } from "@/hooks/use-attendance"
 import { AttendanceSummaryTab } from "@/components/domain/reports/attendance/attendance-summary-tab"
+import { BackLink } from "@/components/page/back-link"
 import { AttendanceMarksTab } from "@/components/domain/reports/attendance/attendance-marks-tab"
 
 export default function AttendanceReportPage() {
@@ -50,17 +49,7 @@ export default function AttendanceReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/reports">
-              <ArrowLeft className="size-3.5" />
-              Volver a reportes
-            </Link>
-          </Button>
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Asistencia</h1>
           <p className="text-sm text-muted-foreground">
             Horas trabajadas y llegadas tarde del período, con la foto de cada marcación.

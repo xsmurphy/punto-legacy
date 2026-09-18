@@ -244,7 +244,7 @@ export function LineRow({
           />
           <Label
             htmlFor={`line-mode-${line.rowId}`}
-            className="text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            className="text-sm text-muted-foreground"
           >
             {line.isProduct ? "Producto" : "Descripción libre"}
           </Label>

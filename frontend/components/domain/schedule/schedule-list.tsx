@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, CalendarDays } from "lucide-react"
+import { AlertCircle, CalendarDays } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,6 +17,8 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
+import { BackLink } from "@/components/page/back-link"
+import { StatsRow, StatTile } from "@/components/stat-tile"
 
 // status: 0=Pendiente, 4=Cancelado, 5=No show, 6=Finalizado, 7=Bloqueado
 const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
@@ -150,7 +151,7 @@ export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) 
       {!customerIdFilter && (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <BackLink backHref={backHref} />
+            <BackLink href={backHref} label={backHref.includes("/pos") ? "" : "Volver a reportes"} />
             <h1 className="text-2xl font-semibold">Agendamientos</h1>
             <p className="text-sm text-muted-foreground">
               Citas programadas del período con su estado de asistencia.
@@ -177,13 +178,13 @@ export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) 
       )}
 
       {!isLoading && summary && summary.totals > 0 && (
-        <div className="flex flex-wrap gap-4 border-y py-3 text-sm">
-          <Stat label="Total" value={formatInt(summary.totals, bootstrap)} emphasis />
-          <Stat label="Pendientes" value={formatInt(summary.new, bootstrap)} />
-          <Stat label="Finalizados" value={formatInt(summary.ended, bootstrap)} />
-          <Stat label="Cancelados" value={formatInt(summary.cancelled, bootstrap)} />
-          <Stat label="No shows" value={formatInt(summary.noshow, bootstrap)} />
-        </div>
+        <StatsRow>
+          <StatTile label="Total" value={formatInt(summary.totals, bootstrap)} emphasis />
+          <StatTile label="Pendientes" value={formatInt(summary.new, bootstrap)} />
+          <StatTile label="Finalizados" value={formatInt(summary.ended, bootstrap)} />
+          <StatTile label="Cancelados" value={formatInt(summary.cancelled, bootstrap)} />
+          <StatTile label="No shows" value={formatInt(summary.noshow, bootstrap)} />
+        </StatsRow>
       )}
 
       <DataTable
@@ -207,36 +208,3 @@ export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) 
   )
 }
 
-function Stat({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span
-        className={
-          emphasis
-            ? "text-base font-semibold tabular-nums"
-            : "text-sm font-medium tabular-nums"
-        }
-      >
-        {value}
-      </span>
-    </div>
-  )
-}
-
-function BackLink({ backHref }: { backHref: string }) {
-  const isPos = backHref.includes("/pos")
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href={backHref}>
-        <ArrowLeft className="size-3.5" />
-        {!isPos && "Volver a reportes"}
-      </Link>
-    </Button>
-  )
-}

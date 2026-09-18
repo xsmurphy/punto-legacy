@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { StatTile } from "@/components/stat-tile"
 import {
   Dialog,
   DialogContent,
@@ -328,11 +329,11 @@ function NeedDetailDialog({
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <Stat label="A reponer" value={formatQty(need.quantity, config)} />
-              <Stat label="Cubierto" value={formatQty(need.covered, config)} />
-              <Stat label="En curso" value={formatQty(need.inFlight, config)} />
-              <Stat
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <StatTile label="A reponer" value={formatQty(need.quantity, config)} />
+              <StatTile label="Cubierto" value={formatQty(need.covered, config)} />
+              <StatTile label="En curso" value={formatQty(need.inFlight, config)} />
+              <StatTile
                 label="Pendiente"
                 value={need.status === "open" ? formatQty(need.pending, config) : "—"}
               />
@@ -401,14 +402,6 @@ function NeedDetailDialog({
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-lg font-semibold tabular-nums">{value}</span>
-    </div>
-  )
-}
 
 function ProduceDialog({
   need,

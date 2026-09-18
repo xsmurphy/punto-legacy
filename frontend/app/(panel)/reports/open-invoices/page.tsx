@@ -23,14 +23,13 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
-import { ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { OpenInvoicesDashboardTab } from "@/components/domain/reports/open-invoices/open-invoices-dashboard-tab"
+import { BackLink } from "@/components/page/back-link"
 import { OpenInvoicesListTab } from "@/components/domain/reports/open-invoices/open-invoices-list-tab"
 
 type TabId = "dashboard" | "cobrar" | "pagar"
@@ -82,7 +81,7 @@ function OpenInvoicesReportPageInner() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <BackLink />
+        <BackLink href="/reports" label="Volver a reportes" />
         <h1 className="text-2xl font-semibold">Cuentas por cobrar y pagar</h1>
         <p className="text-sm text-muted-foreground">
           Ventas y compras a crédito sin saldar: cuánto falta cobrar, cuánto falta pagar y
@@ -117,20 +116,4 @@ function resolveTab(tab: string | null, state: string | null): TabId {
   if (state === "outcome") return "pagar"
   if (state === "income") return "cobrar"
   return "dashboard"
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
-  )
 }

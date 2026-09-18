@@ -12,8 +12,7 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
-import { AlertCircle, ArrowLeft, Factory } from "lucide-react"
+import { AlertCircle, Factory } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -34,6 +33,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ProductionReportResponse } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
+import { BackLink } from "@/components/page/back-link"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 
 const TAB_IDS = ["dashboard", "productos", "consumos", "mermas", "ordenes"] as const
@@ -49,7 +49,7 @@ export default function ProductionReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Producción</h1>
           <p className="text-sm text-muted-foreground">
             Qué se produjo, cuánto insumo se consumió, cuánto se perdió y con qué rendimiento.
@@ -212,21 +212,5 @@ function ProductsTab({ range }: { range: DateRangeValue }) {
         }
       />
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

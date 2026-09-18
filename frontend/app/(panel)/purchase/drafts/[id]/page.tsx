@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ExternalLink, Loader2, Plus, TriangleAlert, FileWarning, FileText } from "lucide-react"
+import { ExternalLink, Loader2, Plus, TriangleAlert, FileWarning, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -62,6 +62,7 @@ import {
   type FormLine,
 } from "@/components/domain/purchases/purchase-form-fields"
 import { SupplierDocumentFields } from "@/components/domain/purchases/supplier-document-fields"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Pantalla de revisión de un borrador OCR/IA — context/32-ocr-facturas-compra.md.
@@ -358,7 +359,7 @@ export default function PurchaseDraftReviewPage() {
   if (error || !draft) {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={FileWarning}
           title="Borrador no encontrado"
@@ -374,7 +375,7 @@ export default function PurchaseDraftReviewPage() {
   if (draft.status === "queued" || draft.status === "processing") {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={Loader2}
           title={draft.status === "queued" ? "En cola para leerse" : "Leyendo la factura…"}
@@ -390,7 +391,7 @@ export default function PurchaseDraftReviewPage() {
   if (draft.status === "failed") {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={FileWarning}
           title="No se pudo leer esta factura"
@@ -429,7 +430,7 @@ export default function PurchaseDraftReviewPage() {
   if (draft.status === "approved") {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={FileText}
           title="Esta factura ya fue aprobada"
@@ -449,7 +450,7 @@ export default function PurchaseDraftReviewPage() {
   if (draft.status === "rejected") {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/purchase/drafts" label="Volver a borradores" />
         <EmptyState
           icon={FileWarning}
           title="Este borrador fue rechazado"
@@ -470,7 +471,7 @@ export default function PurchaseDraftReviewPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/purchase/drafts" label="Volver a borradores" />
           <h1 className="text-2xl font-semibold">Revisar factura</h1>
           <p className="text-sm text-muted-foreground">
             Corregí los datos antes de aprobar — recién ahí se registra la compra.
@@ -695,7 +696,7 @@ export default function PurchaseDraftReviewPage() {
 
               {isCheckMethod && (
                 <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-sm text-muted-foreground">
                     Datos del cheque
                   </div>
                   <Field label="Número de cheque" id="checkNumber">
@@ -813,21 +814,6 @@ export default function PurchaseDraftReviewPage() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/purchase/drafts">
-        <ArrowLeft className="size-3.5" />
-        Volver a borradores
-      </Link>
-    </Button>
-  )
-}
 
 function today(): string {
   const d = new Date()
