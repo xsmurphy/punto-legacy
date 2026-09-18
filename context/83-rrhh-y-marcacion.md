@@ -315,3 +315,14 @@ eso, la marcación del reloj quedaba terminal siempre y la cola no salía nunca.
    filas. No se cambió: tocar el conteo en el cliente sin tocarlo en el servidor
    los hace divergir, y es una decisión de producto.
 3. **La ficha del legajo en tabs** — pedido aparte, no entra acá.
+
+**§9.5 (owner 2026-09-18) — UX del reloj: automático de punta a punta.** La
+pantalla es la CÁMARA (oscura, tipo POS, nada de cards blancas con borde): la
+persona se para, el sistema la reconoce, **infiere entrada o salida solo** por
+su última marcación (nadie elige nada) y saluda — "Bienvenido {nombre}" al
+entrar, "Adiós {nombre}" al salir. Prohibido copy tipo "te reconocí" y
+prohibido pedirle a la persona que confirme o elija tipo: a prueba de tontos,
+rápido, sin pensar. Una inferencia equivocada (quedó una salida sin marcar) se
+corrige en la revisión del panel, no en el reloj. El código numérico queda como
+respaldo DISCRETO (acción secundaria), no como teclado protagonista. La cámara
+queda viva TODO el día — que se congele entre marcaciones es bug, no estado.
