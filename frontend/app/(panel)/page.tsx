@@ -29,7 +29,6 @@ import {
 } from "recharts"
 
 import { Button } from "@/components/ui/button"
-import { StatTile } from "@/components/stat-tile"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -960,30 +959,37 @@ function CustomersCard({
   const growth = toPct(rates?.growth)
   const churn = toPct(rates?.churn)
 
-  // Card blanca (contenido: tasas); los conteos son números → StatTile gris
-  // (context/20 2026-09-09).
+  // Misma piel que las demás cards de la columna (Finanzas, Información
+  // general, Plan): `soft` + filas label/valor. Los StatTile de tres columnas
+  // la hacían la única card distinta de la columna — y en el ancho de la
+  // sidebar truncaban "Recurrentes".
+  const counts: { label: string; value: number | undefined }[] = [
+    { label: "Total", value: data?.total },
+    { label: "Nuevos", value: data?.new },
+    { label: "Recurrentes", value: data?.old },
+  ]
   return (
-    <Card>
-      <CardHeader>
+    <Card variant="soft">
+      <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Clientes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-3">
-          <StatTile
-            label="Total"
-            value={formatInt(data?.total, undefined)}
-            isLoading={isLoading}
-          />
-          <StatTile
-            label="Nuevos"
-            value={formatInt(data?.new, undefined)}
-            isLoading={isLoading}
-          />
-          <StatTile
-            label="Recurrentes"
-            value={formatInt(data?.old, undefined)}
-            isLoading={isLoading}
-          />
+        <div className="flex flex-col divide-y divide-border">
+          {counts.map((c) => (
+            <div
+              key={c.label}
+              className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+            >
+              <span className="text-muted-foreground">{c.label}</span>
+              {isLoading ? (
+                <Skeleton className="h-4 w-12" />
+              ) : (
+                <span className="font-semibold tabular-nums">
+                  {formatInt(c.value, undefined)}
+                </span>
+              )}
+            </div>
+          ))}
         </div>
         <div className="flex flex-col gap-2">
           <RateRow
