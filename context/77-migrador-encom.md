@@ -1449,3 +1449,70 @@ nada. Lo que hace cada dominio:
 3. Proveedores ocultos por el tope de plan del legacy.
 4. El partido por fecha de `sinTope()` no está cubierto por el arnés (haría
    falta un fixture de 10.000 filas).
+
+### 17.18 El cliente de las ventas históricas (2026-09-18)
+
+**Síntoma (prod, solo lectura).** Tenant 019ff24f: 6.106 ventas importadas,
+6.100 sin `customerid`, con 5.819 clientes en `migration_map`. Don Ramón
+(01a081dd): 6.969 de 6.969 sin cliente. El análisis de clientes, vacío.
+
+**Causa 1 — la celda.** `a_report_transactions?action=detailTable` pinta:
+
+```
+con cliente: <td data-filter="{contactName} {contactSecondName} con:cliente">{contactName}</td>
+sin cliente: <td data-filter="sin:cliente"></td>
+```
+
+`data-filter` es para el buscador de la tabla del legacy, y `htmlRows()` lo
+prefiere al texto visible. Se buscaba un cliente llamado "X  con:cliente" (o
+"sin:cliente", que además se contaba como cliente sin migrar). Ahora
+`EncomParse::customerCell()` devuelve "{contactName} {contactSecondName}" o ''.
+
+**Causa 2 — el RUC.** `customerTin` salía de `columnIndex(['RUC',…,'CI'])`,
+y por substring "CI" matchea "#AUTORIZACION" (col 1): el RUC del cliente era
+el TIMBRADO. Ahora es `columnIndexExact`.
+
+**No hay id.** La fila solo trae `data-id` = la VENTA; el cliente no aparece
+en ningún atributo, y filtrar por `cusId` sería una request por cliente.
+Se resuelve por nombre, con `EncomCustomerMatcher` (un SELECT por corrida,
+todos los `contact.type = 1` del tenant: migrados, unificados o de Punto):
+
+1. Clave de nombre normalizada → UN cliente: ese.
+2. Varios: el RUC de la celda desempata; si no → **ambiguo, no se vincula**.
+3. Ninguno: si el RUC es de UN solo cliente, ese.
+4. "Sin Nombre" (lo que el legacy pinta para un contacto borrado) y
+   "Consumidor Final" = sin cliente, sin error.
+
+Claves de un contacto: el importador copia `contactName` y
+`contactSecondName` 1:1, y `ContactService` repite el nombre en el segundo
+cuando el legacy no lo tenía. Segundo distinto → "nombre segundo"; vacío o
+igual → "nombre" y "nombre nombre". Normalización: minúsculas, puntuación =
+espacio, y TODO carácter no ASCII (Ñ, Ü, tildes) y los restos de encoding
+(`?`, `¿`, `�`, mojibake) colapsan en un comodín `*`: 113 de 5.720 clientes
+de 019ff24f están guardados como "ACU?A"/"AG¿ERO".
+
+**Relanzar completa.** `completarVenta()`: la venta ya mapeada en
+`sale_history` recibe el cliente resuelto con
+`UPDATE … WHERE customerId IS NULL AND meta.importedFrom`: nunca una venta
+hecha en Punto, nunca pisa un cliente ya puesto, nunca duplica. Mes cerrado:
+el guard de la mig 157 rechaza el UPDATE, se cuenta y se reporta (los meses
+cerrados enteros ya se saltean antes). **No hay rollup por cliente**: los
+widgets de clientes (`DashboardService::customers*`) leen `transaction` en
+vivo, así que no se ensucia ningún día.
+
+**Bitácora.** Una línea por caso: ventas con cliente (y cuántas se
+completaron), bloqueadas por cierre, sin cliente en el legacy, nombres
+ambiguos y no encontrados, con ejemplos de nombres LIMPIOS.
+
+**Medición contra prod (solo lectura, sin legacy).** El matcher real contra
+los clientes exportados de 019ff24f y las 40 celdas crudas que quedaron en
+las bitácoras de sus jobs: las 38 con cliente resuelven a UN cliente, las 2
+restantes son "sin:cliente". Ambigüedad estructural: 44 claves de nombre
+compartidas por 106 clientes (1,9 %); esas ventas solo se vinculan si la
+celda trae un RUC que desempate. El número exacto de ventas vinculadas sale
+de relanzar `sales_history` (mismo rango): la bitácora lo da. Ninguno de los
+dos tenants tiene períodos cerrados.
+
+**Qué hacer con los tenants ya migrados.** Deployado esto, relanzar
+`sales_history` con el mismo rango: las ventas se saltean (idempotentes) y
+se completan con su cliente.
