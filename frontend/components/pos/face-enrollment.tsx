@@ -50,8 +50,12 @@ import type { PendingEnrollment } from "@/hooks/use-attendance-faces"
  * tomas espaciadas unos cientos de ms capturan la variación natural (micro
  * movimientos, luz) que hace robusto el promedio; el servidor sigue
  * verificando que se parezcan entre sí.
+ *
+ * Son un detalle INTERNO: la pantalla dice "Mirá a la cámara" y nada más — ni
+ * pasos ni puntitos (owner: "no sé para qué sirve eso"). La persona mira, dura
+ * dos segundos, listo.
  */
-const STEPS = ["Mirá a la cámara", "Quedate así", "Quedate así", "Listo"] as const
+const SAMPLES = 4
 
 /** Espaciado entre tomas: variación natural sin hacer esperar a nadie. */
 const STEP_DELAY_MS = 400
@@ -83,7 +87,6 @@ export function FaceEnrollment({
   onCancel,
 }: FaceEnrollmentProps) {
   const [phase, setPhase] = React.useState<Phase>("idle")
-  const [step, setStep] = React.useState(0)
 
   // Corta el bucle si la pantalla se desmonta a mitad de la captura: seguir
   // leyendo la cámara de un componente que ya no está es trabajo para nadie.
@@ -97,12 +100,10 @@ export function FaceEnrollment({
 
   async function run() {
     setPhase("capturing")
-    setStep(0)
     const samples: number[][] = []
 
-    for (let i = 0; i < STEPS.length; i++) {
+    for (let i = 0; i < SAMPLES; i++) {
       if (!aliveRef.current) return
-      setStep(i)
 
       // Se espera ANTES de capturar, incluso en la primera: la persona acaba de
       // leer la indicación y necesita un momento para acomodarse.
@@ -159,27 +160,12 @@ export function FaceEnrollment({
         {!ready
           ? "Preparando la cámara"
           : phase === "capturing"
-            ? STEPS[step]
+            ? "Mirá a la cámara"
             : phase === "done"
               ? "Guardando"
               : "Cuando estés listo, tocá Empezar"}
       </p>
 
-      {/* Una marca por toma. Es lo único que dice cuánto falta, y no hace falta
-          más: son cuatro y duran seis segundos. */}
-      <div className="flex items-center gap-3">
-        {STEPS.map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              "block size-3 rounded-full border-2 transition-colors",
-              phase !== "idle" && i <= step
-                ? "border-foreground bg-foreground"
-                : "border-foreground/40 bg-transparent",
-            )}
-          />
-        ))}
-      </div>
 
       <div className="grid w-full grid-cols-2 gap-3">
         <Button
