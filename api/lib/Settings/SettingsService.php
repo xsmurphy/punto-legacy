@@ -206,6 +206,10 @@ final class SettingsService
             // switch podría decir una cosa y el servidor hacer otra. Ver
             // `AttendanceSettings`.
             'attendanceAllowPin'  => \Punto\Api\Hr\AttendanceSettings::allowPinFromSettingObj($obj),
+            // Margen objetivo (%) de la alerta de margen de compras. null =
+            // alerta apagada. Leído por el MISMO parser que usa la compra
+            // (`MarginAlertService::target()`), así el form muestra lo que rige.
+            'marginTarget'        => \Punto\Api\Items\MarginAlert::parseTarget($obj['marginTarget'] ?? null),
             // Asistente IA — nombre y personalidad por empresa. Viven como claves
             // top-level de `config` (igual que settingName/settingAddress: ninguna
             // de las dos es columna real de `company`, así que ncmUpdate las
@@ -462,8 +466,11 @@ final class SettingsService
             // desde 2026-09-18 es el rostro solo.
             'attendanceAllowPin'  => 'attendanceAllowPin',
         ];
-        $presentFlags = array_intersect_key($flagMap, $f);
-        if ($presentFlags) {
+        $presentFlags  = array_intersect_key($flagMap, $f);
+        // Margen objetivo: vive en settingObj como los flags, pero es un
+        // número (o vacío = alerta apagada), no un 0/1.
+        $marginPresent = array_key_exists('marginTarget', $f);
+        if ($presentFlags || $marginPresent) {
             // Igual guard que antes: si la lectura FALLA (null, no [] vacío
             // legítimo) abortamos — escribir un settingObj a medias borraría
             // currencies y los flags no tocados.
@@ -473,6 +480,14 @@ final class SettingsService
             }
             foreach ($presentFlags as $fKey => $objKey) {
                 $obj[$objKey] = !empty($f[$fKey]) ? 1 : 0;
+            }
+            if ($marginPresent) {
+                $target = \Punto\Api\Items\MarginAlert::parseTarget($f['marginTarget']);
+                if ($target === null) {
+                    unset($obj['marginTarget']);
+                } else {
+                    $obj['marginTarget'] = $target;
+                }
             }
             $record['settingObj'] = json_encode($obj);
         }

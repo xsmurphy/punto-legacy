@@ -37,6 +37,23 @@ final class PurchasesService
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
     /**
+     * Artículos que la última `create()` dejó bajo el margen objetivo del
+     * comercio (ver `Punto\Api\Items\MarginAlertService`). Vacío si la
+     * alerta está apagada o nada quedó bajo. Se expone con `marginAlerts()`
+     * en vez de cambiar el tipo de retorno de `create()`, que usan el alta
+     * manual, la aprobación de borradores y los arneses.
+     *
+     * @var list<array{itemId:string,name:string,cost:float,price:float,marginPct:float,suggestedPrice:float}>
+     */
+    private array $lastMarginAlerts = [];
+
+    /** @return list<array{itemId:string,name:string,cost:float,price:float,marginPct:float,suggestedPrice:float}> */
+    public function marginAlerts(): array
+    {
+        return $this->lastMarginAlerts;
+    }
+
+    /**
      * Resuelve el timbrado del proveedor para lectura: prioriza la columna
      * dedicada (`supplierAuthNo`, mig 144); si es NULL, la fila es anterior a
      * la migración y el timbrado puede seguir viviendo concatenado dentro de
@@ -609,6 +626,26 @@ final class PurchasesService
             'costCenterId'      => $headerCostCenterId,
         ];
 
+        // Alerta de margen (owner 2026-09-18): foto del costo ANTES de mover
+        // el ledger. Best-effort — la alerta nunca tumba una compra.
+        $this->lastMarginAlerts = [];
+        $marginSvc      = new \Punto\Api\Items\MarginAlertService();
+        $marginTarget   = null;
+        $marginSnapshot = [];
+        try {
+            $marginTarget = $marginSvc->target($companyId);
+            if ($marginTarget !== null) {
+                $marginSnapshot = $marginSvc->snapshot(
+                    $companyId,
+                    $outletId,
+                    array_values(array_filter(array_column($details, 'itemId'), static fn($v) => $v !== ''))
+                );
+            }
+        } catch (\Throwable $e) {
+            error_log('[purchases.marginAlert] snapshot: ' . $e->getMessage());
+            $marginTarget = null;
+        }
+
         $db->StartTrans();
 
         $transactionId = ncmInsert([
@@ -701,6 +738,20 @@ final class PurchasesService
         $db->CompleteTrans();
         if ($failed) {
             throw new \RuntimeException('Transacción de compra abortó después del INSERT inicial');
+        }
+
+        if ($marginTarget !== null && $marginSnapshot !== []) {
+            try {
+                $this->lastMarginAlerts = $marginSvc->evaluate(
+                    $companyId,
+                    $outletId,
+                    $marginSnapshot,
+                    $marginTarget,
+                    $decimals === 2
+                );
+            } catch (\Throwable $e) {
+                error_log('[purchases.marginAlert] evaluate: ' . $e->getMessage());
+            }
         }
 
         return (string) $transactionId;

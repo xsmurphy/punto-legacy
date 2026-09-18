@@ -3026,40 +3026,10 @@ final class SaleService
      */
     private function resolveUnitCOGS(string $itemId, string $companyId, ?bool $usesRecipe = null): ?float
     {
-        if ($usesRecipe === null) {
-            $row      = ncmExecute(
-                'SELECT itemType FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
-                [$itemId, $companyId]
-            );
-            $itemType = (is_array($row) || $row instanceof \ArrayAccess) ? (string) ($row['itemType'] ?? '') : '';
-
-            $usesRecipe = in_array($itemType, ['precombo', 'combo'], true)
-                || \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId);
-        }
-
-        if ($usesRecipe) {
-            // Sucursal de la operación, no la de la sesión. `RecipeCosting`
-            // exige la sucursal y tira si falta; acá se degrada a null en vez
-            // de propagar, porque esta venta YA fue emitida en la caja (ticket
-            // impreso, plata cobrada) y el back nunca rechaza una venta
-            // emitida — el COGS es dato de reporte, no el hecho económico.
-            try {
-                return (float) \Punto\App\Domain\RecipeCosting::total($itemId, $companyId, $this->ctx->outletId);
-            } catch (\InvalidArgumentException $e) {
-                error_log('SaleService: no se pudo costear la receta de ' . $itemId . ' — ' . $e->getMessage());
-                return null;
-            }
-        }
-
-        // Ítem con stock propio: su costo promedio ponderado vigente en la
-        // sucursal de la operación.
-        $stock = getItemStock($itemId, $this->ctx->outletId);
-        if (!is_array($stock) && !($stock instanceof \ArrayAccess)) {
-            return null;
-        }
-        $val = $stock['stockOnHandCOGS'] ?? null;
-
-        return is_numeric($val) ? (float) $val : null;
+        // La fórmula vive en `ItemUnitCost` desde 2026-09-18: la alerta de
+        // margen de compras necesita el MISMO número que congela la venta.
+        // Sucursal de la operación, no la de la sesión.
+        return \Punto\App\Domain\ItemUnitCost::resolve($itemId, $companyId, (string) $this->ctx->outletId, $usesRecipe);
     }
 
     /**
