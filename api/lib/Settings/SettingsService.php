@@ -199,6 +199,12 @@ final class SettingsService
             'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
             'deletedItemsHistory' => $this->truthy($obj['deletedItemsHistory'] ?? null),
+            // El reloj de marcación exige el ROSTRO: marcar con código queda
+            // apagado (context/83). En negativo y leído por el MISMO resolver
+            // que usan el alta de la marcación y el contexto del reloj — si
+            // este form lo interpretara por su cuenta, el switch podría decir
+            // una cosa y el servidor hacer otra. Ver `AttendanceSettings`.
+            'attendanceFaceOnly'  => \Punto\Api\Hr\AttendanceSettings::faceOnlyFromSettingObj($obj),
             // Asistente IA — nombre y personalidad por empresa. Viven como claves
             // top-level de `config` (igual que settingName/settingAddress: ninguna
             // de las dos es columna real de `company`, así que ncmUpdate las
@@ -450,6 +456,10 @@ final class SettingsService
             'autoSendDocs'        => 'autoSendDocs',
             'weightBarcodes'      => 'weightBarcodes',
             'deletedItemsHistory' => 'deletedItemsHistory',
+            // Ver el comentario en general(): el flag vive acá, sin migración,
+            // y en negativo para que "ausente" sea el default correcto (el
+            // código disponible) en todo el parque que ya existe.
+            'attendanceFaceOnly'  => 'attendanceFaceOnly',
         ];
         $presentFlags = array_intersect_key($flagMap, $f);
         if ($presentFlags) {
@@ -542,6 +552,7 @@ final class SettingsService
         // request (el propio form al responder) tiene que ver lo guardado, no
         // lo que había al empezar.
         \Punto\Api\Settings\StockCountSettings::forget((string) $companyId);
+        \Punto\Api\Hr\AttendanceSettings::forget((string) $companyId);
 
         return is_array($res) && $res['error'] === false;
     }

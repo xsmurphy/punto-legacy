@@ -27,6 +27,12 @@ require_once __DIR__ . '/_harness.php';
  *       poder registrarlo es un daño concreto, el fraude se ataca con evidencia.
  *   (E) APAREO — entrada + salida suman horas; una entrada sin cerrar suma
  *       CERO y se cuenta aparte, en vez de estimarse (esas horas se pagan).
+ *   (G) INTERRUPTOR DEL CÓDIGO (context/83) — la única excepción al fail-open.
+ *       Prendido no cambia nada; apagado, una marcación NUEVA por código se
+ *       rechaza y el rostro sigue igual. Y el reenvío de una marcación por
+ *       código ya guardada sigue siendo duplicado, no rechazo: la idempotencia
+ *       corre antes que el interruptor, así que apagarlo no reescribe el pasado
+ *       ni deja una operación trabando su canal en la cola del dispositivo.
  *
  * El arnés ejercita el SERVICE y no el endpoint: la lógica que puede romperse
  * en silencio vive ahí, y el endpoint es ruteo + gates que otros arneses ya
@@ -41,6 +47,7 @@ require_once __DIR__ . '/_harness.php';
 require_once dirname(__DIR__) . '/bootstrap.php';
 
 use Punto\Api\Hr\AttendanceService;
+use Punto\Api\Hr\AttendanceSettings;
 use Punto\Api\Hr\EmployeeService;
 
 // ── Tenant fixture "Verify PY" (api/lib/Sales/verify_chain/seed.sql) ────────
@@ -77,6 +84,41 @@ function contarMarcas(string $companyId, string $employeeId): int
         [$companyId, $employeeId]
     );
     return (int) ($row['n'] ?? 0);
+}
+
+/**
+ * Prende o apaga "marcar solo con el rostro" en el comercio.
+ *
+ * Escribe la MISMA clave que escribe Ajustes (`config.settingObj`, sin
+ * migración) con el mismo 1/0 que usa `SettingsService::updateGeneral()`, y
+ * después invalida el cache por request igual que hace el CRUD real. Escribir
+ * a mano un `true`/`false` JSON acá probaría un formato que el form nunca
+ * produce.
+ */
+function setFaceOnly(string $companyId, bool $on): void
+{
+    $row = ncmExecute(
+        "SELECT config->>'settingObj' AS so FROM company WHERE companyId = ? LIMIT 1",
+        [$companyId]
+    );
+    $obj = json_decode((string) ($row['so'] ?? ''), true);
+    if (!is_array($obj)) {
+        $obj = [];
+    }
+    $obj['attendanceFaceOnly'] = $on ? 1 : 0;
+
+    // `to_jsonb(?::text)`: `settingObj` se guarda como el TEXTO de un JSON
+    // adentro de `config`, no como un objeto anidado — es lo que escribe
+    // `updateGeneral()` y lo que leen los tres consumidores con `->>`. Meterlo
+    // como objeto acá dejaría al arnés probando una forma que producción no
+    // produce.
+    ncmExecute(
+        "UPDATE company
+            SET config = jsonb_set(COALESCE(config, '{}'::jsonb), '{settingObj}', to_jsonb(?::text), true)
+          WHERE companyId = ?",
+        [json_encode($obj), $companyId]
+    );
+    AttendanceSettings::forget($companyId);
 }
 
 /** `opId` único por corrida: el arnés puede correr dos veces sobre la misma base. */
@@ -367,7 +409,120 @@ try {
         && $revisada['markedAt'] === $primera['mark']['markedAt'],
         json_encode(['antes' => $primera['mark'], 'después' => $revisada]), $failures, $checks);
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // (G) El interruptor "marcar con código" del comercio (context/83)
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Es la ÚNICA excepción al fail-open, así que se ejercita entera: que
+    // prendido no cambie nada, que apagado rechace el código, que apagado NO
+    // toque el rostro, y que el default de un comercio que nunca tocó la clave
+    // siga siendo "disponible" (el flag es negativo justamente para eso).
+    echo "\n=== (G) Interruptor de marcación con código ===\n";
+
+    check('(G0) por default el comercio deja marcar con código (clave ausente)',
+        AttendanceSettings::faceOnly($companyId) === false,
+        'faceOnly() dio true sin que nadie tocara la config', $failures, $checks);
+
+    $antesDelSwitch = contarMarcas($companyId, $sinHorario['id']);
+
+    // El `opId` se guarda en una variable: `shape()` no lo devuelve (la fila que
+    // sale del service no expone la clave de idempotencia), y el reenvío de
+    // (G4) lo necesita idéntico.
+    $opCodigo  = opId('switch-on-pin');
+    $conCodigo = $svc->mark($companyId, [
+        'opId'          => $opCodigo,
+        'employeeId'    => $sinHorario['id'],
+        'pinHash'       => hash('sha256', '8265'),
+        'kind'          => 'in',
+        'markedAt'      => $dia . 'T08:00:00-03:00',
+        'method'        => 'pin',
+        'outletId'      => $outletId,
+        'noPhotoReason' => 'no_camera',
+    ]);
+    check('(G1) con el interruptor PRENDIDO la marcación por código entra',
+        $conCodigo['duplicate'] === false && $conCodigo['mark']['method'] === 'pin',
+        json_encode($conCodigo), $failures, $checks);
+
+    // Se apaga como lo apaga Ajustes: una clave más en `config.settingObj`,
+    // sin migración. `forget()` es lo que hace el CRUD real al guardar.
+    setFaceOnly($companyId, true);
+
+    $rechazoPorCodigo = null;
+    try {
+        $svc->mark($companyId, [
+            'opId'          => opId('switch-off-pin'),
+            'employeeId'    => $sinHorario['id'],
+            'pinHash'       => hash('sha256', '8265'),
+            'kind'          => 'out',
+            'markedAt'      => $dia . 'T17:00:00-03:00',
+            'method'        => 'pin',
+            'outletId'      => $outletId,
+            'noPhotoReason' => 'no_camera',
+        ]);
+    } catch (\RuntimeException $e) {
+        $rechazoPorCodigo = $e;
+    }
+    check('(G2) apagado, una marcación por código se RECHAZA',
+        $rechazoPorCodigo !== null,
+        'la marcación por código entró con el interruptor apagado', $failures, $checks);
+    check('(G2b) con un mensaje llano, sin tecnicismos',
+        $rechazoPorCodigo !== null
+        && str_contains($rechazoPorCodigo->getMessage(), 'código está desactivada'),
+        'mensaje: ' . ($rechazoPorCodigo?->getMessage() ?? '(no tiró)'), $failures, $checks);
+    check('(G2c) y NO deja una fila a medias: el hecho no se guardó flageado',
+        contarMarcas($companyId, $sinHorario['id']) === $antesDelSwitch + 1,
+        'filas: ' . contarMarcas($companyId, $sinHorario['id'])
+        . ' (esperadas ' . ($antesDelSwitch + 1) . ')', $failures, $checks);
+
+    $porRostro = $svc->mark($companyId, [
+        'opId'          => opId('switch-off-face'),
+        'employeeId'    => $sinHorario['id'],
+        'kind'          => 'out',
+        'markedAt'      => $dia . 'T17:05:00-03:00',
+        'method'        => 'face',
+        'outletId'      => $outletId,
+        'noPhotoReason' => 'no_camera',
+    ]);
+    check('(G3) apagado, el ROSTRO sigue marcando normal',
+        $porRostro['duplicate'] === false && $porRostro['mark']['method'] === 'face',
+        json_encode($porRostro), $failures, $checks);
+
+    // La idempotencia corre ANTES del interruptor: una marcación por código que
+    // el servidor YA guardó se devuelve como duplicado aunque el comercio haya
+    // apagado el código en el medio. Sin esto, el reenvío de la cola offline
+    // —que no puede saber si la primera llegó— convertiría un hecho ya
+    // registrado en un error, y quedaría trabando su canal.
+    $reenvioViejo = $svc->mark($companyId, [
+        'opId'       => $opCodigo,
+        'employeeId' => $sinHorario['id'],
+        'pinHash'    => hash('sha256', '8265'),
+        'kind'       => 'in',
+        'markedAt'   => $dia . 'T08:00:00-03:00',
+        'method'     => 'pin',
+        'outletId'   => $outletId,
+    ]);
+    check('(G4) el reenvío de una marcación por código YA guardada sigue siendo duplicado, no rechazo',
+        $reenvioViejo['duplicate'] === true
+        && $reenvioViejo['mark']['id'] === $conCodigo['mark']['id'],
+        json_encode($reenvioViejo), $failures, $checks);
+
+    setFaceOnly($companyId, false);
+    check('(G5) volver a prender el interruptor rehabilita el código',
+        AttendanceSettings::faceOnly($companyId) === false,
+        'faceOnly() siguió en true después de apagar la clave', $failures, $checks);
+
 } finally {
+    // El interruptor es del TENANT del fixture, no de las personas que el
+    // arnés creó: si algo tiró en el medio, la clave queda escrita y la
+    // próxima corrida arranca con el código apagado (y (G1) falla sin que
+    // nadie haya roto nada). Se limpia siempre.
+    try {
+        setFaceOnly($companyId, false);
+    } catch (\Throwable) {
+        // Sin conexión no hay nada que limpiar; el error real ya se está
+        // propagando y taparlo con este sería peor.
+    }
+
     // Limpieza: borrar la PERSONA se lleva el legajo y sus marcaciones por
     // CASCADE (mig 233), que es justo el encadenamiento que el modelo promete.
     foreach ($creados as $contactId) {
