@@ -57,18 +57,18 @@ export function describeCameraError(err: unknown): CameraFailure {
   if (name === "NotAllowedError" || name === "SecurityError") {
     return {
       reason: "camera_denied",
-      message: "La cámara está bloqueada en este dispositivo. Se puede marcar igual.",
+      message: "La cámara está bloqueada en este dispositivo. Se puede marcar con el código.",
     }
   }
   if (name === "NotFoundError" || name === "OverconstrainedError") {
     return {
       reason: "no_camera",
-      message: "Este dispositivo no tiene cámara. Se puede marcar igual.",
+      message: "Este dispositivo no tiene cámara. Se puede marcar con el código.",
     }
   }
   return {
     reason: "photo_failed",
-    message: "No se pudo usar la cámara. Se puede marcar igual.",
+    message: "No se pudo usar la cámara. Se puede marcar con el código.",
   }
 }
 
