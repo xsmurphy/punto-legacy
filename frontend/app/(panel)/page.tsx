@@ -175,7 +175,7 @@ export default function DashboardPage() {
         <EmptyState
           icon={TrendingUp}
           title="No tenés acceso al resumen de ventas"
-          description="Este panel muestra la facturación y los indicadores del negocio. Tu usuario no tiene ese permiso; pedíselo al dueño si lo necesitás."
+          description="Este panel muestra la facturación y los indicadores del negocio. Tu usuario no tiene ese permiso; pedíselo a un administrador si lo necesitás."
           actions={
             <Button asChild>
               <Link href="/pos">Ir a la caja</Link>

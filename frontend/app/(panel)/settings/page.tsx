@@ -1227,7 +1227,7 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           form={form}
           name="paymentOrderRequireSecondApprover"
           label="Exigir un segundo aprobador en las órdenes de pago"
-          desc="Quien arma la orden de pago no puede aprobarla: la autoriza otra persona. Apagado (por default), el dueño que arma y aprueba solo trabaja sin fricción. Esto es una restricción ADICIONAL: el permiso para aprobar sigue siendo el que manda, se prenda o no."
+          desc="Quien arma la orden de pago no puede aprobarla: la autoriza otra persona. Apagado (por default), quien arma y aprueba solo trabaja sin fricción. Esto es una restricción ADICIONAL: el permiso para aprobar sigue siendo el que manda, se prenda o no."
         />
       </Section>
     </FormSectionColumns>

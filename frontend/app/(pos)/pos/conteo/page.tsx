@@ -349,7 +349,7 @@ export default function ConteoPage() {
         <EmptyState
           icon={ClipboardCheck}
           title="No tenés permiso para contar stock"
-          description="Pedile a un encargado que te habilite el conteo desde Ajustes → Roles."
+          description="Pedile el acceso a un encargado."
         />
       </div>
     )
@@ -360,8 +360,8 @@ export default function ConteoPage() {
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           icon={ClipboardCheck}
-          title="Los conteos desde la caja están apagados"
-          description="El dueño los habilita en Ajustes → Punto de venta. Mientras tanto, el inventario se cuenta desde el panel."
+          title="El conteo no está habilitado en esta caja"
+          description="El inventario se cuenta desde el panel."
         />
       </div>
     )
