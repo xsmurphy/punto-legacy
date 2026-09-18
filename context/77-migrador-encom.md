@@ -245,6 +245,38 @@ Reglas que lo mantienen acotado:
 - **`exportCSV` sigue descartado** (§15): exige `ids` y su header está
   desalineado con las filas en el propio legacy.
 
+### 4.5 El login: un celular NO viaja tal cual (2026-09-18)
+
+Verificado contra el HTML vivo de `panel.encom.com.py/login`. El form tiene un
+solo campo (`name="email"`) para email o celular, y **antes de enviar el JS le
+antepone el código de país** elegido en un desplegable (`+595` si no se tocó)
+cuando lo tipeado es numérico (`$.isNumeric`), sin tocar nada más:
+`0984123456` viaja como `+5950984123456` (el 0 NO se quita). Con un email no
+antepone nada. El POST es `/login?login=true&gtoken=` con `{email, password}`.
+
+El docblock de `EncomClient::login()` afirmaba que el identificador viajaba
+"TAL CUAL": era falso para celulares, y por eso quien entra al legacy con su
+celular fallaba en `/admin/migrations` con "rechazó las credenciales".
+
+Arreglo —**replicar al navegador, no normalizar**—:
+- `/admin/migrations` pide el código de país cuando el usuario es solo
+  dígitos; el default es el país de la empresa destino (nada cableado a PY).
+- `EncomClient::composeIdentifier()` hace `código + identificador` si el
+  identificador es `^\d+$`, y tal cual en cualquier otro caso. Valida el
+  código (`^\+\d{1,4}$`, 422) y lo exige solo para un celular.
+- Espacios/guiones: `$.isNumeric("0981 123456")` es false y el navegador NO
+  antepone nada, así que acá tampoco, y no se limpian (limpiarlos mandaría algo
+  que el legacy nunca recibió de ese cliente).
+- Desvío deliberado: con un `+` adelante `$.isNumeric` da true y el navegador
+  duplicaría el código; acá se asume que el operador escribió el número
+  completo y viaja tal cual.
+
+> **Riesgo — reCAPTCHA:** el form manda `&gtoken=` (token de reCAPTCHA). Las
+> migraciones funcionaron siempre con `gtoken` vacío y **no se agrega**. Si el
+> legacy empezara a exigirlo, TODOS los logins del migrador fallarían con el
+> mismo "rechazó las credenciales" — revisar esto primero ante un rechazo
+> masivo.
+
 ## 5. La numeración fiscal (D5) — el corazón
 
 El contador del legacy guarda el **último** número emitido. `document_sequence.

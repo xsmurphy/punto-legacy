@@ -81,10 +81,12 @@ final class EncomMigrationService
      * las cookies. Si el login falla, el job NO se crea.
      *
      * `identifier` es lo que el cliente tipea en el campo de usuario del panel
-     * legacy: su email o su celular, indistinto. Viaja tal cual — quien
-     * resuelve cuál de los dos es, es el legacy (ver `EncomClient::login()`).
+     * legacy: su email o su celular. `phoneCode` es el código de país del
+     * desplegable del form legacy: si el identificador es un celular, el
+     * navegador se lo antepone, y el login lo replica (ver
+     * `EncomClient::composeIdentifier()`).
      *
-     * @param array{identifier:string,password:string} $creds
+     * @param array{identifier:string,password:string,phoneCode?:string} $creds
      * @param array<int,string> $domains
      * @return array{jobId:string}
      */
@@ -150,7 +152,12 @@ final class EncomMigrationService
             );
         }
 
-        $client = EncomClient::login($baseUrl, $identifier, (string) ($creds['password'] ?? ''));
+        $client = EncomClient::login(
+            $baseUrl,
+            $identifier,
+            (string) ($creds['password'] ?? ''),
+            trim((string) ($creds['phoneCode'] ?? ''))
+        );
 
         // Solo las cookies llegan a la base. `$creds['password']` no se toca
         // nunca más y no aparece en ningún log.

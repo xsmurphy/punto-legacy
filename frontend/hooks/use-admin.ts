@@ -1286,6 +1286,8 @@ export interface AdminMigrationInput {
   companyId: string
   /** Email o celular con el que el cliente entra al panel legacy, tal cual. */
   identifier: string
+  /** Código de país ("+595") que el form legacy antepone a un celular. */
+  phoneCode?: string
   password: string
   domains: string[]
   registerOutletId?: string

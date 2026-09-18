@@ -201,18 +201,30 @@ class EncomClient implements EncomSource
      * según la versión desplegada y no se exige — exigirla rompía el login
      * contra el deploy viejo, que es justamente el que hay que migrar.
      *
-     * ── Un solo campo: `email` ──────────────────────────────────────────
+     * ── Un solo campo: `email`, pero NO viaja tal cual ─────────────────
      * Verificado contra el sistema VIVO (2026-09-11): el form del login
      * deployado tiene `name="email"` y `name="password"`, y NINGÚN
      * `phone`/`iso` — eso es de una versión de código más nueva que la que
-     * corre. En ese campo el cliente tipea su email O su teléfono, y el
-     * backend legacy resuelve cuál es. Por eso el identificador viaja TAL CUAL
-     * lo tipeó el operador: normalizarlo a E.164 le cambiaría el valor a quien
-     * entra con email y también a quien entra con el teléfono como lo tiene
-     * guardado el legacy.
+     * corre. En ese campo el cliente tipea su email O su celular.
+     *
+     * Verificado de nuevo contra el HTML vivo (2026-09-18): antes de enviar,
+     * el JS del form le ANTEPONE al valor el código de país elegido en un
+     * desplegable (`+595` si no se eligió otro) cuando lo tipeado es numérico
+     * (`$.isNumeric`), sin tocar el resto: "0981123456" viaja como
+     * "+5950981123456". Con un email no antepone nada. Mandar el celular TAL
+     * CUAL —lo que hacíamos— es una credencial que el legacy nunca recibió de
+     * un navegador, y por eso el login fallaba justo para quien entra con el
+     * celular. La regla exacta vive en `composeIdentifier()`; ver context/77 §4.
+     *
+     * Lo que NO se hace es normalizar (E.164, quitar el 0): se replica al
+     * navegador, byte por byte, porque es lo único que el legacy acepta.
      */
-    public static function login(string $baseUrl, string $identifier, string $password): self
-    {
+    public static function login(
+        string $baseUrl,
+        string $identifier,
+        string $password,
+        string $phoneCode = ''
+    ): self {
         $baseUrl = rtrim(trim($baseUrl), '/');
         if ($baseUrl === '') {
             throw new EncomMigrationException(
@@ -226,7 +238,7 @@ class EncomClient implements EncomSource
         $res = $client->raw(
             'POST',
             $baseUrl . '/login?login=true',
-            static::loginBody($identifier, $password),
+            static::loginBody($identifier, $password, $phoneCode),
             'application/x-www-form-urlencoded',
             true
         );
@@ -239,8 +251,11 @@ class EncomClient implements EncomSource
 
         if ($body !== 'true' || !isset($client->cookies['PHPSESSID'])) {
             throw new EncomMigrationException(
-                'El panel legacy rechazó las credenciales. Verificá el usuario (el email o el celular con el '
-                . 'que el cliente entra al panel legacy) y la contraseña.',
+                self::isPhoneIdentifier(trim($identifier))
+                    ? 'El panel legacy rechazó las credenciales. Revisá el código de país del celular, el número '
+                        . '(tal como lo escribe el cliente al entrar) y la contraseña.'
+                    : 'El panel legacy rechazó las credenciales. Verificá el usuario (el email o el celular con el '
+                        . 'que el cliente entra al panel legacy) y la contraseña.',
                 401
             );
         }
@@ -257,18 +272,73 @@ class EncomClient implements EncomSource
     /**
      * Cuerpo del POST de login.
      *
-     * Está separado —y `protected`— por una sola razón: los `name` del form
-     * legacy son justamente lo que se puede equivocar (mandábamos
-     * `phone`/`iso`, que esa versión del deploy no tiene, y el login fallaba
-     * sin explicación posible desde este lado). Acá el arnés los verifica sin
-     * red.
+     * Está separado —y `protected`— por una sola razón: lo que viaja en el
+     * form legacy es justamente lo que se puede equivocar (primero mandábamos
+     * `phone`/`iso`, que esa versión del deploy no tiene; después el celular
+     * sin el código de país que le antepone el navegador) y el legacy contesta
+     * igual, sin explicación posible desde este lado. Acá el arnés lo verifica
+     * sin red.
      */
-    protected static function loginBody(string $identifier, string $password): string
+    protected static function loginBody(string $identifier, string $password, string $phoneCode = ''): string
     {
         return http_build_query([
-            'email'    => $identifier,
+            'email'    => self::composeIdentifier($identifier, $phoneCode),
             'password' => $password,
         ]);
+    }
+
+    /**
+     * Lo que el navegador manda en `email`, replicado.
+     *
+     * El JS del form vivo hace `email = (visible && $.isNumeric(v) ? código : '') + v`.
+     * Acá:
+     *   - "numérico" = SOLO dígitos ASCII (`^\d+$`). Es `$.isNumeric` para
+     *     cualquier cosa que un cliente tipee como celular. Con un espacio o un
+     *     guion en el medio `$.isNumeric` da false y el navegador NO antepone
+     *     nada, así que acá tampoco: esos caracteres NO se limpian, porque
+     *     limpiarlos mandaría algo que el legacy jamás recibió de ese cliente.
+     *   - Desvío deliberado: `$.isNumeric("+595981…")` es true y el navegador
+     *     mandaría "+595+595981…". Un identificador que ya empieza con `+` lo
+     *     escribió el operador completo, así que viaja tal cual (no es
+     *     numérico según `^\d+$`).
+     *   - El 0 inicial NO se quita: el navegador no lo quita.
+     *   - Cualquier otra cosa (email) viaja tal cual, sin código.
+     *
+     * El código se valida siempre que venga (`+` y 1 a 4 dígitos) y es
+     * obligatorio solo cuando el identificador es un celular. Sin default: el
+     * `+595` del navegador es el default del form legacy, y cablearlo acá
+     * sería asumir Paraguay para todos los clientes.
+     */
+    public static function composeIdentifier(string $identifier, string $phoneCode = ''): string
+    {
+        $identifier = trim($identifier);
+        $phoneCode  = trim($phoneCode);
+
+        if ($phoneCode !== '' && preg_match('/^\+\d{1,4}$/', $phoneCode) !== 1) {
+            throw new EncomMigrationException(
+                'El código de país del celular no es válido (tiene que ser "+" y el código, por ejemplo +54).',
+                422
+            );
+        }
+
+        if (!self::isPhoneIdentifier($identifier)) {
+            return $identifier;
+        }
+
+        if ($phoneCode === '') {
+            throw new EncomMigrationException(
+                'Elegí el código de país del celular con el que el cliente entra al panel legacy.',
+                422
+            );
+        }
+
+        return $phoneCode . $identifier;
+    }
+
+    /** Solo dígitos: lo que el form legacy trata como celular (ver `composeIdentifier()`). */
+    public static function isPhoneIdentifier(string $identifier): bool
+    {
+        return preg_match('/^\d+$/', $identifier) === 1;
     }
 
     /**

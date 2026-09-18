@@ -88,12 +88,15 @@ try {
         }
 
         // El usuario del legacy es UN campo de texto libre: el cliente entra
-        // con su email o con su celular, y el backend legacy resuelve cuál
-        // es. No se normaliza nada acá (ver `EncomClient::login()`).
+        // con su email o con su celular. Si es un celular, el form legacy le
+        // antepone el código de país elegido en un desplegable, así que acá
+        // llega aparte y `EncomClient::composeIdentifier()` los junta como lo
+        // hace el navegador (sin normalizar nada más).
         $identifier = trim((string) ($_POST['identifier'] ?? ''));
         if ($identifier === '') {
             apiError('Falta el usuario del cliente en el sistema legacy (email o celular).', 422);
         }
+        $phoneCode = trim((string) ($_POST['phoneCode'] ?? ''));
 
         $password = (string) ($_POST['password'] ?? '');
         if (trim($password) === '') {
@@ -120,6 +123,7 @@ try {
             $companyId,
             [
                 'identifier' => $identifier,
+                'phoneCode'  => $phoneCode,
                 'password'   => $password,
             ],
             $domains,
