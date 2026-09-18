@@ -28,6 +28,35 @@ use Punto\Api\Storage\S3Client;
  * salida, una fecha ilegible o un `opId` ausente. Ahí no hay marcación que
  * salvar: hay un cliente mandando cualquier cosa.
  *
+ * ── La ÚNICA excepción al fail-open: el comercio apagó el código ────────────
+ *
+ * `attendanceFaceOnly` (ver `AttendanceSettings`) rechaza una marcación nueva
+ * con `method='pin'`. No contradice al D4: el fail-open protege a la persona de
+ * fallas del APARATO —la cámara, la red, el PIN rotado—, cosas que ella no
+ * puede resolver parada frente a la tablet. Esto es otra categoría: es el
+ * comercio diciendo que marcar con código no cuenta como marcar. Guardarla
+ * igual "flageada" sería registrar como hecho lo que el dueño acaba de declarar
+ * inválido, y el interruptor no serviría para nada.
+ *
+ * Tres cosas que este rechazo NO rompe:
+ *
+ *   - **Idempotencia primero.** El chequeo va DESPUÉS de `findByOpId()`: una
+ *     marcación por código que el servidor ya guardó se devuelve como duplicado
+ *     aunque el interruptor se haya apagado en el medio. No se reescribe el
+ *     pasado.
+ *   - **La cola no se traba.** El endpoint responde 422 y el transporte del POS
+ *     lo clasifica TERMINAL (`pending-ops-transport.ts`): la operación queda
+ *     visible con su motivo y descartable, no reintentándose para siempre ni
+ *     agotando los 6 intentos contra un servidor que siempre va a decir que no.
+ *   - **La carrera se rechaza a propósito.** Una marcación por código encolada
+ *     offline que llega después de que el comercio apagó el interruptor se
+ *     rechaza igual. Aceptarla porque "ya estaba en la cola" sería dejar entrar
+ *     exactamente lo que el comercio quiso cortar, por una ventana que el
+ *     empleado controla (basta con demorar el envío).
+ *
+ * El registro del ROSTRO no depende de este interruptor: vive en
+ * `EmployeeFaceService` y es lo que hace que apagarlo sea reversible.
+ *
  * ── El PIN identifica; no autoriza ─────────────────────────────────────────
  *
  * El quiosco resuelve el PIN LOCALMENTE contra los hashes que bajaron en el
@@ -247,6 +276,16 @@ final class AttendanceService
         $method = strtolower(trim((string) ($input['method'] ?? 'pin')));
         if (!in_array($method, self::METHODS, true)) {
             $method = 'pin';
+        }
+
+        // El interruptor del comercio. Va acá —después de la idempotencia y de
+        // resolver el método, antes de tocar S3 y la tabla— porque esconder el
+        // botón en el reloj no alcanza: la pantalla es un cliente y un cliente
+        // se edita. Ver el docblock de la clase para por qué esta es la única
+        // excepción al fail-open y por qué la carrera con la cola offline se
+        // rechaza en vez de perdonarse.
+        if ($method === 'pin' && AttendanceSettings::faceOnly($companyId)) {
+            throw new \RuntimeException('La marcación con código está desactivada');
         }
 
         $markedAt = self::instantOrNull($input['markedAt'] ?? null);

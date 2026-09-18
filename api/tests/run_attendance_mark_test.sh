@@ -3,8 +3,10 @@
 # run_attendance_mark_test.sh — arnés de la MARCACIÓN DE ASISTENCIA
 # (context/83 F1, mig 230): que el mismo `opId` no duplique la marcación, que
 # el scoping por comercio aguante, que la tardanza se mida contra el horario
-# declarado (una vez por día, descontando la tolerancia) y que el fail-open
-# cumpla — sin foto o con el PIN viejo, la marcación entra flageada.
+# declarado (una vez por día, descontando la tolerancia), que el fail-open
+# cumpla — sin foto o con el PIN viejo, la marcación entra flageada— y que el
+# interruptor "marcar con código" del comercio rechace lo que apagó sin tocar
+# el rostro ni reescribir lo ya registrado.
 # Ver `api/tests/attendance_mark_test.php`.
 #
 # Uso (un comando, desde la raíz del repo):

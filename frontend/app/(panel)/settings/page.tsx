@@ -196,6 +196,10 @@ const settingsSchema = z.object({
   autoSendDocs: z.boolean(),
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
+  // context/83 — el reloj de marcación exige el rostro. En negativo a
+  // propósito, igual que `stockCountRecordOnly`: el default del comercio es que
+  // el código esté disponible, y un flag ausente en el JSONB vale falso.
+  attendanceFaceOnly: z.boolean(),
   // D7/E1b de context/48-escalamiento-de-datos.md — editable desde
   // /settings/cierre-de-periodo (page propia), no desde este modal. Vive en
   // el schema porque el form hidrata desde el GET; ninguna sección de este
@@ -285,6 +289,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "stockCountBlind", "stockCountRecordOnly", "stockCountFromRegister",
     "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
+    "attendanceFaceOnly",
     "orderStatusLabels",
   ],
   apariencia: [],
@@ -473,6 +478,7 @@ function SettingsPageInner() {
       autoSendDocs: !!data.autoSendDocs,
       weightBarcodes: !!data.weightBarcodes,
       deletedItemsHistory: !!data.deletedItemsHistory,
+      attendanceFaceOnly: !!data.attendanceFaceOnly,
       agentName: data.agentName ?? "",
       agentPersonality: data.agentPersonality ?? "professional",
       agentBusinessContext: data.agentBusinessContext ?? "",
@@ -1136,6 +1142,24 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           label="Enviar comprobantes automáticamente"
           desc="Mail/WhatsApp del comprobante al cliente al cerrar la venta."
         />
+        {/* context/83 — el interruptor del reloj de marcación vive en esta
+            sección y NO en una propia: es donde ya están las reglas del TURNO
+            de quien trabaja en el local (cierre ciego, exigir las órdenes
+            cobradas antes de cerrar), y la marcación es el principio y el fin
+            de ese turno. Una sección nueva para un solo toggle agregaría
+            contrato de sección sin dar nada a cambio — mismo criterio que
+            dejó "Pagos a proveedores" en este tab.
+
+            Nombrado en positivo hacia el ROSTRO y no en negativo hacia el
+            código, para que el toggle apagado sea el default del comercio (el
+            código disponible) y el form no tenga que invertir el valor entre
+            la pantalla y lo que se guarda. */}
+        <ToggleField
+          form={form}
+          name="attendanceFaceOnly"
+          label="Marcar asistencia solo con el rostro"
+          desc="El reloj de la entrada deja de ofrecer el código y cada persona marca poniendo la cara. Quien todavía no tenga el rostro registrado no va a poder marcar hasta que se lo registres."
+        />
       </Section>
 
       <Section title="Stock e inventario">
@@ -1783,6 +1807,7 @@ function emptyValues(): SettingsFormValues {
     autoSendDocs: false,
     weightBarcodes: false,
     deletedItemsHistory: false,
+    attendanceFaceOnly: false,
     settingPeriodCloseMonths: 1,
     agentName: "",
     agentPersonality: "professional",

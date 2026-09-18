@@ -140,6 +140,7 @@ const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
   "ignoreInternal", "stockCountBlind", "stockCountRecordOnly", "stockCountFromRegister",
   "blockUsedDocNo", "autoSendDocs",
   "weightBarcodes", "deletedItemsHistory",
+  "attendanceFaceOnly",
 ]
 
 /**

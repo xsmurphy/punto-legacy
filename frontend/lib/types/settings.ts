@@ -104,6 +104,14 @@ export interface SettingsGeneral {
   autoSendDocs: boolean
   weightBarcodes: boolean
   deletedItemsHistory: boolean
+  /**
+   * context/83 — el reloj de marcación exige el ROSTRO: deja de ofrecer el
+   * código y el servidor rechaza una marcación nueva hecha con él.
+   *
+   * En negativo (`faceOnly` y no `allowPin`) porque el default del comercio es
+   * que el código esté disponible, y un flag ausente en el JSONB vale falso.
+   */
+  attendanceFaceOnly: boolean
 
   // D7/E1b de context/48-escalamiento-de-datos.md — ancho de la ventana
   // abierta de cierre de período (mes en curso + N meses anteriores).
