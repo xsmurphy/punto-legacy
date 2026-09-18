@@ -378,3 +378,12 @@ del POS (togglea el ancho del módulo contra el carrito, en un store que una
 pantalla pareada no tiene): se extrajo
 `components/screens/screen-fullscreen-toggle.tsx`, compartido con la pantalla de
 cliente, que tenía la misma lógica inline con un `<svg>` a mano.
+
+**§9.6 (owner 2026-09-18) — SIN prueba de vida. La D4 queda recortada.** "Es
+solo registro de acceso, no la habilitación de una cuenta bancaria… tampoco es
+a prueba de fraude." El parpadeo se ELIMINÓ completo (módulo `blink.ts`
+borrado) y el registro del rostro es 4 tomas de frente seguidas — sin
+coreografía de poses, que además nunca validó nada y era teatro. Matchear =
+marcar. El fraude con una foto impresa SE ASUME; el control real es la foto de
+evidencia de cada marcación y la revisión del panel. No reintroducir liveness
+sin pedido explícito del owner.

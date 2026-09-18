@@ -44,15 +44,17 @@ import type { PendingEnrollment } from "@/hooks/use-attendance-faces"
  * verifica que las tomas se parezcan ENTRE SÍ, así que tampoco pueden ser muy
  * distintas: son variaciones de la misma pose, no poses diferentes.
  */
-const STEPS = [
-  "Mirá a la cámara",
-  "Girá la cabeza apenas a la izquierda",
-  "Girá la cabeza apenas a la derecha",
-  "Mirá a la cámara otra vez",
-] as const
+/**
+ * Cuatro tomas, todas de frente y seguidas (owner 2026-09-18: sin coreografía
+ * de poses ni prueba de vida — "solo registrar la cara para matchear"). Las
+ * tomas espaciadas unos cientos de ms capturan la variación natural (micro
+ * movimientos, luz) que hace robusto el promedio; el servidor sigue
+ * verificando que se parezcan entre sí.
+ */
+const STEPS = ["Mirá a la cámara", "Quedate así", "Quedate así", "Listo"] as const
 
-/** Cuánto se espera entre tomas, para que la persona alcance a moverse. */
-const STEP_DELAY_MS = 900
+/** Espaciado entre tomas: variación natural sin hacer esperar a nadie. */
+const STEP_DELAY_MS = 400
 
 /** Cuántos intentos se hacen por toma antes de rendirse con esa. */
 const MAX_TRIES_PER_STEP = 12

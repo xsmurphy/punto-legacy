@@ -418,9 +418,7 @@ export default function MarcacionPage() {
       ? "Un momento"
       : phase.kind !== "idle"
         ? ""
-        : face.awaitingBlink
-          ? "Parpadeá"
-          : face.status === "loading"
+        : face.status === "loading"
             ? "Preparando la cámara"
             : cameraOk && face.status === "ready"
               ? "Mirá a la cámara"

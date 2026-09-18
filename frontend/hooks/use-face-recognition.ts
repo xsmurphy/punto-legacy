@@ -13,15 +13,18 @@
  *   1. **Varias lecturas, no una.** Se promedian las últimas tomas. Un cuadro
  *      suelto puede agarrar a la persona girando la cabeza o a mitad de un
  *      pestañeo, y decidir con ese es decidir con ruido.
- *   2. **Un parpadeo** (`blink.ts`). Una foto impresa del compañero no parpadea.
- *      Es la versión barata del problema, y es la que pasa en un mostrador.
- *   3. **Distancia y margen** (`face-match.ts`). Cerca de una cara registrada, y
+ *   2. **Distancia y margen** (`face-match.ts`). Cerca de una cara registrada, y
  *      lo bastante más cerca que de la segunda.
+ *
+ * NO hay prueba de vida (decisión del owner 2026-09-18): es un control de
+ * asistencia, no la habilitación de una cuenta bancaria — el fraude con foto
+ * se asume, y el control real es la foto de evidencia que guarda cada
+ * marcación. El parpadeo que había acá se eliminó completo.
  *
  * ── Nada de esto bloquea a nadie (D4) ──────────────────────────────────────
  *
  * Si el modelo no carga, si no hay cámara, si nadie tiene rostro registrado o si
- * la persona no parpadea: no pasa NADA. La pantalla sigue con el código de
+ * el reconocimiento no matchea: no pasa NADA. La pantalla sigue con el código de
  * marcación, que es el camino de la F1 y siempre está. Lo que este hook agrega
  * es un atajo, no un portón.
  *
@@ -31,13 +34,12 @@
 
 import * as React from "react"
 
-import { BlinkDetector } from "@/lib/pos/face/blink"
 import {
   averageEmbedding,
   pickBestMatch,
   type FaceCandidate,
 } from "@/lib/pos/face/face-match"
-import { loadFaceEngine, readEyeRatio, readFace, type FaceReading } from "@/lib/pos/face/face-engine"
+import { loadFaceEngine, readFace, type FaceReading } from "@/lib/pos/face/face-engine"
 
 /**
  * Cada cuánto se mira un cuadro.
@@ -98,8 +100,6 @@ export interface UseFaceRecognition {
   status: FaceEngineStatus
   /** Hay una cara delante de la cámara AHORA. */
   facePresent: boolean
-  /** Se vio una cara y todavía falta el parpadeo. */
-  awaitingBlink: boolean
   /**
    * Qué se vio hace poco. Se lee al CONFIRMAR una marcación por código, para
    * saber si hay que flagearla — por eso es una ref y no estado: no tiene que
@@ -121,13 +121,11 @@ export function useFaceRecognition({
 }: UseFaceRecognitionOptions): UseFaceRecognition {
   const [status, setStatus] = React.useState<FaceEngineStatus>("off")
   const [facePresent, setFacePresent] = React.useState(false)
-  const [awaitingBlink, setAwaitingBlink] = React.useState(false)
 
   // El módulo cargado. En una ref y no en estado: cambiarlo no tiene que
   // redibujar nada, y guardarlo en estado dispararía un render con un objeto de
   // varios MB adentro.
   const engineRef = React.useRef<Awaited<ReturnType<typeof loadFaceEngine>>>(null)
-  const blinkRef = React.useRef(new BlinkDetector())
   const windowRef = React.useRef<number[][]>([])
   const cooldownUntilRef = React.useRef(0)
   const lastSighting = React.useRef<FaceSighting | null>(null)
@@ -143,9 +141,7 @@ export function useFaceRecognition({
   pausedRef.current = paused
 
   const reset = React.useCallback(() => {
-    blinkRef.current.reset()
     windowRef.current = []
-    setAwaitingBlink(false)
   }, [])
 
   // ── Carga del modelo ──────────────────────────────────────────────────────
@@ -205,52 +201,35 @@ export function useFaceRecognition({
           // cuadro un instante.
           windowRef.current = []
           setFacePresent(false)
-          setAwaitingBlink(false)
           return
         }
 
         setFacePresent(true)
-        const blinked = blinkRef.current.push(reading.eyeRatio, performance.now())
 
         const buf = windowRef.current
         buf.push(reading.embedding)
         if (buf.length > WINDOW) buf.shift()
 
-        if (buf.length < WINDOW) {
-          setAwaitingBlink(false)
-          return
-        }
+        if (buf.length < WINDOW) return
 
         const probe = averageEmbedding(buf)
         if (!probe) return
 
         const result = pickBestMatch(probe, candidatesRef.current)
 
-        // Se registra lo visto SIEMPRE, con parpadeo o sin él: sirve para el
-        // motivo de revisión de una marcación hecha por código, y ahí lo que
-        // importa es si HABÍA una cara y de quién era — no si probó estar viva.
+        // Se registra lo visto SIEMPRE: sirve para el motivo de revisión de una
+        // marcación hecha por código — lo que importa es si HABÍA una cara y de
+        // quién era.
         lastSighting.current = {
           at: performance.now(),
           employeeId: result.matched ? result.match.employeeId : null,
         }
 
-        if (!result.matched) {
-          setAwaitingBlink(false)
-          return
-        }
-
-        // Identificada, pero todavía sin prueba de vida: la pantalla lo dice y
-        // la persona parpadea (o tipea su código, que también sirve).
-        if (!blinkRef.current.alive && !blinked) {
-          setAwaitingBlink(true)
-          return
-        }
+        if (!result.matched) return
 
         if (performance.now() < cooldownUntilRef.current) return
 
         cooldownUntilRef.current = performance.now() + COOLDOWN_MS
-        setAwaitingBlink(false)
-        blinkRef.current.reset()
         windowRef.current = []
         onIdentifiedRef.current?.(result.match.employeeId)
       } finally {
@@ -266,45 +245,13 @@ export function useFaceRecognition({
     }
   }, [status, videoRef])
 
-  // ── Bucle rápido del parpadeo ─────────────────────────────────────────────
-  //
-  // Solo mientras la pantalla espera la prueba de vida. El bucle principal
-  // sigue a su ritmo (identificar es caro); este alimenta el detector de
-  // parpadeo con lecturas livianas a ~12 Hz — ver `readEyeRatio`. Cuando el
-  // parpadeo se completa, `blinkRef.alive` queda en true y el próximo tick del
-  // bucle principal termina la marcación.
-  React.useEffect(() => {
-    if (!awaitingBlink || status !== "ready") return
-
-    let cancelled = false
-    let running = false
-    const fastTick = async () => {
-      if (cancelled || running) return
-      running = true
-      try {
-        const engine = engineRef.current
-        if (!engine || pausedRef.current) return
-        const ratio = await readEyeRatio(engine, videoRef.current)
-        if (cancelled) return
-        blinkRef.current.push(ratio, performance.now())
-      } finally {
-        running = false
-      }
-    }
-    const timer = setInterval(() => void fastTick(), 80)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [awaitingBlink, status, videoRef])
-
   const readOnce = React.useCallback(async (): Promise<FaceReading | null> => {
     const engine = engineRef.current
     if (!engine) return null
     return readFace(engine, videoRef.current)
   }, [videoRef])
 
-  return { status, facePresent, awaitingBlink, lastSighting, readOnce, reset }
+  return { status, facePresent, lastSighting, readOnce, reset }
 }
 
 /**
