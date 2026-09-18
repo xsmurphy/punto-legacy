@@ -569,6 +569,20 @@ function TransactionDetailView({
               value={<Badge variant="destructive">Vencido al emitirse</Badge>}
             />
           )}
+          {/* Wallet F2: la venta traía una carga de saldo que emitió alguien sin
+              permiso para cargar (cola offline). La venta vale; el saldo NO se
+              acreditó y alguien tiene que decidir qué hacer — sin esta fila no
+              lo vería nadie. */}
+          {tx.meta?.walletLoadWithheld && (
+            <InfoRow
+              label="Carga de saldo"
+              value={
+                <Badge variant="destructive">
+                  Sin acreditar: {formatMoney(Number(tx.meta.walletLoadWithheld.amount) || 0, bootstrap)}
+                </Badge>
+              }
+            />
+          )}
           {tx.docNo && <InfoRow label="Factura" value={tx.docNo} mono />}
         </InfoCard>
 

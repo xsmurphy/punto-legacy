@@ -379,7 +379,15 @@ El tipo 15 NO se puede crear por `/v1/sales` ni por la cola offline
   `CURRENT_VERSION` 13, sin seed — mismo criterio que `wallet.*`), evaluados
   contra el OPERADOR del PIN (`OperatorContext`). `/v1/pos-wallet` los exige;
   `/v1/sales` exige `pos.wallet.load` en el camino DIRECTO si la venta trae una
-  carga (la cola offline no: esa venta ya está emitida, §53). El autor de cada
+  carga (realm `pos-app` forzado con `array_merge`, el valor forzado gana). La
+  cola offline evalúa el permiso de quien EMITIÓ, no de quien sincroniza: la
+  caja embebe en toda venta con carga la afirmación firmada del operador al
+  emitir (`walletLoadAuth`) y `WalletLoadPermission` la verifica vigente en el
+  INSTANTE de la emisión (`OperatorAssertion::verifyAt`). Sin afirmación o sin
+  permiso, la venta ya emitida se guarda igual (§53), la carga NO se acredita
+  y queda marcada en `meta.walletLoadWithheld` (mismo patrón que
+  `invoiceAuthExpiredAtEmission`), visible como "Carga de saldo: sin
+  acreditar" en el detalle de la transacción del panel. El autor de cada
   movimiento es el operador.
 - **Bootstrap de la caja:** `walletPockets` (activos, con su impuesto) solo con
   el módulo prendido; los contactos exponen `parentContactId`.
@@ -412,15 +420,25 @@ El tipo 15 NO se puede crear por `/v1/sales` ni por la cola offline
 
 ### 12.4 Tests
 
-`bash api/tests/run_wallet_test.sh` corre F1 (75) + `wallet_pos_test.php` (57)
+`bash api/tests/run_wallet_test.sh` corre F1 (75) + `wallet_pos_test.php` (63)
 contra Postgres real: carga atómica con la venta (un constraint trigger
 diferido revienta el COMMIT y no queda ni venta ni carga), rechazos, consumo
 con stock/COGS sin FE/Finanzas/ingresos (con control positivo), saldo
 insuficiente sin escribir nada, carrera real de dos cajas por el comprobante
-completo, y los 403 del operador por HTTP real.
+completo, los 403 del operador por HTTP real, y la cola offline con emisor
+sin permiso / sin afirmación / afirmación adulterada / con permiso.
 
 ### 12.5 Qué quedó fuera
 
+- **PENDIENTE PRIORITARIO — monto del consumo confiado desde el POS.** El
+  subtotal del comprobante de consumo (y por lo tanto el débito) sale del
+  payload de la caja, con la misma confianza que una venta normal: un cliente
+  alterado podría consumir por menos de lo que vale. Va como fast-follow junto
+  con el reporte "consumido con saldo" — recalcular el precio server-side
+  contra el catálogo/lista de precios.
+- **Carga retenida sin resolución en el sistema**: `meta.walletLoadWithheld`
+  se ve en el detalle, pero no hay acción para acreditarla o devolverla (hoy
+  se resuelve con un ajuste manual del bolsillo o una devolución de la venta).
 - **Reporte "consumido con saldo"** en los reportes de productos: el dato ya
   está (itemSold con precio y COGS del tipo 15), falta la sección.
 - **Devolución de un consumo** (`refund` existe en el servicio, sin UI ni

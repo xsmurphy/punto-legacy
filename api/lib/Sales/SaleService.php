@@ -88,7 +88,15 @@ final class SaleService
      * @throws DuplicateSaleException Si el UID ya existe (el endpoint devuelve 200 con duplicated=true).
      * @throws SaleAbortedException   Si la transacción de PG falla (el endpoint devuelve 500).
      */
-    public function save(SaleInput $input): SaleResult
+    /**
+     * @param bool $walletLoadAuthorized false = la venta trae CARGAS de saldo
+     *   pero quien la emitió no tenía `pos.wallet.load` (solo lo decide la cola
+     *   offline, `WalletLoadPermission`). La venta YA EMITIDA se guarda igual
+     *   (context/08 §53) — con su factura y su cobro — pero las cargas NO se
+     *   acreditan: quedan retenidas y marcadas en `meta.walletLoadWithheld`
+     *   para que el comercio las revise desde el detalle de la transacción.
+     */
+    public function save(SaleInput $input, bool $walletLoadAuthorized = true): SaleResult
     {
         // ── B1: idempotencia — la cola offline puede reenviar el mismo UID ────
         // Si el UID ya existe EN ESTE TENANT, la venta ya se registró: duplicate
@@ -262,6 +270,7 @@ final class SaleService
                 invoicePrefix:          $invoicePrefix,
                 invoiceSerie:           $invoiceSerie,
                 invoiceNoOverride:      $internalNo,
+                walletLoadWithheld:     $walletLoadAuthorized ? null : $this->walletLoadTotal($saleDetail),
             );
 
             // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -280,7 +289,7 @@ final class SaleService
                 // ── Wallet F2 (context/74): cargas y débito DENTRO de la venta ──
                 // Si la venta hace rollback, el movimiento se va con ella: nunca
                 // hay saldo cargado sin su factura ni consumo sin su débito.
-                $walletContacts = $this->persistWalletMovements($input, (string) $transId, $saleDetail, $userId);
+                $walletContacts = $this->persistWalletMovements($input, (string) $transId, $saleDetail, $userId, $walletLoadAuthorized);
 
                 // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
                 $this->persistGiftCardRedemptions($input);
@@ -958,6 +967,7 @@ final class SaleService
         ?string $invoicePrefix = null,
         ?string $invoiceSerie = null,
         ?int $invoiceNoOverride = null,
+        ?float $walletLoadWithheld = null,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -976,6 +986,12 @@ final class SaleService
         ];
         if ($invoiceAuthExpiredAtEmission) {
             $meta['invoiceAuthExpiredAtEmission'] = true;
+        }
+        // Wallet F2: cargas de saldo emitidas por alguien sin `pos.wallet.load`
+        // (cola offline). Mismo criterio que la marca de arriba: solo existe
+        // cuando pasó, y la lee el detalle de la transacción del panel.
+        if ($walletLoadWithheld !== null && $walletLoadWithheld > 0) {
+            $meta['walletLoadWithheld'] = ['reason' => 'permission', 'amount' => $walletLoadWithheld];
         }
 
         return [
@@ -1270,6 +1286,18 @@ final class SaleService
         return $saleDetail;
     }
 
+    /** Suma de lo que las líneas de carga acreditarían (ya resuelto). */
+    private function walletLoadTotal(array $saleDetail): float
+    {
+        $sum = 0.0;
+        foreach ($saleDetail as $sD) {
+            if (is_array($sD['walletLoad'] ?? null) && isset($sD['walletLoad']['amount'])) {
+                $sum += (float) $sD['walletLoad']['amount'];
+            }
+        }
+        return round($sum, 2);
+    }
+
     /**
      * Wallet F2 — los movimientos de saldo de esta transacción, DENTRO de ella.
      *
@@ -1286,7 +1314,7 @@ final class SaleService
      * @param array<int,array<string,mixed>> $saleDetail detalle ya resuelto por `resolveWalletLoads()`
      * @return list<string> contactos cuyo saldo cambió (para el aviso post-commit)
      */
-    private function persistWalletMovements(SaleInput $input, string $transId, array $saleDetail, string $userId): array
+    private function persistWalletMovements(SaleInput $input, string $transId, array $saleDetail, string $userId, bool $walletLoadAuthorized = true): array
     {
         $companyId = (string) $this->ctx->companyId;
         $wallet    = new \Punto\Api\Wallet\WalletService();
@@ -1303,6 +1331,12 @@ final class SaleService
                 $userId,
             );
             return [(string) $input->clientId];
+        }
+
+        // Carga emitida sin permiso (cola offline): la venta entra, la carga no.
+        // Queda marcada en `meta.walletLoadWithheld` (ver `save()`).
+        if (!$walletLoadAuthorized) {
+            return [];
         }
 
         $loaded = false;
@@ -1325,7 +1359,6 @@ final class SaleService
         }
         return $loaded ? [(string) $input->clientId] : [];
     }
-
 
     /**
      * B7 — etiquetas de la VENTA (`toTag`, que apunta a `taxonomy`/`tag`).

@@ -217,8 +217,15 @@ foreach ($sales as $item) {
     // bloqueado localmente antes de imprimir (`lib/pos/emission-block.ts`).
     $service = new SaleService(ctx: TenantContext::fromAuth($authCtx), db: $db);
 
+    // Carga de saldo (wallet F2, context/74 §12): `pos.wallet.load` se evalúa
+    // contra el operador que EMITIÓ la venta (su afirmación firmada viaja en el
+    // payload), no contra quien sincroniza. Sin permiso la venta — ya emitida —
+    // se guarda igual y la carga queda RETENIDA y marcada (§53), nunca se
+    // rechaza la venta ni se acredita saldo que nadie autorizó.
+    $walletLoadAuthorized = \Punto\Api\Wallet\WalletLoadPermission::authorizedAtEmission($input, (string) $compId);
+
     try {
-        $result = $service->save($input);
+        $result = $service->save($input, $walletLoadAuthorized);
     } catch (DuplicateInvoiceNumberException $e) {
         // mig 145 — choque REAL contra uq_transaction_expedition_invoiceno,
         // NO un reintento del mismo uid (eso es DuplicateSaleException, más
@@ -331,7 +338,7 @@ foreach ($sales as $item) {
         'clientTempId'  => $tempId,
         'ok'            => true,
         'transactionId' => $result->transactionId,
-    ];
+    ] + ($walletLoadAuthorized ? [] : ['walletLoadWithheld' => true]);
 }
 
 apiOk(['results' => $results]);

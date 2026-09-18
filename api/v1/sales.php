@@ -157,13 +157,15 @@ if ($alreadyRegistered !== null) {
 // llega por `offline-sync` está EMITIDA y no se rechaza (§53). La caja ya gatea
 // el botón con los permisos del operador que baja `unlock-pin`.
 //
-// `realm` explícito: `apiAuthPosContext()` solo acepta el Bearer del device,
-// así que la credencial ES `pos-app` por construcción — pero su ctx no trae la
-// clave, y sin ella `OperatorContext` leería la persona como si fuera el panel.
+// `realm` FORZADO (array_merge: el valor de la derecha gana siempre):
+// `apiAuthPosContext()` solo acepta el Bearer del device, así que la
+// credencial ES `pos-app` por construcción. Si un refactor de ese embudo
+// empezara a devolver otra clave `realm`, el chequeo del operador no puede
+// caer al camino del panel (`hasPermission()` contra el rol del device).
 foreach ($input->sale as $__line) {
     if (is_array($__line) && is_array($__line['walletLoad'] ?? null)) {
         require_once dirname(__DIR__) . '/lib/Auth/OperatorContext.php';
-        \Punto\Api\Auth\OperatorContext::requirePermission($authCtx + ['realm' => 'pos-app'], 'pos.wallet.load');
+        \Punto\Api\Auth\OperatorContext::requirePermission(array_merge($authCtx, ['realm' => 'pos-app']), 'pos.wallet.load');
         break;
     }
 }

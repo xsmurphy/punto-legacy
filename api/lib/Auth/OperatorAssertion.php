@@ -103,7 +103,23 @@ final class OperatorAssertion
      */
     public static function verify(?string $token, string $companyId): ?string
     {
+        return self::verifyAt($token, $companyId, time());
+    }
+
+    /**
+     * Igual que `verify()`, pero la vigencia se mide en el instante `$atEpoch`
+     * y no ahora: "¿esta afirmación estaba vigente CUANDO pasó esto?".
+     *
+     * Existe para la venta que se EMITIÓ sin red y sincroniza horas después
+     * (wallet F2, context/74 §12): quien la emitió firmó con su PIN en ese
+     * momento, y su afirmación pudo vencer antes del sync. Un instante en el
+     * futuro (más de 5 min adelante del reloj del servidor) no se acepta: no
+     * se puede afirmar algo que todavía no pasó.
+     */
+    public static function verifyAt(?string $token, string $companyId, int $atEpoch): ?string
+    {
         if ($token === null || $token === '') return null;
+        if ($atEpoch > time() + 300) return null;
 
         $parts = explode('.', $token);
         if (count($parts) !== 2) return null;
@@ -126,7 +142,9 @@ final class OperatorAssertion
         // es del server, no del tenant). Es el mismo aislamiento multi-tenant
         // que se exige en cualquier otra credencial del sistema.
         if (($payload['c'] ?? null) !== $companyId) return null;
-        if ((int) ($payload['exp'] ?? 0) < time()) return null;
+        if ((int) ($payload['exp'] ?? 0) < $atEpoch) return null;
+        // Emitida DESPUÉS del hecho: tampoco afirma nada sobre él.
+        if ($atEpoch < (int) ($payload['exp'] ?? 0) - self::TTL_SECONDS - 300) return null;
 
         $contactId = (string) ($payload['u'] ?? '');
         return $contactId !== '' ? $contactId : null;

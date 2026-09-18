@@ -573,6 +573,60 @@ try {
     check('(h10) /v1/sales: carga con operador SIN pos.wallet.load → 403',
         $r['status'] === 403 && str_contains($r['body'], 'pos.wallet.load'), $r['body'], $failures, $checks);
 
+    // ═════════════════════════════════════════════════════════════════════════
+    echo "\n=== (i) cola offline: el permiso de CARGA es el de quien EMITIÓ ===\n";
+    // La caja tiene que ser de este device para que offline-sync acepte el número.
+    \Punto\Api\Services\RegisterLeaseService::claim($registerId, $companyId, $outletId, (string) $issued['deviceId'], true);
+    $offlineLoad = function (string $u, ?string $emitterToken) use (&$nextNo, $pH): array {
+        $sale = salePayload($u, $nextNo, WP_H, [
+            line(['uniPrice' => 3000, 'price' => 3000, 'total' => 3000, 'walletLoad' => ['pocketId' => $pH['id']]]),
+        ])['transaction'];
+        if ($emitterToken !== null) {
+            $sale['walletLoadAuth'] = $emitterToken;
+        }
+        return ['sales' => [['clientTempId' => $u, 'invoiceNo' => $nextNo++, 'sale' => $sale]]];
+    };
+    $withheldMeta = function (string $u): ?array {
+        $row = ncmExecute("SELECT meta->'walletLoadWithheld' AS w FROM transaction WHERE transactionuid = ?", [$u]);
+        $w = $row['w'] ?? null;
+        return is_string($w) ? json_decode($w, true) : (is_array($w) ? $w : null);
+    };
+    $loadsOf = fn (string $u) => (int) (ncmExecute(
+        "SELECT COUNT(*) AS n FROM wallet_movement m JOIN transaction t ON t.transactionid = m.sourceid
+          WHERE t.transactionuid = ? AND m.type = 'load'", [$u]
+    )['n'] ?? 0);
+
+    // Emitida por el operador SIN permiso; la sincroniza el operador CON permiso.
+    $uI1 = uid('i-sin');
+    $bal0 = $wallet->balance($companyId, WP_H, $pH['id']);
+    $r = $hit('v1/offline-sync.php', 'POST', '', $offlineLoad($uI1, $tokSin), $tokCon);
+    $res = $r['data']['results'][0] ?? [];
+    check('(i1) emisor sin pos.wallet.load: la venta ya emitida SE GUARDA',
+        ($res['ok'] ?? null) === true && txCount($uI1) === 1, $r['body'], $failures, $checks);
+    check('(i2) pero la carga NO se acredita', $loadsOf($uI1) === 0
+        && near($wallet->balance($companyId, WP_H, $pH['id']), $bal0), 'loads=' . $loadsOf($uI1), $failures, $checks);
+    $w = $withheldMeta($uI1);
+    check('(i3) y queda marcada para revisión (meta.walletLoadWithheld, 3.000)',
+        is_array($w) && ($w['reason'] ?? '') === 'permission' && near((float) ($w['amount'] ?? 0), 3000)
+        && ($res['walletLoadWithheld'] ?? null) === true, json_encode([$w, $res]), $failures, $checks);
+
+    $uI2 = uid('i-none');
+    $r = $hit('v1/offline-sync.php', 'POST', '', $offlineLoad($uI2, null), $tokCon);
+    check('(i4) sin afirmación del emisor: se guarda, carga retenida y marcada',
+        (($r['data']['results'][0]['ok'] ?? null) === true) && $loadsOf($uI2) === 0 && is_array($withheldMeta($uI2)),
+        $r['body'], $failures, $checks);
+
+    $uI3 = uid('i-forged');
+    $r = $hit('v1/offline-sync.php', 'POST', '', $offlineLoad($uI3, $tokCon . 'x'), $tokCon);
+    check('(i5) afirmación adulterada no vale', $loadsOf($uI3) === 0 && is_array($withheldMeta($uI3)), $r['body'], $failures, $checks);
+
+    // Emitida por el operador CON permiso; la sincroniza alguien SIN permiso.
+    $uI4 = uid('i-con');
+    $r = $hit('v1/offline-sync.php', 'POST', '', $offlineLoad($uI4, $tokCon), $tokSin);
+    check('(i6) emisor con permiso: se acredita aunque sincronice otro',
+        (($r['data']['results'][0]['ok'] ?? null) === true) && $loadsOf($uI4) === 1 && $withheldMeta($uI4) === null,
+        $r['body'], $failures, $checks);
+
     $modules->toggle($companyId, 'wallet', false);
     $r = $hit('v1/pos-wallet.php', 'GET', 'resource=balances&contactId=' . WP_H, [], $tokCon);
     check('(h11) con el módulo apagado la caja no opera la wallet', $r['status'] === 403, $r['body'], $failures, $checks);

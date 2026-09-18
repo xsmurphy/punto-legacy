@@ -1069,6 +1069,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       invoiceno: invoiceNo,
       invoiceserie: invoiceSerie,
     })
+    // Carga de saldo (wallet F2): viaja la afirmación del operador que EMITE,
+    // para que la cola offline pueda evaluar su permiso al sincronizar.
+    if (cartHasWalletLoad(args.lines)) {
+      payload.walletLoadAuth = useLockStore.getState().operatorToken ?? null
+    }
 
     let result: CreateSaleResult
 

@@ -1497,6 +1497,12 @@ export interface TxDetailFull {
        * `SaleService` escribe la clave únicamente cuando pasó.
        */
       invoiceAuthExpiredAtEmission?: boolean
+      /**
+       * Wallet F2: la venta traía CARGA de saldo emitida por alguien sin
+       * `pos.wallet.load` (cola offline). La venta se guardó; la carga NO se
+       * acreditó. Solo existe cuando pasó.
+       */
+      walletLoadWithheld?: { reason: string; amount: number }
     } | null
     /** F1 — cabecera/ámbito ampliados del resolver canónico. */
     transactionStatus?: number

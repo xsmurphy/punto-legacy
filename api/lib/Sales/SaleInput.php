@@ -138,6 +138,14 @@ final class SaleInput
          * por el neto del comprobante, dentro de la misma transacción.
          */
         public readonly ?string $walletPocketId = null,
+        /**
+         * Afirmación firmada del OPERADOR que emitió la venta (`OperatorAssertion`,
+         * la del PIN), embebida por la caja en toda venta con CARGA de saldo
+         * (wallet F2). Es lo que permite evaluar `pos.wallet.load` contra quien
+         * EMITIÓ una venta que llega por la cola offline, horas después y con
+         * otro operador desbloqueado — ver `WalletLoadPermission`.
+         */
+        public readonly ?string $walletLoadAuth = null,
     ) {
     }
 
@@ -238,6 +246,9 @@ final class SaleInput
             repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
             quoteParentId: self::normalizeUuid($payload['parentTransactionId'] ?? null),
             invoiceSerie:  self::normalizeInvoiceSerie($payload),
+            walletLoadAuth: is_string($payload['walletLoadAuth'] ?? null) && strlen($payload['walletLoadAuth']) <= 2048
+                ? $payload['walletLoadAuth']
+                : null,
         );
     }
 

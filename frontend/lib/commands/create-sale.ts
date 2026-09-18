@@ -259,6 +259,13 @@ export interface CreateSalePayload {
    * Maps a `SaleInput::$invoiceSerie` (key `invoiceserie`).
    */
   invoiceserie: string
+  /**
+   * Wallet F2: afirmación firmada del operador del PIN AL EMITIR, en toda venta
+   * con CARGA de saldo. Si la venta se sincroniza por la cola offline, el
+   * servidor evalúa `pos.wallet.load` contra ESTA persona, no contra quien
+   * sincroniza (`WalletLoadPermission`). Ausente en el resto de las ventas.
+   */
+  walletLoadAuth?: string | null
 }
 
 export interface CreateSaleResult {
