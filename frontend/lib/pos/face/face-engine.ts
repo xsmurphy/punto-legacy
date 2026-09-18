@@ -126,6 +126,39 @@ export interface FaceReading {
  * necesita los landmarks para alinear el recorte: pedirlos por separado sería
  * calcular dos veces lo mismo, y acá se corre varias veces por segundo.
  */
+/**
+ * Lectura LIVIANA: solo detección + landmarks, sin embedding.
+ *
+ * Existe por el parpadeo. Un parpadeo dura ~150-250 ms y la lectura completa
+ * (con descriptor) corre cada ~320 ms más su propio costo: el ojo cerrado cae
+ * ENTRE dos lecturas y el detector no lo ve nunca — "Parpadeá" quedaba
+ * esperando para siempre. Sin el descriptor la inferencia es varias veces más
+ * barata y se puede muestrear a ~10-12 Hz mientras se espera la prueba de
+ * vida, que es la frecuencia que un parpadeo real necesita.
+ */
+export async function readEyeRatio(
+  faceapi: FaceApiModule,
+  video: HTMLVideoElement | null,
+): Promise<number | null> {
+  if (!video || !video.videoWidth || !video.videoHeight) return null
+  try {
+    const result = await faceapi
+      .detectSingleFace(
+        video,
+        new faceapi.TinyFaceDetectorOptions({
+          inputSize: DETECTOR_INPUT_SIZE,
+          scoreThreshold: DETECTOR_SCORE,
+        }),
+      )
+      .withFaceLandmarks()
+    const positions = (result?.landmarks?.positions ?? []) as unknown as FacePoint[]
+    const eyes = eyesFromLandmarks(positions)
+    return eyes ? blinkRatio(eyes.left, eyes.right) : null
+  } catch {
+    return null
+  }
+}
+
 export async function readFace(
   faceapi: FaceApiModule,
   video: HTMLVideoElement | null,

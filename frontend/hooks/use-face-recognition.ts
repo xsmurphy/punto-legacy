@@ -37,7 +37,7 @@ import {
   pickBestMatch,
   type FaceCandidate,
 } from "@/lib/pos/face/face-match"
-import { loadFaceEngine, readFace, type FaceReading } from "@/lib/pos/face/face-engine"
+import { loadFaceEngine, readEyeRatio, readFace, type FaceReading } from "@/lib/pos/face/face-engine"
 
 /**
  * Cada cuánto se mira un cuadro.
@@ -265,6 +265,38 @@ export function useFaceRecognition({
       if (timer) clearTimeout(timer)
     }
   }, [status, videoRef])
+
+  // ── Bucle rápido del parpadeo ─────────────────────────────────────────────
+  //
+  // Solo mientras la pantalla espera la prueba de vida. El bucle principal
+  // sigue a su ritmo (identificar es caro); este alimenta el detector de
+  // parpadeo con lecturas livianas a ~12 Hz — ver `readEyeRatio`. Cuando el
+  // parpadeo se completa, `blinkRef.alive` queda en true y el próximo tick del
+  // bucle principal termina la marcación.
+  React.useEffect(() => {
+    if (!awaitingBlink || status !== "ready") return
+
+    let cancelled = false
+    let running = false
+    const fastTick = async () => {
+      if (cancelled || running) return
+      running = true
+      try {
+        const engine = engineRef.current
+        if (!engine || pausedRef.current) return
+        const ratio = await readEyeRatio(engine, videoRef.current)
+        if (cancelled) return
+        blinkRef.current.push(ratio, performance.now())
+      } finally {
+        running = false
+      }
+    }
+    const timer = setInterval(() => void fastTick(), 80)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [awaitingBlink, status, videoRef])
 
   const readOnce = React.useCallback(async (): Promise<FaceReading | null> => {
     const engine = engineRef.current
