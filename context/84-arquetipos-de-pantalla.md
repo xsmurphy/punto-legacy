@@ -2,7 +2,7 @@
      antes de crear o reestructurar una pantalla de `frontend/app/(panel)`.
      Este doc NO reemplaza a `context/14` ni a `context/20`: los ORGANIZA por
      arquetipo y los referencia por sección y fecha. Si algo acá contradice a
-     14/20, ver §11 — no se resuelve en silencio. -->
+     14/20, se señala y se lleva al owner (ver §11, resueltas 2026-09-18). -->
 
 # 84 — Arquetipos de pantalla
 
@@ -39,7 +39,7 @@ Cada regla lleva una marca:
 - [8. Tablero](#8-tablero)
 - [9. Herramienta](#9-herramienta)
 - [10. Enforcement: componentes y guards](#10-enforcement-componentes-y-guards)
-- [11. Contradicciones a resolver](#11-contradicciones-a-resolver)
+- [11. Contradicciones resueltas (owner 2026-09-18)](#11-contradicciones-resueltas-owner-2026-09-18)
 - [12. Checklist de auditoría](#12-checklist-de-auditoría)
 - [13. Inventario de pantallas (2026-09-18)](#13-inventario-de-pantallas-2026-09-18)
 
@@ -96,10 +96,10 @@ Valen para TODO arquetipo.
 | T1 | Título de página = `<h1 className="text-2xl font-semibold">`, uno solo por pantalla. Lo pinta el armazón del arquetipo, no el call-site | [VIGENTE] `context/14` Regla #1; `context/20` §6 "Header de página" |
 | T2 | **BackLink canónico** — un solo componente, ghost con hover de fondo (`Button variant="ghost" size="sm"` + `ArrowLeft size-3.5`, texto `text-xs text-muted-foreground`). La forma que ya tiene `BackButton` en `transactions/[id]/page.tsx:930` es la referencia. Prohibido definir `function BackLink()` local | [OWNER] 2026-09-18 |
 | T3 | **Labels de campo** con `Label`/`FormLabel` en caso normal (sin `uppercase`, sin `tracking-*`, sin `text-[11px]`) | [OWNER] 2026-09-18 |
-| T4 | **Títulos de sección canónicos**: dentro de una card, `CardTitle` a secas; en un formulario, `FormSection` (`components/forms/form-section.tsx`). Nada de `uppercase tracking-*` a mano. La única mayúscula permitida es la que ya trae un primitive (`StatTile`) | [OWNER] 2026-09-18 — ver §11 C1 |
-| T5 | **Sin iconos en headings**: ni en h1/h2/h3, ni en `CardTitle`, ni en headers de `Dialog` | [VIGENTE] `context/20` §5 (fila "Iconos en h1/h2/h3…") y changelog 2026-06-25 |
+| T4 | **Títulos de sección canónicos**: dentro de una card, `CardTitle` a secas; sección de página sin card, `h2 text-xl font-semibold`; en un formulario, `FormSection` (`components/forms/form-section.tsx`). Nada de `uppercase tracking-*` a mano. La única mayúscula permitida es la que ya trae un primitive (`StatTile`) | [OWNER] 2026-09-18 — §11 C1, C2 |
+| T5 | **Sin iconos en títulos**: ni en h1/h2/h3, ni en `CardTitle`, ni en headers de `Dialog` | [OWNER] 2026-09-18 §11 C7; `context/20` §5 |
 | T6 | **Sin leyendas explicativas** bajo campos ni secciones; nada técnico en pantalla. Lo único que se escribe es lo accionable cuando algo falla, en una línea | [VIGENTE] `context/14` Regla #8 "Nada técnico en pantalla…" (owner 2026-09-16) |
-| T7 | **Vacío**: `EmptyState` solo para **página o listado vacío**. El vacío de una **sub-sección** (una card de la ficha, una pestaña secundaria) es una línea compacta `text-sm text-muted-foreground` con link a la acción ("Sin direcciones. Agregar") | [OWNER] 2026-09-18 — ver §11 C4 |
+| T7 | **Vacío**: `EmptyState` solo para **página o listado vacío**. El vacío de una **sub-sección** (una card de la ficha, una pestaña secundaria) es una línea compacta `text-sm text-muted-foreground` con link a la acción ("Sin direcciones. Agregar") | [OWNER] 2026-09-18 — §11 C4 |
 | T8 | **Montos** con `MoneyInput`; prohibido `<Input type="number">` para dinero | [VIGENTE] `context/20` §4 "MoneyInput" + §5 |
 | T9 | **Nada hardcodeado a Paraguay**: moneda, locale, país y zona salen del tenant | [VIGENTE] memoria `feedback_no_hardcodear_paraguay`; guard `lib/tenant-locale/__tests__/no-hardcoded-paraguay.test.ts` |
 | T10 | **Un número, una vez.** Ningún valor aparece dos veces en la misma pantalla (ej. el total arriba y otra vez al pie de la misma tabla) | [OWNER] 2026-09-18 |
@@ -108,6 +108,9 @@ Valen para TODO arquetipo.
 | T13 | **Pestañas** a ancho completo (default del primitive), con estado en `?tab=` | [VIGENTE] `context/20` changelog 2026-09-09 (`TabsList` ancho completo) |
 | T14 | Primitives shadcn, nunca `<button>`/`<table>`/`<label>`/`<input>` nativos | [VIGENTE] `context/20` §5 |
 | T15 | Sin rubro asumido en el copy ("usuario", no "mozo") | [VIGENTE] `context/20` §1 principio 6 |
+| T16 | **Íconos en pestañas**: las pestañas son navegación; ícono permitido en `TabsTrigger`, en TODAS las pestañas de un `TabsList` o en NINGUNA | [OWNER] 2026-09-18 §11 C8 |
+| T17 | **Subtítulo bajo el h1 = solo DATO** (RUC, puesto, contraparte, fecha), nunca una leyenda que explique la pantalla | [OWNER] 2026-09-18 §11 C9 |
+| T18 | **Listas embebidas**: menos de 10 filas = `divide-y`; desde 10, `DataTable` | [OWNER] 2026-09-18 §11 C3 |
 
 ---
 
@@ -337,9 +340,9 @@ Vacío → EmptyState
 6. **Acción primaria** ("Nuevo artículo", "Nueva remisión") arriba a la
    derecha del encabezado. [PROPUESTA]
 7. **Sin KPIs arriba del listado.** Si hacen falta números, es un Reporte o
-   el Resumen de la ficha. [PROPUESTA — ver §11 C6]
+   el Resumen de la ficha. [OWNER] 2026-09-18, §11 C6
 8. Listas cortas embebidas en una ficha o un modal no son este arquetipo
-   (`context/14` Regla #3, `context/20` §4 — ver §11 C3).
+   (`divide-y` bajo 10 filas — T18, §11 C3).
 
 ### Componentes
 
@@ -372,7 +375,7 @@ producción. Tiene dos modos: **vista** (`/<doc>/[id]`) y **editor**
 - Sin stat cards.
 - Tabla de ítems canónica.
 - Totales alineados a la derecha.
-- Estado final al pie. **Ver §11 C5**: el código y la ficha lo ponen en el encabezado.
+- ~~Estado final al pie.~~ **Superseded 2026-09-18 (§11 C5): el estado va en el encabezado, junto al h1**, igual que en la ficha.
 - Sin badge de tipo arriba.
 
 (Se llegó en 3 iteraciones: stat cards → stat cards con otro estilo → patrón
@@ -382,7 +385,7 @@ de factura.)
 
 ```
 BackLink "Volver a <listado>"
-Encabezado: h1 = tipo de documento + número   |   acciones (Imprimir, de estado…, destructivas al final)
+Encabezado: h1 = tipo de documento + número · estado (Badge)   |   acciones (Imprimir, de estado…, destructivas al final)
             línea secundaria: contraparte (cliente/proveedor) · fecha
 Datos generales  (card blanca, filas label → valor; atributos, no bloques)
 Líneas           (card con Table: ítem · cantidad · precio · total)
@@ -567,21 +570,23 @@ contra este archivo, no contra una tabla en markdown que se pudre.
 
 ---
 
-## 11. Contradicciones a resolver
+## 11. Contradicciones resueltas (owner 2026-09-18)
 
-No se resuelven acá: se señalan para que el owner decida.
+Las nueve se señalaron en la primera versión de este doc y el owner las
+resolvió en bloque el mismo día. `context/14` y `context/20` ya están
+alineados (changelog de `context/20`, 2026-09-18).
 
-| # | Dónde | Qué choca |
+| # | Qué chocaba | Resolución |
 |---|---|---|
-| C1 | `context/14` Regla #1, fila "Label uppercase de bloque" vs pedido 2026-09-18 | §14 **canoniza** `text-xs font-semibold uppercase tracking-wider` como label de bloque (Items, Pagos, Totales), con `transactions-list.tsx:928` de ejemplo. La regla nueva prohíbe las mayúsculas a mano. Hay que borrar o reescribir esa fila, o el guard G5 choca con el canon |
-| C2 | `context/14` Regla #1 vs `context/20` §2 Tipografía | Título de sección: §14 dice `h3 text-base font-semibold tracking-tight`; §20 dice que el título de sección es `h2 text-xl` y el h3 es subsección. Hoy conviven `FormSection` (h3), `CardTitle` (div `text-base font-medium`) y h2 sueltos |
-| C3 | `context/14` Regla #3 vs `context/20` §4 "DataTable" | Lista corta embebida: §14 dice grilla de botones o `<Table>` shadcn simple; §20 dice `<div className="divide-y">`. Umbral: §14 "largo (>10 filas)", §20 "≥ 10 filas" |
-| C4 | `context/14` Regla #3 y `context/20` §4 "EmptyState" vs T7 | Los dos dicen "Empty state **siempre** con `<EmptyState>`". T7 (owner 2026-09-18) lo reserva para página o listado vacío; una sub-sección vacía es una línea compacta con link |
-| C5 | `context/20` changelog 2026-06-24 vs encabezado de la ficha (2026-09-18) y el código | El documento tipo factura pone el "status final al pie" y "sin badge de tipo arriba". La ficha pone el estado en el encabezado, y todos los documentos actuales ponen el estado (y la transacción, el tipo) junto al h1 |
-| C6 | `context/20` changelog 2026-06-24 "Sin stat cards arriba de listados" vs 2026-07-31 | El 2026-07-31 lo declara superseded **para reportes**. Para listados no quedó escrito si la prohibición sigue. §5 propone que sí siga |
-| C7 | `context/14` Regla #6 vs `context/20` §5 | §14 da `size-5 (header)` como tamaño de ícono de encabezado; §20 prohíbe iconos en h1/h2/h3, CardTitle y headers de Dialog |
-| C8 | `context/20` §9.7 / changelog 2026-06-25 vs código | "Iconos solo en sidebar, botones icon-only y empty states". Las 4 fichas y Ajustes → Catálogo ponen un ícono en cada `TabsTrigger`. ¿Las pestañas cuentan como navegación? |
-| C9 | `context/20` §6 "Header de página" vs T6 | El patrón canónico trae `<p>Descripción opcional</p>` bajo el h1. La regla de copy (2026-09-16) prohíbe leyendas explicativas. ¿El subtítulo de página es dato (contraparte, puesto) o se elimina? |
+| C1 | `context/14` Regla #1 canonizaba el "Label uppercase de bloque" (`uppercase tracking-wider`) | **Mayúsculas a mano PROHIBIDAS.** La fila quedó superseded en `context/14`. Solo la mayúscula que trae un primitive (`StatTile`) |
+| C2 | Título de sección: h3 en `context/14`, h2 en `context/20` | **Dentro de una card: `CardTitle` canónico. `h2 text-xl font-semibold` solo para secciones de PÁGINA sin card.** `FormSection` (h3) queda para subsecciones de formulario |
+| C3 | Lista corta embebida: botones/`Table` en 14, `divide-y` en 20; umbrales distintos | **Menos de 10 filas embebidas = `divide-y`; desde 10 filas, `DataTable`.** 14 y 20 con el mismo umbral |
+| C4 | "Empty state siempre con `EmptyState`" vs la línea compacta | **`EmptyState` solo para página o listado vacío; sub-sección vacía = línea compacta con link** |
+| C5 | Documento tipo factura con "status final al pie" vs encabezado de ficha y código | **El estado va en el ENCABEZADO, junto al h1.** Esa parte del changelog 2026-06-24 de 20 quedó superseded |
+| C6 | "Sin stat cards arriba de listados" superseded solo para reportes | **Sigue vigente para LISTADOS: sin stat cards arriba; los números van al reporte** |
+| C7 | `size-5 (header)` en 14 Regla #6 vs prohibición de íconos en títulos | **Sin íconos en títulos** (h1/h2/h3, `CardTitle`, headers de `Dialog`). El `size-5 (header)` se borró |
+| C8 | "Iconos solo en navegación" vs íconos en `TabsTrigger` | **Las pestañas SON navegación: ícono permitido, en TODAS las pestañas de un `TabsList` o en NINGUNA** |
+| C9 | Subtítulo "Descripción opcional" bajo el h1 vs regla de no leyendas | **El subtítulo es solo DATO** (RUC, puesto, contraparte), nunca leyenda explicativa. Patrón de `context/20` §6 corregido |
 
 ---
 
@@ -603,6 +608,10 @@ pantalla y el código.
 - [ ] ¿Ningún número aparece dos veces?
 - [ ] ¿Montos con `MoneyInput`? ¿Nada fijado a Paraguay?
 - [ ] ¿Gris solo para números del período, blanco para contenido?
+- [ ] ¿Subtítulo bajo el h1 es solo dato, no leyenda?
+- [ ] ¿Íconos de pestañas en todas o en ninguna?
+- [ ] ¿Títulos: `CardTitle` dentro de card, `h2 text-xl` en sección de página sin card?
+- [ ] ¿Listas embebidas de menos de 10 filas en `divide-y`?
 
 ### Ficha
 
@@ -644,7 +653,7 @@ pantalla y el código.
 - [ ] ¿Líneas en `Table` y totales a la derecha, con el total una sola vez?
 - [ ] ¿Acciones: neutras → de estado → destructivas, las irreversibles con `AlertDialog` y bloqueo con tooltip?
 - [ ] ¿El editor tiene las mismas zonas y en el mismo orden que la vista?
-- [ ] ¿Sin stat cards?
+- [ ] ¿Sin stat cards? ¿Estado como badge junto al h1?
 
 ### Ajustes
 
@@ -757,7 +766,7 @@ reportes de período la falta de delta (solo Ventas y Órdenes lo tienen).
 | Ruta | Cumple | Qué falla |
 |---|---|---|
 | `settings` (shell + secciones) | parcial | 2 `<button>` nativos; 3 `type="number"` (verificar si alguno es monto) |
-| `settings/catalog` | sí | Referencia (iconos en las pestañas: §11 C8) |
+| `settings/catalog` | sí | Referencia (ícono en todas las pestañas: ok por C8) |
 | `settings/facturacion-electronica` | sin verificar | Wrapper de `einvoice-manager` |
 | `settings/printers` | sin verificar | Wrapper de `printers-manager` |
 | `finanzas/configuracion` | no | Catálogos (Categorías, Centros de costo) fuera de Ajustes → Catálogo; la cuenta de cada medio de pago se edita acá Y en Ajustes → Catálogo |

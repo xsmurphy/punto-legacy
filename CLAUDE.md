@@ -32,7 +32,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Convenciones críticas** | `08-convenciones-criticas.md` (241 L — invariantes nada más) |
 | **Convenciones UI / Design system** | `14-ui-conventions.md` (lectura OBLIGATORIA antes de tocar JSX/TSX) |
 | **Design system canonico (vivo)** | `20-design-system.md` (patrones de componentes, anti-patterns, changelog de decisiones) |
-| **Arquetipos de pantalla (REGLA GLOBAL de estructura)** | `84-arquetipos-de-pantalla.md` (2026-09-18 — toda pantalla del panel es de UN arquetipo: Ficha, Reporte, Listado, Documento, Ajustes, Tablero o Herramienta, cada uno con zonas fijas, componente canónico y guard. Ficha [OWNER]: Resumen → Datos → propias, "Datos" es el único lugar de edición y el único con Guardar, `KpiCard` muere. Organiza 14/20 por arquetipo sin reemplazarlos; §11 lista las contradicciones abiertas entre 14 y 20, §12 la checklist y §13 el inventario de las 85 pantallas para la pasada) |
+| **Arquetipos de pantalla (REGLA GLOBAL de estructura)** | `84-arquetipos-de-pantalla.md` (2026-09-18 — toda pantalla del panel es de UN arquetipo: Ficha, Reporte, Listado, Documento, Ajustes, Tablero o Herramienta, cada uno con zonas fijas, componente canónico y guard. Ficha [OWNER]: Resumen → Datos → propias, "Datos" es el único lugar de edición y el único con Guardar, `KpiCard` muere. Organiza 14/20 por arquetipo sin reemplazarlos; §11 registra las contradicciones C1-C9 entre 14 y 20, resueltas por el owner 2026-09-18, §12 la checklist y §13 el inventario de las 85 pantallas para la pasada) |
 | Costos / créditos IA | `09-costos-y-creditos.md` |
 | **Roadmap (vivo)** | `10-roadmap.md` (699 L) |
 | Manual de marca | `11-design-system.md` |

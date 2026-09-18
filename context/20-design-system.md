@@ -71,7 +71,7 @@ Fuente: `frontend/app/globals.css` (Tailwind v4, `@theme inline` — no hay
 | `--font-mono` | `JetBrains Mono, monospace` | Código, `kbd`, tabular contexts |
 | `--font-serif` | `Source Serif 4, serif` | Sin uso activo detectado |
 | `h1` | `text-2xl font-semibold`, `letter-spacing: -0.04em` global en `<h1>` | Título de página |
-| `h2` | `text-xl font-semibold`, `letter-spacing: -0.03em` global | Título de sección |
+| `h2` | `text-xl font-semibold`, `letter-spacing: -0.03em` global | Título de sección de PÁGINA sin card. Dentro de una card el título es `CardTitle` canónico (C2, 2026-09-18) |
 | `h3` | `text-base font-semibold`, `letter-spacing: -0.02em` global | Subsección (§14 usa `tracking-tight` explícito) |
 | Texto principal | `text-sm` sin override | Body default |
 | Texto secundario | `text-sm text-muted-foreground` | Descripciones |
@@ -296,8 +296,9 @@ Obligatorio para todo listado ≥ 10 filas. Construido sobre TanStack Table +
 primitives shadcn (`Table`, `DropdownMenu`, `Select`, `Checkbox`, `Skeleton`).
 Trae: search input, sort por columna, date-range filter, export XLSX,
 column-toggle (persistido en localStorage por `tableId`), paginación, loading
-skeleton. Listados < 10 filas embebidos en un panel de detalle → lista
-vertical `<div className="divide-y">`, no DataTable.
+skeleton. Listados de menos de 10 filas embebidos (ficha, sheet, dialog) →
+lista vertical `<div className="divide-y">`, no DataTable. Mismo umbral que
+`context/14` Regla #3 (C3, 2026-09-18).
 
 ### MoneyInput — `components/ui/money-input.tsx`
 
@@ -343,8 +344,11 @@ number`, default 4 filas) controla esto explícitamente; `ghost={false}` cae
 a ícono grande estático (`size-12` box con `border bg-muted/30`).
 `showMarquee` es el nombre viejo de la misma prop, deprecado pero vigente
 por compat (sin `ghost` ni `showMarquee`, el default sigue siendo 4 filas).
-Nunca un `<p>"No hay resultados"</p>` pelado ni un `<Empty>` armado a mano
-call-site — siempre `<EmptyState>`. Único lugar (junto al sidebar) donde los
+Es para una **página o un listado** vacío: ahí nunca un `<p>"No hay
+resultados"</p>` pelado ni un `<Empty>` armado a mano. Una **sub-sección**
+vacía (card de ficha, pestaña secundaria, lista embebida) NO usa
+`<EmptyState>`: es una línea compacta `text-sm text-muted-foreground` con link
+a la acción (C4, 2026-09-18). Único lugar (junto al sidebar) donde los
 íconos van fuera de botones icon-only.
 
 ### RowActions — `components/data-table/row-actions.tsx`
@@ -471,7 +475,10 @@ línea por línea; los principios ya están cubiertos en §3/§4/§6/§7.
 | `value.toLocaleString()` sin locale / `toFixed(2)` para montos | `formatMoney(value, config)` / `formatAmount(value, config)` |
 | Hex hardcodeado sin comentario de justificación | Tokens semánticos (§3) |
 | `text-white` en botón/badge destructivo | `text-destructive-foreground` |
-| Iconos en h1/h2/h3, headers de `<Card>`, headers de `<Dialog>` | Sin ícono — solo texto |
+| Iconos en h1/h2/h3, `CardTitle`/headers de `<Card>`, headers de `<Dialog>` | Sin ícono — solo texto (C7, 2026-09-18) |
+| Ícono en algunas pestañas de un `TabsList` y en otras no | Las pestañas son navegación: ícono en TODAS o en NINGUNA (C8, 2026-09-18) |
+| `uppercase tracking-*` a mano en labels o títulos | `Label`/`CardTitle`/`FormSection` (C1, 2026-09-18) |
+| Stat cards arriba de un listado | Los números van al reporte (C6, 2026-09-18) |
 | `<Card>` envolviendo cada row de un listado | `divide-y` o `<DataTable>` |
 | `className="h-8 w-8 p-0"` custom en vez de `size="icon"` | `size=` prop de `<Button>` |
 | `max-w-[Xvw] w-[Xvw] h-[Xvh]` hardcodeado en Dialog | Escala xs/sm/m/l/xl |
@@ -494,7 +501,9 @@ Detalle operativo completo (checklist pre-merge, ejemplos de código) en
   <div className="flex flex-col gap-6">
     <header>
       <h1 className="text-2xl font-semibold">Título de página</h1>
-      <p className="text-sm text-muted-foreground">Descripción opcional</p>
+      {/* Subtítulo opcional: solo DATO (RUC, puesto, contraparte), nunca una
+          leyenda que explique la pantalla (C9, 2026-09-18) */}
+      <p className="text-sm text-muted-foreground">RUC 80012345-6 · Asunción</p>
     </header>
     {/* contenido */}
   </div>
@@ -506,6 +515,10 @@ Detalle operativo completo (checklist pre-merge, ejemplos de código) en
 Grid en desktop, scroll horizontal en mobile — mismo componente `<Tabs>` de
 shadcn, el contenedor de `<TabsList>` cambia de `grid grid-cols-N` a `flex
 overflow-x-auto` bajo el breakpoint mobile.
+
+**Íconos en pestañas (C8, 2026-09-18):** las pestañas SON navegación, así que
+un `TabsTrigger` puede llevar ícono (`size-3.5`) — pero en TODAS las pestañas
+de un mismo `TabsList` o en NINGUNA. Mezclar es el anti-patrón.
 
 ### Dialogs
 
@@ -767,7 +780,7 @@ del sistema):
 - Prohibido hex hardcodeado fuera de los tokens.
 - `tabular-nums` en todo número, `text-2xl font-semibold` en h1.
 - Sin emojis en UI.
-- Iconos `lucide-react` solo en: nav, botones icon-only, empty states.
+- Iconos `lucide-react` solo en: nav (incluidas las pestañas, todas o ninguna), botones icon-only, empty states. Nunca en títulos.
 - Modales arrancan en `max-w-2xl` (no el `max-w-lg` default de shadcn).
 - Toasts `sonner`, `position="top-center"`, sin emojis, <60 caracteres.
 
@@ -782,6 +795,7 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-09-18 | **Resueltas C1-C9 de `context/84` §11 (owner, en bloque).** C1: mayúsculas a mano (`uppercase tracking-*`) PROHIBIDAS — la fila "Label uppercase de bloque" de `context/14` Regla #1 queda superseded. C2: dentro de una card el título de sección es `CardTitle` canónico; `h2 text-xl` solo para secciones de PÁGINA sin card. C3: lista corta embebida = `divide-y`; desde 10 filas, `DataTable` (14 y 20 con el mismo umbral). C4: `EmptyState` solo para página o listado vacío; sub-sección vacía = línea compacta con link. C5: el estado de un documento va en el ENCABEZADO junto al h1 — supersede el "status final al pie" del 2026-06-24. C6: sin stat cards arriba de LISTADOS (sigue vigente); los números van al reporte. C7: sin íconos en títulos (h1/h2/h3, `CardTitle`, headers de `Dialog`) — se borra el `size-5 (header)` de `context/14` Regla #6. C8: las pestañas SON navegación → ícono permitido en `TabsTrigger`, en TODAS las pestañas de un `TabsList` o en NINGUNA. C9: el subtítulo bajo el h1 es solo DATO (RUC, puesto, contraparte), nunca leyenda explicativa | — | Contradicciones entre `context/14` y `context/20` señaladas en `context/84` |
 | 2026-09-18 | **Regla global de estructura: `context/84-arquetipos-de-pantalla.md`.** Toda pantalla del panel es de UN arquetipo (Ficha, Reporte, Listado, Documento, Ajustes, Tablero, Herramienta), con zonas en orden fijo, un componente canónico que las impone y un guard de CI. Este doc sigue siendo la fuente de tokens y componentes; el 84 dice qué va dónde. Ficha decidida por el owner: Resumen → Datos → pestañas propias, Datos es el único lugar de edición y el único con Guardar, `KpiCard` se elimina a favor de `StatTile`. Las contradicciones entre este doc y `context/14` quedaron listadas en §11 del 84, sin resolver | — | Owner: la misma función tiene distinto nombre y lugar según la sección; al entrar a cualquier sector el usuario tiene que saber dónde está cada cosa |
 | 2026-09-10 | **`StatTile` sabe mostrar la comparativa contra el período anterior** (prop `delta: {pct, higherIsBetter}`), y `/reports/summary` deja su `KpiCard` propia. Esa card era la razón de que sus KPIs se vieran distintos a los de todos los otros reportes; lo que sabía hacer de más —el delta— se mudó al tile canónico, así que cualquier reporte que tenga el dato del período anterior puede sumarlo sin volver a inventar la card. **Dos correcciones de semántica en el camino**: un delta de CERO es "Sin cambios" y va en gris —antes caía del lado de "subió" (`0 >= 0`) y un período idéntico al anterior se pintaba rojo en devoluciones o gastos— y `higherIsBetter: false` es explícito por métrica en vez de derivarse de la flechita de tendencia. `pct: null` (el período anterior fue cero y este no) dice "Sin base para comparar" en vez de inventar un 0 | — | Owner: "en /reports/summary los cards se ven más completos que los de la mayoría de los otros reportes" |
 | 2026-09-10 | **Reportes reorganizados por naturaleza, no por dónde se construyó cada uno.** (a) `/reports/categories` y `/reports/brands` se ELIMINARON —sin redirect, decisión del owner— y pasaron a ser pestañas de `/reports/products`, renombrado a **Artículos**: categoría y marca son ATRIBUTOS del artículo, no reportes distintos, y tres páginas obligaban a saber de antemano por cuál corte entrar. Las entradas de la paleta sobreviven apuntando a `?tab=categorias|marcas` (quien busca "marcas" no sabe que vive adentro). `RankingReportPage` gana `embeddedRange` para suprimir su header y tomar el rango de afuera — dos `useDateRange()` en la misma pantalla pelean por el mismo estado compartido. (b) **Productos y Servicios son un FILTRO, no dos fuentes**: los dos son `itemType='product'` y lo único que los separa es `itemTrackInventory`, que el reporte ahora expone (`ProductsService`) — un `/api` viejo no lo manda y el filtro deja pasar todo, que es la degradación correcta. (c) El tab **Reportes de Finanzas se mudó a `/reports/finance-breakdown`**: Finanzas quedó para OPERAR la plata y `/reports` para leerla, en vez de tener la lectura financiera repartida entre los dos módulos. (d) **Medios de pago** pasó del grupo "Ventas y clientes" a "Finanzas y caja" en el índice — responde una pregunta de caja. NO se consolidó en Artículos aunque comparta el wrapper de ranking: un medio de pago no es atributo del artículo, y agruparlo por parecido técnico sería el error que esta reorganización corrige | — | Owner: "Finanzas ya tiene demasiados tabs y quizás algunos no deban estar ahí" |
@@ -807,8 +821,8 @@ del sistema):
 | 2026-06-25 | Rename "vendedor" → "usuario" / terminología vertical-neutral en strings de UI | 8b69da1 | Punto sirve múltiples verticales |
 | 2026-06-25 | Escape hatch global para atajos POS cuando hay dialog shadcn abierto | 9ff3885 | Atajos disparaban mientras el usuario completaba un form en un modal |
 | 2026-07-02 | Paleta de colores unificada (`lib/ui/color-palette.ts`) + ColorPicker canónico; se persiste el key del color no el hex, `resolveColorBg` cubre hex legacy | — | Swatches duplicados inline en Hotkeys/Usuarios/Impresoras; unificado + reusable |
-| 2026-06-24 | Redesign invoice-style de detalle de transacciones: sin stat cards, tabla de items canónica, totals right-aligned, status final al pie, sin badge de tipo arriba | 5c30c2a | 3 iteraciones: stat cards → stat cards restyle → invoice pattern correcto |
-| 2026-06-24 | Sin stat cards arriba de listados en páginas de reportes | — | Simplificación post-planning; el DataTable tiene toda la info |
+| 2026-06-24 | Redesign invoice-style de detalle de transacciones: sin stat cards, tabla de items canónica, totals right-aligned, ~~status final al pie~~ (**SUPERSEDED 2026-09-18, C5: el estado va en el encabezado junto al h1** — `context/84` §6), sin badge de tipo arriba | 5c30c2a | 3 iteraciones: stat cards → stat cards restyle → invoice pattern correcto |
+| 2026-06-24 | Sin stat cards arriba de listados en páginas de reportes. (2026-07-31 lo supersede SOLO para reportes; para LISTADOS sigue vigente — reafirmado 2026-09-18, C6) | — | Simplificación post-planning; el DataTable tiene toda la info |
 | 2026-06-24 | Roles seed = 3 (Dueño/Encargado/Cajero) | — | Simplificación post-planning; el modelo de 5 roles era demasiado granular |
 
 **Cómo invocar este doc en briefs de sub-agentes:** referencia puntual
