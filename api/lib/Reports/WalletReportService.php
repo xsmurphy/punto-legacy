@@ -32,7 +32,7 @@ use Punto\Api\Wallet\WalletService;
  * de sus líneas: la caja manda los dos iguales, pero un descuento declarado
  * solo por línea no se le puede cargar al usuario como faltante.
  *
- * "Cargado" es NETO de lo que se devolvió (context/74 §13, mig 236):
+ * "Cargado" es NETO de lo que se devolvió (context/74 §14, mig 236):
  *
  *   cargado = cargas de ventas NO anuladas (por fecha de la venta)
  *           − reversas por nota de crédito (`load_reversal` con origen
@@ -42,7 +42,7 @@ use Punto\Api\Wallet\WalletService;
  * su reversa (origen `sale_void`) también — netean cero. El saldo por entregar
  * sí las ve a las dos (es la suma de todos los movimientos), así que cuadra.
  * Cargas anuladas ANTES de la mig 236 quedaron sin reversa: salen de
- * "Cargado" pero siguen en el saldo — el diagnóstico está en context/74 §13.
+ * "Cargado" pero siguen en el saldo — el diagnóstico está en context/74 §14.5.
  *
  * "Con descuento" es plata que la caja declaró como descuento (el POS lo pide
  * con su permiso); "sin descuento" es la que no tiene explicación en el
@@ -226,7 +226,7 @@ final class WalletReportService
     }
 
     /**
-     * Carga DEVUELTA con nota de crédito en el período (context/74 §13):
+     * Carga DEVUELTA con nota de crédito en el período (context/74 §14):
      * `load_reversal` con origen `return`, fechada y acotada por sucursal por
      * la NOTA DE CRÉDITO (el documento que la originó), igual que una
      * devolución en cualquier reporte de ventas. Positivo = lo que se resta

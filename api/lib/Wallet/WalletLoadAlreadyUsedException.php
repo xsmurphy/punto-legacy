@@ -5,7 +5,7 @@ namespace Punto\Api\Wallet;
 
 /**
  * Anular o devolver una venta de CARGA exige sacarle al bolsillo lo que esa
- * carga acreditó (context/74 §13). Si el cliente ya consumió parte, el saldo
+ * carga acreditó (context/74 §14). Si el cliente ya consumió parte, el saldo
  * no alcanza y la operación entera se rechaza: el bolsillo nunca queda
  * negativo (§3.3) y nunca se revierte parcial en silencio.
  *

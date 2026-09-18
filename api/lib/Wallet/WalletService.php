@@ -634,7 +634,7 @@ final class WalletService
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Revierte lo que acreditaron las cargas de una venta (context/74 §13):
+     * Revierte lo que acreditaron las cargas de una venta (context/74 §14):
      * un `load_reversal` negativo por carga, atado a ella
      * (`reversesmovementid`), con origen = la anulación o la nota de crédito.
      *
@@ -692,8 +692,8 @@ final class WalletService
         }
         $contactIds = array_values(array_unique(array_column($loads, 'contactid')));
 
-        $movements = $this->mutate($companyId, $actorId, $contactIds, function () use ($companyId, $loads, $cents, $sourceType, $sourceId, $actorId, $reason) {
-            foreach (array_unique(array_column($loads, 'contactid')) as $cid) {
+        $movements = $this->mutate($companyId, $actorId, $contactIds, function () use ($companyId, $loads, $contactIds, $cents, $sourceType, $sourceId, $actorId, $reason) {
+            foreach ($contactIds as $cid) {
                 $this->requireCustomer($companyId, $cid, false);
             }
 
