@@ -211,8 +211,8 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     // de pago, impuestos) en Ajustes → Catálogos, no detrás del switch.
     key: "wallet",
     kind: "module",
-    title: "Saldo de clientes",
-    description: "Saldo a favor por bolsillos, con titulares y personas a cargo.",
+    title: "Bolsillos",
+    description: "Saldo a favor del cliente separado en bolsillos, con titulares y personas a cargo.",
     icon: Wallet,
     category: "Cobros",
     configKind: "none",

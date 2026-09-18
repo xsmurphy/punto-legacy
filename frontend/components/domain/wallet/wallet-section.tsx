@@ -121,7 +121,7 @@ export function WalletSection({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-base font-semibold tracking-tight">Saldo</CardTitle>
+        <CardTitle className="text-base font-semibold tracking-tight">Bolsillos</CardTitle>
         {canManage && pocketBalances.length > 0 && (
           <Button size="sm" variant="outline" onClick={() => setAdjustOpen(true)}>
             Ajustar

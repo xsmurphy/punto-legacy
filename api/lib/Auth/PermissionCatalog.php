@@ -248,7 +248,7 @@ final class PermissionCatalog
             ['id' => 'hr.attendance.view',       'label' => 'Ver asistencia',         'group' => 'RRHH', 'since' => 11],
             ['id' => 'hr.attendance.review',     'label' => 'Revisar marcaciones',    'group' => 'RRHH', 'since' => 11],
 
-            // ── Saldo de clientes / Wallet (context/74, F1) ──────────────────
+            // ── Bolsillos / Wallet (context/74, F1) ──────────────────
             //
             // `view` para ver saldos y movimientos en la ficha del cliente,
             // `manage` para el catálogo de bolsillos y los ajustes manuales.
@@ -265,8 +265,8 @@ final class PermissionCatalog
             // módulo es de rubro y nace apagado; el Dueño las tiene por serlo y
             // el resto las recibe cuando un admin las tilda. `since` = 12 y
             // claves NUEVAS: el caso seguro del backfill.
-            ['id' => 'wallet.view',              'label' => 'Ver saldo de clientes',     'group' => 'Contactos', 'since' => 12],
-            ['id' => 'wallet.manage',            'label' => 'Gestionar bolsillos y ajustar saldo', 'group' => 'Contactos', 'since' => 12],
+            ['id' => 'wallet.view',              'label' => 'Ver bolsillos de clientes', 'group' => 'Contactos', 'since' => 12],
+            ['id' => 'wallet.manage',            'label' => 'Gestionar bolsillos y ajustar saldos', 'group' => 'Contactos', 'since' => 12],
 
             ['id' => 'reports.sales.view',       'label' => 'Reportes de ventas',     'group' => 'Reportes'],
             ['id' => 'reports.drawers.view',     'label' => 'Reportes de cajas',      'group' => 'Reportes'],
