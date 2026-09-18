@@ -1,16 +1,19 @@
 "use client"
 
 /**
- * Acciones del legajo en el header de la ficha: registrar el egreso y archivar.
+ * Acciones del header de la ficha: registrar el egreso y archivar.
  *
- * Son las mismas dos del listado y significan cosas distintas: el EGRESO
- * escribe que la persona dejó de trabajar y el legajo queda como historial; el
- * ARCHIVO saca de la lista una fila cargada por error. Por eso son dos acciones
- * y no un estado con dos valores.
+ * Significan cosas distintas: el EGRESO escribe que la persona dejó de trabajar
+ * y sus datos quedan como historial; el ARCHIVO retira datos de trabajo
+ * cargados por error. Por eso son dos acciones y no un estado con dos valores.
+ *
+ * La palabra "legajo" no aparece en pantalla (decisión del owner 2026-09-18):
+ * para quien usa Punto esto es el perfil de la persona, y la fila satélite es
+ * plomería.
  */
 
 import * as React from "react"
-import { Archive, IdCard, UserMinus } from "lucide-react"
+import { Archive, UserMinus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -44,11 +47,9 @@ import {
 export function EmployeeHeaderActions({
   employee,
   canManage,
-  onCreateLegajo,
 }: {
   employee: Employee | null
   canManage: boolean
-  onCreateLegajo: () => void
 }) {
   const archive = useArchiveEmployee()
   const [terminating, setTerminating] = React.useState(false)
@@ -56,16 +57,9 @@ export function EmployeeHeaderActions({
 
   if (!canManage) return null
 
-  // Sin legajo la única acción posible es crearlo, y va como botón: es LA
-  // acción de la pantalla, no una más de un menú.
-  if (!employee) {
-    return (
-      <Button type="button" variant="outline" size="sm" onClick={onCreateLegajo}>
-        <IdCard className="size-4" />
-        Cargar legajo
-      </Button>
-    )
-  }
+  // Sin datos de trabajo cargados no hay nada que egresar ni que archivar. No
+  // se ofrece "cargar" nada: los campos están en Datos, vacíos, esperando.
+  if (!employee) return null
 
   const actions: RowAction[] = [
     {
@@ -87,9 +81,9 @@ export function EmployeeHeaderActions({
   const handleArchive = async () => {
     try {
       await archive.mutateAsync(employee.id)
-      toast.success("Legajo archivado")
+      toast.success("Datos de trabajo archivados")
     } catch (e) {
-      toast.error("No se pudo archivar el legajo", {
+      toast.error("No se pudieron archivar", {
         description: e instanceof Error ? e.message : undefined,
       })
     }
@@ -108,10 +102,11 @@ export function EmployeeHeaderActions({
       <AlertDialog open={archiving} onOpenChange={setArchiving}>
         <AlertDialogContent className="sm:max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>Archivar el legajo</AlertDialogTitle>
+            <AlertDialogTitle>Archivar los datos de trabajo</AlertDialogTitle>
             <AlertDialogDescription>
-              {employee.fullName} sale del listado. Para registrar que dejó de trabajar,
-              usá &quot;Registrar egreso&quot;.
+El puesto, la fecha de ingreso y la remuneración de {employee.fullName} dejan
+              de mostrarse. Para registrar que dejó de trabajar, usá &quot;Registrar
+              egreso&quot;.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

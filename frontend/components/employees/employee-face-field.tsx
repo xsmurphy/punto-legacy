@@ -84,10 +84,10 @@ export function EmployeeFaceField({ employee, consentChecked }: EmployeeFaceFiel
 
   const blocked = !consentSaved
     ? consentChecked
-      ? "Guardá el legajo para que quede registrada la autorización"
+      ? "Guardá los cambios para que quede registrada la autorización"
       : "Primero marcá que la persona aceptó identificarse con su rostro"
     : !active
-      ? "El legajo no está vigente"
+      ? "La persona ya no está en el equipo"
       : null
 
   async function handleStart() {
