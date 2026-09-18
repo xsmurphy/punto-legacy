@@ -26,8 +26,10 @@ información mostrar. La forma visual sale de los patrones de frontend.
 | Uso | Canon | Ejemplo del repo |
 |---|---|---|
 | Título de página | `<h1 className="text-2xl font-semibold">` | `app/(panel)/items/page.tsx:366` |
-| Título de sección dentro de página | `<h3 className="text-base font-semibold tracking-tight">` | `components/forms/form-section.tsx:36` |
-| Label uppercase de bloque (Items, Pagos, Totales, …) | `<p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">` | `components/domain/transactions/transactions-list.tsx:928` |
+| Título de sección de PÁGINA (sin card) | `<h2 className="text-xl font-semibold">` | — (C2, owner 2026-09-18) |
+| Título de sección dentro de una card | `<CardTitle>` canónico, sin clases de tamaño ni mayúsculas | `components/ui/card.tsx` (C2, owner 2026-09-18) |
+| Subsección de formulario | `<FormSection>` (h3 `text-base font-semibold tracking-tight`) | `components/forms/form-section.tsx:36` |
+| ~~Label uppercase de bloque~~ | **SUPERSEDED 2026-09-18 → `context/84` (C1)**: mayúsculas a mano (`uppercase tracking-*`) PROHIBIDAS. El bloque se titula con `CardTitle` o `FormSection`; la única mayúscula es la que trae un primitive (`StatTile`) | — |
 | Texto principal | `text-foreground` (default) — sin override | |
 | Texto secundario / descripciones | `text-sm text-muted-foreground` | `app/(panel)/items/page.tsx:374` |
 | Subtexto chico (timestamp, hint) | `text-xs text-muted-foreground` | uso esporádico |
@@ -105,17 +107,27 @@ ancho completo — el contenedor no releva de los touch targets grandes.
 
 ## Regla #3 — Listados
 
-Todo listado **largo** (>10 filas, búsqueda, sort, export) → **`<DataTable>`** de
+Todo listado **desde 10 filas** (o con búsqueda, sort, export) → **`<DataTable>`** de
 `@/components/data-table/data-table`. Trae search, sort, paginación,
 column-toggle y export incluidos. Ver memoria
 `feedback_data_tables_convention`.
 
-Listado **corto y embebido en un sheet/dialog** (ej. lista de monedas, lista de
-usuarios al asignar) → grilla de `<Button variant="outline">` o `<Table>` shadcn
-simple, sin DataTable.
+Listado **corto (menos de 10 filas) embebido** en una ficha, un sheet o un
+dialog (ej. lista de monedas, usuarios al asignar) → lista vertical
+`<div className="divide-y">`, sin DataTable. Mismo umbral que `context/20` §4
+"DataTable" (C3, owner 2026-09-18).
 
-**Empty state** siempre con `<EmptyState>` de `@/components/empty-state` (icono +
-título + descripción). Nunca un `<p>"No hay resultados"</p>` pelado.
+**Empty state** de una **página o un listado** vacío → `<EmptyState>` de
+`@/components/empty-state` (icono + título + descripción). Nunca un
+`<p>"No hay resultados"</p>` pelado como vacío de página.
+
+**Sub-sección vacía** (una card de una ficha, una pestaña secundaria, una
+lista embebida) → línea compacta `text-sm text-muted-foreground` con link a la
+acción ("Sin direcciones. Agregar"), NO `<EmptyState>` (C4, owner 2026-09-18,
+`context/84` T7).
+
+**Sin stat cards arriba de un listado.** Los números van al reporte
+correspondiente (C6, owner 2026-09-18).
 
 ### Filtros de dominio → panel lateral, no la toolbar (2026-08-28)
 
@@ -180,7 +192,13 @@ para cards/listings genéricos.
 ## Regla #6 — Iconos
 
 `lucide-react`. Tamaños: `size-3.5` (chico, inline en chip), `size-4` (default
-en botón), `size-5` (header), `size-6` (empty state grande). Sin emojis.
+en botón), `size-6` (empty state grande). Sin emojis.
+
+**Sin íconos en títulos**: ni en h1/h2/h3, ni en `CardTitle`, ni en headers de
+`Dialog` (C7, owner 2026-09-18; `context/20` §5). **Pestañas SIN íconos,
+siempre**: `TabsTrigger` solo texto (C8 revertida por el owner 2026-09-18 —
+reemplaza la resolución anterior del mismo día que permitía ícono en todas o
+en ninguna).
 
 ---
 
@@ -296,7 +314,9 @@ Antes de mergear (o de cerrar el brief de un sub-agente):
 - [ ] Inputs sin override de `h-X` salvo razón documentada
 - [ ] Botones con `size=` prop, no `className="h-X"`
 - [ ] Subtextos en `text-sm text-muted-foreground` (no `text-xs` por default)
-- [ ] EmptyState component, no `<p>` pelado
+- [ ] EmptyState solo en página/listado vacío; sub-sección vacía = línea compacta con link
+- [ ] Cero `uppercase tracking-*` a mano; cero íconos en títulos
+- [ ] Sin stat cards arriba de un listado
 - [ ] DataTable para listados grandes
 - [ ] DialogContent sin `max-w-[Xvw]` hardcoded — usar `sm:max-w-2xl|3xl|4xl|5xl|6xl`
 - [ ] DialogContent sin `p-0` a mano — si el modal tiene header fijo + cuerpo scrolleable + footer, va `sectioned` + `<DialogBody>` (gutter 24px, ver `context/20` §4 "Modales — padding y secciones")
