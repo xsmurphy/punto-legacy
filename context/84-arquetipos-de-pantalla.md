@@ -30,7 +30,7 @@ Cada regla lleva una marca:
 
 - [0. Cómo se usa](#0-cómo-se-usa)
 - [1. Los arquetipos](#1-los-arquetipos)
-- [2. Reglas transversales](#2-reglas-transversales)
+- [2. Reglas transversales](#2-reglas-transversales) (y §2.1 referencia visual)
 - [3. Ficha de entidad](#3-ficha-de-entidad)
 - [4. Reporte](#4-reporte)
 - [5. Listado](#5-listado)
@@ -108,9 +108,36 @@ Valen para TODO arquetipo.
 | T13 | **Pestañas** a ancho completo (default del primitive), con estado en `?tab=` | [VIGENTE] `context/20` changelog 2026-09-09 (`TabsList` ancho completo) |
 | T14 | Primitives shadcn, nunca `<button>`/`<table>`/`<label>`/`<input>` nativos | [VIGENTE] `context/20` §5 |
 | T15 | Sin rubro asumido en el copy ("usuario", no "mozo") | [VIGENTE] `context/20` §1 principio 6 |
-| T16 | **Íconos en pestañas**: las pestañas son navegación; ícono permitido en `TabsTrigger`, en TODAS las pestañas de un `TabsList` o en NINGUNA | [OWNER] 2026-09-18 §11 C8 |
+| T16 | **Pestañas sin íconos, siempre**: `TabsTrigger` solo texto | [OWNER] 2026-09-18 §11 C8 — revertida el mismo día; reemplaza "ícono en todas o en ninguna" |
 | T17 | **Subtítulo bajo el h1 = solo DATO** (RUC, puesto, contraparte, fecha), nunca una leyenda que explique la pantalla | [OWNER] 2026-09-18 §11 C9 |
 | T18 | **Listas embebidas**: menos de 10 filas = `divide-y`; desde 10, `DataTable` | [OWNER] 2026-09-18 §11 C3 |
+
+### 2.1 Referencia visual canónica para pantallas con números — [OWNER] 2026-09-18
+
+Vale para el **Resumen de una ficha** (§3), los **Tableros** (§8) y los
+**Reportes** (§4). La referencia es el dashboard de Ventas,
+`frontend/components/domain/reports/sales/sales-dashboard-tab.tsx`. Lo que la
+hace buena:
+
+- **KPIs en `StatTile` gris** (`Card variant="soft"`), con comparación contra
+  el período anterior (`delta`).
+- **Gráficos** (los Recharts que ya existen) en **cards blancas con
+  `CardTitle`**.
+- **Tablas resumen** con las filas de subtotal/total **destacadas en fondo
+  gris** (`bg-muted/50 font-semibold`, ver el `highlight` del componente).
+- **El contraste gris/blanco guía la vista**: se sabe qué mirar primero.
+
+**Dos detalles del modelo NO se copian**: sus títulos de card en mayúsculas
+("VENTAS", "MEDIOS DE PAGO") violan C1 (`CardTitle` canónico, sin mayúsculas),
+y su subtítulo explicativo viola C9 (el subtítulo es solo dato). Se toma la
+estructura y la jerarquía, no esos dos.
+
+**Anti-patrón explícito** (captura del owner): el **Resumen de
+`employees/[id]`** — todo en cards blancas planas, labels en mayúsculas
+chiquitas, bloques enteros para un atributo ("PUESTO CEO"), sin jerarquía. En
+palabras del owner: "no sabés qué mirar, parece puro texto". Un atributo como
+el puesto va en el encabezado (subtítulo = dato, T17) o como badge (T11),
+nunca en su propio bloque.
 
 ---
 
@@ -139,7 +166,8 @@ Pestañas (ancho completo):  Resumen → Datos → pestañas propias…
    "Perfil", "Información", "General", "Sucursal", "Configuración".
 4. **"Guardar" solo en Datos.**
 5. **Resumen** = KPIs en `StatTile`/`StatsRow` + contenido en cards blancas
-   con `CardTitle`.
+   con `CardTitle`. Se ve como la referencia de §2.1 (dashboard de Ventas);
+   el Resumen actual de `employees/[id]` es el anti-patrón.
 6. **`KpiCard` muere** (`components/domain/contacts/kpi-card.tsx`): todo lo
    que muestra pasa a `StatTile`.
 7. **Composición** (T11): cada bloque es un KPI, un atributo o contenido;
@@ -204,9 +232,10 @@ por props de estilo.
 
 ### Referencia
 
-La más cercana hoy es **`employees/[id]`**: orden Resumen → Datos correcto y
-"Datos" con ese nombre. Le falta el armazón compartido, tiene su propio
-BackLink y muestra Guardar fuera de Datos. Ninguna ficha cumple entera (§13).
+En **estructura de pestañas**, la más cercana es **`employees/[id]`** (orden
+Resumen → Datos correcto y "Datos" con ese nombre). En **lo visual**, su
+Resumen es el anti-patrón de §2.1. La referencia visual del Resumen es el
+dashboard de Ventas. Ninguna ficha cumple entera (§13).
 
 ---
 
@@ -219,6 +248,10 @@ Lectura de datos agregados: un período (rango de fechas) o una foto a hoy
 índice `/reports` (Tablero, §8).
 
 ### Referencias "bien hechas" (relevamiento 2026-09-18)
+
+Referencia **visual** canónica: el dashboard de Ventas (§2.1), sin sus
+títulos en mayúsculas ni su subtítulo explicativo. Referencias de
+**estructura**:
 
 1. **`components/reports/ranking-report-page.tsx`** — el único armazón de
    reporte que existe (lo usan Medios de pago y las pestañas de Artículos).
@@ -492,6 +525,7 @@ La portada de un área: `/` (dashboard), `/finanzas` (resumen) y `/reports`
 
 ### Estructura — [PROPUESTA]
 
+0. Se ve como la referencia de §2.1 (dashboard de Ventas).
 1. Encabezado estándar (h1 + subtítulo; período a la derecha si los números
    son de un período).
 2. **Números**: `StatTile` (gris). Cuando la cantidad de tiles es variable
@@ -585,7 +619,7 @@ alineados (changelog de `context/20`, 2026-09-18).
 | C5 | Documento tipo factura con "status final al pie" vs encabezado de ficha y código | **El estado va en el ENCABEZADO, junto al h1.** Esa parte del changelog 2026-06-24 de 20 quedó superseded |
 | C6 | "Sin stat cards arriba de listados" superseded solo para reportes | **Sigue vigente para LISTADOS: sin stat cards arriba; los números van al reporte** |
 | C7 | `size-5 (header)` en 14 Regla #6 vs prohibición de íconos en títulos | **Sin íconos en títulos** (h1/h2/h3, `CardTitle`, headers de `Dialog`). El `size-5 (header)` se borró |
-| C8 | "Iconos solo en navegación" vs íconos en `TabsTrigger` | **Las pestañas SON navegación: ícono permitido, en TODAS las pestañas de un `TabsList` o en NINGUNA** |
+| C8 | "Iconos solo en navegación" vs íconos en `TabsTrigger` | **Pestañas SIN íconos, siempre** (`TabsTrigger` solo texto). Revertida el mismo día: reemplaza la primera resolución, que permitía ícono en todas las pestañas o en ninguna |
 | C9 | Subtítulo "Descripción opcional" bajo el h1 vs regla de no leyendas | **El subtítulo es solo DATO** (RUC, puesto, contraparte), nunca leyenda explicativa. Patrón de `context/20` §6 corregido |
 
 ---
@@ -609,7 +643,8 @@ pantalla y el código.
 - [ ] ¿Montos con `MoneyInput`? ¿Nada fijado a Paraguay?
 - [ ] ¿Gris solo para números del período, blanco para contenido?
 - [ ] ¿Subtítulo bajo el h1 es solo dato, no leyenda?
-- [ ] ¿Íconos de pestañas en todas o en ninguna?
+- [ ] ¿Pestañas solo texto, sin íconos?
+- [ ] Si tiene números: ¿sigue la referencia de §2.1 (gris para KPIs, blanco para gráficos/tablas, totales destacados en gris)?
 - [ ] ¿Títulos: `CardTitle` dentro de card, `h2 text-xl` en sección de página sin card?
 - [ ] ¿Listas embebidas de menos de 10 filas en `divide-y`?
 
@@ -683,7 +718,7 @@ reportes de período la falta de delta (solo Ventas y Órdenes lo tienen).
 |---|---|---|
 | `items/[id]` | no | Pestañas Perfil, Imágenes, Configuración, Disponibilidad, Stock… sin Resumen ni Datos; edita en Perfil y Configuración; Guardar global; 10 labels en mayúsculas a mano; 10 `type="number"` |
 | `contacts/[id]` | no | Datos es la ÚLTIMA pestaña (Resumen, Comportamiento, Financiero, …, Datos); `KpiCard` ×8; 4 mayúsculas a mano |
-| `employees/[id]` | parcial | Resumen → Datos correcto; Guardar también en Horario y Rostro; mayúsculas a mano en `employee-summary-tab` (3) |
+| `employees/[id]` | no | Resumen → Datos correcto, pero su Resumen es el anti-patrón de §2.1 (cards blancas planas, bloque "PUESTO" para un atributo, mayúsculas a mano ×3); Guardar también en Horario y Rostro; íconos en pestañas |
 | `outlets/[id]` | no | Pestañas Sucursal, Depósitos, Cajas: sin Resumen, edita en "Sucursal", Guardar global; 3 `type="number"` |
 | `settings/price-lists/[id]` | no | Sin pestañas Resumen/Datos; `type="number"` ×2; `<label>` nativo ×2; volver con `ArrowLeft size-4` propio |
 
@@ -766,7 +801,7 @@ reportes de período la falta de delta (solo Ventas y Órdenes lo tienen).
 | Ruta | Cumple | Qué falla |
 |---|---|---|
 | `settings` (shell + secciones) | parcial | 2 `<button>` nativos; 3 `type="number"` (verificar si alguno es monto) |
-| `settings/catalog` | sí | Referencia (ícono en todas las pestañas: ok por C8) |
+| `settings/catalog` | parcial | Íconos en las pestañas (C8 revertida) |
 | `settings/facturacion-electronica` | sin verificar | Wrapper de `einvoice-manager` |
 | `settings/printers` | sin verificar | Wrapper de `printers-manager` |
 | `finanzas/configuracion` | no | Catálogos (Categorías, Centros de costo) fuera de Ajustes → Catálogo; la cuenta de cada medio de pago se edita acá Y en Ajustes → Catálogo |
@@ -801,11 +836,11 @@ reportes de período la falta de delta (solo Ventas y Órdenes lo tienen).
 
 | Arquetipo | Pantallas | Sí | Parcial | No | Sin verificar |
 |---|---|---|---|---|---|
-| Ficha | 5 | 0 | 1 | 4 | 0 |
+| Ficha | 5 | 0 | 0 | 5 | 0 |
 | Reporte | 23 | 0 | 15 | 8 | 0 |
 | Listado | 22 | 14 | 6 | 2 | 0 |
 | Documento | 15 | 0 | 8 | 5 | 2 |
-| Ajustes | 8 | 1 | 1 | 4 | 2 |
+| Ajustes | 8 | 0 | 2 | 4 | 2 |
 | Tablero | 3 | 1 | 1 | 1 | 0 |
 | Herramienta | 5 | 0 | 1 | 1 | 3 |
 | Redirect | 4 | — | — | — | — |

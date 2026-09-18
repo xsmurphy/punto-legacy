@@ -195,9 +195,10 @@ para cards/listings genéricos.
 en botón), `size-6` (empty state grande). Sin emojis.
 
 **Sin íconos en títulos**: ni en h1/h2/h3, ni en `CardTitle`, ni en headers de
-`Dialog` (C7, owner 2026-09-18; `context/20` §5). Las pestañas son navegación:
-ícono permitido en `TabsTrigger`, pero en TODAS las pestañas de un `TabsList`
-o en NINGUNA (C8).
+`Dialog` (C7, owner 2026-09-18; `context/20` §5). **Pestañas SIN íconos,
+siempre**: `TabsTrigger` solo texto (C8 revertida por el owner 2026-09-18 —
+reemplaza la resolución anterior del mismo día que permitía ícono en todas o
+en ninguna).
 
 ---
 
