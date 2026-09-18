@@ -142,6 +142,19 @@ export function LockScreen() {
 
       let matched: { id: string; name: string } | null = null
       for (const u of users) {
+        // Sin código, esta persona NO es operable desde acá, y desde que el
+        // personal que no opera el sistema es un usuario más (context/83 §9.1)
+        // ese caso es NORMAL, no una carga incompleta: la cocinera tiene
+        // usuario para tener legajo, marcar asistencia y cobrar, y marca con el
+        // rostro en el reloj. El `continue` es lo que hace que no aparezca como
+        // operador de la caja sin necesidad de un filtro por permiso.
+        //
+        // Ojo con la contracara, que NO está resuelta acá: `soleOperator()` y
+        // `/v1/unlock-sole` cuentan el roster ENTERO, así que un comercio
+        // unipersonal que cargue personal sin código deja de calificar para el
+        // desbloqueo sin PIN (context/72 §9.3) y vuelve a ver el bloqueo.
+        // Cambiar el conteo solo de este lado los haría divergir del servidor
+        // — ver context/83 §9.4.
         if (!u.pinhash) continue
         if (u.pinhash === pinHash) {
           matched = { id: u.id, name: u.name }
