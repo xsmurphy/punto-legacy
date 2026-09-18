@@ -115,5 +115,10 @@ echo ""
 echo "[run_wallet_test.sh] === wallet F2 (carga como venta, consumo con saldo, permisos del operador) ==="
 harness_run "$SCRIPT_DIR/wallet_pos_test.php"
 
+# ── 4. Reporte de bolsillos (context/74 §13) ───────────────────────────────
+echo ""
+echo "[run_wallet_test.sh] === reporte de bolsillos (lista congelada, KPIs, diferencias, alcance) ==="
+harness_run "$SCRIPT_DIR/wallet_report_test.php"
+
 echo ""
 echo "[run_wallet_test.sh] TODO OK."
