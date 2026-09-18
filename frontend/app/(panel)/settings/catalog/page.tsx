@@ -494,6 +494,21 @@ function PaymentMethodsTab() {
         // Efectivo es fijo: su cuenta no se edita.
         disabled: (values) => isEfectivoName(values.name),
       },
+      {
+        name: "feePercent",
+        label: "Comisión de la procesadora",
+        type: "percent",
+        placeholder: "Ej: 4",
+        helperText: "Lo que te descuenta la procesadora de cada cobro, con IVA incluido.",
+        disabled: (values) => isEfectivoName(values.name),
+      },
+      {
+        name: "feeFixed",
+        label: "Monto fijo por cobro",
+        type: "money",
+        placeholder: "0",
+        disabled: (values) => isEfectivoName(values.name),
+      },
     ],
     [accountOptions],
   )
@@ -521,6 +536,8 @@ function PaymentMethodsTab() {
         // accountId string para el Select: sentinel cuando no hay banco / es Efectivo.
         accountId:
           row.accountId && !isEfectivoName(row.name) ? row.accountId : NO_ACCOUNT,
+        feePercent: row.feePercent !== null ? String(row.feePercent) : "",
+        feeFixed: row.feeFixed,
       })}
       getId={(row) => row.id}
       getLabel={(row) => row.name}
@@ -533,12 +550,17 @@ function PaymentMethodsTab() {
         identifierPlaceholder: "",
         color: "",
         accountId: NO_ACCOUNT,
+        feePercent: "",
+        feeFixed: null,
       }}
       exportFileName="medios-de-pago"
       transformPayload={(v) => ({
         ...v,
         // Sentinel → null; Efectivo nunca manda accountId (el backend lo ignora).
         accountId: isEfectivoName(v.name) || v.accountId === NO_ACCOUNT ? null : v.accountId,
+        // Efectivo no pasa por una procesadora.
+        feePercent: isEfectivoName(v.name) ? "" : (v.feePercent ?? ""),
+        feeFixed: isEfectivoName(v.name) ? null : (v.feeFixed ?? null),
       })}
       reorderable={{
         onReorder: (orderedIds) => reorder.mutate(orderedIds),

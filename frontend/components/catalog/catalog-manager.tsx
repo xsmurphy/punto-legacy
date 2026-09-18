@@ -48,6 +48,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Input } from "@/components/ui/input"
+import { MoneyInput } from "@/components/ui/money-input"
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -77,7 +79,11 @@ export interface CatalogFieldOption {
 export interface CatalogField<P> {
   name: keyof P & string
   label: string
-  type?: "text" | "number" | "switch" | "select" | "color"
+  /**
+   * `money`: `<MoneyInput>` con el formato del tenant, el valor es `number | null`.
+   * `percent`: número con sufijo %, el valor queda como string ('' = vacío).
+   */
+  type?: "text" | "number" | "switch" | "select" | "color" | "money" | "percent"
   placeholder?: string
   required?: boolean
   helperText?: string
@@ -423,7 +429,7 @@ function CatalogFormBody<T, P>({
     editing ? toFormValues(editing) : emptyFormValues,
   )
 
-  const setField = (key: keyof P & string, value: string | boolean) => {
+  const setField = (key: keyof P & string, value: string | boolean | number | null) => {
     setValues((prev) => ({ ...prev, [key]: value }))
   }
 
@@ -504,6 +510,48 @@ function CatalogFormBody<T, P>({
                   onChange={(key) => setField(f.name, key)}
                   allowNone
                 />
+                {f.helperText && (
+                  <p className="text-xs text-muted-foreground">{f.helperText}</p>
+                )}
+              </div>
+            )
+          }
+
+          if (f.type === "money" || f.type === "percent") {
+            return (
+              <div key={f.name} className="space-y-1.5">
+                <Label htmlFor={fieldId}>
+                  {f.label}
+                  {f.required && <span className="text-destructive"> *</span>}
+                </Label>
+                {f.type === "money" ? (
+                  <MoneyInput
+                    id={fieldId}
+                    value={typeof raw === "number" ? raw : null}
+                    onChange={(next) => setField(f.name, next)}
+                    placeholder={f.placeholder}
+                    disabled={disabled}
+                  />
+                ) : (
+                  <InputGroup>
+                    <InputGroupInput
+                      id={fieldId}
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={raw === null || raw === undefined ? "" : String(raw)}
+                      onChange={(e) => setField(f.name, e.target.value)}
+                      placeholder={f.placeholder}
+                      disabled={disabled}
+                      className="tabular-nums"
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <InputGroupText>%</InputGroupText>
+                    </InputGroupAddon>
+                  </InputGroup>
+                )}
                 {f.helperText && (
                   <p className="text-xs text-muted-foreground">{f.helperText}</p>
                 )}

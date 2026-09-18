@@ -516,7 +516,11 @@ final class MovementService
      * los movimientos manuales/transferencias siguen pasando por
      * `insertMovement()` (sourceid NULL, no aplica el UNIQUE).
      *
-     * @param array{accountId:string,categoryId?:string|null,costCenterId?:string|null,kind:string,amount:float,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $fields
+     * `data` (opcional): metadata CONGELADA del movimiento en la columna JSONB
+     * `fin_movement.data` — hoy la tarifa de procesadora aplicada
+     * (`processorFee`, ver FinanceLedger). Se escribe una sola vez al crear.
+     *
+     * @param array{accountId:string,categoryId?:string|null,costCenterId?:string|null,kind:string,amount:float,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string,data?:array<string,mixed>} $fields
      * @return array{inserted:bool,movementId:?string}
      */
     public function recordDerivedMovement(string $companyId, string $source, string $sourceId, array $fields): array
@@ -560,6 +564,9 @@ final class MovementService
         $outletId   = (string) ($fields['outletId'] ?? '') ?: null;
         $description = (string) ($fields['description'] ?? '') ?: null;
         $paymentMethod = (string) ($fields['paymentMethod'] ?? '') ?: null;
+        $data = is_array($fields['data'] ?? null) && $fields['data'] !== []
+            ? json_encode($fields['data'], JSON_UNESCAPED_UNICODE)
+            : '{}';
 
         $db->StartTrans();
 
@@ -588,15 +595,15 @@ final class MovementService
         $inserted = ncmExecute(
             'INSERT INTO fin_movement
                 (movementid, companyid, accountid, categoryid, costcenterid, kind, amount, date,
-                 description, paymentmethod, source, sourceid, userid, outletid, status)
-             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
+                 description, paymentmethod, source, sourceid, userid, outletid, status, data)
+             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1, ?::jsonb)
              ON CONFLICT (companyid, source, sourceid, accountid, COALESCE(categoryid, \'00000000-0000-0000-0000-000000000000\'::uuid))
                  WHERE sourceid IS NOT NULL
              DO NOTHING
              RETURNING movementid',
             [
                 $movementId, $companyId, $accountId, $categoryId, $costCenterId, $kind, $amount, $date,
-                $description, $paymentMethod, $source, $sourceId, $userId, $outletId,
+                $description, $paymentMethod, $source, $sourceId, $userId, $outletId, $data,
             ]
         );
 
@@ -631,13 +638,23 @@ final class MovementService
     /**
      * Anula (soft-void) todos los movimientos activos de un origen derivado
      * + revierte el saldo. Reusado por `FinanceLedger::voidBySource()`.
+     *
+     * EXCEPCIÓN — la comisión de procesadora NO se anula (regla del owner
+     * 2026-09-18): la procesadora no devuelve la comisión cuando el comercio
+     * anula el cobro, así que es un costo ya incurrido. Se revierte el ingreso
+     * bruto y el egreso "Comisión de procesadora" queda activo: tras anular una
+     * venta de 100.000 con 4% la cuenta queda 4.000 abajo, que es lo que
+     * muestra el banco. Se identifica por la marca congelada en `data`, no por
+     * categoría: la categoría se puede reclasificar, la marca no.
      */
     public function voidBySource(string $companyId, string $source, string $sourceId): int
     {
         global $db;
 
         $rs = ncmExecute(
-            'SELECT * FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND status = 1',
+            "SELECT * FROM fin_movement
+              WHERE companyid = ? AND source = ? AND sourceid = ? AND status = 1
+                AND data->'processorFee' IS NULL",
             [$companyId, $source, $sourceId],
             false,
             true

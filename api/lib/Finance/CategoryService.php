@@ -334,6 +334,18 @@ final class CategoryService
     }
 
     /**
+     * Categoría del egreso "Comisión de procesadora" que `FinanceLedger`
+     * genera junto a cada cobro con un medio de pago que tiene tarifa (QR,
+     * tarjetas). Propia y no "Servicios"/"Otros": es la única forma de que el
+     * comercio vea cuánto le cuestan las procesadoras en el reporte por
+     * categoría.
+     */
+    public function ensureProcessorFeeCategoryId(string $companyId): string
+    {
+        return $this->ensureOnDemand($companyId, 'Comisiones de procesadora', 'expense', 9);
+    }
+
+    /**
      * Patrón compartido de las categorías de sistema on-demand (buscar,
      * crear si falta, volver a buscar). Extraído al sumar las del cajón:
      * `ensureReturnsCategoryId` y `ensurePurchaseCreditNoteCategoryId` lo

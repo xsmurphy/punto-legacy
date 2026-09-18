@@ -14,8 +14,9 @@ use Punto\Api\Finance\AccountService;
  * es la identidad ESTABLE del método — las ventas nuevas guardan ese UUID como
  * clave del pago, y `finAccountMap` (en company.settingObj) mapea taxonomyId →
  * accountId. Los flags de comportamiento (code, hasChange, requiresIdentifier,
- * identifierLabel/Placeholder, systemKey) se serializan en el JSONB
- * `taxonomyExtra`.
+ * identifierLabel/Placeholder, systemKey) y la tarifa de la procesadora
+ * (`feePercent`, `feeFixed` — ver FinanceLedger::recordPaymentLines) se
+ * serializan en el JSONB `taxonomyExtra`.
  *
  * Reglas (owner 2026-07-02 — ver context/22):
  *   - Multi-tenant: TODO query filtra por companyId. NUNCA se confía el
@@ -119,6 +120,7 @@ final class PaymentMethodService
         if ($newId === '') {
             throw new \RuntimeException('No se pudo crear el medio de pago');
         }
+        PaymentMethodResolver::forget($companyId);
 
         // El mapeo de cuenta se persiste vía ConfigService (único write path).
         // Se ignora para el método cash (Efectivo).
@@ -158,6 +160,7 @@ final class PaymentMethodService
         if ($ok === false) {
             throw new \RuntimeException('No se pudo actualizar el medio de pago');
         }
+        PaymentMethodResolver::forget($companyId);
 
         // Efectivo ignora accountId (cae siempre en cuenta Efectivo del sistema).
         if (!$this->isCashName($name) && array_key_exists('accountId', $input)) {
@@ -191,6 +194,7 @@ final class PaymentMethodService
         if ($ok === false) {
             throw new \RuntimeException('No se pudo eliminar el medio de pago');
         }
+        PaymentMethodResolver::forget($companyId);
         // NO tocamos finAccountMap: la entrada huérfana es inofensiva (se ignora
         // al leer, ConfigService::read solo emite métodos existentes).
     }
@@ -456,6 +460,19 @@ final class PaymentMethodService
             'identifierPlaceholder' => $this->str($get('identifierPlaceholder', '')),
             'color'                 => $this->str($get('color', '')),
         ];
+        // Tarifa de la procesadora (Finanzas descuenta la comisión de cada
+        // cobro con este medio). Vacío = sin comisión: la clave no se escribe.
+        $feePercent = $this->fee($get('feePercent', null), 'feePercent');
+        if ($feePercent !== null && $feePercent > 100) {
+            throw new \RuntimeException('La comisión no puede superar el 100%');
+        }
+        $feeFixed = $this->fee($get('feeFixed', null), 'feeFixed');
+        if ($feePercent !== null) {
+            $extra['feePercent'] = $feePercent;
+        }
+        if ($feeFixed !== null) {
+            $extra['feeFixed'] = $feeFixed;
+        }
         // sortOrder: NO editable en el form del método — lo maneja el endpoint
         // reorder y el seed. Se preserva el valor actual en updates parciales.
         $sortOrder = $current !== null ? $current['sortOrder'] ?? null : null;
@@ -486,6 +503,11 @@ final class PaymentMethodService
         if (isset($extra['systemKey']) && $extra['systemKey'] !== '') {
             $out['systemKey'] = (string) $extra['systemKey'];
         }
+        foreach (['feePercent', 'feeFixed'] as $k) {
+            if (isset($extra[$k]) && is_numeric($extra[$k]) && (float) $extra[$k] > 0) {
+                $out[$k] = (float) $extra[$k];
+            }
+        }
         return $out;
     }
 
@@ -510,6 +532,8 @@ final class PaymentMethodService
             'color'                 => (string) ($extra['color'] ?? ''),
             'sortOrder'             => isset($extra['sortOrder']) && $extra['sortOrder'] !== '' ? (int) $extra['sortOrder'] : null,
             'systemKey'             => isset($extra['systemKey']) && $extra['systemKey'] !== '' ? (string) $extra['systemKey'] : null,
+            'feePercent'            => isset($extra['feePercent']) && is_numeric($extra['feePercent']) && (float) $extra['feePercent'] > 0 ? (float) $extra['feePercent'] : null,
+            'feeFixed'              => isset($extra['feeFixed']) && is_numeric($extra['feeFixed']) && (float) $extra['feeFixed'] > 0 ? (float) $extra['feeFixed'] : null,
             'accountId'             => $accountMap[$id] ?? null,
         ];
     }
@@ -552,6 +576,26 @@ final class PaymentMethodService
             [$companyId, 'paymentMethod']
         );
         return $rs !== false && !$rs->EOF;
+    }
+
+    /**
+     * Valor de tarifa del form: '' / null / 0 = sin comisión (null). Negativo o
+     * no numérico se rechaza — un error de tipeo acá descuadraría el saldo de
+     * cada cobro siguiente sin que nadie lo note.
+     */
+    private function fee($v, string $field): ?float
+    {
+        if ($v === null || (is_string($v) && trim($v) === '')) {
+            return null;
+        }
+        $raw = is_string($v) ? str_replace(',', '.', trim($v)) : $v;
+        if (!is_numeric($raw) || (float) $raw < 0) {
+            throw new \RuntimeException($field === 'feePercent'
+                ? 'La comisión tiene que ser un porcentaje válido'
+                : 'El monto fijo tiene que ser un número válido');
+        }
+        $f = (float) $raw;
+        return $f > 0 ? $f : null;
     }
 
     private function str($v): string

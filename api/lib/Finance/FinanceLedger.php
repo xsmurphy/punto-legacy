@@ -80,6 +80,7 @@ final class FinanceLedger
             kind: 'income',
             categoryId: $categoryId,
             description: $description,
+            applyProcessorFee: true,
         );
     }
 
@@ -119,6 +120,7 @@ final class FinanceLedger
             kind: 'income',
             categoryId: $categoryId,
             description: $description,
+            applyProcessorFee: true,
         );
     }
 
@@ -272,6 +274,11 @@ final class FinanceLedger
      * cliente, no caja. El filtro vive en `recordPaymentLines` (compartido con
      * ventas: una venta pagada con crédito interno / puntos / gift card tampoco
      * mueve plata).
+     *
+     * Comisión de procesadora (regla del owner 2026-09-18): la devolución NO
+     * la revierte. La procesadora se queda con la comisión del cobro original
+     * aunque el comercio devuelva la plata — el egreso de la venta queda como
+     * está y la devolución solo saca el neto devuelto.
      */
     public function recordReturn(string $companyId, string $transactionId): void
     {
@@ -489,6 +496,12 @@ final class FinanceLedger
      * de imputación, no de importe: sumarlo a la clave de unicidad del ledger
      * rompería la idempotencia del hook (ver `resolveCostCenterId()`).
      *
+     * $applyProcessorFee: solo cobros (venta al contado y pago de crédito).
+     * Cada línea cuyo medio de pago tiene tarifa de procesadora genera además
+     * un egreso "Comisión de procesadora" en la misma cuenta — ver
+     * `recordWithProcessorFee()`. Pagos a proveedores, compras y devoluciones
+     * no lo pasan: ahí la plata sale y no hay procesadora del comercio.
+     *
      * @param list<array{0:?string,1:float}>|null $categorySplit
      */
     private function recordPaymentLines(
@@ -500,7 +513,8 @@ final class FinanceLedger
         ?string $categoryId,
         string $description,
         ?array $categorySplit = null,
-        ?string $costCenterId = null
+        ?string $costCenterId = null,
+        bool $applyProcessorFee = false
     ): void {
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
@@ -525,9 +539,20 @@ final class FinanceLedger
             $accountId = $this->config->resolveAccountId($companyId, $methodKey);
 
             if (!isset($byAccount[$accountId])) {
-                $byAccount[$accountId] = ['amount' => 0.0, 'methodKey' => $methodKey];
+                $byAccount[$accountId] = ['amount' => 0.0, 'methodKey' => $methodKey, 'fees' => []];
             }
             $byAccount[$accountId]['amount'] += $amount;
+
+            // Comisión de procesadora: POR LÍNEA (el monto fijo es por
+            // operación, así que dos líneas del mismo medio pagan dos fijos) y
+            // con la tarifa VIGENTE en este momento — queda congelada en el
+            // movimiento, cambiarla después no toca este cobro.
+            if ($applyProcessorFee) {
+                $fee = $this->processorFeeForLine($companyId, $methodKey, $amount);
+                if ($fee !== null) {
+                    $byAccount[$accountId]['fees'][] = $fee;
+                }
+            }
         }
 
         if ($categorySplit !== null && count($byAccount) > 1) {
@@ -566,7 +591,7 @@ final class FinanceLedger
                 continue;
             }
 
-            $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
+            $income = [
                 'accountId'     => $accountId,
                 'categoryId'    => $categoryId,
                 'costCenterId'  => $costCenterId,
@@ -577,7 +602,113 @@ final class FinanceLedger
                 'paymentMethod' => $agg['methodKey'] ?: null,
                 'userId'        => $userId,
                 'outletId'      => $outletId,
-            ]);
+            ];
+
+            if (empty($agg['fees'])) {
+                $this->movements->recordDerivedMovement($companyId, $source, $sourceId, $income);
+                continue;
+            }
+
+            $this->recordWithProcessorFee($companyId, $source, $sourceId, $income, $agg['fees'], $description);
+        }
+    }
+
+    /**
+     * Tarifa de procesadora aplicada a UNA línea de pago, o null si el medio
+     * no tiene comisión. `monto × % / 100 + fijo`, redondeado a los decimales
+     * del tenant (nunca un número de decimales fijo).
+     *
+     * @return array{methodId:string,methodName:string,base:float,percent:float,fixed:float,fee:float}|null
+     */
+    private function processorFeeForLine(string $companyId, string $methodKey, float $amount): ?array
+    {
+        $rate = (new \Punto\Api\PaymentMethods\PaymentMethodResolver())->resolveProcessorFee($companyId, $methodKey);
+        if ($rate === null) {
+            return null;
+        }
+        $fee = round($amount * $rate['percent'] / 100 + $rate['fixed'], $this->currencyDecimals($companyId));
+        if ($fee <= 0) {
+            return null;
+        }
+        return [
+            'methodId'   => $rate['methodId'],
+            'methodName' => $rate['methodName'],
+            'base'       => $amount,
+            'percent'    => $rate['percent'],
+            'fixed'      => $rate['fixed'],
+            'fee'        => $fee,
+        ];
+    }
+
+    /**
+     * Ingreso bruto + egreso "Comisión de procesadora" en la MISMA cuenta y en
+     * UNA transacción: el saldo de la cuenta queda en el NETO, que es lo que
+     * acredita el banco (el cliente paga 100.000, llegan 96.000). La venta, la
+     * factura y los reportes de ventas siguen en bruto — la comisión existe
+     * solo en Finanzas.
+     *
+     * La comisión nace SOLO si el ingreso nace en esta llamada. Un reintento del
+     * hook o el backfill histórico encuentran el ingreso ya registrado y no
+     * agregan una comisión calculada con la tarifa de HOY sobre un cobro viejo.
+     * Como las dos filas van en la misma transacción, no existe el estado
+     * "ingreso sin su comisión".
+     *
+     * La tarifa usada queda CONGELADA en `data.processorFee` (mismo principio
+     * que el IVA congelado de la línea de venta). Anular o devolver el cobro NO
+     * la revierte — ver MovementService::voidBySource() (regla del owner).
+     *
+     * El UNIQUE del ledger incluye la categoría (mig 153), así que el egreso de
+     * comisión convive con el ingreso del mismo (origen, cuenta).
+     *
+     * @param array<string,mixed> $income
+     * @param list<array{methodId:string,methodName:string,base:float,percent:float,fixed:float,fee:float}> $fees
+     */
+    private function recordWithProcessorFee(
+        string $companyId,
+        string $source,
+        string $sourceId,
+        array $income,
+        array $fees,
+        string $description
+    ): void {
+        global $db;
+
+        $total = 0.0;
+        foreach ($fees as $f) {
+            $total += $f['fee'];
+        }
+        $total = round($total, $this->currencyDecimals($companyId));
+
+        $db->StartTrans();
+        try {
+            $result = $this->movements->recordDerivedMovement($companyId, $source, $sourceId, $income);
+            if ($result['inserted'] && $total > 0) {
+                $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
+                    'accountId'     => $income['accountId'],
+                    'categoryId'    => $this->categories->ensureProcessorFeeCategoryId($companyId),
+                    'kind'          => 'expense',
+                    'amount'        => $total,
+                    'date'          => $income['date'],
+                    'description'   => 'Comisión de procesadora · ' . $description,
+                    'paymentMethod' => $income['paymentMethod'],
+                    'userId'        => $income['userId'],
+                    'outletId'      => $income['outletId'],
+                    'data'          => ['processorFee' => [
+                        'incomeMovementId' => $result['movementId'],
+                        'total'            => $total,
+                        'lines'            => $fees,
+                    ]],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            throw new \RuntimeException("No se pudo registrar el cobro con comisión ({$source}/{$sourceId})");
         }
     }
 
