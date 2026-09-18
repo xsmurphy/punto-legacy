@@ -29,9 +29,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Pencil, Wallet } from "lucide-react"
+import { AlertCircle, Pencil, Wallet } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,6 +49,7 @@ import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
 import { DrawerCorrectDialog } from "@/components/reports/drawer-correct-dialog"
 import { CashCountBadge } from "@/components/reports/cash-count-badge"
 import { EmptyState } from "@/components/empty-state"
+import { BackLink } from "@/components/page/back-link"
 import { formatDateTime } from "@/lib/format-date"
 
 export default function DrawersReportPage() {
@@ -241,7 +241,7 @@ export default function DrawersReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Control de Cajas</h1>
           <p className="text-sm text-muted-foreground">
             Aperturas y cierres del período. La diferencia compara el monto contado
@@ -321,21 +321,6 @@ export default function DrawersReportPage() {
   )
 }
 
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
-  )
-}
 
 function parseNum(v: unknown): number {
   if (typeof v === "number") return v
@@ -345,4 +330,3 @@ function parseNum(v: unknown): number {
   }
   return 0
 }
-

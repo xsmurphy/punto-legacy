@@ -2,12 +2,11 @@
 
 import * as React from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import {
-  ArrowLeft, Loader2, Archive, User2, BarChart3, Wallet,
+  Loader2, Archive, User2, BarChart3, Wallet,
   ClipboardList, ShoppingBag, Layers, TrendingUp,
   CalendarDays, MapPin, Sparkles, Inbox,
 } from "lucide-react"
@@ -86,6 +85,7 @@ import {
   personalIdFieldCopy,
   taxIdFieldCopy,
 } from "@/lib/contact-id-types"
+import { BackLink } from "@/components/page/back-link"
 import type { TenantLocaleConfig } from "@/lib/tenant-locale"
 
 const contactSchema = z
@@ -243,7 +243,7 @@ function ContactEditPageInner() {
     const isNotFound = error instanceof ApiError && error.status === 404
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/contacts" label="Volver a contactos" />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             {isNotFound ? "Contacto no encontrado." : `No se pudo cargar el contacto. ${error.message}`}
@@ -257,7 +257,7 @@ function ContactEditPageInner() {
   if (!isNew) {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/contacts" label="Volver a contactos" />
         <ContactDetailView customerId={id} variant="panel" nav="tabs" />
       </div>
     )
@@ -269,7 +269,7 @@ function ContactEditPageInner() {
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <BackLink />
+            <BackLink href="/contacts" label="Volver a contactos" />
             <h1 className="text-2xl font-semibold">Nuevo contacto</h1>
           </div>
           <div className="flex items-center gap-2">
@@ -623,17 +623,6 @@ function emptyValues(): ContactFormValues {
   }
 }
 
-function BackLink() {
-  return (
-    <Link
-      href="/contacts"
-      className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="size-3.5" />
-      Volver a contactos
-    </Link>
-  )
-}
 
 // Alias local a FormSection compartido
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

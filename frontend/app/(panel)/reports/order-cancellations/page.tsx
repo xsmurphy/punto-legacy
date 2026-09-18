@@ -33,9 +33,8 @@
 
 import * as React from "react"
 import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Ban } from "lucide-react"
+import { AlertCircle, Ban } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { DataTable, FilterField } from "@/components/data-table/data-table"
@@ -59,6 +58,7 @@ import {
 import { formatDateTime } from "@/lib/format-date"
 import { formatInt, formatMoney } from "@/lib/format"
 import { ACTOR_KIND_LABEL } from "@/lib/orders/order-display"
+import { BackLink } from "@/components/page/back-link"
 
 /** Sentinel del `<Select>`: Radix no acepta `value=""` (context/20 §4). */
 const ALL_OUTLETS = "all"
@@ -216,7 +216,7 @@ export default function OrderCancellationsReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Anulaciones de comanda</h1>
           <p className="text-sm text-muted-foreground">
             Ítems sacados de una comanda y órdenes canceladas enteras — cuánto
@@ -285,21 +285,5 @@ export default function OrderCancellationsReportPage() {
         }
       />
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

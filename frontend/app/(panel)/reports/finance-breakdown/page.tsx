@@ -2,8 +2,7 @@
 
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import Link from "next/link"
-import { ArrowLeft, BarChart3 } from "lucide-react"
+import { BarChart3 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -18,6 +17,7 @@ import { DateRangePicker, rangeToBackend } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useFinanceReport, type FinanceReportRow } from "@/hooks/use-finance-reports"
+import { BackLink } from "@/components/page/back-link"
 import { formatMoney } from "@/lib/format"
 
 function ReportTable({
@@ -130,17 +130,7 @@ export default function FinanzasReportesPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/reports">
-              <ArrowLeft className="size-3.5" />
-              Volver a reportes
-            </Link>
-          </Button>
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Ingresos y egresos por categoría</h1>
           <p className="text-sm text-muted-foreground">
             Montos del período abiertos por categoría, centro de costo o cuenta.

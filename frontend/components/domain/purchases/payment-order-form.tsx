@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, FileCheck, Loader2 } from "lucide-react"
+import { FileCheck, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -35,6 +35,7 @@ import {
 } from "@/hooks/use-payment-orders"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Form de la ORDEN DE PAGO — compartido por el alta (`/ordenes-pago/new`) y la
@@ -203,15 +204,14 @@ export function PaymentOrderForm({ initial }: Props) {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => router.back()}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="text-2xl font-semibold">
-            {isEdit ? "Editar orden de pago" : "Nueva orden de pago"}
-          </h1>
-        </div>
-        <p className="pl-10 text-sm text-muted-foreground">
+        <BackLink
+          href={isEdit ? `/ordenes-pago/${initial.paymentOrderId}` : "/ordenes-pago"}
+          label={isEdit ? "Volver a la orden" : "Volver a órdenes de pago"}
+        />
+        <h1 className="text-2xl font-semibold">
+          {isEdit ? "Editar orden de pago" : "Nueva orden de pago"}
+        </h1>
+        <p className="text-sm text-muted-foreground">
           Agrupá las facturas pendientes del proveedor y el monto a imputar a cada una. La orden
           nace en borrador: no paga nada hasta que alguien con autoridad la apruebe.
         </p>

@@ -1,9 +1,7 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Tag, Building2, Receipt, Tags, CreditCard, Trash2, Wallet } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -61,6 +59,7 @@ import {
   useDeleteWasteReason,
 } from "@/hooks/use-waste-reasons"
 import type { WasteReason, WasteReasonPayload } from "@/lib/types/production"
+import { BackLink } from "@/components/page/back-link"
 
 // Suprimir warning de unused — exportado por completitud del módulo.
 void useCategory
@@ -136,12 +135,8 @@ function CatalogPageInner() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center gap-3">
-        <Button asChild variant="ghost" size="icon" className="size-8">
-          <Link href="/settings" aria-label="Volver">
-            <ArrowLeft className="size-4" />
-          </Link>
-        </Button>
+      <header className="flex flex-col gap-1">
+        <BackLink href="/settings" label="Volver a ajustes" />
         <div>
           <h1 className="text-2xl font-semibold">Catálogo</h1>
           <p className="text-sm text-muted-foreground">
@@ -155,33 +150,26 @@ function CatalogPageInner() {
             mitad derecha vacía. grid-cols-3 + w-full estira cada tab. */}
         {/* Literales completos (no interpolados) para que Tailwind los genere. */}
         <TabsList className={showWallet ? "grid w-full grid-cols-7" : "grid w-full grid-cols-6"}>
-          <TabsTrigger value="categories" className="gap-1.5">
-            <Tag className="size-3.5" />
+          <TabsTrigger value="categories">
             Categorías
           </TabsTrigger>
-          <TabsTrigger value="brands" className="gap-1.5">
-            <Building2 className="size-3.5" />
+          <TabsTrigger value="brands">
             Marcas
           </TabsTrigger>
-          <TabsTrigger value="tags" className="gap-1.5">
-            <Tags className="size-3.5" />
+          <TabsTrigger value="tags">
             Etiquetas
           </TabsTrigger>
-          <TabsTrigger value="taxes" className="gap-1.5">
-            <Receipt className="size-3.5" />
+          <TabsTrigger value="taxes">
             Impuestos
           </TabsTrigger>
-          <TabsTrigger value="payment-methods" className="gap-1.5">
-            <CreditCard className="size-3.5" />
+          <TabsTrigger value="payment-methods">
             Medios de pago
           </TabsTrigger>
-          <TabsTrigger value="waste-reasons" className="gap-1.5">
-            <Trash2 className="size-3.5" />
+          <TabsTrigger value="waste-reasons">
             Motivos de merma
           </TabsTrigger>
           {showWallet && (
-            <TabsTrigger value="wallet-pockets" className="gap-1.5">
-              <Wallet className="size-3.5" />
+            <TabsTrigger value="wallet-pockets">
               Bolsillos
             </TabsTrigger>
           )}
@@ -618,4 +606,3 @@ function WasteReasonsTab() {
     />
   )
 }
-

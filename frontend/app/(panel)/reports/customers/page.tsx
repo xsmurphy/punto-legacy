@@ -19,8 +19,7 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
-import { AlertCircle, ArrowLeft } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -38,6 +37,7 @@ import {
 } from "@/hooks/use-reports"
 import { CustomersDashboardTab } from "@/components/domain/reports/customers/customers-dashboard-tab"
 import { CustomersGeoTab } from "@/components/domain/reports/customers/customers-geo-tab"
+import { BackLink } from "@/components/page/back-link"
 import { CustomersListTab } from "@/components/domain/reports/customers/customers-list-tab"
 
 type TabKey = "dashboard" | "listado" | "geografico"
@@ -70,7 +70,7 @@ export default function CustomersReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Análisis de Clientes</h1>
           <p className="text-sm text-muted-foreground">
             Quiénes son, cuánto compran y en qué zonas viven.
@@ -140,21 +140,5 @@ export default function CustomersReportPage() {
         </TabsContent>
       </Tabs>
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-sm text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

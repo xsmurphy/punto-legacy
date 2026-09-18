@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { ArrowLeft, CalendarDays } from "lucide-react"
+import { CalendarDays } from "lucide-react"
 import {
   Bar,
   CartesianGrid,
@@ -46,6 +45,7 @@ import {
   type SummaryYearResponse,
   type SummaryYearMonth,
 } from "@/hooks/use-reports"
+import { BackLink } from "@/components/page/back-link"
 import { formatInt, formatMoney } from "@/lib/format"
 
 const MONTH_NAMES = [
@@ -187,12 +187,7 @@ function AnnualReport() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button asChild variant="ghost" size="sm" className="w-fit">
-            <Link href="/reports">
-              <ArrowLeft className="size-4" />
-              Volver a reportes
-            </Link>
-          </Button>
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Resumen anual</h1>
           <p className="text-sm text-muted-foreground">
             Ingresos, egresos y resultado, mes a mes del año seleccionado.

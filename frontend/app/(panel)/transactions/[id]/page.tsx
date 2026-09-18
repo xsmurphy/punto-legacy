@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
 import { useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Ban, Banknote, FileCheck, Loader2, Printer, Receipt } from "lucide-react"
+import { Ban, Banknote, FileCheck, Loader2, Printer, Receipt } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -76,6 +76,7 @@ import {
   isReceipt as isReceiptType,
   saleTypeLabel,
 } from "@/lib/domain/sale-type"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Detalle completo de una transacción de venta — espejo de `/purchase/{id}`
@@ -108,7 +109,7 @@ export default function TransactionDetailPage() {
   if (error || !detail) {
     return (
       <div className="flex flex-col gap-4">
-        <BackButton />
+        <BackLink href="/reports/sales?tab=transacciones" label="Volver a transacciones" />
         <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground">
           <Receipt className="size-8" />
           <p className="text-sm">Transacción no encontrada o sin acceso.</p>
@@ -328,7 +329,7 @@ function TransactionDetailView({
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackButton />
+          <BackLink href="/reports/sales?tab=transacciones" label="Volver a transacciones" />
           <h1 className="text-2xl font-semibold flex flex-wrap items-center gap-2">
             <Badge variant={badgeVariant}>{isVoid ? "Anulada" : saleTypeLabel(tx.transactionType)}</Badge>
             {tx.docNo ? tx.docNo : "Detalle de transacción"}
@@ -941,21 +942,6 @@ function RelatedDocSection({
   )
 }
 
-function BackButton() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports/sales?tab=transacciones">
-        <ArrowLeft className="size-3.5" />
-        Volver a transacciones
-      </Link>
-    </Button>
-  )
-}
 
 function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (

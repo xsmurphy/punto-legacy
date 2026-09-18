@@ -2,9 +2,8 @@
 
 import * as React from "react"
 import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, FileText, Loader2 } from "lucide-react"
+import { FileText, Loader2 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -20,6 +19,7 @@ import {
   type PurchaseDraftSummary,
 } from "@/hooks/use-purchase-drafts"
 import { formatMoney } from "@/lib/format"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Cola de revisión de borradores de compra generados por OCR/IA.
@@ -134,17 +134,7 @@ export default function PurchaseDraftsPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/purchase">
-              <ArrowLeft className="size-3.5" />
-              Volver a compras
-            </Link>
-          </Button>
+          <BackLink href="/purchase" label="Volver a compras" />
           <h1 className="text-2xl font-semibold">Borradores de factura</h1>
           <p className="text-sm text-muted-foreground">
             Facturas subidas por foto — revisá y aprobá para registrar la compra.

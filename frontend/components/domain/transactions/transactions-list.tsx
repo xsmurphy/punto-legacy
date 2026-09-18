@@ -5,7 +5,7 @@ import { usePersistedTableState } from "@/hooks/use-persisted-table-state"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Banknote, Ban, Check, Copy, Download, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
+import { AlertCircle, Banknote, Ban, Check, Copy, Download, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -109,6 +109,7 @@ import {
   saleTypeLabel,
   saleTypeLabelOrNull,
 } from "@/lib/domain/sale-type"
+import { BackLink } from "@/components/page/back-link"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -952,7 +953,7 @@ export function TransactionsList({
       ) : (
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            {backHref && <BackLink backHref={backHref} />}
+            {backHref && <BackLink href={backHref} label={backHref.includes("/pos") ? "" : "Volver a reportes"} />}
             <h1 className="text-2xl font-semibold">Transacciones</h1>
             <p className="text-sm text-muted-foreground">
               Todas las ventas del período: facturas, tickets y notas de crédito.
@@ -1745,22 +1746,5 @@ function ItemRow({
         {formatAmount(item.total, config)}
       </span>
     </div>
-  )
-}
-
-function BackLink({ backHref }: { backHref: string }) {
-  const isPos = backHref.includes("/pos")
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href={backHref}>
-        <ArrowLeft className="size-3.5" />
-        {!isPos && "Volver a reportes"}
-      </Link>
-    </Button>
   )
 }

@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Loader2, Receipt, Ban, FileMinus } from "lucide-react"
+import { Loader2, Receipt, Ban, FileMinus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -70,6 +69,7 @@ import {
   SupplierDocumentFields,
   type SupplierDocumentValue,
 } from "@/components/domain/purchases/supplier-document-fields"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Detalle de una compra — solo lectura.
@@ -99,7 +99,7 @@ export default function PurchaseDetailPage() {
   if (error || !purchase) {
     return (
       <div className="flex flex-col gap-4">
-        <BackButton />
+        <BackLink href="/reports/purchases" label="Volver al historial" />
         <div className="flex h-40 flex-col items-center justify-center gap-2 text-muted-foreground">
           <Receipt className="size-8" />
           <p className="text-sm">Compra no encontrada o sin acceso.</p>
@@ -129,7 +129,7 @@ export default function PurchaseDetailPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackButton />
+          <BackLink href="/reports/purchases" label="Volver al historial" />
           <h1 className="text-2xl font-semibold">
             {invoiceLabel ? `Compra ${invoiceLabel}` : "Detalle de compra"}
           </h1>
@@ -326,21 +326,6 @@ export default function PurchaseDetailPage() {
 
 // ── Sub-componentes ──────────────────────────────────────────────────────────
 
-function BackButton() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports/purchases">
-        <ArrowLeft className="size-3.5" />
-        Volver al historial
-      </Link>
-    </Button>
-  )
-}
 
 /**
  * Modalidad de la compra. Es dato distinto del estado: una compra a crédito

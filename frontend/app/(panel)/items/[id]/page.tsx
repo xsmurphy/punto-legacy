@@ -7,7 +7,6 @@ import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import {
-  ArrowLeft,
   Loader2,
   Archive,
   Boxes,
@@ -128,6 +127,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { MultiSelect } from "@/components/ui/multi-select"
+import { BackLink } from "@/components/page/back-link"
 import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 
 const itemSchema = z.object({
@@ -565,7 +565,7 @@ function ItemEditPageInner() {
   if (error) {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/items" label="Volver a artículos" />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             No se pudo cargar el artículo. {error.message}
@@ -580,7 +580,7 @@ function ItemEditPageInner() {
       <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <BackLink />
+            <BackLink href="/items" label="Volver a artículos" />
             <h1 className="text-2xl font-semibold">
               {isNew ? "Nuevo artículo" : isLoading ? (
                 <Skeleton className="h-7 w-48" />
@@ -2235,16 +2235,3 @@ function toStr(v: unknown): string {
   }
   return ""
 }
-
-function BackLink() {
-  return (
-    <Link
-      href="/items"
-      className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="size-3.5" />
-      Volver a artículos
-    </Link>
-  )
-}
-

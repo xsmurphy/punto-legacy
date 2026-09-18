@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Loader2, Plus, Upload, FileText } from "lucide-react"
+import { Loader2, Plus, Upload, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -56,6 +56,7 @@ import {
   type FormLine,
 } from "@/components/domain/purchases/purchase-form-fields"
 import { SupplierDocumentFields } from "@/components/domain/purchases/supplier-document-fields"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * `/purchase` — registro de compra/gasto. Full-page (NO drawer/sheet).
@@ -347,17 +348,7 @@ export default function NewPurchasePage() {
       {/* Header con breadcrumb + acciones */}
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Link href="/reports/purchases">
-              <ArrowLeft className="size-3.5" />
-              Volver al historial
-            </Link>
-          </Button>
+          <BackLink href="/reports/purchases" label="Volver al historial" />
           <h1 className="text-2xl font-semibold">Nueva compra</h1>
           <p className="text-sm text-muted-foreground">
             Registro de factura de compra a un proveedor.

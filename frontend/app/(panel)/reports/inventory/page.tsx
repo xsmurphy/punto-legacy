@@ -12,9 +12,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, PackageSearch } from "lucide-react"
+import { AlertCircle, PackageSearch } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,6 +27,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type InventoryMovementRow } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
+import { BackLink } from "@/components/page/back-link"
 import { formatDateTime } from "@/lib/format-date"
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -176,7 +176,7 @@ export default function InventoryReportPage() {
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Movimientos de Inventario</h1>
           <p className="text-sm text-muted-foreground">
             Historial general de entradas, salidas y ajustes de stock del período.
@@ -213,21 +213,5 @@ export default function InventoryReportPage() {
         }
       />
     </div>
-  )
-}
-
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
   )
 }

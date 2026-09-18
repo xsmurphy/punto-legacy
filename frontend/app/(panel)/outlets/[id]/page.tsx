@@ -2,11 +2,10 @@
 
 import * as React from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Boxes, Calculator, Loader2, Pencil, Star, Store, Trash2 } from "lucide-react"
+import { Boxes, Calculator, Loader2, Pencil, Star, Store, Trash2 } from "lucide-react"
 import { isValidPhoneNumber } from "libphonenumber-js"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
@@ -85,6 +84,7 @@ import {
   useSetDefaultLocation,
   type OutletLocation,
 } from "@/hooks/use-outlet-locations"
+import { BackLink } from "@/components/page/back-link"
 import type { OutletFormValues } from "@/lib/types/outlet"
 
 const outletSchema = z.object({
@@ -245,7 +245,7 @@ function OutletEditPageInner() {
   if (error) {
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/outlets" label="Volver a sucursales" />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             No se pudo cargar la sucursal. {error.message}
@@ -260,7 +260,7 @@ function OutletEditPageInner() {
       <form onSubmit={form.handleSubmit(onSubmit, onInvalid)} className="flex flex-col gap-6">
         <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1">
-            <BackLink />
+            <BackLink href="/outlets" label="Volver a sucursales" />
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold">
                 {isLoading ? (
@@ -906,17 +906,6 @@ function LocationsSection({ outletId }: { outletId: string }) {
   )
 }
 
-function BackLink() {
-  return (
-    <Link
-      href="/outlets"
-      className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="size-3.5" />
-      Volver a sucursales
-    </Link>
-  )
-}
 
 // Alias local a FormSection compartido — jerarquía visual consistente
 // (text-base / 600 + border-b) vs FormLabel (text-sm / 500).

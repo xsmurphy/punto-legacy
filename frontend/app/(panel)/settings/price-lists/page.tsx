@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, Plus, Loader2, Tag, Pencil, Trash2, CalendarRange, CheckCircle2, XCircle } from "lucide-react"
+import { Plus, Loader2, Tag, Pencil, Trash2, CalendarRange, CheckCircle2, XCircle } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { toast } from "sonner"
 
@@ -42,6 +41,7 @@ import {
 import type { PriceList } from "@/lib/types/price-list"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
+import { BackLink } from "@/components/page/back-link"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -391,13 +391,9 @@ export default function PriceListsPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="icon" className="size-8">
-            <Link href="/settings" aria-label="Volver">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
+      <header className="flex items-end justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <BackLink href="/settings" label="Volver a ajustes" />
           <div>
             <h1 className="text-2xl font-semibold">Listas de precios</h1>
             <p className="text-sm text-muted-foreground">

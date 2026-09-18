@@ -18,10 +18,8 @@
  */
 
 import * as React from "react"
-import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
-  ArrowLeft,
   BarChart3,
   CalendarClock,
   IdCard,
@@ -66,6 +64,7 @@ import { useTeamMember } from "@/hooks/use-team"
 import { useEmployee } from "@/hooks/use-employees"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ApiError } from "@/lib/api-client"
+import { BackLink } from "@/components/page/back-link"
 import { formatDate } from "@/lib/format-date"
 
 const TAB_KEYS = ["resumen", "datos", "horario", "rostro", "asistencia"] as const
@@ -171,7 +170,7 @@ function EmployeeDetailPageInner() {
     const notFound = loadError instanceof ApiError && loadError.status === 404
     return (
       <div className="flex flex-col gap-4">
-        <BackLink />
+        <BackLink href="/employees" label="Volver a Equipo" />
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
             {notFound
@@ -185,7 +184,7 @@ function EmployeeDetailPageInner() {
 
   return (
     <div className="flex flex-col gap-4">
-      <BackLink />
+      <BackLink href="/employees" label="Volver a Equipo" />
 
       <Form {...form}>
         <form
@@ -413,16 +412,4 @@ function initials(name: string | null | undefined): string {
     .slice(0, 2)
     .map((w) => w[0].toUpperCase())
     .join("")
-}
-
-function BackLink() {
-  return (
-    <Link
-      href="/employees"
-      className="inline-flex w-fit items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <ArrowLeft className="size-3.5" />
-      Volver a Equipo
-    </Link>
-  )
 }

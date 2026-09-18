@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Plus, Receipt, ArrowLeft } from "lucide-react"
+import { Plus, Receipt } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ import {
 import { formatMoney } from "@/lib/format"
 import { SaleType } from "@/lib/domain/sale-type"
 import { EmptyState } from "@/components/empty-state"
+import { BackLink } from "@/components/page/back-link"
 
 /**
  * Reporte de compras y gastos — espejo del listado de `panel/a_purchase.php`,
@@ -197,7 +198,7 @@ export default function PurchasesReportPage() {
     <div className="flex flex-col gap-4">
       <header className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
-          <BackLink />
+          <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Compras y gastos</h1>
           <p className="text-sm text-muted-foreground">
             Historial de facturas de compra a proveedores
@@ -242,21 +243,6 @@ export default function PurchasesReportPage() {
   )
 }
 
-function BackLink() {
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
-    >
-      <Link href="/reports">
-        <ArrowLeft className="size-3.5" />
-        Volver a reportes
-      </Link>
-    </Button>
-  )
-}
 
 function formatDate(s: string): string {
   try {
