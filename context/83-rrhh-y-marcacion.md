@@ -326,3 +326,55 @@ rápido, sin pensar. Una inferencia equivocada (quedó una salida sin marcar) se
 corrige en la revisión del panel, no en el reloj. El código numérico queda como
 respaldo DISCRETO (acción secundaria), no como teclado protagonista. La cámara
 queda viva TODO el día — que se congele entre marcaciones es bug, no estado.
+
+### §9.6 Cómo quedó implementado el rediseño (2026-09-18)
+
+**La cámara tiene dueño: `hooks/use-camera-stream.ts`.** El congelamiento no
+era un `play()` faltante sino el ciclo de vida del stream, y tenía TRES causas
+que se pisaban entre sí, las tres por pedirlo en un `useEffect(..., [])` y
+enchufarlo a `videoRef.current` una sola vez:
+
+1. **El `<video>` se desmontaba y volvía.** La pantalla tenía estados que eran
+   OTRA pantalla (sin pareo, sin nadie cargado, nadie identificable): al volver,
+   el elemento era nuevo y vacío, y el efecto no se re-ejecutaba porque sus
+   dependencias no habían cambiado. En el arranque era peor — mientras el pareo
+   resolvía no había `<video>` montado y el stream se enchufaba a `null`.
+2. **El browser pausaba el elemento** (tablet que apaga la pantalla, pestaña al
+   fondo, iOS suspendiendo) y nadie volvía a llamar `play()`. Eso es exactamente
+   lo que se ve como "video congelado" y no como pantalla negra.
+3. **La pista moría** (otra app se lleva la cámara, el SO la suspende) y no
+   vuelve sola: hay que volver a pedir `getUserMedia`.
+
+El arreglo: el hook es dueño del stream, lo re-enchufa con un **ref de
+callback** cada vez que aparece un `<video>` (mata la 1), y un **vigía** cada 2 s
+compara `currentTime` — si no avanzó re-enchufa, y si sigue quieto vuelve a
+pedir la cámara (mata la 2 y la 3), con reintento también por
+`visibilitychange`. Permiso denegado y "no hay cámara" NO se reintentan: esperar
+no los arregla. **Corolario de diseño, no detalle**: los estados "no se puede
+marcar" se dicen ENCIMA del video, nunca cambiando de pantalla — una pantalla
+distinta desmonta el `<video>` y es el camino 1 otra vez.
+
+**Anti-doble-marcación: `lib/clock/session-marks.ts`.** Sin el toque de
+confirmación, quien acaba de fichar y se queda parado ahí sería reconocido de
+nuevo. La misma persona dentro de **60 segundos** no genera otra marcación: se
+le repite el saludo que ya se le dio (el silencio la haría insistir). Un minuto
+y no cinco porque nadie entra y sale del trabajo en sesenta segundos, pero el
+que se equivocó sí quiere poder corregir sin esperar parado frente a la tablet.
+La ventana vive en memoria y no se persiste: dura menos que una recarga.
+
+El MISMO registro arregla un bug de la inferencia que el flujo automático
+destapa: con red, `lastKnownMark()` solo conocía la última marcación del
+SERVIDOR, y el roster no se refresca en el instante en que alguien ficha — dos
+marcaciones seguidas de la misma persona salían las dos como entrada. Ahora lo
+que este aparato acaba de marcar pesa igual que el dato del servidor y que la
+cola offline.
+
+**Lo demás de la pantalla**: tema oscuro fijo sin selector (es una cámara en
+vivo; en claro el marco pelea con la imagen), saludo de 4 s, el código detrás de
+"Usar código" —con el teclado físico abriéndolo al tipear el primer dígito—, y
+el fallo de registro contado en la pantalla y no en un toast, porque quien marca
+está a un metro y no mira una esquina. El `FullscreenToggle` que usaba era el
+del POS (togglea el ancho del módulo contra el carrito, en un store que una
+pantalla pareada no tiene): se extrajo
+`components/screens/screen-fullscreen-toggle.tsx`, compartido con la pantalla de
+cliente, que tenía la misma lógica inline con un `<svg>` a mano.

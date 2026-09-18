@@ -1,85 +1,65 @@
 "use client"
 
 /**
- * El RELOJ DE MARCACIÓN (context/83 §9.2).
+ * El RELOJ DE MARCACIÓN (context/83 §9.2 y §9.5).
  *
- * La persona se para frente a la tablet colgada en la entrada, la cámara la
- * reconoce —o tipea su código— y confirma entrada o salida. Se acabó.
+ * La persona se para frente a la tablet colgada en la entrada. La cámara la
+ * reconoce, el sistema deduce solo si entra o sale, lo registra y la saluda por
+ * su nombre. No hay nada que tocar.
  *
- * ── Es un dispositivo, no una pantalla del POS ─────────────────────────────
+ * ── La cámara ES la pantalla (§9.5) ────────────────────────────────────────
  *
- * Hasta el 2026-09-18 esto vivía en `/pos/marcacion`, como una sección más del
- * menú de la caja. El owner lo corrigió: "en las empresas los lectores de
- * huella no están en el POS — ahí solo opera el cajero". Se parea como un
- * aparato propio (`device.module = 'clock'`), arranca acá y no hace nada más.
+ * Hasta el rediseño esto era un teclado numérico con un circulito de cámara al
+ * costado: la pantalla pedía un código y ofrecía el rostro como adorno. El owner
+ * lo dio vuelta. Ahora el video ocupa todo, el estado se pinta ENCIMA (nunca al
+ * lado, nunca empujando) y el código numérico es una acción secundaria para
+ * quien no tiene el rostro registrado.
  *
- * Lo que eso cambia de verdad: el roster del personal y sus rostros ya no bajan
- * a todas las cajas del comercio. Bajan a este aparato y a ninguno más.
+ * ── Automático de punta a punta, y eso prohíbe cosas ──────────────────────
  *
- * ── Sin sesión de operador, a propósito ────────────────────────────────────
+ * Nadie elige entrada o salida: se infiere de la última marcación conocida
+ * (`attendance-kind.ts` + `session-marks.ts`). Nadie confirma nada: el
+ * reconocimiento registra. Y no se le dice a la persona que se la reconoció —se
+ * la saluda, que es lo que un humano haría en la puerta.
+ *
+ * Una inferencia equivocada (quedó una salida sin marcar ayer) se corrige en la
+ * revisión del panel. Preguntarle al que llega sería trasladarle a él un
+ * problema que no puede resolver parado en la puerta con el abrigo puesto.
+ *
+ * ── La misma persona no marca dos veces ───────────────────────────────────
+ *
+ * Quien acaba de fichar sigue parada ahí y la cámara la vuelve a ver. Dentro de
+ * la ventana de repetición no se registra nada y se le repite el saludo — el
+ * porqué completo, en `lib/clock/session-marks.ts`.
+ *
+ * ── Sin sesión de operador, a propósito ───────────────────────────────────
  *
  * El reloj no le pregunta nada a nadie antes de dejar marcar. Es del COMERCIO y
  * atiende a gente que en su mayoría no opera el sistema (cocina, limpieza):
  * pedir el PIN de un operador para que un cocinero fiche sería hacer que otra
  * persona lo habilite a trabajar.
  *
- * Quién marcó lo dice su rostro o su código y, sobre todo, la foto.
+ * ── Offline-nativo y fail-open (D4, D7) ───────────────────────────────────
  *
- * ── Offline-nativo de punta a punta (D7) ───────────────────────────────────
+ * El código se valida contra los hashes que bajaron con el roster, la marcación
+ * y su foto se encolan y suben solas. La foto se intenta SIEMPRE y no bloquea
+ * nunca: sin cámara, con el permiso denegado o con la captura fallada, la
+ * marcación entra igual y queda flageada para que el dueño la revise.
  *
- * El código se valida LOCALMENTE contra los hashes que bajaron con el roster —
- * exactamente como el lock screen valida el del operador. La marcación y su
- * foto se encolan y suben solas. Nada de esta pantalla necesita conexión, y eso
- * no es una optimización: un comercio sin internet sigue teniendo gente que
- * entra y sale.
+ * ── Posiciones estables (§10 de context/14) ───────────────────────────────
  *
- * ── Fail-open: la foto NUNCA bloquea (D4) ──────────────────────────────────
- *
- * Se intenta SIEMPRE. Sin cámara, con el permiso denegado o con la captura
- * fallada, la marcación entra igual y queda flageada para que el dueño la
- * revise. Dejar a alguien que sí fue a trabajar sin poder registrarlo es un
- * daño concreto; el fraude se ataca con la evidencia y la revisión.
- *
- * ── El rostro es un ATAJO, nunca un portón (F2, D4) ────────────────────────
- *
- * Con la cara registrada, la persona se para enfrente, parpadea y confirma. Sin
- * ella —modelo que no cargó, contraluz, nadie enrolado, una tablet sin cámara—
- * la pantalla es EXACTAMENTE la de la F1: el teclado, el código, la foto. No hay
- * un solo camino en el que el reconocimiento impida marcar; lo único que hace es
- * ahorrar cuatro dígitos cuando funciona.
- *
- * Por eso el teclado está siempre, en el mismo lugar, con o sin reconocimiento
- * (§10 de context/14): la persona que marca todos los días no tiene que
- * averiguar en qué modo está la pantalla hoy.
- *
- * Y si alguien se paró frente a la cámara, no se lo reconoció, y terminó
- * marcando con un código: la marcación entra y queda para revisar. Ese caso —el
- * código de otro— es justo el que el modelo viejo, con el QR y el celular
- * propio, no dejaba ver.
- *
- * ── Reglas del POS que gobiernan el layout ─────────────────────────────────
- *
- * - Posiciones estables (§10 de context/14): el teclado, los cuatro círculos
- *   del PIN y la franja de estado existen SIEMPRE, en las mismas coordenadas.
- *   Nada aparece empujando al resto — la persona que marca todos los días tiene
- *   memoria muscular de dónde tocar.
- * - El impedimento se dice en el CONTROL que impide (botón deshabilitado +
- *   motivo), nunca en una banda. El estado de la cámara NO es un impedimento
- *   —no bloquea nada— así que va en un indicador único del encabezado que
- *   existe siempre y solo cambia de texto.
- * - Touch-first: los dígitos son objetivos grandes, y el teclado físico
- *   funciona igual para el comercio que tiene la tablet con teclado.
+ * Los tres controles del reloj —código, pantalla completa y, cuando el panel lo
+ * habilita, el registro de rostro— viven siempre en las mismas coordenadas. El
+ * bloque central cambia de contenido (hora, saludo, aviso) pero no de lugar, y
+ * el anillo de estado se pinta sobre el borde que ya existe.
  */
 
 import * as React from "react"
-import { Camera, CameraOff, Check, Delete, LogIn, LogOut, ScanFace, UserCheck } from "lucide-react"
+import { CameraOff, KeyRound, ScanFace, UserCheck } from "lucide-react"
 import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { EmptyState } from "@/components/empty-state"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
+import { ScreenFullscreenToggle } from "@/components/screens/screen-fullscreen-toggle"
 import { FaceEnrollment } from "@/components/pos/face-enrollment"
 import { cn } from "@/lib/utils"
 
@@ -87,14 +67,15 @@ import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { usePairedScreen } from "@/hooks/use-paired-screen"
 import { usePendingOpsSync } from "@/hooks/use-pending-ops-sync"
 import { useClockRoster } from "@/hooks/use-clock-roster"
-import { sha256Hex } from "@/lib/pos/pin-hash"
-import { captureJpeg, describeCameraError, type NoPhotoReason } from "@/lib/pos/attendance-photo"
+import { useCameraStream } from "@/hooks/use-camera-stream"
+import { captureJpeg, type NoPhotoReason } from "@/lib/pos/attendance-photo"
 import {
   lastKnownMark,
   proposedKind,
   type AttendanceKind,
   type QueuedMark,
 } from "@/lib/pos/attendance-kind"
+import { findRecentMark, rememberMark, type SessionMark } from "@/lib/clock/session-marks"
 import { peekOpsByStream } from "@/lib/pos/pending-ops"
 import type { AttendanceMarkPayload } from "@/lib/pos/local-register-state"
 import { useSubmitAttendanceMark } from "@/hooks/use-attendance-mark"
@@ -102,10 +83,26 @@ import { useAttendanceFaces, useEnrollFace } from "@/hooks/use-attendance-faces"
 import { resolveFaceOutcome, useFaceRecognition } from "@/hooks/use-face-recognition"
 import type { ClockEmployee } from "@/lib/types/clock"
 
-const PIN_LENGTH = 4
+import { CodeDialog } from "./code-dialog"
 
-/** Estado de la cámara. `null` = todavía se está pidiendo el permiso. */
-type CameraState = { ok: true } | { ok: false; reason: NoPhotoReason; message: string } | null
+/**
+ * Cuánto queda el saludo en pantalla.
+ *
+ * Lo suficiente para leerlo caminando, y no tanto como para que el que viene
+ * atrás tenga que esperar a que se vaya el nombre del anterior.
+ */
+const GREETING_MS = 4000
+
+/** Lo que muestra el bloque central. */
+type Phase =
+  /** Esperando a la próxima persona. */
+  | { kind: "idle" }
+  /** Sacando la foto y registrando. */
+  | { kind: "marking" }
+  /** Saludo. El mismo para la primera marcación y para la repetida. */
+  | { kind: "greeting"; name: string; type: AttendanceKind }
+  /** No se pudo registrar y la persona tiene que volver a intentar. */
+  | { kind: "error" }
 
 export default function MarcacionPage() {
   // El contexto del device: sucursal, nombre del comercio, revocación y
@@ -131,27 +128,23 @@ export default function MarcacionPage() {
   const employees = React.useMemo(() => roster.data?.employees ?? [], [roster.data])
   const submit = useSubmitAttendanceMark()
 
-  const [pin, setPin] = React.useState("")
-  const [error, setError] = React.useState(false)
-  /**
-   * La persona identificada, esperando confirmar entrada o salida.
-   *
-   * `via` dice CÓMO se la identificó. No cambia lo que se ve —los dos botones
-   * son los mismos— pero sí lo que se informa al registrar la marcación.
-   */
-  const [matched, setMatched] = React.useState<{
-    employee: ClockEmployee
-    proposed: AttendanceKind
-    via: "pin" | "face"
-  } | null>(null)
+  // La cámara vive en su propio hook porque este aparato la deja abierta todo
+  // el día y eso rompe de maneras que una pantalla no puede arreglar sola (el
+  // docblock de `use-camera-stream.ts` tiene los tres casos).
+  const { state: cameraState, attach: attachCamera, videoRef } = useCameraStream()
+  const cameraOk = cameraState?.ok === true
 
-  const videoRef = React.useRef<HTMLVideoElement | null>(null)
-  const [camera, setCamera] = React.useState<CameraState>(null)
+  const [phase, setPhase] = React.useState<Phase>({ kind: "idle" })
+  const [codeOpen, setCodeOpen] = React.useState(false)
+  const [codeSeed, setCodeSeed] = React.useState<string | undefined>(undefined)
+
+  /** Lo que este reloj marcó en esta sesión. Ver `lib/clock/session-marks.ts`. */
+  const [sessionMarks, setSessionMarks] = React.useState<SessionMark[]>([])
 
   /**
    * Marcaciones que este dispositivo ya hizo y todavía no envió. Se leen al
-   * montar y después de cada marcación: es lo que permite proponer bien el
-   * tipo sin red (ver `lib/pos/attendance-kind.ts`).
+   * montar y después de cada marcación: es lo que permite inferir bien el tipo
+   * sin red (ver `lib/pos/attendance-kind.ts`).
    */
   const [queued, setQueued] = React.useState<QueuedMark[]>([])
   const refreshQueued = React.useCallback(async () => {
@@ -164,61 +157,25 @@ export default function MarcacionPage() {
         }),
       )
     } catch {
-      // Sin la cola local la sugerencia sale del dato del servidor, que es
-      // peor pero sirve. No es motivo para romper la pantalla.
+      // Sin la cola local la inferencia sale del dato del servidor, que es peor
+      // pero sirve. No es motivo para romper la pantalla.
     }
   }, [])
   React.useEffect(() => {
     void refreshQueued()
   }, [refreshQueued])
 
-  // ── Cámara ────────────────────────────────────────────────────────────────
+  // ── La hora ───────────────────────────────────────────────────────────────
   //
-  // El stream se abre UNA vez, al entrar, y vive mientras la pantalla esté
-  // montada. Pedirlo en cada marcación agregaría el prompt de permiso y un
-  // segundo de arranque justo en el momento en que la persona ya apuntó a la
-  // cámara — y en un quiosco ese segundo se paga cincuenta veces por día.
+  // Del aparato, con el formato del aparato: es el mismo reloj con el que se
+  // sella cada marcación, y está colgado en el local. Arranca en `null` y se
+  // resuelve en un efecto — pintar una hora en el render del servidor es un
+  // mismatch de hidratación garantizado.
+  const [now, setNow] = React.useState<Date | null>(null)
   React.useEffect(() => {
-    let stream: MediaStream | null = null
-    let cancelled = false
-
-    async function open() {
-      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        setCamera({
-          ok: false,
-          reason: "no_camera",
-          message: "Este dispositivo no tiene cámara. Se puede marcar igual.",
-        })
-        return
-      }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          // Cámara frontal: la persona mira la pantalla mientras marca.
-          video: { facingMode: "user", width: { ideal: 640 } },
-          audio: false,
-        })
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop())
-          return
-        }
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          await videoRef.current.play().catch(() => undefined)
-        }
-        setCamera({ ok: true })
-      } catch (err) {
-        if (!cancelled) setCamera({ ok: false, ...describeCameraError(err) })
-      }
-    }
-
-    void open()
-    return () => {
-      cancelled = true
-      // Soltar el stream al salir NO es opcional: sin esto la luz de la cámara
-      // queda prendida con la pantalla cerrada, que para quien mira la tablet
-      // es un aparato filmando el local.
-      stream?.getTracks().forEach((t) => t.stop())
-    }
+    setNow(new Date())
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
   }, [])
 
   // ── Reconocimiento facial (F2) ────────────────────────────────────────────
@@ -228,16 +185,15 @@ export default function MarcacionPage() {
   // del caché local, así que reconocer sigue andando igual.
   // Solo se piden cuando hay cámara: sin ella no hay nada que comparar, y pedir
   // vectores faciales que nadie va a usar es exponer biometría sin motivo.
-  const faces = useAttendanceFaces(outletId, camera?.ok === true && pairState === "ready")
+  const faces = useAttendanceFaces(outletId, cameraOk && pairState === "ready")
   const enrollFace = useEnrollFace(outletId)
 
   /**
-   * Un registro que este quiosco decidió no atender ahora.
+   * Un registro que este reloj decidió no atender ahora.
    *
-   * El quiosco NO puede cancelar la habilitación —la abrió el panel y solo el
+   * El reloj NO puede cancelar la habilitación —la abrió el panel y solo el
    * panel la cierra— así que "Ahora no" la aparta de ESTA pantalla y nada más.
-   * Vence sola en unos minutos. Fingir que la cancela sería mentirle a quien la
-   * abrió, que seguiría viendo "esperando al quiosco" en la ficha.
+   * Vence sola en unos minutos.
    */
   const [dismissedEnrollment, setDismissedEnrollment] = React.useState<string | null>(null)
   const openEnrollment = faces.data?.enrollment ?? null
@@ -245,26 +201,11 @@ export default function MarcacionPage() {
     openEnrollment && openEnrollment.employeeId !== dismissedEnrollment ? openEnrollment : null
 
   /**
-   * Alguien quedó identificado por la cara.
-   *
-   * Se busca en el roster que ya bajó en el bootstrap —el mismo del código— y no
-   * en otra lista: el rostro aporta el ID, todo lo demás (nombre, puesto, última
-   * marcación) sale de donde salía antes. Si esa persona no está en el roster
-   * (se le borró el código, cambió de sucursal) no se propone nada: el
-   * reconocimiento nunca puede habilitar a alguien que la pantalla no habilitaría
-   * igual por código.
+   * El reconocimiento avisa por una ref y no por el callback directo: el bucle
+   * se arma una sola vez y `markNow` necesita leer el roster y las marcaciones
+   * de esta sesión, que cambian todo el tiempo.
    */
-  const identifyByFace = React.useCallback(
-    (employeeId: string) => {
-      const found = employees.find((e) => e.id === employeeId)
-      if (!found) return
-      const last = lastKnownMark(found.lastKind, found.lastMarkedAt, queued, found.id)
-      setPin("")
-      setError(false)
-      setMatched({ employee: found, proposed: proposedKind(last), via: "face" })
-    },
-    [employees, queued],
-  )
+  const identifyRef = React.useRef<(employeeId: string) => void>(() => {})
 
   const face = useFaceRecognition({
     videoRef,
@@ -275,142 +216,133 @@ export default function MarcacionPage() {
     // La excepción es el REGISTRO: el primero de un comercio ocurre justamente
     // cuando la lista está vacía, y sin esta condición el modelo nunca cargaría
     // y el botón de capturar quedaría deshabilitado para siempre.
-    enabled:
-      camera?.ok === true &&
-      ((faces.data?.faces.length ?? 0) > 0 || pendingEnrollment !== null),
-    // Con la confirmación abierta o en pleno registro de un rostro, el bucle se
-    // detiene: seguir proponiendo nombres mientras la persona decide sería
-    // pisarle la pantalla debajo del dedo.
-    paused: matched !== null || pendingEnrollment !== null,
-    onIdentified: identifyByFace,
+    enabled: cameraOk && ((faces.data?.faces.length ?? 0) > 0 || pendingEnrollment !== null),
+    // El bucle se detiene mientras se registra una marcación, mientras dura el
+    // saludo, con el teclado abierto y durante el registro de un rostro: en
+    // todos esos momentos la pantalla ya está ocupada con una persona.
+    paused: phase.kind !== "idle" || codeOpen || pendingEnrollment !== null,
+    onIdentified: (employeeId) => identifyRef.current(employeeId),
   })
 
-  // ── Identificación por PIN ────────────────────────────────────────────────
+  // ── Registrar una marcación ───────────────────────────────────────────────
   //
-  // Local y sin red, contra los hashes del snapshot. Mismo mecanismo que el
-  // lock screen (`lib/pos/pin-hash.ts`).
-  React.useEffect(() => {
-    if (pin.length !== PIN_LENGTH) return
-    let cancelled = false
+  // Es el ÚNICO camino: lo llaman el reconocimiento y el teclado por igual, y
+  // ninguno de los dos elige el tipo ni pide confirmación.
+  const busyRef = React.useRef(false)
 
-    const timer = setTimeout(async () => {
-      const hash = await sha256Hex(pin)
-      if (cancelled) return
+  const markNow = React.useCallback(
+    async (employee: ClockEmployee, via: "pin" | "face") => {
+      if (busyRef.current) return
+      busyRef.current = true
 
-      // `pinHash` nulo = esa persona se identifica por el rostro y no tiene
-      // código (§9.3). Se saltea en vez de compararse: sin esta guarda, un
-      // `undefined === hash` nunca matchea pero tampoco se lee como intencional.
-      const found = employees.find((e) => e.pinHash !== null && e.pinHash === hash) ?? null
-      if (!found) {
-        setError(true)
-        setPin("")
-        return
+      try {
+        // Marcó recién: no se registra de nuevo y se le repite el saludo que ya
+        // se le dio. Ver `session-marks.ts`.
+        const recent = findRecentMark(sessionMarks, employee.id, Date.now())
+        if (recent) {
+          setPhase({ kind: "greeting", name: recent.name, type: recent.kind })
+          return
+        }
+
+        const markedAt = new Date().toISOString()
+        // Lo que este aparato acaba de marcar pesa igual que lo que vino del
+        // servidor: con red el roster no se refresca en el instante en que
+        // alguien ficha.
+        const last = lastKnownMark(
+          employee.lastKind,
+          employee.lastMarkedAt,
+          [...queued, ...sessionMarks],
+          employee.id,
+        )
+        const kind = proposedKind(last)
+
+        setPhase({ kind: "marking" })
+
+        // La foto es la evidencia de ESTA marcación, así que se saca ahora.
+        const photo = cameraOk ? await captureJpeg(videoRef.current) : null
+        const noPhotoReason: NoPhotoReason | null = photo
+          ? null
+          : cameraState?.ok === false
+            ? cameraState.reason
+            : "photo_failed"
+
+        // Qué vio la cámara. Depende de quién terminó marcando: la misma cara
+        // vista hace un rato significa cosas distintas según el código que se
+        // haya tipeado. Ver `resolveFaceOutcome()`.
+        const faceOutcome = resolveFaceOutcome(via, face.lastSighting.current, employee.id)
+
+        await submit.mutateAsync({
+          employeeId: employee.id,
+          employeeName: employee.name,
+          pinHash: via === "pin" ? employee.pinHash : null,
+          kind,
+          // La hora del DISPOSITIVO, en el momento de marcar. Nunca la del
+          // envío: esta marcación puede sincronizar mañana.
+          markedAt,
+          method: via,
+          photoPending: photo !== null,
+          noPhotoReason,
+          faceOutcome,
+          photo,
+          // El reloj no tiene caja, y la marcación no pertenece a ninguna: lo
+          // que la ubica es la sucursal del device. La cola sabe no cercar por
+          // caja una operación sin caja (ver `pending-ops-sync.ts`).
+          registerId: "",
+        })
+
+        setSessionMarks((prev) =>
+          rememberMark(prev, { employeeId: employee.id, name: employee.name, kind, markedAt }),
+        )
+        setPhase({ kind: "greeting", name: employee.name, type: kind })
+        void refreshQueued()
+      } catch {
+        // El fallo se cuenta en la pantalla y no en un toast: quien marca está a
+        // un metro de la tablet y no mira una esquina. El motivo no se muestra
+        // (§Regla 8) — no hay nada que esa persona pueda hacer con él.
+        setPhase({ kind: "error" })
+      } finally {
+        // Se olvida lo visto: el parpadeo de quien acaba de marcar no puede
+        // acreditar a la persona que venga después.
+        face.reset()
+        busyRef.current = false
       }
-      const last = lastKnownMark(found.lastKind, found.lastMarkedAt, queued, found.id)
-      setError(false)
-      setPin("")
-      setMatched({ employee: found, proposed: proposedKind(last), via: "pin" })
-    }, 80)
+    },
+    [sessionMarks, queued, cameraOk, cameraState, videoRef, face, submit, refreshQueued],
+  )
 
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [pin, employees, queued])
-
-  // Teclado físico: el comercio que tiene la tablet con teclado marca sin tocar
-  // la pantalla. No reemplaza al teclado en pantalla, lo acompaña.
   React.useEffect(() => {
-    if (matched) return
+    identifyRef.current = (employeeId: string) => {
+      // El rostro aporta el ID; todo lo demás sale del roster que ya bajó. Si
+      // esa persona no está (se le borró el código, cambió de sucursal) no pasa
+      // nada: el reconocimiento nunca habilita a alguien que la pantalla no
+      // habilitaría igual por código.
+      const found = employees.find((e) => e.id === employeeId)
+      if (found) void markNow(found, "face")
+    }
+  })
+
+  // El saludo (y el aviso de error) se van solos: nadie toca esta pantalla.
+  React.useEffect(() => {
+    if (phase.kind !== "greeting" && phase.kind !== "error") return
+    const t = setTimeout(() => setPhase({ kind: "idle" }), GREETING_MS)
+    return () => clearTimeout(t)
+  }, [phase])
+
+  // Teclado físico: tipear un dígito abre el teclado en pantalla con ese dígito
+  // puesto. Así el comercio que tiene la tablet con teclado sigue marcando sin
+  // tocar nada, sin que el código ocupe la pantalla.
+  React.useEffect(() => {
+    if (codeOpen || pendingEnrollment) return
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
-      if (e.key === "Backspace") {
-        e.preventDefault()
-        setError(false)
-        setPin((prev) => prev.slice(0, -1))
-        return
-      }
-      if (/^[0-9]$/.test(e.key)) {
-        e.preventDefault()
-        setError(false)
-        setPin((prev) => (prev.length >= PIN_LENGTH ? prev : prev + e.key))
-      }
+      if (!/^[0-9]$/.test(e.key)) return
+      e.preventDefault()
+      setCodeSeed(e.key)
+      setCodeOpen(true)
     }
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
-  }, [matched])
-
-  function pressDigit(digit: string) {
-    setError(false)
-    setPin((prev) => (prev.length >= PIN_LENGTH ? prev : prev + digit))
-  }
-
-  async function confirmMark(kind: AttendanceKind) {
-    if (!matched) return
-    const employee = matched.employee
-
-    // La foto se saca ACÁ, al confirmar, y no al identificar: es la evidencia
-    // de la marcación, así que tiene que ser del momento en que la persona la
-    // hizo — no de treinta segundos antes, cuando solo había tipeado un código.
-    const photo = camera?.ok ? await captureJpeg(videoRef.current) : null
-    const noPhotoReason: NoPhotoReason | null = photo
-      ? null
-      : camera?.ok === false
-        ? camera.reason
-        : "photo_failed"
-
-    // Qué vio la cámara. Se resuelve ACÁ, al confirmar, porque depende de quién
-    // terminó marcando: la misma cara vista treinta segundos antes significa
-    // cosas distintas según el código que se haya tipeado. Ver
-    // `resolveFaceOutcome()`.
-    const method = matched.via
-    const faceOutcome = resolveFaceOutcome(method, face.lastSighting.current, employee.id)
-
-    try {
-      const result = await submit.mutateAsync({
-        employeeId: employee.id,
-        employeeName: employee.name,
-        pinHash: matched.via === "pin" ? employee.pinHash : null,
-        kind,
-        // La hora del DISPOSITIVO, en el momento de marcar. Nunca la del envío:
-        // esta marcación puede sincronizar mañana.
-        markedAt: new Date().toISOString(),
-        method,
-        photoPending: photo !== null,
-        noPhotoReason,
-        faceOutcome,
-        photo,
-        // El reloj no tiene caja, y la marcación no pertenece a ninguna: lo que
-        // la ubica es la sucursal del device. La cola sabe no cercar por caja
-        // una operación sin caja (ver `pending-ops-sync.ts`).
-        registerId: "",
-      })
-
-      const verb = kind === "in" ? "Entrada" : "Salida"
-      if (result.queued) {
-        toast.success(`${verb} registrada — ${employee.name}`, {
-          // El owner pidió que el reloj no hable de internet ni de conexión: a
-          // quien acaba de fichar no le sirve saber por qué, le sirve saber que
-          // quedó registrado y que no tiene que hacer nada más.
-          description: "Queda registrada. Se envía sola.",
-        })
-      } else if (result.needsReview || !photo) {
-        toast.success(`${verb} registrada — ${employee.name}`, {
-          description: "Quedó guardada para que la revise el encargado.",
-        })
-      } else {
-        toast.success(`${verb} registrada — ${employee.name}`)
-      }
-
-      setMatched(null)
-      // Se olvida lo visto: el parpadeo de quien acaba de marcar no puede
-      // acreditar a la persona que venga después.
-      face.reset()
-      void refreshQueued()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo registrar la marcación")
-    }
-  }
+  }, [codeOpen, pendingEnrollment])
 
   /** Guarda el rostro capturado y avisa. No se encola: ver `useEnrollFace`. */
   async function submitEnrollment(samples: number[][], photo: Blob | null) {
@@ -423,300 +355,224 @@ export default function MarcacionPage() {
     }
   }
 
-  // ── Estados en los que no hay marcación posible ────────────────────────────
-  //
-  // Se resuelven ANTES del layout: son pantallas distintas, no un layout con
-  // partes apagadas.
-
   // Sin pareo no hay reloj. La pantalla de vinculación es la misma que usan el
   // KDS y las demás pantallas del comercio.
   if (pairState !== "ready") {
     return <DeviceNotConnected kind="clock" reason="unpaired" />
   }
 
-  // Nadie cargado en la sucursal. El legajo se carga en el panel; acá solo se
-  // dice dónde, en una línea.
-  if (employees.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          icon={UserCheck}
-          title="Todavía nadie puede marcar"
-          description="Cargá al personal de esta sucursal desde Empleados, en el panel."
-        />
-      </div>
-    )
-  }
-
-  // Hay gente cargada pero nadie se puede identificar: ni rostro ni código.
-  // Desde el §9.3 el código es OPCIONAL, así que este estado es real y tiene
-  // una salida concreta — registrar el rostro desde la ficha.
-  if (employees.every((e) => e.pinHash === null) && (faces.data?.faces.length ?? 0) === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          icon={ScanFace}
-          title="Todavía nadie se puede identificar"
-          description="Registrá el rostro de cada persona desde su ficha, en Empleados."
-        />
-      </div>
-    )
-  }
-
-  const cameraBadge: { label: string; reason: string } = camera === null
-    ? { label: "Preparando cámara", reason: "Estamos activando la cámara del dispositivo." }
-    : camera.ok
-      ? {
-          label: "Cámara lista",
-          reason:
-            face.status === "ready"
-              ? "Te reconoce por tu rostro, y se guarda una foto al marcar."
-              : "Se guarda una foto en el momento de marcar.",
-        }
-      : { label: "Sin cámara", reason: `${camera.message} La marcación queda para revisar.` }
+  // ── Qué dice el bloque central cuando no hay nadie marcando ───────────────
+  //
+  // Los estados "no se puede marcar" NO son otra pantalla: se dicen sobre la
+  // misma, encima del video. Cambiar de pantalla desmontaría el `<video>`, que
+  // es justo el camino por el que la cámara se quedaba congelada.
+  const nobodyLoaded = employees.length === 0
+  const nobodyIdentifiable =
+    !nobodyLoaded &&
+    employees.every((e) => e.pinHash === null) &&
+    (faces.data?.faces.length ?? 0) === 0
+  const canMark = !nobodyLoaded && !nobodyIdentifiable
+  const hasCode = employees.some((e) => e.pinHash !== null)
 
   /**
-   * La línea de ayuda del reconocimiento.
+   * La línea de estado bajo el bloque central.
    *
-   * Existe SIEMPRE con la misma altura, aunque esté vacía (§10 de context/14):
-   * un renglón que aparece y desaparece movería el teclado varios pixeles según
-   * si en ese instante hay una cara delante de la cámara, y el teclado es lo que
-   * la persona busca con el dedo sin mirar.
-   *
-   * Vacía cuando no hay nada que decir — sin cámara, sin nadie registrado, con
-   * el modelo que no cargó. En todos esos casos la pantalla es la de la F1 y no
-   * hace falta explicar por qué: se marca con el código, como siempre.
+   * Existe SIEMPRE con la misma altura, aunque esté vacía (§10 de context/14).
    */
-  const faceHint =
-    matched !== null
-      ? ""
-      : face.status === "loading"
-        ? "Preparando el reconocimiento"
+  const hint = !canMark
+    ? ""
+    : phase.kind === "marking"
+      ? "Un momento"
+      : phase.kind !== "idle"
+        ? ""
         : face.awaitingBlink
-          ? "Parpadeá para confirmar"
-          : face.status === "ready" && face.facePresent
-            ? "Mirá a la cámara"
-            : ""
+          ? "Parpadeá"
+          : face.status === "loading"
+            ? "Preparando la cámara"
+            : cameraOk && face.status === "ready"
+              ? "Mirá a la cámara"
+              : hasCode
+                ? "Marcá con tu código"
+                : ""
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-3 border-b p-4">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-2xl font-semibold">Marcación</h1>
-          {/* Altura constante: la línea existe siempre, diga lo que diga. */}
-          <p className="truncate text-sm text-muted-foreground">
-            {ctx?.outletName || "Sin sucursal"} · {employees.length} persona
-            {employees.length === 1 ? "" : "s"} habilitada
-            {employees.length === 1 ? "" : "s"}
-          </p>
+    // `dark` acá y no en el layout: el grupo `(screen)` fuerza claro y cada
+    // pantalla elige su tono (ver `lib/screens/theme.ts`). El reloj es siempre
+    // oscuro y no tiene selector — es una cámara en vivo a pantalla completa, y
+    // en claro el marco pelea con la imagen.
+    <div className="dark relative h-screen w-full overflow-hidden bg-background text-foreground">
+      {/* El video, siempre montado y siempre del tamaño de la pantalla.
+          `scale-x-[-1]`: espejado, como un espejo real — sin esto la persona se
+          mueve para el lado contrario al acomodarse. */}
+      <video
+        ref={attachCamera}
+        playsInline
+        muted
+        autoPlay
+        className={cn(
+          "absolute inset-0 size-full scale-x-[-1] object-cover",
+          !cameraOk && "invisible",
+        )}
+      />
+
+      {!cameraOk && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <CameraOff className="size-16 text-muted-foreground/40" />
         </div>
+      )}
 
-        {/* Indicador ÚNICO del estado de la cámara, SIEMPRE presente: no
-            aparece ni desaparece, solo cambia de texto. No va sobre el botón de
-            confirmar porque no es un impedimento —sin cámara se marca igual— y
-            el motivo va en el tooltip para que la línea no crezca. */}
-        <Tooltip>
-          {/* `span` envolvente: el trigger necesita una ref y `<Badge>` no la
-              reenvía. */}
-          <TooltipTrigger asChild>
-            <span className="shrink-0">
-              <Badge variant={camera?.ok ? "outline" : "secondary"}>
-                {camera?.ok ? (
-                  <Camera className="mr-1 size-3" />
-                ) : (
-                  <CameraOff className="mr-1 size-3" />
-                )}
-                {cameraBadge.label}
-              </Badge>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent>{cameraBadge.reason}</TooltipContent>
-        </Tooltip>
+      {/* Velo: el video crudo no deja leer nada encima. Más oscuro arriba y
+          abajo, que es donde vive el texto. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-background/85 via-background/45 to-background/90"
+      />
 
-        <FullscreenToggle />
+      {/* Anillo de estado. Existe siempre —transparente en reposo— y se pinta
+          SOBRE el borde de la pantalla: nada se desplaza cuando aparece una
+          cara (§10 de context/14). */}
+      <div
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute inset-0 ring-8 ring-inset transition-colors duration-300",
+          phase.kind === "greeting"
+            ? "ring-primary/70"
+            : phase.kind === "error"
+              ? "ring-destructive/70"
+              : phase.kind === "marking"
+                ? "ring-primary/40"
+                : face.facePresent
+                  ? "ring-foreground/25"
+                  : "ring-transparent",
+        )}
+      />
+
+      {/* ── Bloque central ──
+          Va ANTES del encabezado y el pie en el DOM: ocupa toda la pantalla,
+          así que si fuera después taparía sus controles. `pointer-events-none`
+          por el mismo motivo — lo único que se toca acá adentro es el registro
+          de rostro, que lo reactiva. */}
+      <main className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+        {pendingEnrollment ? (
+          // Registro de un rostro. Lo habilitó el panel para ESTA persona: la
+          // pantalla no elige a quién registra (ver `<FaceEnrollment>`).
+          <div className="pointer-events-auto w-full max-w-sm rounded-lg border bg-card/90 p-6 backdrop-blur-sm">
+            <FaceEnrollment
+              enrollment={pendingEnrollment}
+              videoRef={videoRef}
+              readOnce={face.readOnce}
+              ready={face.status === "ready"}
+              submitting={enrollFace.isPending}
+              onSubmit={submitEnrollment}
+              onCancel={() => setDismissedEnrollment(pendingEnrollment.employeeId)}
+            />
+          </div>
+        ) : phase.kind === "greeting" ? (
+          <>
+            <p className="text-3xl font-medium text-muted-foreground">
+              {phase.type === "in" ? "Bienvenido" : "Adiós"}
+            </p>
+            <p className="text-6xl font-semibold tracking-tight text-balance">{phase.name}</p>
+          </>
+        ) : phase.kind === "error" ? (
+          <p className="text-4xl font-semibold tracking-tight text-balance">
+            No se pudo registrar. Probá otra vez.
+          </p>
+        ) : nobodyLoaded ? (
+          <>
+            <UserCheck className="size-10 text-muted-foreground" />
+            <p className="text-3xl font-semibold tracking-tight">Todavía nadie puede marcar</p>
+            <p className="text-base text-muted-foreground text-balance">
+              Cargá al personal de esta sucursal para habilitar la marcación.
+            </p>
+          </>
+        ) : nobodyIdentifiable ? (
+          <>
+            <ScanFace className="size-10 text-muted-foreground" />
+            <p className="text-3xl font-semibold tracking-tight">
+              Todavía nadie se puede identificar
+            </p>
+            <p className="text-base text-muted-foreground text-balance">
+              Registrá el rostro o el código de cada persona.
+            </p>
+          </>
+        ) : (
+          <>
+            {/* La hora: lo único que ocupa el centro mientras no hay nadie. Que
+                avance a la vista también dice que la pantalla está viva. */}
+            <p className="text-8xl font-semibold tracking-tight tabular-nums">
+              {now ? now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : ""}
+            </p>
+            <p className="text-base text-muted-foreground first-letter:uppercase">
+              {now
+                ? now.toLocaleDateString(undefined, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                  })
+                : ""}
+            </p>
+          </>
+        )}
+
+        {/* Altura fija aunque esté vacía: un renglón que aparece y desaparece
+            movería todo el bloque según si hay una cara delante. */}
+        <p className="flex h-6 items-center gap-2 text-base text-muted-foreground">{hint}</p>
+      </main>
+
+      {/* ── Encabezado ── */}
+      <header className="absolute inset-x-0 top-0 flex items-start justify-between gap-4 p-6">
+        <div className="min-w-0">
+          <p className="truncate text-lg font-semibold">{ctx?.companyName}</p>
+          <p className="truncate text-sm text-muted-foreground">{ctx?.outletName}</p>
+          {/* Lo único que se dice de la cámara, y solo cuando falla: quien
+              instaló la tablet puede desbloquearla, y quien viene a marcar ya
+              tiene el código abajo. */}
+          {cameraState?.ok === false && (
+            <p className="truncate text-sm text-muted-foreground">{cameraState.message}</p>
+          )}
+        </div>
+        <ScreenFullscreenToggle className="shrink-0 opacity-60 hover:opacity-100" />
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-4">
-        {/* Visor de la cámara. Existe SIEMPRE, con o sin permiso: sin él, el
-            teclado saltaría 200px hacia arriba en los dispositivos sin cámara y
-            el mismo local tendría dos layouts distintos según la tablet. */}
-        <div className="relative size-40 shrink-0 overflow-hidden rounded-full border bg-muted">
-          <video
-            ref={videoRef}
-            playsInline
-            muted
-            // `scale-x-[-1]`: espejado, como un espejo real. Sin esto la persona
-            // se ve invertida y se mueve para el lado contrario al corregir su
-            // posición.
-            className={cn(
-              "size-full scale-x-[-1] object-cover",
-              !camera?.ok && "invisible",
-            )}
-          />
-          {!camera?.ok && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <CameraOff className="size-8 text-muted-foreground" />
-            </div>
-          )}
-          {/* Anillo de reconocimiento: se pinta SOBRE el visor que ya existe, no
-              se agrega un bloque al lado. La señal de estado va encima de un
-              elemento fijo (§10) — así nada se desplaza cuando aparece una cara. */}
-          {face.facePresent && !matched && (
-            <div
-              className={cn(
-                "pointer-events-none absolute inset-0 rounded-full ring-4 transition-colors",
-                face.awaitingBlink ? "ring-primary" : "ring-foreground/30",
-              )}
-            />
-          )}
-        </div>
-
-        {/* Altura fija aunque esté vacía: ver `faceHint`. */}
-        <p className="flex h-5 items-center gap-1.5 text-sm text-muted-foreground">
-          {faceHint && <ScanFace className="size-4" />}
-          {faceHint}
+      {/* ── Pie: el código, discreto ── */}
+      <footer className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 p-6">
+        {/* Existe siempre, con o sin texto: sin esto el botón del código se
+            correría de lugar según la cola. */}
+        <p className="min-h-9 text-sm text-muted-foreground">
+          {queued.length > 0
+            ? `${queued.length} marcación${queued.length === 1 ? "" : "es"} sin enviar`
+            : ""}
         </p>
-
-        {pendingEnrollment ? (
-          // ── Registro de un rostro ──
-          // Lo habilitó el panel para ESTA persona. La pantalla no elige a quién
-          // registra: ver el docblock de `<FaceEnrollment>`.
-          <FaceEnrollment
-            enrollment={pendingEnrollment}
-            videoRef={videoRef}
-            readOnce={face.readOnce}
-            ready={face.status === "ready"}
-            submitting={enrollFace.isPending}
-            onSubmit={submitEnrollment}
-            onCancel={() => setDismissedEnrollment(pendingEnrollment.employeeId)}
-          />
-        ) : matched ? (
-          // ── Confirmación ──
-          // La persona ya está identificada: lo único que queda es decir si
-          // entra o sale. Los dos botones son grandes y del mismo tamaño, con el
-          // propuesto enfatizado — no se esconde el otro, porque la sugerencia
-          // sale de un dato que puede estar viejo.
-          <div className="flex w-full max-w-sm flex-col items-center gap-5">
-            <div className="text-center">
-              <p className="text-2xl font-semibold">{matched.employee.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {matched.employee.jobTitle || "Sin puesto cargado"}
-              </p>
-            </div>
-
-            <div className="grid w-full grid-cols-2 gap-3">
-              <Button
-                size="lg"
-                variant={matched.proposed === "in" ? "default" : "outline"}
-                className="h-20 flex-col gap-1 text-base"
-                disabled={submit.isPending}
-                onClick={() => void confirmMark("in")}
-              >
-                <LogIn className="size-5" />
-                Entrada
-              </Button>
-              <Button
-                size="lg"
-                variant={matched.proposed === "out" ? "default" : "outline"}
-                className="h-20 flex-col gap-1 text-base"
-                disabled={submit.isPending}
-                onClick={() => void confirmMark("out")}
-              >
-                <LogOut className="size-5" />
-                Salida
-              </Button>
-            </div>
-
-            <Button
-              variant="ghost"
-              className="h-12 w-full"
-              disabled={submit.isPending}
-              onClick={() => {
-                setMatched(null)
-                // Se olvida lo visto: si no era esa persona, el parpadeo que se
-                // contó tampoco era suyo.
-                face.reset()
-              }}
-            >
-              No soy yo
-            </Button>
-          </div>
-        ) : (
-          // ── Identificación ──
-          <div className="flex w-full max-w-sm flex-col items-center gap-6">
-            {/* Cuatro círculos, igual que el lock screen: es el mismo gesto y
-                no hay razón para que se vea distinto. */}
-            <div className="flex items-center gap-8">
-              {Array.from({ length: PIN_LENGTH }).map((_, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    "block size-5 rounded-full border-2 transition-colors",
-                    i < pin.length
-                      ? "border-foreground bg-foreground"
-                      : "border-foreground/40 bg-transparent",
-                  )}
-                />
-              ))}
-            </div>
-
-            {/* Altura fija: el mensaje de error no puede empujar el teclado. */}
-            <p
-              className={cn(
-                "h-5 text-sm",
-                error ? "font-semibold text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {error ? "Ese código no es de nadie" : "Ingresá tu código"}
-            </p>
-
-            {/* Teclado en pantalla. Botones de 72px: se tocan con el dedo en una
-                tablet colgada de la pared (§2 habilita el override con razón
-                documentada). */}
-            <div className="grid w-full grid-cols-3 gap-3">
-              {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-                <Button
-                  key={d}
-                  variant="outline"
-                  className="h-[72px] text-2xl font-medium"
-                  onClick={() => pressDigit(d)}
-                >
-                  {d}
-                </Button>
-              ))}
-              {/* La celda vacía mantiene al 0 centrado y al borrar a la derecha,
-                  que es donde está en cualquier teclado numérico. */}
-              <span aria-hidden />
-              <Button
-                variant="outline"
-                className="h-[72px] text-2xl font-medium"
-                onClick={() => pressDigit("0")}
-              >
-                0
-              </Button>
-              <Button
-                variant="outline"
-                aria-label="Borrar"
-                className="h-[72px]"
-                onClick={() => {
-                  setError(false)
-                  setPin((prev) => prev.slice(0, -1))
-                }}
-              >
-                <Delete className="size-6" />
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Franja de estado: existe siempre y solo cambia de texto. */}
-      <footer className="flex shrink-0 items-center justify-center gap-2 border-t p-4 text-sm text-muted-foreground">
-        <Check className="size-4" />
-        {queued.length === 0
-          ? "Todas las marcaciones están enviadas"
-          : `${queued.length} marcación${queued.length === 1 ? "" : "es"} sin enviar`}
+        <Button
+          variant="outline"
+          // 56px: se toca con el dedo en una tablet colgada de la pared (§2 de
+          // context/14 habilita el override con razón documentada).
+          className="h-14 shrink-0 px-6 text-base"
+          // Sin nadie con código, el teclado no puede identificar a nadie: el
+          // impedimento se dice en el control que impide, no en una banda (§10
+          // de context/14). El motivo ya está en el centro de la pantalla.
+          disabled={!hasCode || phase.kind === "marking" || pendingEnrollment !== null}
+          onClick={() => {
+            setCodeSeed(undefined)
+            setCodeOpen(true)
+          }}
+        >
+          <KeyRound className="size-5" />
+          Usar código
+        </Button>
       </footer>
+
+      <CodeDialog
+        open={codeOpen}
+        onOpenChange={setCodeOpen}
+        employees={employees}
+        seed={codeSeed}
+        onIdentified={(employee) => {
+          setCodeOpen(false)
+          void markNow(employee, "pin")
+        }}
+      />
     </div>
   )
 }
