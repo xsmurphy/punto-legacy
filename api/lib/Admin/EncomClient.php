@@ -1265,7 +1265,10 @@ class EncomClient implements EncomSource
         $cTime     = EncomParse::columnIndexExact($headers, ['HORA']);
         $cDue      = EncomParse::columnIndex($headers, ['VENCIMIENTO']);
         $cCustomer = EncomParse::columnIndex($headers, ['CLIENTE']);
-        $cTin      = EncomParse::columnIndex($headers, ['RUC', 'TIN', 'NIT', 'CEDULA', 'CI']);
+        // EXACTO: por substring, "CI" matchea "#AUTORIZACION" (col 1), que va
+        // antes que `RUC`, y el RUC del cliente se leía como el TIMBRADO.
+        $cTin      = EncomParse::columnIndexExact($headers, ['RUC', 'TIN', 'NIT', 'CEDULA', 'CI'])
+            ?? EncomParse::columnIndex($headers, ['RUC']);
         $cUser     = EncomParse::columnIndex($headers, ['USUARIO', 'VENDEDOR']);
         $cOutlet   = EncomParse::columnIndex($headers, ['SUCURSAL']);
         $cRegister = EncomParse::columnIndexExact($headers, ['CAJA']);
@@ -1307,7 +1310,9 @@ class EncomClient implements EncomSource
                 'authNo'        => $cAuth !== null ? trim((string) ($cells[$cAuth] ?? '')) : '',
                 'date'          => $fecha,
                 'dueDate'       => $cDue !== null ? trim((string) ($cells[$cDue] ?? '')) : '',
-                'customer'      => $cCustomer !== null ? trim((string) ($cells[$cCustomer] ?? '')) : '',
+                // Limpia la celda: el valor crudo es el `data-filter` del
+                // legacy ("X Y con:cliente" / "sin:cliente"), no un nombre.
+                'customer'      => $cCustomer !== null ? EncomParse::customerCell((string) ($cells[$cCustomer] ?? '')) : '',
                 'customerTin'   => $cTin !== null ? trim((string) ($cells[$cTin] ?? '')) : '',
                 'user'          => $cUser !== null ? trim((string) ($cells[$cUser] ?? '')) : '',
                 'outlet'        => $cOutlet !== null ? trim((string) ($cells[$cOutlet] ?? '')) : '',

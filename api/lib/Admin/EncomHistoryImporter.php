@@ -7,6 +7,7 @@ require_once __DIR__ . '/EncomSource.php';
 require_once __DIR__ . '/EncomMigrationException.php';
 require_once __DIR__ . '/EncomExportTruncatedException.php';
 require_once __DIR__ . '/EncomMigrationService.php';
+require_once __DIR__ . '/EncomCustomerMatcher.php';
 
 /**
  * Importa el HISTÓRICO del legacy: ventas con sus líneas, compras y
@@ -200,13 +201,17 @@ final class EncomHistoryImporter
         $this->assertPrerequisitos('sales_history');
         $this->ensurePartitions($desde, $hasta);
 
-        // Dos cosas distintas que hasta hoy se contaban juntas y se reportaban
-        // como la segunda (F4): el legacy NO traía cliente (celda vacía, lo
-        // normal en mostrador) contra el legacy traía uno que acá no existe.
-        // La primera no es un problema y no hay nada que hacer; la segunda es
-        // un contacto sin migrar y tiene arreglo. Decir siempre "no está
-        // migrado" mandaba a buscar un cliente que nunca existió.
+        // El cliente de cada venta, en cuatro casos que la bitácora separa
+        // porque cada uno pide algo distinto (context/77 §17.18): el legacy
+        // no traía cliente (mostrador, nada que hacer), el nombre es de más de
+        // un cliente (ambiguo: no se adivina), el nombre no es de ninguno (el
+        // cliente no está migrado), o se resolvió.
+        $clientes             = new EncomCustomerMatcher($this->companyId);
+        $conCliente           = 0;
+        $completadas          = 0;
+        $bloqueadasPorCierre  = 0;
         $sinClienteEnElLegacy = 0;
+        $clienteAmbiguo       = [];
         $clienteSinMigrar     = [];
         $sinUsuario           = [];
 
@@ -265,11 +270,37 @@ final class EncomHistoryImporter
 
                 $this->counts['total']++;
 
+                // El cliente se resuelve ANTES de la idempotencia: una venta ya
+                // importada sin cliente también lo necesita para completarse.
+                $clienteLegacy = $this->textoDeCelda($venta['customer'] ?? '');
+                $cliente       = $clientes->resolve($clienteLegacy, $this->textoDeCelda($venta['customerTin'] ?? ''));
+                $customerId    = $cliente['id'];
+                switch ($cliente['status']) {
+                    case EncomCustomerMatcher::OK:
+                        $conCliente++;
+                        break;
+                    case EncomCustomerMatcher::NONE:
+                        $sinClienteEnElLegacy++;
+                        break;
+                    case EncomCustomerMatcher::AMBIGUOUS:
+                        $clienteAmbiguo[$clienteLegacy] = true;
+                        break;
+                    default:
+                        $clienteSinMigrar[$clienteLegacy] = true;
+                }
+
                 // Idempotencia: esta venta ya se asentó en una corrida previa.
                 // Es lo que hace que un job cortado a la mitad se pueda
-                // relanzar sin duplicar un solo asiento.
-                if (EncomMigrationService::mapped($this->companyId, 'sale_history', $legacyId) !== null) {
+                // relanzar sin duplicar un solo asiento. Relanzar COMPLETA el
+                // cliente que una corrida anterior no pudo resolver.
+                $yaImportada = EncomMigrationService::mapped($this->companyId, 'sale_history', $legacyId);
+                if ($yaImportada !== null) {
                     $this->counts['skipped']++;
+                    if ($customerId !== '') {
+                        $r = $this->completarVenta($yaImportada, $legacyId, $customerId);
+                        $completadas         += $r === 'ok' ? 1 : 0;
+                        $bloqueadasPorCierre += $r === 'closed' ? 1 : 0;
+                    }
                     continue;
                 }
 
@@ -300,16 +331,6 @@ final class EncomHistoryImporter
                     $this->counts['failed']++;
                     $sinUsuario[trim((string) ($venta['user'] ?? '(sin usuario)'))] = true;
                     continue;
-                }
-
-                $clienteLegacy = $this->textoDeCelda($venta['customer'] ?? '');
-                $customerId    = $clienteLegacy !== '' ? $this->mapOf('customer', $clienteLegacy, 'customer_name') : '';
-                if ($customerId === '') {
-                    if ($clienteLegacy === '') {
-                        $sinClienteEnElLegacy++;
-                    } else {
-                        $clienteSinMigrar[$clienteLegacy] = true;
-                    }
                 }
 
                 try {
@@ -351,24 +372,10 @@ final class EncomHistoryImporter
             }
         }
 
-        if ($sinClienteEnElLegacy > 0) {
-            $this->note(
-                $sinClienteEnElLegacy . ' venta(s) entraron sin cliente porque EL LEGACY NO TRAÍA NINGUNO (la celda '
-                . 'viene vacía, que es lo normal en una venta de mostrador). No falta migrar nada: el asiento está '
-                . 'completo y así se vendió.'
-            );
-        }
-
-        if ($clienteSinMigrar !== []) {
-            $nombres = array_keys($clienteSinMigrar);
-            $this->note(
-                count($nombres) . ' cliente(s) del legacy NO están migrados, así que sus ventas entraron sin cliente: '
-                . implode(', ', array_slice($nombres, 0, 20))
-                . (count($nombres) > 20 ? ' … y ' . (count($nombres) - 20) . ' más.' : '')
-                . ' El asiento es correcto (el total y los ítems están); lo que falta es a quién se le vendió. '
-                . 'Migrá los clientes y volvé a lanzar. No se inventan contactos.'
-            );
-        }
+        $this->avisarClientes(
+            $conCliente, $completadas, $bloqueadasPorCierre, $sinClienteEnElLegacy,
+            array_keys($clienteAmbiguo), array_keys($clienteSinMigrar)
+        );
 
         $this->avisarLineas();
         $this->avisarSinCosto();
@@ -766,6 +773,104 @@ final class EncomHistoryImporter
         }
 
         return (string) $txId;
+    }
+
+    /**
+     * Le pone el cliente a una venta histórica YA importada que entró sin él.
+     *
+     * ── Por qué existe ───────────────────────────────────────────────────
+     * Hasta 2026-09-18 el cliente se buscaba con el valor crudo de la celda
+     * ("X  con:cliente", `EncomParse::customerCell()`) y casi ninguna venta
+     * quedó vinculada: 5 de ~5.000 en el tenant 019ff24f. La venta es
+     * idempotente y la corrida siguiente la saltea, así que sin este paso
+     * quedarían sin cliente para siempre. Mismo criterio que
+     * `completarCompra()`: relanzar COMPLETA, nunca duplica ni pisa.
+     *
+     * Solo escribe si la venta es del migrador (`meta.importedFrom`) y NO
+     * tiene cliente: una venta hecha en Punto o una ya vinculada no se toca.
+     * No hay rollup por cliente (los reportes de clientes leen `transaction`
+     * en vivo), así que no se ensucia ningún día.
+     *
+     * @return string 'ok' | 'noop' | 'closed' (mes cerrado: el guard de la
+     *                mig 157 rechaza el UPDATE y NO se fuerza)
+     */
+    private function completarVenta(string $txId, string $legacyId, string $customerId): string
+    {
+        try {
+            $row = \ncmExecute(
+                "UPDATE transaction SET customerId = ?
+                  WHERE transactionId = ? AND companyId = ? AND customerId IS NULL
+                    AND jsonb_exists(COALESCE(meta::jsonb, '{}'::jsonb), 'importedFrom')
+                  RETURNING transactionId",
+                [$customerId, $txId, $this->companyId]
+            );
+        } catch (\Throwable $e) {
+            if (str_contains($e->getMessage(), 'period_closed')) {
+                return 'closed';
+            }
+            $this->fail('sales_history', 'Venta ' . $legacyId . ': no se pudo completar el cliente: ' . $e->getMessage());
+            return 'noop';
+        }
+
+        return $row ? 'ok' : 'noop';
+    }
+
+    /**
+     * La bitácora del cliente de las ventas: una línea por caso, con ejemplos
+     * de nombres LIMPIOS (ya sin el "con:cliente" del legacy).
+     *
+     * @param array<int,string> $ambiguos
+     * @param array<int,string> $sinMigrar
+     */
+    private function avisarClientes(
+        int $conCliente,
+        int $completadas,
+        int $bloqueadas,
+        int $sinCliente,
+        array $ambiguos,
+        array $sinMigrar,
+    ): void {
+        $ejemplos = static fn (array $n): string => implode(', ', array_slice($n, 0, 20))
+            . (count($n) > 20 ? ' … y ' . (count($n) - 20) . ' más' : '');
+
+        if ($conCliente > 0 || $completadas > 0) {
+            $this->note(
+                $conCliente . ' venta(s) leídas tienen su cliente identificado en Punto'
+                . ($completadas > 0
+                    ? '; ' . $completadas . ' de ellas ya estaban importadas sin cliente y se COMPLETARON ahora (no se duplicó ninguna).'
+                    : '.')
+            );
+        }
+
+        if ($bloqueadas > 0) {
+            $this->note(
+                $bloqueadas . ' venta(s) ya importadas NO se completaron con su cliente porque su período está CERRADO. '
+                . 'No se fuerza: un período cerrado ya fue conciliado. Si hace falta, reabrilo y volvé a lanzar.'
+            );
+        }
+
+        if ($sinCliente > 0) {
+            $this->note(
+                $sinCliente . ' venta(s) no tenían cliente en el legacy (venta de mostrador, consumidor final o un '
+                . 'contacto que ya no existía). No falta migrar nada: así se vendió.'
+            );
+        }
+
+        if ($ambiguos !== []) {
+            $this->note(
+                count($ambiguos) . ' nombre(s) de cliente son de MÁS DE UN cliente en Punto y el RUC no desempata, '
+                . 'así que esas ventas quedaron sin cliente (no se adivina a cuál): ' . $ejemplos($ambiguos) . '.'
+            );
+        }
+
+        if ($sinMigrar !== []) {
+            $this->note(
+                count($sinMigrar) . ' cliente(s) del legacy no se encontraron entre los clientes de Punto, así que sus '
+                . 'ventas quedaron sin cliente: ' . $ejemplos($sinMigrar) . '. El asiento es correcto (el total y los '
+                . 'ítems están); lo que falta es a quién se le vendió. Migrá los clientes y volvé a lanzar: las ventas '
+                . 'ya importadas se completan sin duplicarse. No se inventan contactos.'
+            );
+        }
     }
 
     /** Inserta la cabecera de una compra histórica. Devuelve el transactionId. */
@@ -1385,7 +1490,6 @@ final class EncomHistoryImporter
             'outlet'   => ['outlet', 'outletName', 'outletId', ''],
             'register' => ['register', 'registerName', 'registerId', ''],
             'user'     => ['contact', 'contactName', 'contactId', ' AND type = 0'],
-            'customer' => ['contact', 'contactName', 'contactId', ' AND type = 1'],
             'supplier' => ['contact', 'contactName', 'contactId', ' AND type = 2'],
             // Falla RUIDOSO, no devolviendo vacío: un dominio nuevo que se
             // cablee a `mapOf()` con alias y se olvide de esta tabla dejaría

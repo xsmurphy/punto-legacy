@@ -84,6 +84,8 @@ $companyM  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0066';   // Y2 — reusa la única
 $companyN  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0077';   // Y3 — ninguna coincide: la más antigua libre
 $companyO  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0088';   // Y5 — todas tomadas: crea
 $companyP  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0099';   // Y6 — orden del export invertido
+// Caso VC (2026-09-18): el cliente de las ventas históricas.
+$companyQ  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d00aa';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -96,8 +98,11 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomClient.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomImportService.php';
 require_once dirname(__DIR__) . '/lib/Admin/EncomMigrationService.php';
+require_once dirname(__DIR__) . '/lib/Admin/EncomCustomerMatcher.php';
 
 use Punto\Api\Admin\EncomClient;
+use Punto\Api\Admin\EncomCustomerMatcher;
+use Punto\Api\Admin\EncomParse;
 use Punto\Api\Admin\EncomImportService;
 use Punto\Api\Admin\EncomMigrationService;
 
@@ -492,6 +497,102 @@ final class SinDetalleComprasEncomClient extends FixtureEncomClient
 }
 
 /**
+ * El cliente de las ventas con la celda REAL del legacy
+ * (`a_report_transactions.php`): `data-filter="{contactName}
+ * {contactSecondName} con:cliente"` o `data-filter="sin:cliente"`, y el RUC
+ * como texto sin `data-order`. Nombres tomados de la bitácora del job
+ * b580baa3 (tenant 019ff24f), incluido el `?` que el legacy guardó en lugar
+ * de la Ñ del lado de los contactos.
+ */
+final class ClientesDeVentasEncomClient extends FixtureEncomClient
+{
+    /** [id, celda Cliente (data-filter), RUC] */
+    public const VENTAS = [
+        ['vc-1', 'ACUÑA FRANCO ALEXIS ANTONIO  con:cliente', '-'],
+        ['vc-2', 'LEGUIZAMON GONZALEZ MARIA PERLA PLG INGENIERIA con:cliente', '-'],
+        ['vc-3', 'Juan Gomez  con:cliente', '-'],
+        ['vc-4', 'Juan Gomez  con:cliente', '80011122-3'],
+        ['vc-5', 'sin:cliente', '-'],
+        ['vc-6', 'Sin Nombre  con:cliente', '-'],
+        ['vc-7', 'Fulano Inexistente  con:cliente', '-'],
+        ['vc-8', 'CONSUMIDOR FINAL  con:cliente', '-'],
+        ['vc-9', 'ESTIGARRIBIA GARCIA, FABIOLA INES ESTIGARRIBIA GARCIA, FABIOLA INES con:cliente', '-'],
+    ];
+
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        if ($load === 'customers') {
+            return [
+                ['customerId' => 'vc-c1', 'name' => 'ACU?A FRANCO ALEXIS ANTONIO', 'ci' => '5414926'],
+                ['customerId' => 'vc-c2', 'name' => 'LEGUIZAMON GONZALEZ MARIA PERLA',
+                    'fullName' => 'PLG INGENIERIA', 'ci' => '3300111'],
+                // Dos homónimos: sin RUC en la celda NO se adivina cuál.
+                ['customerId' => 'vc-c3', 'name' => 'Juan Gomez', 'ruc' => '80011122-3', 'ci' => '4400111'],
+                ['customerId' => 'vc-c4', 'name' => 'Juan Gomez', 'ruc' => '80044455-6', 'ci' => '4400222'],
+                ['customerId' => 'vc-c5', 'name' => 'CONSUMIDOR FINAL', 'ci' => '4400333'],
+                ['customerId' => 'vc-c6', 'name' => 'ESTIGARRIBIA GARCIA, FABIOLA INES', 'ci' => '4400444'],
+            ];
+        }
+        return parent::fetch($load, $outletHash);
+    }
+
+    protected function get(string $path, array $params = [], bool $allowRedirect = false): string
+    {
+        $action = (string) ($params['action'] ?? '');
+        if ($path === '/a_report_transactions' && $action === 'detailTable') {
+            return self::ventas();
+        }
+        if ($path === '/a_report_products' && $action === 'detailTable') {
+            // El log de ítems vacío: estos casos miden el CLIENTE.
+            $base = (string) parent::get($path, $params, $allowRedirect);
+            $html = EncomParse::tableHtml($base);
+            $thead = substr($html, 0, (int) strpos($html, '<tbody>'));
+            return (string) json_encode(['table' => $thead . '<tbody></tbody>']);
+        }
+        return parent::get($path, $params, $allowRedirect);
+    }
+
+    private static function ventas(): string
+    {
+        $thead = '<thead><tr>'
+            . '<th>ID</th><th>#Autorización</th><th>#Documento</th><th>Fecha</th><th>Hora</th>'
+            . '<th>Vencimiento</th><th>Cliente</th><th>RUC</th><th>Usuario</th><th>Sucursal</th>'
+            . '<th>Caja</th><th>Caja FE Activa</th><th>M.de Pago</th><th>Nota</th><th>Etiquetas</th>'
+            . '<th>Tipo Documento</th><th>Tipo</th><th>Descuento</th><th>Subtotal</th><th>IVA</th>'
+            . '<th>Total Gravado</th><th>Total</th></tr></thead>';
+
+        $filas = '';
+        foreach (self::VENTAS as $n => [$id, $cliente, $ruc]) {
+            $filas .= '<tr data-id="' . $id . '" class="clickrow ">'
+                . '<td class="bg-light dk">' . $id . '</td>'
+                . '<td>16543210</td>'
+                . '<td data-order="' . (7000 + $n) . '">001-001-000' . (7000 + $n) . '</td>'
+                . '<td data-order="2026-08-1' . $n . ' 10:30:00">1' . $n . ' ago</td>'
+                . '<td> 10:30 </td>'
+                . '<td data-order="">-</td>'
+                . '<td data-filter="' . htmlspecialchars($cliente) . '">' . htmlspecialchars(explode('  ', $cliente)[0]) . '</td>'
+                . '<td>' . $ruc . '</td>'
+                . '<td>Pedro Cajero</td>'
+                . '<td>Casa Central</td>'
+                . '<td>Caja Uno</td>'
+                . '<td>Sí</td>'
+                . '<td>Efectivo</td>'
+                . '<td></td>'
+                . '<td data-tags=""> </td>'
+                . '<td>Factura</td>'
+                . '<td data-filter="contado"> Contado </td>'
+                . '<td data-order="0">0</td>'
+                . '<td data-order="9091">9.091</td>'
+                . '<td data-order="909">909</td>'
+                . '<td data-order="9091">9.091</td>'
+                . '<td data-order="10000">10.000</td>'
+                . '</tr>';
+        }
+        return (string) json_encode(['table' => $thead . '<tbody>' . $filas . '</tbody>']);
+    }
+}
+
+/**
  * Legacy con UNA sola sucursal y una caja: el caso del comercio chico que se
  * dio de alta en Punto (el signup le creó "Central") y después migró.
  */
@@ -751,6 +852,7 @@ cleanup($companyM);
 cleanup($companyN);
 cleanup($companyO);
 cleanup($companyP);
+cleanup($companyQ);
 cleanup($companyC);
 cleanup($companyE);
 cleanup($companyF);
@@ -2716,6 +2818,122 @@ try {
         'J4 · una tercera corrida no agrega nada (las líneas de compra también son idempotentes)',
         (int) scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? '']) === 2,
         'líneas = ' . scalar('SELECT count(*) FROM itemSold WHERE transactionId = ?', [$compraJ ?? '']),
+        $failures, $checks
+    );
+
+    // ── VC. El cliente de las ventas históricas (2026-09-18) ──────────
+    // El bug: la celda Cliente se leía por su `data-filter` crudo ("X  con:
+    // cliente" / "sin:cliente") y casi ninguna venta quedó vinculada —5 de
+    // ~5.000 en el tenant 019ff24f—. Y como la venta es idempotente, relanzar
+    // no la arreglaba.
+    check(
+        'VC0 · la celda se limpia: "sin:cliente" es vacío y "X  con:cliente" es X',
+        EncomParse::customerCell('sin:cliente') === ''
+            && EncomParse::customerCell('ARGUELLO MARTINEZ FEDERICO EDMUNDO  con:cliente') === 'ARGUELLO MARTINEZ FEDERICO EDMUNDO'
+            && EncomParse::customerCell('Carlos Ruiz') === 'Carlos Ruiz'
+            && EncomCustomerMatcher::key('ACU?A  Baez, Lilian') === EncomCustomerMatcher::key('ACUÑA BAEZ LILIAN')
+            && EncomCustomerMatcher::key('AG¿ERO') === EncomCustomerMatcher::key('AGÜERO'),
+        'customerCell/key no normalizan como se espera',
+        $failures, $checks
+    );
+
+    seedCompany($companyQ, 'Comercio Clientes De Ventas SA');
+    $cliQ = new ClientesDeVentasEncomClient($fixtures);
+    (new EncomImportService($companyQ, $cliQ, null))->run(['customers', 'config', 'users']);
+
+    $contactoQ = static fn (string $legacy): ?string => EncomMigrationService::mapped($companyQ, 'customer', $legacy);
+    $clienteDeVentaQ = static function (string $legacyId) use ($companyQ): string {
+        return (string) scalar(
+            "SELECT COALESCE(customerId::text, '') FROM transaction WHERE companyId = ? AND meta->>'legacyId' = ?",
+            [$companyQ, $legacyId]
+        );
+    };
+
+    $runQ = (new EncomImportService($companyQ, $cliQ, null))->run(['sales_history'], $histOpts);
+    $logQ = json_encode($runQ['log'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'VC1 · se vinculan por nombre limpio (con la Ñ guardada como "?") y por nombre + segundo nombre',
+        $clienteDeVentaQ('vc-1') === (string) $contactoQ('vc-c1')
+            && $clienteDeVentaQ('vc-2') === (string) $contactoQ('vc-c2')
+            && $clienteDeVentaQ('vc-9') === (string) $contactoQ('vc-c6')
+            && $contactoQ('vc-c1') !== null,
+        'vc-1=' . $clienteDeVentaQ('vc-1') . ' vc-2=' . $clienteDeVentaQ('vc-2') . ' vc-9=' . $clienteDeVentaQ('vc-9')
+            . ' · log = ' . $logQ . ' · errors = ' . json_encode($runQ['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'VC2 · homónimos: sin RUC NO se adivina; con el RUC de la celda se vincula al correcto',
+        $clienteDeVentaQ('vc-3') === '' && $clienteDeVentaQ('vc-4') === (string) $contactoQ('vc-c3'),
+        'vc-3=' . $clienteDeVentaQ('vc-3') . ' vc-4=' . $clienteDeVentaQ('vc-4'),
+        $failures, $checks
+    );
+
+    check(
+        'VC3 · sin cliente real (sin:cliente, "Sin Nombre", consumidor final) y no encontrado quedan SIN cliente y sin error',
+        $clienteDeVentaQ('vc-5') === '' && $clienteDeVentaQ('vc-6') === ''
+            && $clienteDeVentaQ('vc-7') === '' && $clienteDeVentaQ('vc-8') === ''
+            && ($runQ['progress']['sales_history']['failed'] ?? -1) === 0
+            && ($runQ['progress']['sales_history']['imported'] ?? -1) === 9,
+        'progress = ' . json_encode($runQ['progress']['sales_history'] ?? null)
+            . ' · vc-8=' . $clienteDeVentaQ('vc-8'),
+        $failures, $checks
+    );
+
+    check(
+        'VC4 · la bitácora separa los casos con nombres LIMPIOS (nada de "con:cliente")',
+        !str_contains($logQ, 'con:cliente') && !str_contains($logQ, 'sin:cliente')
+            && str_contains($logQ, 'MÁS DE UN cliente') && str_contains($logQ, 'Juan Gomez')
+            && str_contains($logQ, 'Fulano Inexistente')
+            && str_contains($logQ, '4 venta(s) leídas tienen su cliente')
+            && str_contains($logQ, '3 venta(s) no tenían cliente en el legacy'),
+        'log = ' . $logQ,
+        $failures, $checks
+    );
+
+    // Una venta REAL hecha en Punto, sin cliente, dentro del rango (después de
+    // la primera corrida, que crea la partición del mes): el migrador no
+    // puede tocarla nunca.
+    $outletQ = (string) EncomMigrationService::mapped($companyQ, 'outlet', 'out-1');
+    $userQ   = (string) scalar('SELECT contactId FROM contact WHERE companyId = ? AND type = 0 LIMIT 1', [$companyQ]);
+    $realQ   = (string) ncmInsert(['table' => 'transaction', 'records' => [
+        'transactionDate' => '2026-08-15 12:00:00', 'transactionType' => 0, 'transactionStatus' => 1,
+        'transactionComplete' => 1, 'transactionTotal' => 5000, 'userId' => $userQ,
+        'outletId' => $outletQ, 'companyId' => $companyQ,
+    ]]);
+
+    // El estado en que quedaron las ventas del tenant 019ff24f: importadas
+    // SIN cliente. Y una que alguien ya vinculó a mano a otro cliente.
+    $db->Execute(
+        "UPDATE transaction SET customerId = NULL WHERE companyId = ? AND meta->>'legacyId' IN ('vc-1', 'vc-4')",
+        [$companyQ]
+    );
+    $db->Execute(
+        "UPDATE transaction SET customerId = ? WHERE companyId = ? AND meta->>'legacyId' = 'vc-2'",
+        [$contactoQ('vc-c5'), $companyQ]
+    );
+    $ventasAntesQ = (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyQ]);
+
+    $runQ2 = (new EncomImportService($companyQ, $cliQ, null))->run(['sales_history'], $histOpts);
+    $logQ2 = json_encode($runQ2['log'], JSON_UNESCAPED_UNICODE);
+
+    check(
+        'VC5 · relanzar COMPLETA el cliente de las ventas ya importadas, sin duplicar ninguna',
+        $clienteDeVentaQ('vc-1') === (string) $contactoQ('vc-c1')
+            && $clienteDeVentaQ('vc-4') === (string) $contactoQ('vc-c3')
+            && (int) scalar('SELECT count(*) FROM transaction WHERE companyId = ?', [$companyQ]) === $ventasAntesQ
+            && ($runQ2['progress']['sales_history']['skipped'] ?? -1) === 9
+            && str_contains($logQ2, '2 de ellas ya estaban importadas sin cliente y se COMPLETARON'),
+        'vc-1=' . $clienteDeVentaQ('vc-1') . ' vc-4=' . $clienteDeVentaQ('vc-4') . ' · log = ' . $logQ2,
+        $failures, $checks
+    );
+
+    check(
+        'VC6 · NO pisa un cliente ya puesto ni toca la venta REAL hecha en Punto',
+        $clienteDeVentaQ('vc-2') === (string) $contactoQ('vc-c5')
+            && (string) scalar("SELECT COALESCE(customerId::text, '') FROM transaction WHERE transactionId = ?", [$realQ]) === '',
+        'vc-2=' . $clienteDeVentaQ('vc-2'),
         $failures, $checks
     );
 

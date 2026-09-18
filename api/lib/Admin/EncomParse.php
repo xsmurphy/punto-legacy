@@ -246,6 +246,37 @@ final class EncomParse
     }
 
     /**
+     * El nombre del cliente de la celda `Cliente` del listado de ventas, o ''
+     * cuando la venta no tenía cliente.
+     *
+     * ── La forma REAL de la celda (a_report_transactions?action=detailTable) ─
+     *
+     *   con cliente: <td data-filter="{contactName} {contactSecondName} con:cliente">{contactName}</td>
+     *   sin cliente: <td data-filter="sin:cliente"></td>
+     *
+     * `data-filter` es para el buscador de la tabla del legacy (escribir
+     * "sin:cliente" filtra las ventas de mostrador) y `htmlRows()` lo prefiere
+     * al texto visible porque es el valor crudo de las demás celdas. Tomado
+     * tal cual, TODA venta "tenía" un cliente llamado "sin:cliente" o "X  con:
+     * cliente", ningún nombre matcheaba, y 5.000 ventas entraron sin cliente
+     * (tenant 019ff24f, job b580baa3, 2026-09-18).
+     *
+     * Lo que queda es "{contactName} {contactSecondName}": con segundo nombre
+     * vacío, el nombre solo (el doble espacio lo colapsa el normalizador de
+     * quien lo compare). Un deploy sin `data-filter` entrega el texto visible
+     * —solo `contactName`— y pasa sin cambios.
+     */
+    public static function customerCell(string $raw): string
+    {
+        $s = trim($raw);
+        if ($s === '' || $s === '-' || strcasecmp($s, 'sin:cliente') === 0) {
+            return '';
+        }
+        $s = preg_replace('/\s*con:cliente\s*$/iu', '', $s) ?? $s;
+        return trim($s);
+    }
+
+    /**
      * Desenvuelve `{"table": "<html>"}` — la forma en que algunos
      * `action=*Table` devuelven la tabla. Si no es JSON, se asume que ya vino
      * el HTML crudo (no todos los actions envuelven).
