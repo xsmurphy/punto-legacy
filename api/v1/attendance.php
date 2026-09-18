@@ -1,12 +1,17 @@
 <?php
 /**
- * REST canónico — Marcación de asistencia (RRHH F1, context/83 §4 y §7).
+ * REST canónico — Marcación de asistencia (RRHH, context/83 §4, §7 y §9.2).
  *
- *   POST   /v1/attendance                       ← realm `pos-app` (el QUIOSCO)
- *          multipart: employeeId, markPinHash, kind=in|out, markedAt,
+ * El aparato que la registra es el RELOJ DE MARCACIÓN (`device.module='clock'`),
+ * no la caja: ver `$requireKiosk` más abajo.
+ *
+ *   POST   /v1/attendance                       ← realm `pos-app` (el RELOJ)
+ *          multipart: employeeId, pinHash, kind=in|out, markedAt,
  *                     noPhotoReason?, faceOutcome?, photo (archivo)
  *          header:    X-Punto-Op-Id  (idempotencia de la cola del POS)
  *
+ *   GET    /v1/attendance?resource=roster                  ← realm `pos-app`
+ *          → { employees: [...] }   (el bootstrap slim del reloj)
  *   GET    /v1/attendance?resource=faces&modelVersion=<m>  ← realm `pos-app`
  *          → { modelVersion, faces, enrollment }
  *   POST   /v1/attendance?action=face-enroll               ← realm `pos-app`
@@ -27,27 +32,26 @@
  * y el PIN desde el celular propio se presta — que es la falla que motivó
  * invertir el modelo hacia el dispositivo DEL COMERCIO.
  *
- * ── El quiosco no tiene sesión de operador, y es a propósito ────────────────
+ * ── El reloj no tiene sesión de operador, y es a propósito ──────────────────
  *
  * El resto de `/api/pos/*` que escribe exige la afirmación de operador
- * (`X-Operator-Token`, el PIN del lockscreen). Acá NO: el quiosco es del
- * comercio y atiende a gente que en su mayoría no tiene usuario del sistema
- * (cocina, limpieza — D2 del plan). Pedir un PIN de operador para que un
- * cocinero marque su entrada obligaría a inventarle una credencial, que es
- * justo lo que el modelo de `employee` evita.
+ * (`X-Operator-Token`, el PIN del lockscreen). Acá NO: el reloj es del comercio
+ * y atiende a gente que en su mayoría no opera el sistema (cocina, limpieza).
+ * Pedir el PIN de un operador para que un cocinero marque su entrada sería
+ * pedirle a otra persona que lo habilite a fichar.
  *
- * Lo que autentica es el BEARER DEL DEVICE: esto solo lo puede escribir una
- * tablet pareada del comercio. Quién marcó lo dice su PIN de marcación propio
- * (`employee.markpinhash`) y, sobre todo, la FOTO del momento.
+ * Lo que autentica es el BEARER DEL DEVICE: esto solo lo puede escribir el
+ * reloj pareado del comercio. Quién marcó lo dice su ROSTRO o su PIN —el único
+ * que tiene, `contact.pinhash`— y, sobre todo, la FOTO del momento.
  *
- * ── Sin gate de módulo en el alta, y también a propósito ────────────────────
+ * ── Sin gate de módulo de NEGOCIO en el alta, y también a propósito ─────────
  *
- * El módulo `rrhh` gobierna las SUPERFICIES: si está apagado, el bootstrap no
- * le baja empleados a la caja y el panel no muestra el reporte. Pero una
- * marcación que ya ocurrió no se rechaza porque un interruptor cambió mientras
- * esperaba en la cola del dispositivo: eso la dejaría `failed`, trabando el
- * canal, con un botón de descartar al lado de un hecho real (misma clase de
- * problema que la D8 de context/34 §F7).
+ * RRHH es CORE (owner 2026-09-17): no se activa ni se apaga. Y aunque lo fuera,
+ * una marcación que ya ocurrió no se rechazaría porque un interruptor cambió
+ * mientras esperaba en la cola del dispositivo: eso la dejaría `failed`,
+ * trabando el canal, con un botón de descartar al lado de un hecho real (misma
+ * clase de problema que la D8 de context/34 §F7). El gate de `module` que sí
+ * hay —`$requireKiosk`— es sobre el TIPO DE APARATO, no sobre una feature.
  *
  * ── Realms, y por qué el legajo no se toca desde acá ────────────────────────
  *
@@ -88,21 +92,26 @@ $requirePanel = static function () use ($realm): void {
 };
 
 /**
- * El device tiene que ser una CAJA, no cualquier aparato pareado.
+ * El device tiene que ser un RELOJ DE MARCACIÓN, no cualquier aparato pareado.
+ *
+ * Hasta el 2026-09-18 el quiosco era la CAJA (`module === 'pos'`). El owner lo
+ * corrigió (context/83 §9.2): "en las empresas los lectores de huella no están
+ * en el POS — ahí solo opera el cajero". La marcación había quedado en `/pos`
+ * por plomería (pairing, cámara, offline, roster ya descargado), no por
+ * producto.
+ *
+ * Consecuencia directa, y es la mitad del punto: el roster del personal y sus
+ * ROSTROS dejan de bajar a todas las cajas del comercio y bajan solo a este
+ * aparato. La caja ya no puede pedir ninguno de los tres recursos de acá.
  *
  * Una pantalla de cliente, un KDS o la estación de impresión autentican con el
- * MISMO realm (`device.module`). Solo una caja es un quiosco — mismo
- * discriminante que usa `unlock-pin.php` y el roster del bootstrap.
- *
- * Se extrajo acá porque ahora lo necesitan tres caminos (marcar, bajar rostros,
- * registrar un rostro) y tres copias de un gate son tres lugares donde el día
- * que cambie alguien se olvida de uno.
+ * MISMO realm (`device.module`), así que el discriminante es el módulo.
  */
 $requireKiosk = static function () use ($ctx, $realm): void {
     if ($realm !== 'pos-app') {
         apiError('Esta acción se hace desde el dispositivo del comercio', 403);
     }
-    if ((string) ($ctx['module'] ?? 'pos') !== 'pos') {
+    if ((string) ($ctx['module'] ?? 'pos') !== 'clock') {
         apiError('Este dispositivo no puede registrar marcaciones', 403);
     }
 };
@@ -112,18 +121,35 @@ $faces = new \Punto\Api\Hr\EmployeeFaceService(
     new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX)
 );
 
-// ── Rostros que este quiosco puede reconocer ───────────────────────────────
+// ── Quiénes pueden marcar en este reloj ────────────────────────────────────
 //
-// Se sirve por un endpoint propio y NO dentro del bootstrap del POS, que es
-// donde baja el roster de PINes de la F1. Tres razones, y ninguna es de estilo:
+// El roster del personal. Vivía en `/v1/bootstrap` y bajaba a TODA caja del
+// comercio (context/83 F1); desde el §9.2 baja acá y solo al reloj, que es el
+// único aparato que lo necesita. Una caja ya no recibe la lista del equipo ni
+// sus hashes de PIN.
 //
-//   1. El bootstrap lo pide TODA caja al arrancar. Los vectores solo los
-//      necesita la pantalla de marcación, y sumarlos ahí sería carga muerta en
-//      cada apertura de turno de cada comercio, use o no la marcación.
-//   2. La biometría se manda a quien la va a usar, cuando la va a usar. Bajarla
-//      "por las dudas" a cada dispositivo es exactamente lo que la D5 evita.
-//   3. Cambia con otra frecuencia: un rostro se registra una vez y el roster de
-//      PINes se toca seguido.
+// Es el bootstrap SLIM del reloj: el resto de lo que necesita —nombre del
+// comercio, sucursal, formatos de moneda y fecha— ya lo sirve
+// `/v1/screens?resource=context`, el mismo camino que usan las otras pantallas
+// pareadas. No hace falta un segundo endpoint que repita eso.
+//
+// El alcance sale del CONTEXTO DEL DEVICE (su sucursal), nunca del query
+// string: dejar que el cliente pida "el personal de la sucursal X" sería
+// dejarle elegir a quién puede fichar.
+if ($method === 'GET' && $resource === 'roster') {
+    $requireKiosk();
+    apiOk(['employees' => $svc->rosterForOutlet($companyId, (string) ($ctx['outletId'] ?? ''))]);
+}
+
+// ── Rostros que este reloj puede reconocer ─────────────────────────────────
+//
+// Separado del roster de arriba aunque los dos los pida el mismo aparato: el
+// vector cambia con otra frecuencia (un rostro se registra una vez; el roster se
+// toca seguido) y pesa otra cosa. Pedirlos juntos obligaría a bajar la biometría
+// entera cada vez que alguien cambia de puesto.
+//
+// La biometría se manda a quien la va a usar, cuando la va a usar — bajarla "por
+// las dudas" a cada dispositivo es exactamente lo que la D5 evita.
 //
 // El alcance sale del CONTEXTO DEL DEVICE (su sucursal), nunca del query string:
 // dejar que el cliente pida "los rostros de la sucursal X" sería dejarle elegir

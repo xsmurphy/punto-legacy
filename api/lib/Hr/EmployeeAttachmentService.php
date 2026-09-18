@@ -65,7 +65,7 @@ final class EmployeeAttachmentService
         $rs = ncmExecute(
             'SELECT attachmentid, filename, mime, sizebytes, label, createdat
                FROM employee_attachment
-              WHERE employeeid = ? AND companyid = ?
+              WHERE contactid = ? AND companyid = ?
               ORDER BY createdat DESC',
             [$employeeId, $companyId],
             false,
@@ -123,7 +123,7 @@ final class EmployeeAttachmentService
                 'records' => [
                     'attachmentid' => $attachmentId,
                     'companyid'    => $companyId,
-                    'employeeid'   => $employeeId,
+                    'contactid'   => $employeeId,
                     'objectkey'    => $objectKey,
                     'filename'     => self::safeFilename($file['name'] ?? 'archivo'),
                     'mime'         => $mime,
@@ -224,7 +224,7 @@ final class EmployeeAttachmentService
             throw new \RuntimeException('Empleado no encontrado');
         }
         $row = ncmExecute(
-            'SELECT employeeid FROM employee WHERE employeeid = ? AND companyid = ? LIMIT 1',
+            'SELECT contactid FROM employee WHERE contactid = ? AND companyid = ? LIMIT 1',
             [$employeeId, $companyId]
         );
         if (!$row) {
@@ -247,7 +247,7 @@ final class EmployeeAttachmentService
         }
 
         $count = ncmExecute(
-            'SELECT COUNT(*) AS n FROM employee_attachment WHERE employeeid = ? AND companyid = ?',
+            'SELECT COUNT(*) AS n FROM employee_attachment WHERE contactid = ? AND companyid = ?',
             [$employeeId, $companyId]
         );
         if ($count && (int) $count['n'] >= self::MAX_PER_EMPLOYEE) {

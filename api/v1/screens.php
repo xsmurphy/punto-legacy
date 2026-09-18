@@ -25,7 +25,11 @@ require_once __DIR__ . '/../lib/Orders/OrderStatusLabels.php';
 // context/26-print-station-plan.md) se suma acá con el mismo criterio: la
 // estación es un device pareado que necesita heartbeat/context genérico —
 // su canal propio es `{companyId}:print:{outletId}` (api/v1/print-jobs.php).
-const DISPLAY_MODULES = ['screen', 'kds', 'display', 'print'];
+// 'clock' (Reloj de marcación, context/83 §9.2) entra con el mismo criterio:
+// es un device pareado que necesita heartbeat y contexto genérico —nombre del
+// comercio, sucursal y formatos— para armar su pantalla. Lo suyo propio (el
+// roster del personal y los rostros) lo pide a `/v1/attendance`.
+const DISPLAY_MODULES = ['screen', 'kds', 'display', 'print', 'clock'];
 
 $resource = $_GET['resource'] ?? null;
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';

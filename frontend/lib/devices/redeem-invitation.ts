@@ -15,7 +15,7 @@
  * y `credentials: "omit"` evita que el browser mande cookies por su cuenta.
  */
 
-import { setDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
+import { setDeviceToken, toDeviceModule } from "@/lib/auth/device-token"
 import { setDeviceClaims } from "@/lib/auth/device-claims"
 import {
   clearPairingSecret,
@@ -126,11 +126,16 @@ export async function openInvitation(
   return { kind: "code", userCode: data.userCode, module: data.module ?? "pos" }
 }
 
-/** module (string libre de la invitación) → namespace tipado de device-token/claims. */
-export function toDeviceModule(module: string): DeviceModule {
-  if (module === "screen" || module === "kds" || module === "display" || module === "print") return module
-  return "pos"
-}
+/**
+ * module (string libre de la invitación) → namespace tipado de
+ * device-token/claims.
+ *
+ * Re-export del canónico (`lib/auth/device-token.ts`): acá vivía una copia del
+ * `if` con la lista de tipos escrita a mano, que es un lugar más donde
+ * olvidarse al sumar uno. Se mantiene el nombre exportado porque hay
+ * call-sites que lo importan de este módulo.
+ */
+export { toDeviceModule }
 
 /**
  * Guarda el token y los claims del device recién canjeado, y descarta el

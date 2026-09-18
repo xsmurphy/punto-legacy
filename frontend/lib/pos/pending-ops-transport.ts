@@ -52,6 +52,7 @@
  */
 
 import { posFetch } from '@/lib/api/pos-fetch'
+import type { DeviceModule } from '@/lib/auth/device-token'
 import { getOpBlob } from '@/lib/pos/pending-ops'
 import { peekAll } from '@/lib/pos/offline-queue'
 import { posApi } from '@/lib/api/pos-client'
@@ -121,8 +122,8 @@ function classify(err: unknown): PendingOpError {
  * Los BFF `/api/pos/*` devuelven el envelope `{ ok, data }` con 200 aun en
  * algunos errores de negocio del legacy, así que no alcanza con `res.ok`.
  */
-async function posBff(path: string, init: RequestInit): Promise<unknown> {
-  const res = await posFetch(path, init)
+async function posBff(path: string, init: RequestInit, module: DeviceModule = 'pos'): Promise<unknown> {
+  const res = await posFetch(path, init, module)
   const json = (await res.json().catch(() => null)) as
     | { ok?: boolean; data?: unknown; error?: { message?: string } }
     | null
@@ -271,7 +272,8 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         // partir y `$_POST` llega VACÍO — sin error, sin nada.
         const form = new FormData()
         form.set('employeeId', payload.employeeId)
-        form.set('markPinHash', payload.markPinHash)
+        // Vacío = se identificó por el rostro, o no tiene código (§9.3).
+        form.set('pinHash', payload.pinHash ?? '')
         form.set('kind', payload.kind)
         form.set('markedAt', payload.markedAt)
         form.set('method', payload.method)
@@ -303,11 +305,13 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         // inserta con `ON CONFLICT (companyid, opid) DO NOTHING`, así que un
         // reenvío encuentra su propia marcación en vez de registrar una segunda
         // entrada a la misma hora (mig 230).
-        return await posBff('/api/v1/attendance', {
-          method: 'POST',
-          headers: { 'X-Punto-Op-Id': row.opId },
-          body: form,
-        })
+        // Con el Bearer del RELOJ (§9.2): las marcaciones las produce ese
+        // aparato, y su token vive en otro slot que el de la caja.
+        return await posBff(
+          '/api/v1/attendance',
+          { method: 'POST', headers: { 'X-Punto-Op-Id': row.opId }, body: form },
+          'clock',
+        )
       }
 
       case 'stockCount': {

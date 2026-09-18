@@ -1,28 +1,37 @@
 "use client"
 
 /**
- * Quiosco de marcación de asistencia (context/83 F1).
+ * El RELOJ DE MARCACIÓN (context/83 §9.2).
  *
- * El empleado se para frente a la tablet del comercio, tipea su PIN de
- * marcación, se saca la foto y confirma entrada o salida. Se acabó.
+ * La persona se para frente a la tablet colgada en la entrada, la cámara la
+ * reconoce —o tipea su código— y confirma entrada o salida. Se acabó.
+ *
+ * ── Es un dispositivo, no una pantalla del POS ─────────────────────────────
+ *
+ * Hasta el 2026-09-18 esto vivía en `/pos/marcacion`, como una sección más del
+ * menú de la caja. El owner lo corrigió: "en las empresas los lectores de
+ * huella no están en el POS — ahí solo opera el cajero". Se parea como un
+ * aparato propio (`device.module = 'clock'`), arranca acá y no hace nada más.
+ *
+ * Lo que eso cambia de verdad: el roster del personal y sus rostros ya no bajan
+ * a todas las cajas del comercio. Bajan a este aparato y a ninguno más.
  *
  * ── Sin sesión de operador, a propósito ────────────────────────────────────
  *
- * Esta es la ÚNICA pantalla del POS que no le pregunta nada al operador del
- * lock screen. El quiosco es del COMERCIO y atiende a gente que en su mayoría
- * no tiene usuario del sistema (cocina, limpieza): exigir el PIN de un operador
- * para que un cocinero marque su entrada obligaría a inventarle una credencial,
- * que es justo lo que el modelo de `employee` evita (D2).
+ * El reloj no le pregunta nada a nadie antes de dejar marcar. Es del COMERCIO y
+ * atiende a gente que en su mayoría no opera el sistema (cocina, limpieza):
+ * pedir el PIN de un operador para que un cocinero fiche sería hacer que otra
+ * persona lo habilite a trabajar.
  *
- * Quién marcó lo dice su PIN de marcación propio y, sobre todo, la foto.
+ * Quién marcó lo dice su rostro o su código y, sobre todo, la foto.
  *
- * ── Offline-nativa de punta a punta (D7) ───────────────────────────────────
+ * ── Offline-nativo de punta a punta (D7) ───────────────────────────────────
  *
- * El PIN se valida LOCALMENTE contra los hashes que bajaron en el bootstrap —
+ * El código se valida LOCALMENTE contra los hashes que bajaron con el roster —
  * exactamente como el lock screen valida el del operador. La marcación y su
- * foto se encolan y suben cuando vuelve la red. Nada de esta pantalla necesita
- * conexión, y eso no es una optimización: un comercio sin internet sigue
- * teniendo gente que entra y sale.
+ * foto se encolan y suben solas. Nada de esta pantalla necesita conexión, y eso
+ * no es una optimización: un comercio sin internet sigue teniendo gente que
+ * entra y sale.
  *
  * ── Fail-open: la foto NUNCA bloquea (D4) ──────────────────────────────────
  *
@@ -74,7 +83,10 @@ import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
 import { FaceEnrollment } from "@/components/pos/face-enrollment"
 import { cn } from "@/lib/utils"
 
-import { useCatalogStore } from "@/lib/catalog/store"
+import { DeviceNotConnected } from "@/components/layout/device-not-connected"
+import { usePairedScreen } from "@/hooks/use-paired-screen"
+import { usePendingOpsSync } from "@/hooks/use-pending-ops-sync"
+import { useClockRoster } from "@/hooks/use-clock-roster"
 import { sha256Hex } from "@/lib/pos/pin-hash"
 import { captureJpeg, describeCameraError, type NoPhotoReason } from "@/lib/pos/attendance-photo"
 import {
@@ -88,7 +100,7 @@ import type { AttendanceMarkPayload } from "@/lib/pos/local-register-state"
 import { useSubmitAttendanceMark } from "@/hooks/use-attendance-mark"
 import { useAttendanceFaces, useEnrollFace } from "@/hooks/use-attendance-faces"
 import { resolveFaceOutcome, useFaceRecognition } from "@/hooks/use-face-recognition"
-import type { PosEmployee } from "@/lib/types/pos-bootstrap"
+import type { ClockEmployee } from "@/lib/types/clock"
 
 const PIN_LENGTH = 4
 
@@ -96,10 +108,27 @@ const PIN_LENGTH = 4
 type CameraState = { ok: true } | { ok: false; reason: NoPhotoReason; message: string } | null
 
 export default function MarcacionPage() {
-  const employees = useCatalogStore((s) => s.employees)
-  const rosterMissing = useCatalogStore((s) => s.attendanceRosterMissing)
-  const outlet = useCatalogStore((s) => s.outlet)
-  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  // El contexto del device: sucursal, nombre del comercio, revocación y
+  // heartbeat. `offlineFirst` porque este aparato tiene que seguir andando sin
+  // red — ver el docblock del hook.
+  //
+  // No se suscribe a ningún canal propio: lo único que le llega por WS es la
+  // revocación (que el hook maneja) y la invalidación del tenant, que refresca
+  // el roster por su `queryKey`.
+  const { pairState, ctx } = usePairedScreen({
+    module: "clock",
+    offlineFirst: true,
+    channels: () => [],
+    onEvent: () => {},
+  })
+
+  // La cola de operaciones del device. En un reloj solo puede tener
+  // marcaciones: no hay ninguna otra pantalla que encole algo acá.
+  usePendingOpsSync()
+
+  const outletId = ctx?.outletId ?? ""
+  const roster = useClockRoster(outletId, pairState === "ready")
+  const employees = React.useMemo(() => roster.data?.employees ?? [], [roster.data])
   const submit = useSubmitAttendanceMark()
 
   const [pin, setPin] = React.useState("")
@@ -111,7 +140,7 @@ export default function MarcacionPage() {
    * son los mismos— pero sí lo que se informa al registrar la marcación.
    */
   const [matched, setMatched] = React.useState<{
-    employee: PosEmployee
+    employee: ClockEmployee
     proposed: AttendanceKind
     via: "pin" | "face"
   } | null>(null)
@@ -194,13 +223,12 @@ export default function MarcacionPage() {
 
   // ── Reconocimiento facial (F2) ────────────────────────────────────────────
   //
-  // Los rostros bajan por su propio endpoint y no en el bootstrap: son biometría
-  // y una sola pantalla los usa (ver `use-attendance-faces.ts`). Sin conexión
-  // salen del caché local, así que reconocer sigue andando sin internet.
-  const outletId = outlet?.id ?? ""
+  // Los rostros bajan por su propio endpoint, aparte del roster: son biometría y
+  // cambian con otra frecuencia (ver `use-attendance-faces.ts`). Sin red salen
+  // del caché local, así que reconocer sigue andando igual.
   // Solo se piden cuando hay cámara: sin ella no hay nada que comparar, y pedir
   // vectores faciales que nadie va a usar es exponer biometría sin motivo.
-  const faces = useAttendanceFaces(outletId, camera?.ok === true)
+  const faces = useAttendanceFaces(outletId, camera?.ok === true && pairState === "ready")
   const enrollFace = useEnrollFace(outletId)
 
   /**
@@ -269,7 +297,10 @@ export default function MarcacionPage() {
       const hash = await sha256Hex(pin)
       if (cancelled) return
 
-      const found = employees.find((e) => e.markPinHash === hash) ?? null
+      // `pinHash` nulo = esa persona se identifica por el rostro y no tiene
+      // código (§9.3). Se saltea en vez de compararse: sin esta guarda, un
+      // `undefined === hash` nunca matchea pero tampoco se lee como intencional.
+      const found = employees.find((e) => e.pinHash !== null && e.pinHash === hash) ?? null
       if (!found) {
         setError(true)
         setPin("")
@@ -339,7 +370,7 @@ export default function MarcacionPage() {
       const result = await submit.mutateAsync({
         employeeId: employee.id,
         employeeName: employee.name,
-        markPinHash: employee.markPinHash,
+        pinHash: matched.via === "pin" ? employee.pinHash : null,
         kind,
         // La hora del DISPOSITIVO, en el momento de marcar. Nunca la del envío:
         // esta marcación puede sincronizar mañana.
@@ -349,13 +380,19 @@ export default function MarcacionPage() {
         noPhotoReason,
         faceOutcome,
         photo,
-        registerId: activeRegisterId,
+        // El reloj no tiene caja, y la marcación no pertenece a ninguna: lo que
+        // la ubica es la sucursal del device. La cola sabe no cercar por caja
+        // una operación sin caja (ver `pending-ops-sync.ts`).
+        registerId: "",
       })
 
       const verb = kind === "in" ? "Entrada" : "Salida"
       if (result.queued) {
         toast.success(`${verb} registrada — ${employee.name}`, {
-          description: "Se va a enviar sola cuando vuelva la conexión.",
+          // El owner pidió que el reloj no hable de internet ni de conexión: a
+          // quien acaba de fichar no le sirve saber por qué, le sirve saber que
+          // quedó registrado y que no tiene que hacer nada más.
+          description: "Queda registrada. Se envía sola.",
         })
       } else if (result.needsReview || !photo) {
         toast.success(`${verb} registrada — ${employee.name}`, {
@@ -391,28 +428,36 @@ export default function MarcacionPage() {
   // Se resuelven ANTES del layout: son pantallas distintas, no un layout con
   // partes apagadas.
 
-  // RRHH es core: el roster baja siempre. Que falte la clave solo puede
-  // significar que esta caja guarda un arranque anterior a ese cambio — se
-  // arregla con una sincronización, no hay nada que habilitar.
-  if (rosterMissing) {
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <EmptyState
-          icon={UserCheck}
-          title="Esta caja necesita actualizarse"
-          description="Conectá el dispositivo a internet y volvé a abrir la app para que baje la lista de empleados."
-        />
-      </div>
-    )
+  // Sin pareo no hay reloj. La pantalla de vinculación es la misma que usan el
+  // KDS y las demás pantallas del comercio.
+  if (pairState !== "ready") {
+    return <DeviceNotConnected kind="clock" reason="unpaired" />
   }
 
+  // Nadie cargado en la sucursal. El legajo se carga en el panel; acá solo se
+  // dice dónde, en una línea.
   if (employees.length === 0) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           icon={UserCheck}
           title="Todavía nadie puede marcar"
-          description="Cargá el PIN de marcación en el legajo de cada persona, desde Empleados en el panel."
+          description="Cargá al personal de esta sucursal desde Empleados, en el panel."
+        />
+      </div>
+    )
+  }
+
+  // Hay gente cargada pero nadie se puede identificar: ni rostro ni código.
+  // Desde el §9.3 el código es OPCIONAL, así que este estado es real y tiene
+  // una salida concreta — registrar el rostro desde la ficha.
+  if (employees.every((e) => e.pinHash === null) && (faces.data?.faces.length ?? 0) === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <EmptyState
+          icon={ScanFace}
+          title="Todavía nadie se puede identificar"
+          description="Registrá el rostro de cada persona desde su ficha, en Empleados."
         />
       </div>
     )
@@ -460,7 +505,7 @@ export default function MarcacionPage() {
           <h1 className="text-2xl font-semibold">Marcación</h1>
           {/* Altura constante: la línea existe siempre, diga lo que diga. */}
           <p className="truncate text-sm text-muted-foreground">
-            {outlet?.name || "Sin sucursal"} · {employees.length} persona
+            {ctx?.outletName || "Sin sucursal"} · {employees.length} persona
             {employees.length === 1 ? "" : "s"} habilitada
             {employees.length === 1 ? "" : "s"}
           </p>
@@ -622,7 +667,7 @@ export default function MarcacionPage() {
                 error ? "font-semibold text-destructive" : "text-muted-foreground",
               )}
             >
-              {error ? "Ese código no es de nadie" : "Ingresá tu código de marcación"}
+              {error ? "Ese código no es de nadie" : "Ingresá tu código"}
             </p>
 
             {/* Teclado en pantalla. Botones de 72px: se tocan con el dedo en una
@@ -670,7 +715,7 @@ export default function MarcacionPage() {
         <Check className="size-4" />
         {queued.length === 0
           ? "Todas las marcaciones están enviadas"
-          : `${queued.length} marcación${queued.length === 1 ? "" : "es"} esperando conexión`}
+          : `${queued.length} marcación${queued.length === 1 ? "" : "es"} sin enviar`}
       </footer>
     </div>
   )

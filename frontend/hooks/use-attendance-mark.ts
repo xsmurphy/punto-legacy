@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Registrar una marcación de asistencia desde el quiosco (context/83 F1).
+ * Registrar una marcación de asistencia desde el reloj (context/83 F1, §9.2).
  *
  * ── Una sola mutación, porque una marcación es UN hecho ────────────────────
  *
@@ -96,7 +96,10 @@ export function useSubmitAttendanceMark() {
 
       const form = new FormData()
       form.set("employeeId", payload.employeeId)
-      form.set("markPinHash", payload.markPinHash)
+      // Vacío cuando la persona se identificó por el rostro y no tiene código:
+      // el servidor lo lee como "no hay PIN que comparar" y, si el método fuera
+      // 'pin', lo marca para revisar en vez de rechazar (fail-open, D4).
+      form.set("pinHash", payload.pinHash ?? "")
       form.set("kind", payload.kind)
       form.set("markedAt", payload.markedAt)
       form.set("method", payload.method)
@@ -113,11 +116,12 @@ export function useSubmitAttendanceMark() {
         // Sin `Content-Type` a mano: el boundary de `multipart/form-data` lo
         // genera el browser al serializar el FormData, y escribir la cabecera
         // sin él deja un body que el servidor no puede partir.
-        const res = await posFetch("/api/v1/attendance", {
-          method: "POST",
-          headers: { "X-Punto-Op-Id": opId },
-          body: form,
-        })
+        const res = await posFetch(
+          "/api/v1/attendance",
+          { method: "POST", headers: { "X-Punto-Op-Id": opId }, body: form },
+          // El Bearer del RELOJ (§9.2). Una caja ya no registra marcaciones.
+          "clock",
+        )
 
         const json = (await res.json().catch(() => null)) as {
           ok?: boolean

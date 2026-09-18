@@ -11,7 +11,8 @@ require_once __DIR__ . '/_harness.php';
  * Qué protege:
  *
  *   a. La migración 229 corrió: `employee` y `employee_attachment` existen.
- *   b. Alta: campos mínimos, normalización camelCase → columnas, y que los
+ *   b. Alta: el legajo CUELGA de una persona (`contactId`, mig 233) y no se
+ *      puede crear sin ella; normalización camelCase → columnas; y que los
  *      tres esquemas de remuneración CONVIVAN en la misma fila (fijo + hora +
  *      comisión). Es la D1 del plan: si un día alguien los convierte en un
  *      enum excluyente, esto falla.
@@ -22,13 +23,15 @@ require_once __DIR__ . '/_harness.php';
  *   e. Aislamiento multi-tenant: un empleado de la empresa A no se lee, no se
  *      edita, no se egresa y no se archiva desde la empresa B. Cuatro verbos,
  *      no uno: el aislamiento se rompe por el que nadie probó.
- *   f. Referencias validadas contra el TENANT: un `outletId` o un `userId` de
- *      otra empresa se rechazan aunque la FK los acepte (apunta a la tabla,
- *      no al comercio). Y el `userId` tiene que ser type=0: un CLIENTE no
- *      puede quedar vinculado como usuario del legajo.
+ *   f. Referencias validadas contra el TENANT: un `outletId` o un `contactId`
+ *      de otra empresa se rechazan aunque la FK los acepte (apunta a la tabla,
+ *      no al comercio). Y el `contactId` tiene que ser type=0: un CLIENTE no
+ *      puede tener legajo.
+ *   i. §9.1: la identidad NO se copia — el nombre sale de `contact`, el legajo
+ *      no cambia de dueño, y una persona no puede tener dos legajos.
  *   g. Invariantes de la BD con mensaje entendible: egreso anterior al
- *      ingreso, monto fijo sin periodicidad, periodicidad inválida, y los dos
- *      índices únicos (un usuario en dos legajos, un documento repetido).
+ *      ingreso, monto fijo sin periodicidad, periodicidad inválida, la PK (una
+ *      persona, un legajo) y el índice único del documento.
  *   h. `archive()` saca la fila del listado sin borrarla, y `terminate()` NO
  *      la saca (sigue apareciendo como egresada).
  *
@@ -49,8 +52,19 @@ $userIdConst    = 'e33b1eea-0000-4000-8000-000000000103';
 $otherCompanyId = 'e33b1eea-0000-4000-8000-000000000201';
 $otherOutletId  = 'e33b1eea-0000-4000-8000-000000000202';
 $otherUserId    = 'e33b1eea-0000-4000-8000-000000000203';
-// Un CLIENTE (type=1) del mismo comercio: no puede vincularse como usuario.
+// Un CLIENTE (type=1) del mismo comercio: no puede tener legajo.
 $customerId     = 'e33b1eea-0000-4000-8000-000000000104';
+// Una persona por legajo (mig 233). Estos son los dueños de los dos legajos
+// que arma el test, más uno suelto para los casos que necesitan una persona
+// libre.
+$cocineraId     = 'e33b1eea-0000-4000-8000-000000000105';
+$vendedorId     = 'e33b1eea-0000-4000-8000-000000000106';
+$sparePersonId  = 'e33b1eea-0000-4000-8000-000000000107';
+// Dos más, porque desde la mig 233 la PK es la persona: un legajo archivado la
+// deja ocupada para siempre, así que cada caso que CREA una fila necesita la
+// suya. Los casos que solo esperan una excepción comparten `$sparePersonId`.
+$spare2Id       = 'e33b1eea-0000-4000-8000-000000000108';
+$spare3Id       = 'e33b1eea-0000-4000-8000-000000000109';
 
 define('COMPANY_ID', $companyIdConst);
 define('OUTLET_ID',  $outletIdConst);
@@ -144,7 +158,16 @@ foreach ([[$outletId, $companyId, 'Legajo Test - Sucursal'],
     );
 }
 // type=0 = usuario del sistema; type=1 = cliente.
+//
+// Desde la mig 233 CADA legajo necesita su propia persona: el legajo es un
+// satélite 1:1 del contacto, así que el fixture arma tantos usuarios como
+// legajos vaya a crear, más los de los casos de error.
 foreach ([[$userId, $companyId, 'Usuaria del sistema', 0],
+          [$cocineraId, $companyId, 'Rosa Benítez', 0],
+          [$vendedorId, $companyId, 'Aldo Cáceres', 0],
+          [$sparePersonId, $companyId, 'Persona de repuesto', 0],
+          [$spare2Id, $companyId, 'Persona de repuesto 2', 0],
+          [$spare3Id, $companyId, 'Persona de repuesto 3', 0],
           [$otherUserId, $otherCompanyId, 'Usuario de la vecina', 0],
           [$customerId, $companyId, 'Cliente cualquiera', 1]] as [$cid2, $cid, $cname2, $ctype]) {
     $db->Execute(
@@ -177,14 +200,13 @@ check(
 // ── b. Alta ──────────────────────────────────────────────────────────────────
 
 $cocinera = $svc->create($companyId, [
-    'fullName'       => 'Rosa Benítez',
+    'contactId'      => $cocineraId,
     'documentNumber' => '1.234.567',
     'jobTitle'       => 'Cocinera',
     'hireDate'       => '2024-03-01',
     'outletId'       => $outletId,
     'fixedAmount'    => 2750000,
     'fixedPeriod'    => 'monthly',
-    'email'          => 'rosa@ejemplo.com',
 ], $userId);
 
 check(
@@ -211,16 +233,36 @@ check(
     $failures,
     $checks
 );
+// §9.1: el legajo ES de una persona. Sin ella no hay a quién sumarle horas,
+// atribuirle una venta ni liquidarle un sueldo.
 check(
-    'el nombre es obligatorio',
+    'el legajo no se puede crear sin persona',
     expectThrow(static fn() => $svc->create($companyId, ['hireDate' => '2024-01-01'])) !== null,
-    'aceptó un legajo sin nombre',
+    'aceptó un legajo sin contactId',
     $failures,
     $checks
 );
 check(
+    'el id del legajo ES el de la persona',
+    $cocinera['id'] === $cocineraId && $cocinera['userId'] === $cocineraId,
+    json_encode(['id' => $cocinera['id'], 'userId' => $cocinera['userId']]),
+    $failures,
+    $checks
+);
+// El nombre NO se copia: sale del contacto por JOIN. Si un día alguien vuelve a
+// guardarlo en `employee`, esto falla — que es el punto.
+$db->Execute('UPDATE contact SET contactName = ? WHERE contactId = ?', ['Rosa B. de Benítez', $cocineraId]);
+check(
+    'el nombre sale del contacto, no de una copia en el legajo',
+    $svc->find($cocineraId, $companyId)['fullName'] === 'Rosa B. de Benítez',
+    'el legajo devolvió un nombre viejo: hay una copia guardada',
+    $failures,
+    $checks
+);
+$db->Execute('UPDATE contact SET contactName = ? WHERE contactId = ?', ['Rosa Benítez', $cocineraId]);
+check(
     'la fecha de ingreso es obligatoria',
-    expectThrow(static fn() => $svc->create($companyId, ['fullName' => 'Sin ingreso'])) !== null,
+    expectThrow(static fn() => $svc->create($companyId, ['contactId' => $sparePersonId])) !== null,
     'aceptó un legajo sin fecha de ingreso',
     $failures,
     $checks
@@ -228,10 +270,9 @@ check(
 
 // D1: los TRES esquemas conviven en la misma fila.
 $vendedor = $svc->create($companyId, [
-    'fullName'    => 'Aldo Cáceres',
+    'contactId'   => $vendedorId,
     'jobTitle'    => 'Vendedor',
     'hireDate'    => '2023-06-15',
-    'userId'      => $userId,
     'fixedAmount' => 1500000,
     'fixedPeriod' => 'biweekly',
     'hourlyRate'  => 12000,
@@ -249,9 +290,25 @@ check(
     $checks
 );
 check(
-    'el vínculo opcional al usuario del sistema se guarda y se resuelve',
-    $vendedor['userId'] === $userId && $vendedor['userName'] === 'Usuaria del sistema',
-    json_encode(['userId' => $vendedor['userId'], 'userName' => $vendedor['userName']]),
+    'el legajo trae el nombre y el estado de la credencial de esa persona',
+    $vendedor['fullName'] === 'Aldo Cáceres' && $vendedor['userActive'] === true,
+    json_encode(['fullName' => $vendedor['fullName'], 'userActive' => $vendedor['userActive']]),
+    $failures,
+    $checks
+);
+// §9.3: el PIN es del usuario y es OPCIONAL. El legajo solo dice si lo tiene.
+check(
+    'sin código cargado, el legajo lo dice y no lo inventa',
+    $vendedor['hasPin'] === false,
+    json_encode(['hasPin' => $vendedor['hasPin']]),
+    $failures,
+    $checks
+);
+$db->Execute('UPDATE contact SET pinhash = ? WHERE contactId = ?', [hash('sha256', '4321'), $vendedorId]);
+check(
+    'el código del USUARIO es el que ve el legajo (no hay un segundo PIN)',
+    $svc->find($vendedorId, $companyId)['hasPin'] === true,
+    'el legajo no leyó el PIN del contacto',
     $failures,
     $checks
 );
@@ -265,23 +322,22 @@ check(
         && $editado['fullName'] === 'Aldo Cáceres'
         && near($editado['fixedAmount'], 1500000.0)
         && $editado['fixedPeriod'] === 'biweekly'
-        && $editado['userId'] === $userId,
+        && $editado['userId'] === $vendedorId,
     json_encode($editado),
     $failures,
     $checks
 );
 
-// Desvincular al usuario NO toca el legajo (D2).
-$desvinculado = $svc->update($vendedor['id'], $companyId, ['userId' => null], $userId);
+// §9.1: el legajo NO cambia de dueño. Mover un historial laboral de una
+// persona a otra no es una edición; el endpoint además descarta la clave.
+$noMovido = $svc->update($vendedor['id'], $companyId, ['contactId' => $sparePersonId], $userId);
 check(
-    'desvincular al usuario deja el legajo intacto',
-    $desvinculado['userId'] === null && $desvinculado['fullName'] === 'Aldo Cáceres',
-    json_encode($desvinculado),
+    'el legajo no cambia de persona al editarlo',
+    $noMovido['id'] === $vendedorId && $noMovido['fullName'] === 'Aldo Cáceres',
+    json_encode(['id' => $noMovido['id'], 'fullName' => $noMovido['fullName']]),
     $failures,
     $checks
 );
-// …y se puede volver a vincular.
-$svc->update($vendedor['id'], $companyId, ['userId' => $userId], $userId);
 
 // ── d. Egreso ────────────────────────────────────────────────────────────────
 
@@ -378,33 +434,31 @@ check(
 check(
     'una sucursal de otra empresa se rechaza',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Con sucursal ajena',
-        'hireDate' => '2024-01-01',
-        'outletId' => $otherOutletId,
+        'contactId' => $sparePersonId,
+        'hireDate'  => '2024-01-01',
+        'outletId'  => $otherOutletId,
     ])) !== null,
     'aceptó una sucursal de otro comercio',
     $failures,
     $checks
 );
 check(
-    'un usuario de otra empresa se rechaza',
+    'una persona de otra empresa se rechaza',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Con usuario ajeno',
-        'hireDate' => '2024-01-01',
-        'userId'   => $otherUserId,
+        'contactId' => $otherUserId,
+        'hireDate'  => '2024-01-01',
     ])) !== null,
-    'aceptó un usuario de otro comercio',
+    'aceptó una persona de otro comercio',
     $failures,
     $checks
 );
 check(
-    'un CLIENTE no se puede vincular como usuario del legajo',
+    'un CLIENTE no puede tener legajo',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Con cliente como usuario',
-        'hireDate' => '2024-01-01',
-        'userId'   => $customerId,
+        'contactId' => $customerId,
+        'hireDate'  => '2024-01-01',
     ])) !== null,
-    'aceptó un contacto type=1 como usuario',
+    'aceptó un contacto type=1 como empleado',
     $failures,
     $checks
 );
@@ -414,9 +468,9 @@ check(
 check(
     'el egreso no puede ser anterior al ingreso',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Fechas al revés',
-        'hireDate' => '2024-05-01',
-        'endDate'  => '2024-04-01',
+        'contactId' => $sparePersonId,
+        'hireDate'  => '2024-05-01',
+        'endDate'   => '2024-04-01',
     ])) !== null,
     'aceptó un egreso anterior al ingreso',
     $failures,
@@ -425,7 +479,7 @@ check(
 check(
     'un monto fijo sin periodicidad se rechaza',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName'    => 'Sin periodicidad',
+        'contactId'   => $sparePersonId,
         'hireDate'    => '2024-01-01',
         'fixedAmount' => 1000000,
     ])) !== null,
@@ -436,7 +490,7 @@ check(
 check(
     'una periodicidad inválida se rechaza',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName'    => 'Periodicidad rara',
+        'contactId'   => $sparePersonId,
         'hireDate'    => '2024-01-01',
         'fixedAmount' => 1000000,
         'fixedPeriod' => 'quincenalmente',
@@ -455,21 +509,22 @@ check(
     $failures,
     $checks
 );
+// La PK, ahora. Y a diferencia del índice parcial que reemplaza, tampoco deja
+// un segundo legajo ARCHIVADO de la misma persona.
 check(
-    'un usuario no puede estar en dos legajos vigentes',
+    'una persona no puede tener dos legajos',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Duplicado por usuario',
-        'hireDate' => '2024-01-01',
-        'userId'   => $userId,
+        'contactId' => $vendedorId,
+        'hireDate'  => '2024-01-01',
     ])) !== null,
-    'aceptó dos legajos vigentes para el mismo usuario',
+    'aceptó dos legajos para la misma persona',
     $failures,
     $checks
 );
 check(
     'un documento no se repite entre legajos vigentes',
     expectThrow(static fn() => $svc->create($companyId, [
-        'fullName'       => 'Duplicado por documento',
+        'contactId'      => $sparePersonId,
         'hireDate'       => '2024-01-01',
         'documentNumber' => '1.234.567',
     ])) !== null,
@@ -477,14 +532,24 @@ check(
     $failures,
     $checks
 );
+// El teléfono dejó de ser del legajo (mig 233): es del contacto y lo valida
+// `UsersService`. Mandarlo acá no puede escribir nada.
 check(
-    'un teléfono inválido se rechaza',
-    expectThrow(static fn() => $svc->create($companyId, [
-        'fullName' => 'Teléfono roto',
-        'hireDate' => '2024-01-01',
-        'phone'    => '12',
-    ])) !== null,
-    'aceptó un teléfono que libphonenumber no valida',
+    'el legajo ignora un teléfono en el payload en vez de guardarlo aparte',
+    (static function () use ($svc, $companyId, $spare2Id) {
+        $row = $svc->create($companyId, [
+            'contactId' => $spare2Id,
+            'hireDate'  => '2024-01-01',
+            'phone'     => '12',
+        ]);
+        $ok = $row['phone'] === null;
+        // Se borra la fila en vez de archivarla: archivarla dejaría a esa
+        // persona ocupada (la PK no distingue estado) y le sumaría un legajo
+        // al conteo del listado que revisa el bloque siguiente.
+        ncmExecute('DELETE FROM employee WHERE contactid = ? AND companyid = ?', [$row['id'], $companyId]);
+        return $ok;
+    })(),
+    'el legajo guardó un teléfono propio: volvió la copia de identidad',
     $failures,
     $checks
 );
@@ -537,11 +602,11 @@ check(
     $checks
 );
 check(
-    'el índice único ignora a los archivados (el documento se puede reusar)',
-    (static function () use ($svc, $companyId) {
+    'el índice único del documento ignora a los archivados (se puede reusar)',
+    (static function () use ($svc, $companyId, $spare3Id) {
         try {
             $svc->create($companyId, [
-                'fullName'       => 'Reusa el documento del archivado',
+                'contactId'      => $spare3Id,
                 'hireDate'       => '2026-01-01',
                 'documentNumber' => '1.234.567',
             ]);

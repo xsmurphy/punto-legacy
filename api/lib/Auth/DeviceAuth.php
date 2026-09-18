@@ -512,11 +512,29 @@ final class DeviceAuth
             header('Content-Type: application/json');
             die(json_encode(['error' => 'Sesión revocada por el administrador', 'code' => 'session_revoked']));
         }
+        $outletId   = (string) ($ctx['outletId']   ?? '');
+        $registerId = (string) ($ctx['registerId'] ?? '');
+
+        // El reloj de marcación (context/83 §9.2) necesita SUCURSAL y no caja:
+        // lo que baja a ese aparato —el roster y los rostros— es el de la gente
+        // de esa sucursal. Sin ella no sabría a quién puede reconocer, y un
+        // reloj que reconoce a todo el comercio es exactamente lo que el
+        // alcance por sucursal existe para evitar.
+        if ($module === 'clock') {
+            if ($outletId === '') {
+                http_response_code(401);
+                header('Content-Type: application/json');
+                die(json_encode([
+                    'error' => 'Este dispositivo no tiene sucursal asignada. Generá un nuevo link de conexión desde el panel.',
+                    'code'  => 'device_incomplete',
+                ]));
+            }
+            return $ctx;
+        }
+
         if ($module !== 'pos') {
             return $ctx;
         }
-        $outletId   = (string) ($ctx['outletId']   ?? '');
-        $registerId = (string) ($ctx['registerId'] ?? '');
         if ($outletId === '' || $registerId === '') {
             http_response_code(401);
             header('Content-Type: application/json');

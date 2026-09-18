@@ -137,12 +137,12 @@ final class EmployeeFaceService
         $expiresAt = date('Y-m-d H:i:sP', time() + self::ENROLLMENT_TTL_MINUTES * 60);
 
         // UPSERT: volver a abrir RENUEVA la apertura viva en vez de acumular
-        // uno por click. La PK (companyid, employeeid) es lo que lo garantiza.
+        // uno por click. La PK (companyid, contactid) es lo que lo garantiza.
         ncmExecute(
             'INSERT INTO employee_face_enrollment
-                 (companyid, employeeid, outletid, expiresat, createdby)
+                 (companyid, contactid, outletid, expiresat, createdby)
              VALUES (?, ?, ?, ?, ?)
-             ON CONFLICT (companyid, employeeid) DO UPDATE
+             ON CONFLICT (companyid, contactid) DO UPDATE
                 SET outletid  = EXCLUDED.outletid,
                     expiresat = EXCLUDED.expiresat,
                     createdby = EXCLUDED.createdby,
@@ -168,7 +168,7 @@ final class EmployeeFaceService
     {
         $this->employeeOrFail($companyId, $employeeId);
         ncmExecute(
-            'DELETE FROM employee_face_enrollment WHERE companyid = ? AND employeeid = ?',
+            'DELETE FROM employee_face_enrollment WHERE companyid = ? AND contactid = ?',
             [$companyId, $employeeId]
         );
     }
@@ -199,9 +199,10 @@ final class EmployeeFaceService
         }
 
         $row = ncmExecute(
-            'SELECT f.employeeid, f.expiresat, e.fullname, e.jobtitle
+            'SELECT f.contactid, f.expiresat, c.contactname, e.jobtitle
                FROM employee_face_enrollment f
-               JOIN employee e ON e.employeeid = f.employeeid AND e.companyid = f.companyid
+               JOIN employee e ON e.contactid = f.contactid AND e.companyid = f.companyid
+               JOIN contact  c ON c.contactid = f.contactid
               WHERE ' . implode(' AND ', $where) . '
               ORDER BY f.createdat DESC
               LIMIT 1',
@@ -212,8 +213,8 @@ final class EmployeeFaceService
         }
 
         return [
-            'employeeId' => (string) $row['employeeid'],
-            'name'       => (string) $row['fullname'],
+            'employeeId' => (string) $row['contactid'],
+            'name'       => (string) $row['contactname'],
             'jobTitle'   => self::strOrNull($row['jobtitle'] ?? null),
             'expiresAt'  => (string) $row['expiresat'],
         ];
@@ -276,7 +277,7 @@ final class EmployeeFaceService
         // consumirla, y no viaja al quiosco en `pendingEnrollment()`: la caja no
         // tiene por qué saber qué usuario del panel lo habilitó.
         $authorizer = ncmExecute(
-            'SELECT createdby FROM employee_face_enrollment WHERE companyid = ? AND employeeid = ? LIMIT 1',
+            'SELECT createdby FROM employee_face_enrollment WHERE companyid = ? AND contactid = ? LIMIT 1',
             [$companyId, $employeeId]
         );
 
@@ -296,9 +297,9 @@ final class EmployeeFaceService
         // seguido de un alta que puede quedar a mitad.
         ncmExecute(
             'INSERT INTO employee_face
-                 (companyid, employeeid, embedding, modelversion, samples, photokey, createdby)
+                 (companyid, contactid, embedding, modelversion, samples, photokey, createdby)
              VALUES (?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT (companyid, employeeid, modelversion) DO UPDATE
+             ON CONFLICT (companyid, contactid, modelversion) DO UPDATE
                 SET embedding = EXCLUDED.embedding,
                     samples   = EXCLUDED.samples,
                     photokey  = COALESCE(EXCLUDED.photokey, employee_face.photokey),
@@ -318,7 +319,7 @@ final class EmployeeFaceService
         // que nadie lo autorice otra vez, que es exactamente lo que el permiso
         // acotado existe para impedir.
         ncmExecute(
-            'DELETE FROM employee_face_enrollment WHERE companyid = ? AND employeeid = ?',
+            'DELETE FROM employee_face_enrollment WHERE companyid = ? AND contactid = ?',
             [$companyId, $employeeId]
         );
 
@@ -367,9 +368,9 @@ final class EmployeeFaceService
         }
 
         $rs = ncmExecute(
-            'SELECT f.employeeid, f.embedding, f.modelversion, f.updatedat
+            'SELECT f.contactid, f.embedding, f.modelversion, f.updatedat
                FROM employee_face f
-               JOIN employee e ON e.employeeid = f.employeeid AND e.companyid = f.companyid
+               JOIN employee e ON e.contactid = f.contactid AND e.companyid = f.companyid
               WHERE ' . implode(' AND ', $where),
             $params,
             false,
@@ -383,7 +384,7 @@ final class EmployeeFaceService
                 $vec = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
                 if (is_array($vec) && $vec !== []) {
                     $rows[] = [
-                        'employeeId'   => (string) $rs->fields['employeeid'],
+                        'employeeId'   => (string) $rs->fields['contactid'],
                         'embedding'    => array_map(static fn($n) => (float) $n, array_values($vec)),
                         'modelVersion' => (string) $rs->fields['modelversion'],
                         'updatedAt'    => self::strOrNull($rs->fields['updatedat'] ?? null),
@@ -416,7 +417,7 @@ final class EmployeeFaceService
         $row = ncmExecute(
             'SELECT modelversion, samples, updatedat, createdat
                FROM employee_face
-              WHERE companyid = ? AND employeeid = ?
+              WHERE companyid = ? AND contactid = ?
               ORDER BY updatedat DESC
               LIMIT 1',
             [$companyId, $employeeId]
@@ -453,9 +454,9 @@ final class EmployeeFaceService
         }
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $rs = ncmExecute(
-            'SELECT employeeid, modelversion, samples, updatedat
+            'SELECT contactid, modelversion, samples, updatedat
                FROM employee_face
-              WHERE companyid = ? AND employeeid IN (' . $placeholders . ')',
+              WHERE companyid = ? AND contactid IN (' . $placeholders . ')',
             array_merge([$companyId], $ids),
             false,
             true
@@ -464,8 +465,8 @@ final class EmployeeFaceService
         $out = [];
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
-                $out[(string) $rs->fields['employeeid']] = [
-                    'employeeId'   => (string) $rs->fields['employeeid'],
+                $out[(string) $rs->fields['contactid']] = [
+                    'employeeId'   => (string) $rs->fields['contactid'],
                     'modelVersion' => (string) $rs->fields['modelversion'],
                     'samples'      => (int) ($rs->fields['samples'] ?? 1),
                     'enrolledAt'   => self::strOrNull($rs->fields['updatedat'] ?? null),
@@ -499,7 +500,7 @@ final class EmployeeFaceService
 
         $keys = [];
         $rs = ncmExecute(
-            'SELECT photokey FROM employee_face WHERE companyid = ? AND employeeid = ?',
+            'SELECT photokey FROM employee_face WHERE companyid = ? AND contactid = ?',
             [$companyId, $employeeId],
             false,
             true
@@ -515,8 +516,8 @@ final class EmployeeFaceService
             $rs->Close();
         }
 
-        ncmExecute('DELETE FROM employee_face WHERE companyid = ? AND employeeid = ?', [$companyId, $employeeId]);
-        ncmExecute('DELETE FROM employee_face_enrollment WHERE companyid = ? AND employeeid = ?', [$companyId, $employeeId]);
+        ncmExecute('DELETE FROM employee_face WHERE companyid = ? AND contactid = ?', [$companyId, $employeeId]);
+        ncmExecute('DELETE FROM employee_face_enrollment WHERE companyid = ? AND contactid = ?', [$companyId, $employeeId]);
 
         if ($this->s3 !== null) {
             foreach ($keys as $key) {
@@ -696,7 +697,7 @@ final class EmployeeFaceService
         }
         $row = ncmExecute(
             'SELECT photokey FROM employee_face
-              WHERE companyid = ? AND employeeid = ?
+              WHERE companyid = ? AND contactid = ?
               ORDER BY updatedat DESC LIMIT 1',
             [$companyId, $employeeId]
         );
@@ -724,9 +725,9 @@ final class EmployeeFaceService
             throw new \RuntimeException('Empleado no encontrado');
         }
         $row = ncmExecute(
-            'SELECT employeeid, outletid, status, enddate, biometricconsentat
+            'SELECT contactid, outletid, status, enddate, biometricconsentat
                FROM employee
-              WHERE employeeid = ? AND companyid = ?
+              WHERE contactid = ? AND companyid = ?
               LIMIT 1',
             [$employeeId, $companyId]
         );

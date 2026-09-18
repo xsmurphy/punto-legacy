@@ -1,8 +1,9 @@
 # RRHH básico + marcación de asistencia (quiosco facial)
 
-**Estado: plan CERRADO. F0-F2 implementadas 2026-09-17; REFACTOR 2026-09-18
-en curso (§9, decisiones del owner que SUPERSEDEN D2 y parte de D3/D4):
-usuario=empleado, reloj de marcación como dispositivo propio, PIN opcional.**
+**Estado: plan CERRADO. F0-F2 implementadas 2026-09-17; REFACTOR §9
+IMPLEMENTADO 2026-09-18 (branch `rrhh/unificacion`, SIN deployar):
+usuario=empleado, reloj de marcación como dispositivo propio, PIN opcional.
+Ver §9.4 para lo que quedó abierto.**
 
 ## §0 El pedido
 
@@ -215,6 +216,10 @@ probado en vez de estrenar hardware y modelo el mismo día.
   movimiento del ledger financiero existente; un libro aparte no concilia.
 - **Meter el salario/legajo en `user`** — mezcla credencial con relación
   laboral y deja sin legajo al personal que no opera el sistema.
+  **Matizado por el §9.1**: el legajo NO se metió en `contact`; se volvió un
+  satélite 1:1 suyo. Las columnas de la relación laboral siguen en su propia
+  tabla — lo que murió es la identidad DUPLICADA (nombre, teléfono, email) y
+  la entidad paralela con vínculo opcional.
 
 
 ## §9 REFACTOR 2026-09-18 — usuario = empleado, reloj dedicado, PIN opcional
@@ -249,3 +254,64 @@ cara y listo; el PIN es únicamente el respaldo de quien lo tiene (los
 operadores ya tienen el suyo, único). Sin rostro enrolado y sin PIN no se
 puede marcar: el reloj lo dice en una línea y se resuelve enrolando.
 `employee.markpinhash` muere con la unificación — un solo PIN por persona.
+
+
+### §9.4 Cómo quedó implementado (2026-09-18)
+
+**Migración 233** (`233_rrhh_usuario_unico.sql`). `employee.contactid` pasa a
+ser la CLAVE PRIMARIA — no una columna más al lado de `employeeid`: el legajo
+es un satélite 1:1 y dos claves para la misma fila terminan siendo dos filas.
+`attendance_mark`, `employee_face`, `employee_face_enrollment` y
+`employee_attachment` se repuntaron a `contactid`.
+
+Qué borra: los legajos cuyo `userid` no resuelve a un `contact` type=0 del
+mismo comercio. En el modelo nuevo esa persona no existe, no puede marcar y no
+se le puede liquidar nada. En producción eso era UNA fila de prueba.
+
+Mueren `employee.markpinhash`, `employee.fullname`, `employee.phone` y
+`employee.email`. **Sobreviven** `documentnumber`, `address` y `birthdate`
+aunque `contact` tenga columnas parecidas (`contactci`, `contactaddress`,
+`contactbirthday`): esas son del contacto como CLIENTE, no están en ninguna
+pantalla de usuarios, y el legajo necesita el documento con índice único por
+comercio. Moverlos es otro slice, con su pantalla.
+
+**Una decisión de FK que conviene no revertir sin leer esto**: la marcación
+referencia `contact` y NO `employee`. Es un hecho sobre una PERSONA y las horas
+que alimentan la liquidación no tienen por qué desaparecer si un día se borra el
+legajo. El rostro y los adjuntos, al revés, cuelgan del LEGAJO: el
+consentimiento biométrico es una columna de `employee`, así que borrar el legajo
+tiene que borrar la biometría en el mismo movimiento (D5).
+
+**El reloj** es `device.module = 'clock'`, se parea con SUCURSAL y sin caja, y
+su pantalla vive en `app/(screen)/marcacion` — el grupo de las pantallas
+pareadas, no `/pos`. Su bootstrap slim son DOS llamadas que ya existían:
+`/v1/screens?resource=context` (nombre del comercio, sucursal, formatos, que es
+lo mismo que piden el KDS y la pantalla de despacho) y
+`/v1/attendance?resource=roster`, que reemplaza a la clave `employees` del
+bootstrap del POS. Ninguna caja recibe ya el roster ni los rostros.
+
+`usePairedScreen` ganó `offlineFirst`: sin eso, un fallo de red mandaba al
+aparato a "no conectado", y el reloj tiene que seguir fichando sin internet
+(D7). Cachea el último contexto conocido; el 401 sigue olvidando el device.
+
+La cola de operaciones aprendió que **no todo lo que encola pertenece a una
+caja**: el cerco por caja ignora las operaciones con `registerId` vacío. Sin
+eso, la marcación del reloj quedaba terminal siempre y la cola no salía nunca.
+
+**Lo que quedó ABIERTO y el owner tiene que decidir:**
+
+1. **El tope de usuarios del plan ahora cuenta al personal que no opera.**
+   `UsersService::create()` aplica `assertPlanLimit()` (`plans.max_users ×
+   sucursales`), y desde que cada empleado es un usuario, cargar a la cocinera
+   consume un lugar. Contradice el "NO hay consideración de cobro por usuario"
+   del §9.1 sin que nadie lo haya decidido. La salida limpia sería que el tope
+   cuente CREDENCIALES (usuario con rol y contraseña) y no personas, pero es un
+   cambio al gate de facturación y no se tocó acá.
+2. **La regla "sin PIN con un solo usuario" (`context/72` §9.3) cuenta el
+   roster entero.** Un comercio unipersonal que cargue tres cocineros pasa a
+   tener cuatro usuarios, así que la caja vuelve a mostrar el bloqueo. El PIN
+   match del lockscreen sí ignora a quien no tiene código
+   (`lock-screen.tsx:145`), pero `soleOperator()` y `/v1/unlock-sole` cuentan
+   filas. No se cambió: tocar el conteo en el cliente sin tocarlo en el servidor
+   los hace divergir, y es una decisión de producto.
+3. **La ficha del legajo en tabs** — pedido aparte, no entra acá.

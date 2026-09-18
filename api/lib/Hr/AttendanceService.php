@@ -112,24 +112,28 @@ final class AttendanceService
      * última marcación conocida. Es lo que baja al snapshot del dispositivo.
      *
      * Proyección MÍNIMA a propósito — id, nombre, hash y última marcación. NO
-     * viaja el sueldo, ni el documento, ni el teléfono: el quiosco solo necesita
+     * viaja el sueldo, ni el documento, ni el teléfono: el reloj solo necesita
      * saber a quién corresponde un PIN y si le toca entrar o salir. El legajo
      * completo es realm `panel` y permiso propio (ver `employees.php`).
      *
      * Quién entra:
      *   - vigente (`status = 1`) y sin egreso;
-     *   - con PIN de marcación cargado — sin hash no hay nada contra qué validar
-     *     sin red, así que mandarlo solo agregaría un nombre que nunca matchea;
      *   - de ESTA sucursal, o sin sucursal asignada. El legajo tiene UNA
      *     sucursal principal (mig 229) y `NULL` significa "no está atado a
      *     ninguna" — típico del dueño o de quien rota. Excluirlos los dejaría sin
      *     poder marcar en ningún lado.
      *
+     * Ya NO se exige tener PIN (§9.3, mig 233). El código es OPCIONAL: quien
+     * solo marca asistencia pone la cara. Filtrar por PIN acá dejaría a esa
+     * persona fuera de la lista del reloj y, con ella, fuera del recuento y del
+     * mensaje que le dice al comercio qué le falta. `pinHash` en `null` es un
+     * dato legítimo: significa "a esta persona se la identifica por el rostro".
+     *
      * @return array<int, array<string,mixed>>
      */
     public function rosterForOutlet(string $companyId, string $outletId): array
     {
-        $where  = ['e.companyid = ?', 'e.status = 1', 'e.enddate IS NULL', 'e.markpinhash IS NOT NULL'];
+        $where  = ['e.companyid = ?', 'e.status = 1', 'e.enddate IS NULL'];
         $params = [$companyId];
 
         if (preg_match(self::UUID_RE, $outletId)) {
@@ -141,19 +145,20 @@ final class AttendanceService
         // sobre toda la tabla: son N empleados por un índice
         // (`idx_attendance_mark_employee`), no un scan del histórico entero del
         // comercio para quedarse con la última fila de cada uno.
-        $sql = 'SELECT e.employeeid, e.fullname, e.jobtitle, e.markpinhash,
+        $sql = 'SELECT e.contactid, c.contactname, e.jobtitle, c.pinhash,
                        lm.kind AS lastkind, lm.markedat AS lastmarkedat
                   FROM employee e
+                  JOIN contact c ON c.contactid = e.contactid
                   LEFT JOIN LATERAL (
                         SELECT m.kind, m.markedat
                           FROM attendance_mark m
-                         WHERE m.employeeid = e.employeeid
-                           AND m.companyid  = e.companyid
+                         WHERE m.contactid = e.contactid
+                           AND m.companyid = e.companyid
                          ORDER BY m.markedat DESC
                          LIMIT 1
                   ) lm ON TRUE
                  WHERE ' . implode(' AND ', $where) . '
-                 ORDER BY e.fullname ASC';
+                 ORDER BY c.contactname ASC';
 
         $rs = ncmExecute($sql, $params, false, true);
         $rows = [];
@@ -161,10 +166,11 @@ final class AttendanceService
             while (!$rs->EOF) {
                 $f = $rs->fields;
                 $rows[] = [
-                    'id'           => (string) $f['employeeid'],
-                    'name'         => (string) $f['fullname'],
+                    'id'           => (string) $f['contactid'],
+                    'name'         => (string) $f['contactname'],
                     'jobTitle'     => self::strOrNull($f['jobtitle'] ?? null),
-                    'markPinHash'  => (string) $f['markpinhash'],
+                    // `null` = se identifica por el rostro. Ver el docblock.
+                    'pinHash'      => self::strOrNull($f['pinhash'] ?? null),
                     'lastKind'     => self::strOrNull($f['lastkind'] ?? null),
                     'lastMarkedAt' => self::strOrNull($f['lastmarkedat'] ?? null),
                 ];
@@ -216,10 +222,13 @@ final class AttendanceService
             throw new \RuntimeException('La marcación no indica de quién es');
         }
 
+        // El PIN sale del CONTACTO (mig 233): hay uno solo por persona, el mismo
+        // del lockscreen de la caja.
         $employee = ncmExecute(
-            'SELECT employeeid, markpinhash, status, enddate
-               FROM employee
-              WHERE employeeid = ? AND companyid = ?
+            'SELECT e.contactid, c.pinhash, e.status, e.enddate
+               FROM employee e
+               JOIN contact c ON c.contactid = e.contactid
+              WHERE e.contactid = ? AND e.companyid = ?
               LIMIT 1',
             [$employeeId, $companyId]
         );
@@ -254,8 +263,12 @@ final class AttendanceService
         // identidad primero, la evidencia después.
         $reasons = [];
 
-        $storedHash  = self::strOrNull($employee['markpinhash'] ?? null);
-        $offeredHash = strtolower(trim((string) ($input['markPinHash'] ?? '')));
+        // Sin PIN cargado, marcar POR CÓDIGO es imposible: si igual llega una
+        // marcación con `method='pin'`, entra flageada (fail-open, D4) en vez de
+        // rechazarse. El caso normal de esa persona es `method='face'`, que no
+        // pasa por acá.
+        $storedHash  = self::strOrNull($employee['pinhash'] ?? null);
+        $offeredHash = strtolower(trim((string) ($input['pinHash'] ?? $input['markPinHash'] ?? '')));
         if ($method === 'pin' && ($storedHash === null || $offeredHash === '' || !hash_equals($storedHash, $offeredHash))) {
             $reasons[] = 'pin_stale';
         }
@@ -313,7 +326,7 @@ final class AttendanceService
 
         $rs = ncmExecute(
             'INSERT INTO attendance_mark
-                 (companyid, employeeid, outletid, registerid, deviceid,
+                 (companyid, contactid, outletid, registerid, deviceid,
                   kind, markedat, method, photokey, needsreview, reviewreason, opid)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT (companyid, opid) DO NOTHING
@@ -456,7 +469,7 @@ final class AttendanceService
         $params = [$companyId, $from, $to];
 
         if (!empty($filters['employeeId']) && preg_match(self::UUID_RE, (string) $filters['employeeId'])) {
-            $where[]  = 'm.employeeid = ?';
+            $where[]  = 'm.contactid = ?';
             $params[] = (string) $filters['employeeId'];
         }
         if (!empty($filters['outletId']) && preg_match(self::UUID_RE, (string) $filters['outletId'])) {
@@ -469,7 +482,7 @@ final class AttendanceService
 
         $rs = ncmExecute(
             $this->selectSql() . ' WHERE ' . implode(' AND ', $where)
-            . ' ORDER BY e.fullname ASC, m.markedat ASC',
+            . ' ORDER BY c.contactname ASC, m.markedat ASC',
             $params,
             false,
             true
@@ -679,9 +692,9 @@ final class AttendanceService
         // filtro de tenant es correcta hasta el día en que alguien reusa el
         // helper con ids que vienen de otro lado, y ese día no avisa.
         $rs = ncmExecute(
-            'SELECT employeeid, schedule
+            'SELECT contactid, schedule
                FROM employee
-              WHERE companyid = ? AND employeeid IN (' . $placeholders . ')',
+              WHERE companyid = ? AND contactid IN (' . $placeholders . ')',
             array_merge([$companyId], $ids),
             false,
             true
@@ -692,7 +705,7 @@ final class AttendanceService
                 $raw = $rs->fields['schedule'] ?? null;
                 $decoded = is_string($raw) ? json_decode($raw, true) : (is_array($raw) ? $raw : null);
                 if (is_array($decoded) && !empty($decoded['days'])) {
-                    $out[(string) $rs->fields['employeeid']] = $decoded;
+                    $out[(string) $rs->fields['contactid']] = $decoded;
                 }
                 $rs->MoveNext();
             }
@@ -711,20 +724,26 @@ final class AttendanceService
      * embudo de auth), así que ahí el día calendario es el del comercio. Calcular
      * el día en PHP usaría la zona del PROCESO, que es otra — y un turno que
      * empieza 22:00 caería en el día equivocado.
+     *
+     * `contact` entra con JOIN y `employee` con LEFT JOIN, y no es simetría mal
+     * puesta: desde la mig 233 la marcación cuelga de la PERSONA, así que puede
+     * sobrevivir a que se borre el legajo. Con un INNER JOIN contra `employee`,
+     * esas horas desaparecerían del reporte sin que nadie las borrara.
      */
     private function selectSql(): string
     {
-        return 'SELECT m.markid, m.employeeid, m.outletid, m.registerid, m.deviceid,
+        return 'SELECT m.markid, m.contactid, m.outletid, m.registerid, m.deviceid,
                        m.kind, m.markedat, m.receivedat, m.method, m.photokey,
                        m.needsreview, m.reviewreason, m.reviewedat, m.opid,
                        to_char(m.markedat, \'YYYY-MM-DD\') AS localday,
                        to_char(m.markedat, \'HH24:MI\')    AS localtime,
                        EXTRACT(ISODOW FROM m.markedat)     AS weekday,
-                       e.fullname AS employeename, e.jobtitle AS jobtitle,
+                       c.contactname AS employeename, e.jobtitle AS jobtitle,
                        o.outletname AS outletname
                   FROM attendance_mark m
-                  JOIN employee e ON e.employeeid = m.employeeid
-                  LEFT JOIN outlet o ON o.outletid = m.outletid';
+                  JOIN contact  c ON c.contactid = m.contactid
+                  LEFT JOIN employee e ON e.contactid = m.contactid
+                  LEFT JOIN outlet   o ON o.outletid  = m.outletid';
     }
 
     /** @return array<string,mixed> */
@@ -732,7 +751,7 @@ final class AttendanceService
     {
         return [
             'id'            => (string) $f['markid'],
-            'employeeId'    => (string) $f['employeeid'],
+            'employeeId'    => (string) $f['contactid'],
             'employeeName'  => (string) ($f['employeename'] ?? ''),
             'jobTitle'      => self::strOrNull($f['jobtitle'] ?? null),
             'outletId'      => self::strOrNull($f['outletid'] ?? null),

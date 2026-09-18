@@ -98,10 +98,15 @@ export type OpAppliedHook = (row: PendingOpRow, result: unknown) => Promise<void
 export interface SyncPendingOpsOptions {
   send: OpSender
   /**
-   * Caja del device AHORA. Es el cerco: una operación de otra caja no se
-   * aplica. Si viene vacío no se procesa nada — el POS sin caja activa no
-   * tiene contexto para escribir (memoria
-   * `project_pos_contexto_obligatorio`: nunca inventar la dimensión que falta).
+   * Caja del device AHORA. Es el cerco: una operación encolada para OTRA caja
+   * no se aplica, porque el endpoint saca el `registerId` del token y no podría
+   * notar el desvío (memoria `project_pos_contexto_obligatorio`: nunca inventar
+   * la dimensión que falta).
+   *
+   * Vacío = este device no tiene caja. Entonces no sale nada que pertenezca a
+   * una —eso sería inventarla— pero SÍ sale lo que no pertenece a ninguna: la
+   * marcación de asistencia, que la produce el reloj (context/83 §9.2). Ver el
+   * cerco más abajo.
    */
   activeRegisterId: string
   /** Ver `OpGate`. Sin gate, todo lo que esté en cola sale. */
@@ -148,8 +153,6 @@ export async function syncPendingOps(
     waiting: [],
   }
 
-  if (opts.activeRegisterId === '') return result
-
   const all = await peekAllOps()
   const streams = [...new Set(all.map((r) => r.stream))]
 
@@ -181,7 +184,15 @@ export async function syncPendingOps(
       // el endpoint saca el `registerId` del token, no del payload, así que el
       // servidor no tiene forma de notar el desvío. Se marca terminal con un
       // motivo que se entiende leyéndolo.
-      if (row.registerId !== opts.activeRegisterId) {
+      //
+      // Una operación SIN caja (`registerId: ''`) no entra en el cerco, y no es
+      // una excepción cómoda: es que no todo lo que se encola pertenece a una
+      // caja. La marcación de asistencia la produce el RELOJ (context/83 §9.2),
+      // un aparato que no tiene ninguna, y lo que la ubica es la sucursal del
+      // device. Cercarla contra una caja la habría marcado terminal siempre —
+      // y peor, el corte de más arriba (`activeRegisterId === ''`) habría dejado
+      // la cola del reloj sin salir nunca.
+      if (row.registerId !== '' && row.registerId !== opts.activeRegisterId) {
         await markOpFailed(row.opId, {
           code: 'REGISTER_CHANGED',
           message: 'Se hizo en otra caja. Volvé a esa caja para enviarla, o descartala.',

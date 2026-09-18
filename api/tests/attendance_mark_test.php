@@ -73,7 +73,7 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 function contarMarcas(string $companyId, string $employeeId): int
 {
     $row = ncmExecute(
-        'SELECT COUNT(*) AS n FROM attendance_mark WHERE companyid = ? AND employeeid = ?',
+        'SELECT COUNT(*) AS n FROM attendance_mark WHERE companyid = ? AND contactid = ?',
         [$companyId, $employeeId]
     );
     return (int) ($row['n'] ?? 0);
@@ -90,6 +90,24 @@ $svc       = new AttendanceService(); // sin S3: acá no se suben fotos
 
 $creados = [];
 
+/**
+ * Crea la PERSONA del legajo (context/83 §9.1, mig 233).
+ *
+ * Desde el refactor el legajo es un satélite 1:1 del `contact` type=0, así que
+ * el arnés ya no puede crear un empleado con solo un nombre: primero existe la
+ * persona —con su PIN, que es el único que hay— y después su legajo.
+ */
+function crearPersona(string $companyId, string $nombre, ?string $pin): string
+{
+    $id = ncmExecute('SELECT gen_random_uuid() AS id')['id'];
+    ncmExecute(
+        'INSERT INTO contact (contactId, contactName, companyId, type, contactStatus, pinhash)
+         VALUES (?, ?, ?, 0, 1, ?)',
+        [$id, $nombre, $companyId, $pin === null ? null : hash('sha256', $pin)]
+    );
+    return (string) $id;
+}
+
 try {
     // ── Fixture: dos personas del legajo ────────────────────────────────────
     //
@@ -97,10 +115,9 @@ try {
     // tolerancia — los siete días a propósito, para que el arnés no dependa de
     // qué día de la semana se corra.
     $conHorario = $employees->create($companyId, [
-        'fullName' => 'Marcacion ConHorario ' . bin2hex(random_bytes(3)),
+        'contactId' => crearPersona($companyId, 'Marcacion ConHorario ' . bin2hex(random_bytes(3)), '4731'),
         'hireDate' => '2026-01-01',
         'outletId' => $outletId,
-        'markPin'  => '4731',
         'schedule' => json_encode([
             'days' => [
                 'mon' => ['in' => '08:00', 'out' => '17:00'],
@@ -117,10 +134,9 @@ try {
     $creados[] = $conHorario['id'];
 
     $sinHorario = $employees->create($companyId, [
-        'fullName' => 'Marcacion SinHorario ' . bin2hex(random_bytes(3)),
+        'contactId' => crearPersona($companyId, 'Marcacion SinHorario ' . bin2hex(random_bytes(3)), '8265'),
         'hireDate' => '2026-01-01',
         'outletId' => $outletId,
-        'markPin'  => '8265',
     ], $adminId);
     $creados[] = $sinHorario['id'];
 
@@ -142,7 +158,7 @@ try {
     $primera = $svc->mark($companyId, [
         'opId'        => $op,
         'employeeId'  => $conHorario['id'],
-        'markPinHash' => $hashOk,
+        'pinHash'     => $hashOk,
         'kind'        => 'in',
         'markedAt'    => $dia . 'T08:05:00-03:00',
         'outletId'    => $outletId,
@@ -154,7 +170,7 @@ try {
     $reenvio = $svc->mark($companyId, [
         'opId'        => $op,
         'employeeId'  => $conHorario['id'],
-        'markPinHash' => $hashOk,
+        'pinHash'     => $hashOk,
         'kind'        => 'in',
         'markedAt'    => $dia . 'T08:05:00-03:00',
         'outletId'    => $outletId,
@@ -182,7 +198,7 @@ try {
     $malPin = $svc->mark($companyId, [
         'opId'          => opId('pin'),
         'employeeId'    => $conHorario['id'],
-        'markPinHash'   => $hashOtro,
+        'pinHash'       => $hashOtro,
         'kind'          => 'out',
         'markedAt'      => $dia . 'T17:05:00-03:00',
         'outletId'      => $outletId,
@@ -202,7 +218,7 @@ try {
         $svc->mark($companyId, [
             'opId'        => opId('ghost'),
             'employeeId'  => '00000000-0000-4000-8000-000000000000',
-            'markPinHash' => $hashOk,
+            'pinHash'     => $hashOk,
             'kind'        => 'in',
             'markedAt'    => $dia . 'T08:00:00-03:00',
         ]);
@@ -233,7 +249,7 @@ try {
     $svc->mark($companyId, [
         'opId'          => opId('abierta'),
         'employeeId'    => $sinHorario['id'],
-        'markPinHash'   => hash('sha256', '8265'),
+        'pinHash'       => hash('sha256', '8265'),
         'kind'          => 'in',
         'markedAt'      => $dia . 'T09:00:00-03:00',
         'outletId'      => $outletId,
@@ -283,7 +299,7 @@ try {
     $svc->mark($companyId, [
         'opId'          => opId('tarde'),
         'employeeId'    => $conHorario['id'],
-        'markPinHash'   => $hashOk,
+        'pinHash'       => $hashOk,
         'kind'          => 'in',
         'markedAt'      => $dia2 . 'T09:30:00-03:00',
         'outletId'      => $outletId,
@@ -292,7 +308,7 @@ try {
     $svc->mark($companyId, [
         'opId'          => opId('almuerzo-out'),
         'employeeId'    => $conHorario['id'],
-        'markPinHash'   => $hashOk,
+        'pinHash'       => $hashOk,
         'kind'          => 'out',
         'markedAt'      => $dia2 . 'T12:00:00-03:00',
         'outletId'      => $outletId,
@@ -301,7 +317,7 @@ try {
     $svc->mark($companyId, [
         'opId'          => opId('almuerzo-in'),
         'employeeId'    => $conHorario['id'],
-        'markPinHash'   => $hashOk,
+        'pinHash'       => $hashOk,
         'kind'          => 'in',
         'markedAt'      => $dia2 . 'T13:00:00-03:00',
         'outletId'      => $outletId,
@@ -352,9 +368,10 @@ try {
         json_encode(['antes' => $primera['mark'], 'después' => $revisada]), $failures, $checks);
 
 } finally {
-    // Limpieza: las marcaciones caen por CASCADE al borrar el legajo.
-    foreach ($creados as $employeeId) {
-        ncmExecute('DELETE FROM employee WHERE employeeid = ? AND companyid = ?', [$employeeId, $companyId]);
+    // Limpieza: borrar la PERSONA se lleva el legajo y sus marcaciones por
+    // CASCADE (mig 233), que es justo el encadenamiento que el modelo promete.
+    foreach ($creados as $contactId) {
+        ncmExecute('DELETE FROM contact WHERE contactId = ? AND companyId = ?', [$contactId, $companyId]);
     }
 }
 

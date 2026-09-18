@@ -4,12 +4,17 @@ declare(strict_types=1);
 namespace Punto\Api\Hr;
 
 /**
- * Legajo del empleado (`employee`, mig 229) — RRHH F0, context/83 §3 y §7.
+ * Legajo del empleado (`employee`, migs 229 + 233) — RRHH, context/83 §9.1.
  *
- * Un empleado NO es un usuario del sistema. Los usuarios son `contact` con
- * type=0 (credencial: PIN, rol, permisos); el legajo es la relación laboral,
- * y existe igual para quien nunca toca Punto. El vínculo `userId` es
- * OPCIONAL y se puede soltar sin tocar el legajo (D2).
+ * Un empleado ES un usuario del sistema. El legajo es un SATÉLITE 1:1 del
+ * `contact` type=0: misma persona, misma identidad, mismo PIN. El personal que
+ * no opera Punto es un usuario SIN PERMISOS — no una entidad paralela.
+ *
+ * Por eso acá NO viven el nombre, el teléfono ni el email: salen de `contact`
+ * por JOIN. Copiarlos daba dos nombres para la misma persona y nadie los
+ * sincronizaba (la caja saludaba con uno, el reporte de asistencia imprimía el
+ * otro). Lo que sí vive acá es la RELACIÓN LABORAL: fechas, puesto,
+ * remuneración, horario, consentimiento biométrico.
  *
  * Dos bajas distintas, a propósito (ver el docblock de la migración):
  *   - `terminate()` = EGRESO. Escribe `enddate`. La fila se queda: es el
@@ -17,7 +22,7 @@ namespace Punto\Api\Hr;
  *   - `archive()`   = la fila cargada por error sale del listado (status=0).
  *
  * Multi-tenant: `$companyId` explícito en TODA query (§33.2). Las dos
- * referencias que el payload puede traer —`userId` y `outletId`— se validan
+ * referencias que el payload puede traer —`contactId` y `outletId`— se validan
  * contra el tenant antes de escribirse: sin eso, un id de otro comercio
  * entraría por el formulario y la FK no lo notaría (apunta a la tabla, no al
  * tenant).
@@ -36,6 +41,29 @@ final class EmployeeService
 
     /** Filtro de estado laboral del listado. */
     public const STATES = ['active', 'terminated', 'all'];
+
+    /**
+     * La proyección del legajo, con la identidad del contacto pegada.
+     *
+     * Una sola constante para el listado y el detalle: cuando estaban
+     * duplicadas, agregar una columna significaba acordarse de los dos lugares.
+     *
+     * `c.pinhash` viaja para responder UNA pregunta —¿esta persona tiene código?—
+     * y el `shape()` lo colapsa a un booleano. El hash nunca sale del panel: es
+     * SHA-256 sin sal de 4 dígitos, o sea el PIN mismo para quien tenga cinco
+     * minutos.
+     */
+    private const SELECT_BASE = '
+        SELECT e.*,
+               o.outletname   AS outletname,
+               c.contactname  AS contactname,
+               c.contactphone AS contactphone,
+               c.contactemail AS contactemail,
+               c.pinhash      AS pinhash,
+               c.contactstatus AS contactstatus
+          FROM employee e
+          JOIN contact  c ON c.contactid = e.contactid
+          LEFT JOIN outlet o ON o.outletid = e.outletid';
 
     /**
      * El rostro registrado (F2, mig 231), inyectado.
@@ -84,22 +112,23 @@ final class EmployeeService
             $params[] = (string) $filters['outletId'];
         }
 
-        // Búsqueda por nombre, documento o puesto. `unaccent` NO se usa: no
+        // Búsqueda por nombre, documento o puesto. El nombre es el del CONTACTO
+        // (mig 233): el legajo ya no guarda una copia. `unaccent` NO se usa: no
         // está garantizada en todos los despliegues y el resto del panel
         // busca igual con ILIKE.
         $q = trim((string) ($filters['q'] ?? ''));
         if ($q !== '') {
             $like = '%' . $q . '%';
-            $where[] = '(e.fullname ILIKE ? OR e.documentnumber ILIKE ? OR e.jobtitle ILIKE ?)';
+            $where[] = '(c.contactname ILIKE ? OR e.documentnumber ILIKE ? OR e.jobtitle ILIKE ?)';
             array_push($params, $like, $like, $like);
         }
 
-        $sql = 'SELECT e.*, o.outletname AS outletname, c.contactname AS username
-                  FROM employee e
-                  LEFT JOIN outlet  o ON o.outletid  = e.outletid
-                  LEFT JOIN contact c ON c.contactid = e.userid
-                 WHERE ' . implode(' AND ', $where) . '
-                 ORDER BY e.fullname ASC';
+        // JOIN y no LEFT JOIN: `contactid` es la PK y tiene FK con CASCADE, así
+        // que un legajo sin contacto no puede existir. Un LEFT acá solo serviría
+        // para devolver filas con el nombre en null y esconder una corrupción.
+        $sql = self::SELECT_BASE
+             . ' WHERE ' . implode(' AND ', $where)
+             . ' ORDER BY c.contactname ASC';
 
         $rs = ncmExecute($sql, $params, false, true);
         $rows = [];
@@ -148,12 +177,7 @@ final class EmployeeService
             return null;
         }
         $row = ncmExecute(
-            'SELECT e.*, o.outletname AS outletname, c.contactname AS username
-               FROM employee e
-               LEFT JOIN outlet  o ON o.outletid  = e.outletid
-               LEFT JOIN contact c ON c.contactid = e.userid
-              WHERE e.employeeid = ? AND e.companyid = ?
-              LIMIT 1',
+            self::SELECT_BASE . ' WHERE e.contactid = ? AND e.companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if (!$row) {
@@ -164,7 +188,16 @@ final class EmployeeService
 
     // ── Escritura ───────────────────────────────────────────────────────────
 
-    /** @param array<string,mixed> $data */
+    /**
+     * Le cuelga el legajo a un usuario que YA existe.
+     *
+     * El usuario se elige o se crea ANTES, en el endpoint (`employees.php`), con
+     * `UsersService`: crear la credencial es asunto del servicio de usuarios, y
+     * duplicar acá su validación —teléfono, email repetido, tope del plan— sería
+     * tener dos altas de usuario que se separan con el primer cambio.
+     *
+     * @param array<string,mixed> $data
+     */
     public function create(string $companyId, array $data, ?string $actorId = null): array
     {
         $records = $this->buildRecords($companyId, $data, true);
@@ -173,16 +206,16 @@ final class EmployeeService
         $records['createdby'] = self::uuidOrNull($actorId);
         $records['updatedby'] = self::uuidOrNull($actorId);
 
-        $id = $this->guardUnique(static fn() => ncmInsert([
+        // La PK la trae el payload (es la persona), no la genera la base: el
+        // id ya existe antes del INSERT y por eso no se lee del retorno.
+        $contactId = (string) $records['contactid'];
+
+        $this->guardUnique(static fn() => ncmInsert([
             'records' => $records,
             'table'   => 'employee',
         ]));
 
-        if (!$id || $id === true) {
-            throw new \RuntimeException('No se pudo crear el empleado');
-        }
-
-        $row = $this->find((string) $id, $companyId);
+        $row = $this->find($contactId, $companyId);
         if (!$row) {
             throw new \RuntimeException('Empleado creado pero no se pudo leer de vuelta');
         }
@@ -225,7 +258,7 @@ final class EmployeeService
         $params[] = $companyId;
 
         $sql = 'UPDATE employee SET ' . implode(', ', $sets)
-             . ' WHERE employeeid = ? AND companyid = ?';
+             . ' WHERE contactid = ? AND companyid = ?';
 
         $this->guardUnique(static fn() => ncmExecute($sql, $params));
 
@@ -277,7 +310,7 @@ final class EmployeeService
         ncmExecute(
             'UPDATE employee
                 SET enddate = ?, endreason = ?, updatedby = ?, updatedat = now()
-              WHERE employeeid = ? AND companyid = ? AND enddate IS NULL',
+              WHERE contactid = ? AND companyid = ? AND enddate IS NULL',
             [$date, self::textOrNull($reason), self::uuidOrNull($actorId), $id, $companyId]
         );
 
@@ -308,7 +341,7 @@ final class EmployeeService
             throw new \RuntimeException('Empleado no encontrado');
         }
         ncmExecute(
-            'UPDATE employee SET status = 0, updatedat = now() WHERE employeeid = ? AND companyid = ?',
+            'UPDATE employee SET status = 0, updatedat = now() WHERE contactid = ? AND companyid = ?',
             [$id, $companyId]
         );
         // Una fila archivada es una que no debería existir. Su biometría tampoco.
@@ -333,13 +366,13 @@ final class EmployeeService
     ): array {
         $rec = [];
 
-        // ── Nombre ──
-        if ($isCreate || array_key_exists('fullName', $data)) {
-            $name = trim((string) ($data['fullName'] ?? ''));
-            if ($name === '') {
-                throw new \RuntimeException('El nombre del empleado es requerido');
-            }
-            $rec['fullname'] = $name;
+        // ── La persona ──
+        //
+        // Solo en el ALTA: el legajo no cambia de dueño. Mover un historial
+        // laboral de una persona a otra no es una edición, es un error de carga
+        // que se corrige archivando la fila y cargándola bien.
+        if ($isCreate) {
+            $rec['contactid'] = $this->resolveContact($data['contactId'] ?? null, $companyId);
         }
 
         // ── Fechas de la relación laboral ──
@@ -364,27 +397,13 @@ final class EmployeeService
             throw new \RuntimeException('La fecha de egreso no puede ser anterior a la de ingreso');
         }
 
-        // ── Datos personales ──
+        // ── Datos del legajo ──
+        //
+        // El nombre, el teléfono y el email NO están acá: son del CONTACTO
+        // (mig 233) y se editan donde se edita el usuario. Lo que queda es lo
+        // que el legajo necesita y la ficha de usuario no tiene.
         if (array_key_exists('documentNumber', $data)) {
             $rec['documentnumber'] = self::textOrNull($data['documentNumber']);
-        }
-        if (array_key_exists('phone', $data)) {
-            // E.164 sin '+' — convención de almacenamiento del proyecto. El
-            // país sale del payload o del tenant, nunca de un default fijo.
-            $iso = strtoupper(trim((string) ($data['country'] ?? '')))
-                ?: \Punto\Api\Support\TenantLocale::country($companyId);
-            $rec['phone'] = phoneValidateForStorage(
-                self::textOrNull($data['phone']),
-                $iso,
-                'El teléfono no es válido'
-            );
-        }
-        if (array_key_exists('email', $data)) {
-            $email = self::textOrNull($data['email']);
-            if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                throw new \RuntimeException('El email no es válido');
-            }
-            $rec['email'] = $email;
         }
         if (array_key_exists('address', $data)) {
             $rec['address'] = self::textOrNull($data['address']);
@@ -402,9 +421,6 @@ final class EmployeeService
         // ── Referencias: se validan contra el TENANT, no solo contra la FK ──
         if (array_key_exists('outletId', $data)) {
             $rec['outletid'] = $this->resolveOutlet($data['outletId'], $companyId);
-        }
-        if (array_key_exists('userId', $data)) {
-            $rec['userid'] = $this->resolveUser($data['userId'], $companyId);
         }
 
         // ── Remuneración (los tres conviven, §2 / D1) ──
@@ -440,33 +456,9 @@ final class EmployeeService
             $rec['commissions'] = self::boolOf($data['commissions']);
         }
 
-        // ── PIN de marcación (F1) ──
-        //
-        // Entra en CLARO (4 dígitos, lo tipea el dueño en el legajo) y se guarda
-        // HASHEADO — nunca se persiste el PIN plano. Cadena vacía o null lo
-        // BORRA, que es como se le saca a alguien la posibilidad de marcar sin
-        // tocar el resto del legajo.
-        //
-        // SHA-256 sin sal, exactamente como `contact.pinhash`: el quiosco valida
-        // sin red contra el hash que bajó en el bootstrap, y eso exige que el
-        // hash sea determinístico. El porqué completo está en la mig 230.
-        //
-        // A diferencia de `contact.lockPass`, acá NO se guarda una copia en
-        // claro para mostrarla en pantalla. El legajo dice si la persona TIENE
-        // PIN, no cuál es: un PIN olvidado se reemplaza en dos toques, y
-        // guardar el código de marcación de todo el personal en una columna
-        // legible no compra nada a cambio.
-        if (array_key_exists('markPin', $data)) {
-            $pin = self::textOrNull($data['markPin']);
-            if ($pin === null) {
-                $rec['markpinhash'] = null;
-            } else {
-                if (!preg_match('/^\d{4}$/', $pin)) {
-                    throw new \RuntimeException('El PIN de marcación tiene que ser de 4 dígitos');
-                }
-                $rec['markpinhash'] = hash('sha256', $pin);
-            }
-        }
+        // El PIN de marcación murió acá (mig 233, §9.3): hay UN solo PIN por
+        // persona, el del usuario, y se gestiona en su ficha como siempre. Es
+        // además OPCIONAL — quien solo marca asistencia lo hace con la cara.
 
         // ── Horario declarado (F1) ──
         if (array_key_exists('schedule', $data)) {
@@ -513,19 +505,16 @@ final class EmployeeService
     }
 
     /**
-     * El vínculo al usuario del sistema. Tiene que ser un `contact` type=0 del
-     * MISMO comercio: la FK apunta a `contact` entera, así que sin este
-     * chequeo se podría vincular un CLIENTE —o el usuario de otro tenant— y el
-     * legajo quedaría atribuido a alguien que no es del equipo.
+     * La persona del legajo. Tiene que ser un `contact` type=0 del MISMO
+     * comercio: la FK apunta a `contact` entera, así que sin este chequeo se
+     * podría cargar el legajo de un CLIENTE —o del usuario de otro tenant— y
+     * quedaría atribuido a alguien que no es del equipo.
      */
-    private function resolveUser(mixed $value, string $companyId): ?string
+    private function resolveContact(mixed $value, string $companyId): string
     {
         $id = self::textOrNull($value);
-        if ($id === null) {
-            return null;
-        }
-        if (!preg_match(self::UUID_RE, $id)) {
-            throw new \RuntimeException('El usuario indicado no es válido');
+        if ($id === null || !preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('El legajo tiene que corresponder a una persona del equipo');
         }
         $row = ncmExecute(
             'SELECT contactid FROM contact
@@ -534,7 +523,7 @@ final class EmployeeService
             [$id, $companyId]
         );
         if (!$row) {
-            throw new \RuntimeException('El usuario indicado no pertenece al equipo del comercio');
+            throw new \RuntimeException('Esa persona no pertenece al equipo del comercio');
         }
         return $id;
     }
@@ -545,13 +534,10 @@ final class EmployeeService
         return \Punto\Api\Support\UniqueViolation::guard(
             $fn,
             [
-                'uidx_employee_user'     => 'Ese usuario ya está vinculado a otro empleado',
+                // La PK. Elegir a alguien que ya tiene legajo es el choque más
+                // probable del alta, y sin traducir salía como error crudo de BD.
+                'employee_pkey'          => 'Esa persona ya tiene un legajo cargado',
                 'uidx_employee_document' => 'Ya hay un empleado cargado con ese documento',
-                // Sin esta traducción, elegir un PIN de marcación que ya usa
-                // otra persona salía como un error de base de datos crudo. Es
-                // el choque MÁS probable de los tres: son 4 dígitos y el dueño
-                // los elige a mano para todo el equipo.
-                'uidx_employee_markpin'  => 'Ese PIN de marcación ya lo usa otro empleado',
             ],
             'Ya existe un empleado con esos datos',
         );
@@ -567,11 +553,13 @@ final class EmployeeService
     private function shape($f): array
     {
         return [
-            'id'                 => (string) $f['employeeid'],
-            'fullName'           => (string) $f['fullname'],
+            // El id del legajo ES el de la persona (mig 233). La clave sigue
+            // llamándose `id` para todo lo que ya la consume.
+            'id'                 => (string) $f['contactid'],
+            'fullName'           => (string) ($f['contactname'] ?? ''),
             'documentNumber'     => self::strOrNull($f['documentnumber'] ?? null),
-            'phone'              => self::strOrNull($f['phone'] ?? null),
-            'email'              => self::strOrNull($f['email'] ?? null),
+            'phone'              => self::strOrNull($f['contactphone'] ?? null),
+            'email'              => self::strOrNull($f['contactemail'] ?? null),
             'address'            => self::strOrNull($f['address'] ?? null),
             'birthDate'          => self::strOrNull($f['birthdate'] ?? null),
             'jobTitle'           => self::strOrNull($f['jobtitle'] ?? null),
@@ -580,19 +568,29 @@ final class EmployeeService
             'endReason'          => self::strOrNull($f['endreason'] ?? null),
             'outletId'           => self::strOrNull($f['outletid'] ?? null),
             'outletName'         => self::strOrNull($f['outletname'] ?? null),
-            'userId'             => self::strOrNull($f['userid'] ?? null),
-            'userName'           => self::strOrNull($f['username'] ?? null),
+            // El usuario del sistema no es un vínculo opcional: es la misma
+            // fila. Se expone para que el panel pueda linkear a su ficha sin
+            // tener que saber que los dos ids son el mismo.
+            'userId'             => (string) $f['contactid'],
+            // ¿La credencial está activa? Un legajo vigente con el usuario
+            // desactivado es alguien que sigue trabajando pero no puede entrar
+            // al sistema — caso normal desde que el personal sin login es un
+            // usuario más, y el listado lo tiene que poder distinguir.
+            'userActive'         => ((int) ($f['contactstatus'] ?? 1)) === 1,
             'fixedAmount'        => self::floatOrNull($f['fixedamount'] ?? null),
             'fixedPeriod'        => self::strOrNull($f['fixedperiod'] ?? null),
             'hourlyRate'         => self::floatOrNull($f['hourlyrate'] ?? null),
             'commissions'        => self::boolOf($f['commissions'] ?? false),
             'notes'              => self::strOrNull($f['notes'] ?? null),
-            // Si esta persona puede MARCAR, no con qué. El hash tampoco sale:
-            // es SHA-256 sin sal de 4 dígitos, o sea el PIN mismo para quien
-            // tenga cinco minutos. Al quiosco baja por otro camino y con otro
-            // gate (realm `pos-app` + device que es una caja, ver el roster del
-            // bootstrap); acá, en el legajo del panel, no hace falta.
-            'hasMarkPin'         => self::strOrNull($f['markpinhash'] ?? null) !== null,
+            // Si esta persona tiene código, no cuál. El hash no sale: es
+            // SHA-256 sin sal de 4 dígitos, o sea el PIN mismo para quien tenga
+            // cinco minutos. Al reloj de marcación baja por otro camino y con
+            // otro gate (realm `pos-app` + device `clock`).
+            //
+            // Es el PIN del USUARIO (`contact.pinhash`), el único que hay desde
+            // la mig 233, y es OPCIONAL: sin código y sin rostro no se puede
+            // marcar, que es exactamente lo que el legajo tiene que dejar ver.
+            'hasPin'             => self::strOrNull($f['pinhash'] ?? null) !== null,
             'schedule'           => self::decodeSchedule($f['schedule'] ?? null),
             'biometricConsentAt' => self::strOrNull($f['biometricconsentat'] ?? null),
             'status'             => (int) ($f['status'] ?? 1),

@@ -7,7 +7,11 @@ class DeviceInvitationService
 {
     // 'print' = Estación de Impresión (P1, context/26-print-station-plan.md):
     // device pareado que corre en la PC con las impresoras físicas.
-    private const VALID_MODULES = ['pos', 'screen', 'kds', 'display', 'print'];
+    // 'clock' = Reloj de marcación (context/83 §9.2): la tablet colgada en la
+    // entrada, que arranca en la pantalla de marcación y no hace nada más. Es
+    // un dispositivo propio y no una pantalla del POS porque en las empresas el
+    // lector no está en la caja — ahí solo opera el cajero.
+    private const VALID_MODULES = ['pos', 'screen', 'kds', 'display', 'print', 'clock'];
     // Alfabeto sin I ni O para evitar confusión visual
     private const ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ';         // 24 chars
     private const ALNUM = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 chars
@@ -40,6 +44,14 @@ class DeviceInvitationService
         // DeviceAuth.php).
         if ($module === 'pos' && (($outletId === null || $outletId === '') || ($registerId === null || $registerId === ''))) {
             throw new \RuntimeException('Un dispositivo POS necesita sucursal y caja asignadas', 422);
+        }
+        // El reloj de marcación necesita SUCURSAL y no caja: el roster y los
+        // rostros que baja son los de la gente de ESA sucursal (mismo criterio
+        // que `rosterForOutlet()`). Sin sucursal no sabría a quién puede
+        // reconocer, y adivinarla sería completar el contexto que falta en el
+        // servidor — lo que el POS tiene prohibido (context/29).
+        if ($module === 'clock' && ($outletId === null || $outletId === '')) {
+            throw new \RuntimeException('Un reloj de marcación necesita una sucursal asignada', 422);
         }
         if ($outletId !== null && $outletId !== '') {
             $exists = ncmExecute(

@@ -56,6 +56,7 @@ const KIND_LABEL: Record<DeviceKind, { noun: string; module: string | null }> = 
   kds:     { noun: "Este KDS",                    module: "KDS" },
   display: { noun: "Esta pantalla de despacho",   module: "Pantalla de despacho" },
   print:   { noun: "Esta estación de impresión",  module: "Estación de impresión" },
+  clock:   { noun: "Este reloj de marcación",     module: "Reloj de marcación" },
 }
 
 const KIND_TITLE: Record<DeviceKind, string> = {
@@ -64,6 +65,7 @@ const KIND_TITLE: Record<DeviceKind, string> = {
   kds:     "KDS no conectado",
   display: "Pantalla de despacho no conectada",
   print:   "Estación de impresión no conectada",
+  clock:   "Reloj de marcación no conectado",
 }
 
 export type DeviceNotConnectedReason = "unpaired" | "revoked" | "incomplete"

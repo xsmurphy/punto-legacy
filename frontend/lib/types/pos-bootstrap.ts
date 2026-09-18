@@ -515,34 +515,6 @@ export interface PosUser {
   pinIsDefault?: boolean
 }
 
-/**
- * Un empleado habilitado para MARCAR asistencia en esta sucursal (context/83
- * F1). No es un `PosUser`: los usuarios son credenciales del sistema y esto es
- * personal del comercio, que puede no tener login (cocina, limpieza).
- *
- * Proyección mínima — ni sueldo, ni documento, ni teléfono. El quiosco solo
- * necesita saber a quién corresponde un PIN y si a esa persona le toca entrar o
- * salir.
- *
- * Viaja en el bootstrap, así que queda en el snapshot de IndexedDB: el PIN de
- * marcación se valida SIN RED, igual que el del lock screen.
- */
-export interface PosEmployee {
-  id: string
-  name: string
-  jobTitle: string | null
-  /** SHA-256 del PIN de marcación. Mismo esquema que `PosUser.pinhash`. */
-  markPinHash: string
-  /**
-   * Última marcación conocida POR EL SERVIDOR. Es una SUGERENCIA para proponer
-   * entrada o salida, nunca una regla: sin red el dato es viejo por definición
-   * (la persona pudo marcar en otra tablet), y la pantalla deja cambiarlo de un
-   * toque. `null` = nunca marcó, o el device todavía no sincronizó.
-   */
-  lastKind: 'in' | 'out' | null
-  lastMarkedAt: string | null
-}
-
 // ── Bootstrap completo ────────────────────────────────────────────────────────
 
 /**
@@ -592,16 +564,6 @@ export interface PosBootstrap {
    * build anterior a este campo se rehidrata sin la clave.
    */
   users?: PosUser[] | null
-  /**
-   * Empleados que pueden marcar asistencia en esta sucursal (context/83 F1).
-   *
-   * Ausente = el comercio no tiene el módulo `rrhh` prendido, o el `/api` es
-   * anterior a esta feature. En los dos casos el quiosco no tiene contra qué
-   * validar un PIN, y lo dice en pantalla en vez de pedir uno que nunca va a
-   * matchear. `[]` es distinto: el módulo está prendido y todavía nadie tiene
-   * PIN de marcación cargado en su legajo.
-   */
-  employees?: PosEmployee[] | null
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
   /** Tasas de impuesto del tenant (F0, tabla `tax`). Ver `PosTaxRate`. */

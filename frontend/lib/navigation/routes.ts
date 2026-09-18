@@ -1119,29 +1119,6 @@ export const POS_ROUTES: RouteEntry[] = [
     requiresModule: "stockCount",
   },
   {
-    // Quiosco de marcación (context/83 F1). Igual que el conteo: no va en el
-    // sidebar de la caja, se entra desde el Menú del POS. No lleva `requires`
-    // porque no hay permiso de OPERADOR que evaluar — el quiosco atiende a
-    // gente que no tiene usuario del sistema, y quién marca lo dice su PIN de
-    // marcación propio (ver el docblock de la pantalla).
-    to: "/pos/marcacion",
-    title: "Marcación",
-    paletteTitle: "Menú del POS · Marcación de asistencia",
-    icon: UserCheck,
-    surface: "palette",
-    paletteGroup: "Operaciones",
-    keywords: [
-      "marcacion",
-      "marcación",
-      "asistencia",
-      "fichar",
-      "fichaje",
-      "entrada",
-      "salida",
-      "reloj",
-    ],
-  },
-  {
     to: "/pos/guardadas",
     title: "Guardadas",
     icon: Bookmark,

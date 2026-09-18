@@ -1,6 +1,10 @@
 <?php
 /**
- * REST canónico — Legajo de empleados (RRHH F0, context/83 §3 y §7).
+ * REST canónico — Legajo de empleados (RRHH, context/83 §9.1).
+ *
+ * El legajo es un SATÉLITE del usuario del sistema: una persona = un usuario =
+ * un PIN. El `id` de un empleado ES el `contactId` de esa persona (mig 233), y
+ * el alta crea o elige ese usuario (ver `createUserForEmployee()`).
  *
  *   GET    /v1/employees                                  → { employees: [...] }
  *          filtros: q, state=active|terminated|all, outletId, includeArchived=1
@@ -103,6 +107,47 @@ $requireManage = static function (): void {
         apiError('No tenés permiso para esta acción (requiere: hr.employees.manage)', 403);
     }
 };
+
+/**
+ * Crea el usuario del sistema para un legajo nuevo y devuelve su id.
+ *
+ * ── Por qué le inventamos una contraseña que nadie va a saber ───────────────
+ *
+ * `UsersService::create()` la exige, y con razón: crea una credencial. Pero el
+ * caso que trajo esta función es el opuesto —la cocinera que NUNCA entra al
+ * sistema y existe para tener legajo, marcar asistencia y cobrar— así que
+ * pedirle una contraseña al dueño sería hacerle elegir un secreto para una
+ * puerta que nadie va a abrir, y que después queda anotado en algún lado.
+ *
+ * Se genera aleatoria y no se muestra: sin contraseña conocida y sin rol, ese
+ * usuario no puede hacer nada. El día que esa persona sí tenga que operar, se
+ * le pone contraseña y rol desde Equipo, como a cualquiera.
+ *
+ * El PIN (`lockPass`) es OPCIONAL y sigue la misma lógica (§9.3): quien solo
+ * marca asistencia se identifica con el rostro. Sin PIN, además, no aparece en
+ * la pantalla de bloqueo de la caja — ver `lock-screen.tsx`.
+ *
+ * El rol viaja tal cual venga: vacío = sin permisos, que es el default correcto
+ * para el personal que no opera. Darle uno es una decisión explícita del dueño.
+ */
+function createUserForEmployee(string $companyId, array $payload): string
+{
+    $outletId = trim((string) ($payload['outletId'] ?? ''));
+
+    return (new \Punto\Api\Users\UsersService())->create($companyId, [
+        'name'     => $payload['fullName'] ?? '',
+        'phone'    => $payload['phone']    ?? null,
+        'country'  => $payload['country']  ?? null,
+        'email'    => $payload['email']    ?? null,
+        'password' => bin2hex(random_bytes(24)),
+        'roleId'   => trim((string) ($payload['roleId'] ?? '')) !== '' ? $payload['roleId'] : null,
+        'lockPass' => trim((string) ($payload['pin'] ?? '')),
+        // La sucursal del legajo también es la del usuario: sin filas en
+        // `contact_outlet` el alcance es GLOBAL (context/25), que no es lo que
+        // se quiere decir al cargar a alguien en una sucursal concreta.
+        'outletIds' => $outletId !== '' ? [$outletId] : [],
+    ]);
+}
 
 /** Adjuntos: el service necesita el cliente S3, que se arma igual que en el resto del proyecto. */
 $attachments = static function () use ($storage): \Punto\Api\Hr\EmployeeAttachmentService {
@@ -334,9 +379,25 @@ switch ($method) {
         // Igual que en el PUT: quién registra el consentimiento biométrico sale
         // de la sesión, nunca del cuerpo de la request.
         $payload['actorId'] = $userId;
+
+        // ── La persona primero, el legajo después ──
+        //
+        // Una persona = UN usuario (context/83 §9.1). El alta del legajo elige
+        // un usuario que ya existe (`contactId`) o crea uno nuevo acá mismo,
+        // para que cargar a la cocinera no obligue a ir antes a Equipo.
+        //
+        // El usuario se crea con `UsersService` y NO con un INSERT propio: es
+        // el mismo alta que la del panel, con sus validaciones (teléfono, email
+        // repetido, tope del plan). Un segundo camino de alta de usuarios se
+        // separa del primero con el primer cambio.
         try {
+            if (trim((string) ($payload['contactId'] ?? '')) === '') {
+                $payload['contactId'] = createUserForEmployee($companyId, $payload);
+            }
             $employee = $svc->create($companyId, $payload, $userId);
             apiOk($employee, 201);
+        } catch (\InvalidArgumentException $e) {
+            apiError($e->getMessage(), 422);
         } catch (\RuntimeException $e) {
             apiError($e->getMessage(), 422);
         }
@@ -349,7 +410,14 @@ switch ($method) {
         }
         $patch = $_POST;
         // El tenant y la identidad de la fila NUNCA salen del payload.
-        unset($patch['id'], $patch['employeeId'], $patch['companyId'], $patch['status'], $patch['actorId']);
+        //
+        // `contactId` entra en esta lista desde la mig 233: el legajo no cambia
+        // de dueño. Mover un historial laboral de una persona a otra no es una
+        // edición — es un error de carga, y se corrige archivando la fila.
+        unset(
+            $patch['id'], $patch['employeeId'], $patch['contactId'],
+            $patch['companyId'], $patch['status'], $patch['actorId']
+        );
         // Quién registra el consentimiento biométrico lo decide la sesión, no
         // el cuerpo de la request.
         $patch['actorId'] = $userId;
