@@ -123,7 +123,7 @@ final class AttendanceService
      *     ninguna" — típico del dueño o de quien rota. Excluirlos los dejaría sin
      *     poder marcar en ningún lado.
      *
-     * Ya NO se exige tener PIN (§9.3, mig 232). El código es OPCIONAL: quien
+     * Ya NO se exige tener PIN (§9.3, mig 233). El código es OPCIONAL: quien
      * solo marca asistencia pone la cara. Filtrar por PIN acá dejaría a esa
      * persona fuera de la lista del reloj y, con ella, fuera del recuento y del
      * mensaje que le dice al comercio qué le falta. `pinHash` en `null` es un
@@ -222,7 +222,7 @@ final class AttendanceService
             throw new \RuntimeException('La marcación no indica de quién es');
         }
 
-        // El PIN sale del CONTACTO (mig 232): hay uno solo por persona, el mismo
+        // El PIN sale del CONTACTO (mig 233): hay uno solo por persona, el mismo
         // del lockscreen de la caja.
         $employee = ncmExecute(
             'SELECT e.contactid, c.pinhash, e.status, e.enddate
@@ -726,7 +726,7 @@ final class AttendanceService
      * empieza 22:00 caería en el día equivocado.
      *
      * `contact` entra con JOIN y `employee` con LEFT JOIN, y no es simetría mal
-     * puesta: desde la mig 232 la marcación cuelga de la PERSONA, así que puede
+     * puesta: desde la mig 233 la marcación cuelga de la PERSONA, así que puede
      * sobrevivir a que se borre el legajo. Con un INNER JOIN contra `employee`,
      * esas horas desaparecerían del reporte sin que nadie las borrara.
      */

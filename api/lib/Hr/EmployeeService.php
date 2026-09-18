@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Hr;
 
 /**
- * Legajo del empleado (`employee`, migs 229 + 232) — RRHH, context/83 §9.1.
+ * Legajo del empleado (`employee`, migs 229 + 233) — RRHH, context/83 §9.1.
  *
  * Un empleado ES un usuario del sistema. El legajo es un SATÉLITE 1:1 del
  * `contact` type=0: misma persona, misma identidad, mismo PIN. El personal que
@@ -113,7 +113,7 @@ final class EmployeeService
         }
 
         // Búsqueda por nombre, documento o puesto. El nombre es el del CONTACTO
-        // (mig 232): el legajo ya no guarda una copia. `unaccent` NO se usa: no
+        // (mig 233): el legajo ya no guarda una copia. `unaccent` NO se usa: no
         // está garantizada en todos los despliegues y el resto del panel
         // busca igual con ILIKE.
         $q = trim((string) ($filters['q'] ?? ''));
@@ -400,7 +400,7 @@ final class EmployeeService
         // ── Datos del legajo ──
         //
         // El nombre, el teléfono y el email NO están acá: son del CONTACTO
-        // (mig 232) y se editan donde se edita el usuario. Lo que queda es lo
+        // (mig 233) y se editan donde se edita el usuario. Lo que queda es lo
         // que el legajo necesita y la ficha de usuario no tiene.
         if (array_key_exists('documentNumber', $data)) {
             $rec['documentnumber'] = self::textOrNull($data['documentNumber']);
@@ -456,7 +456,7 @@ final class EmployeeService
             $rec['commissions'] = self::boolOf($data['commissions']);
         }
 
-        // El PIN de marcación murió acá (mig 232, §9.3): hay UN solo PIN por
+        // El PIN de marcación murió acá (mig 233, §9.3): hay UN solo PIN por
         // persona, el del usuario, y se gestiona en su ficha como siempre. Es
         // además OPCIONAL — quien solo marca asistencia lo hace con la cara.
 
@@ -553,7 +553,7 @@ final class EmployeeService
     private function shape($f): array
     {
         return [
-            // El id del legajo ES el de la persona (mig 232). La clave sigue
+            // El id del legajo ES el de la persona (mig 233). La clave sigue
             // llamándose `id` para todo lo que ya la consume.
             'id'                 => (string) $f['contactid'],
             'fullName'           => (string) ($f['contactname'] ?? ''),
@@ -588,7 +588,7 @@ final class EmployeeService
             // otro gate (realm `pos-app` + device `clock`).
             //
             // Es el PIN del USUARIO (`contact.pinhash`), el único que hay desde
-            // la mig 232, y es OPCIONAL: sin código y sin rostro no se puede
+            // la mig 233, y es OPCIONAL: sin código y sin rostro no se puede
             // marcar, que es exactamente lo que el legajo tiene que dejar ver.
             'hasPin'             => self::strOrNull($f['pinhash'] ?? null) !== null,
             'schedule'           => self::decodeSchedule($f['schedule'] ?? null),

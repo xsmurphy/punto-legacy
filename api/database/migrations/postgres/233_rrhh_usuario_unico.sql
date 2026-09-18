@@ -1,4 +1,4 @@
--- 232_rrhh_usuario_unico.sql
+-- 233_rrhh_usuario_unico.sql
 -- RRHH — una persona = UN usuario (context/83 §9.1, D2 SUPERSEDED).
 --
 -- ── Qué cambia y por qué ────────────────────────────────────────────────────

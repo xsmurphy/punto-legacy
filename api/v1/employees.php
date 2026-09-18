@@ -3,7 +3,7 @@
  * REST canónico — Legajo de empleados (RRHH, context/83 §9.1).
  *
  * El legajo es un SATÉLITE del usuario del sistema: una persona = un usuario =
- * un PIN. El `id` de un empleado ES el `contactId` de esa persona (mig 232), y
+ * un PIN. El `id` de un empleado ES el `contactId` de esa persona (mig 233), y
  * el alta crea o elige ese usuario (ver `createUserForEmployee()`).
  *
  *   GET    /v1/employees                                  → { employees: [...] }
@@ -411,7 +411,7 @@ switch ($method) {
         $patch = $_POST;
         // El tenant y la identidad de la fila NUNCA salen del payload.
         //
-        // `contactId` entra en esta lista desde la mig 232: el legajo no cambia
+        // `contactId` entra en esta lista desde la mig 233: el legajo no cambia
         // de dueño. Mover un historial laboral de una persona a otra no es una
         // edición — es un error de carga, y se corrige archivando la fila.
         unset(
