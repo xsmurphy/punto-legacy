@@ -199,6 +199,12 @@ try {
     // ═══════════════════════════════════════════════════════════════════════
     // (A) Idempotencia
     // ═══════════════════════════════════════════════════════════════════════
+    // Todo el arnés hasta la sección (G) marca por CÓDIGO, y desde el cambio
+    // de default (owner 2026-09-18) el código nace APAGADO: se prende acá una
+    // sola vez, como lo prendería Ajustes. La sección (G) lo apaga y ejercita
+    // el default real.
+    setAllowPin($companyId, true);
+
     echo "\n=== (A) Idempotencia: el mismo opId no duplica ===\n";
 
     $op = opId('idem');
@@ -423,6 +429,10 @@ try {
     // 2026-09-18 — el flag es positivo justamente para eso), que prendido el
     // código entre, que apagado se rechace, y que apagado NO toque el rostro.
     echo "\n=== (G) Interruptor de marcación con código ===\n";
+
+    // Volver al estado "el comercio nunca lo prendió": la clave en 0 resuelve
+    // igual que ausente (allowPin === false), que es lo que G0/G0b ejercitan.
+    setAllowPin($companyId, false);
 
     check('(G0) por default el comercio NO deja marcar con código (clave ausente)',
         AttendanceSettings::allowPin($companyId) === false,
