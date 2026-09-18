@@ -1170,6 +1170,10 @@ export function useAdminBroadcast() {
 export interface AdminTenantOutlet {
   id: string
   name: string
+  /** Fecha de alta: distingue dos sucursales con el mismo nombre. */
+  createdAt?: string
+  /** Cajas activas de la sucursal. */
+  registers?: number
 }
 
 export interface AdminTenantRegister {

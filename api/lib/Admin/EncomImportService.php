@@ -1167,7 +1167,37 @@ final class EncomImportService
         // ── Sucursales ───────────────────────────────────────────────────
         $outlets = new \Punto\Api\Outlets\OutletsService();
 
-        $this->each('outlet', $this->source->outlets(), function (array $row) use ($outlets): ?string {
+        $legacyOutlets = $this->source->outlets();
+
+        // Regla del owner (2026-09-18): el destino SIEMPRE tiene al menos una
+        // sucursal (la crea el alta) y el migrador NUNCA duplica. Cada sucursal
+        // del legacy, en orden: 1) ya mapeada → se usa; 2) homónima libre → se
+        // reusa; 3) cualquier otra libre → la más antigua; 4) todas tomadas →
+        // se crea. Cada caso deja su línea en la bitácora. Ver context/77 §11.2.
+        //
+        // Los nombres de las del legacy TODAVÍA sin mapear quedan reservados:
+        // la regla 3 no le puede dar a una sucursal la homónima de OTRA que se
+        // procesa después (el orden del export no se controla).
+        $reservados = [];
+        foreach ($legacyOutlets as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $legacyId = $this->legacyIdOf($row);
+            $ya = $legacyId !== null ? EncomMigrationService::mapped($this->companyId, 'outlet', $legacyId) : null;
+            if ($ya === null) {
+                if ($legacyId !== null) {
+                    $reservados[$legacyId] = self::claveSucursal((string) ($row['name'] ?? ''));
+                }
+            } else {
+                $this->note(
+                    'La sucursal "' . trim((string) ($row['name'] ?? '')) . '" del sistema anterior ya estaba '
+                    . 'migrada a "' . $this->nombreSucursal($ya) . '": se usa esa.'
+                );
+            }
+        }
+
+        $this->each('outlet', $legacyOutlets, function (array $row) use ($outlets, &$reservados): ?string {
             $name = trim((string) ($row['name'] ?? ''));
             if ($name === '') {
                 return null;
@@ -1195,6 +1225,29 @@ final class EncomImportService
                 $fields['lng'] = (float) $lng;
             }
 
+            // ¿Hay una sucursal del destino libre para esta? El alta crea
+            // "Central" (con su depósito y su caja), y crear otra al lado dejaba
+            // al comercio con dos "Central": las cajas y el stock en una, el
+            // histórico en la otra (caso real 2026-09-18).
+            // Esta deja de reservar su nombre: se resuelve ahora, sea como sea.
+            unset($reservados[(string) $this->legacyIdOf($row)]);
+            $existente = $this->sucursalExistentePara($name, array_values($reservados));
+            if ($existente !== null) {
+                $legacyId = (string) $this->legacyIdOf($row);
+                $this->completarSucursalReusada($outlets, $existente['id'], $fields, $phone);
+                // Marca DURABLE de "esta sucursal ya existía": `registers()` la
+                // lee para no convertir una caja del comercio en una del
+                // legacy, también en un relanzamiento.
+                EncomMigrationService::remember($this->companyId, 'outlet_reused', $legacyId, $existente['id'], $this->jobId);
+                $this->note(
+                    'La sucursal "' . $name . '" del sistema anterior se unió a la sucursal existente "'
+                    . $existente['name'] . '"'
+                    . ($existente['porNombre'] ? ' (mismo nombre)' : ' (era la más antigua todavía sin asignar)')
+                    . '; no se creó otra. Sus cajas se crean dentro de ella.'
+                );
+                return $existente['id'];
+            }
+
             // `ORIGIN_SUPPORT`: la migración la opera Punto, no el comercio —
             // estas sucursales YA existían en el sistema anterior, así que no
             // pasan por la solicitud con paywall (mig 219).
@@ -1214,7 +1267,14 @@ final class EncomImportService
                 $id = $outlets->create($this->companyId, $fields, $origin);
             }
 
-            return is_string($id) && $id !== '' ? $id : null;
+            if (is_string($id) && $id !== '') {
+                $this->note(
+                    'La sucursal "' . $name . '" del sistema anterior se creó nueva: todas las sucursales que '
+                    . 'ya había en Punto quedaron asignadas a otras del sistema anterior.'
+                );
+                return $id;
+            }
+            return null;
         });
 
         // El horario de atención (`weekHours`) viene en el export pero NO se
@@ -1226,6 +1286,130 @@ final class EncomImportService
 
         // ── Cajas ────────────────────────────────────────────────────────
         $this->registers($options);
+    }
+
+    /**
+     * La sucursal del destino que toma una del legacy SIN crear otra, o null
+     * si hay que crearla. Solo se llama cuando ese id del legacy todavía no
+     * está en `migration_map` (eso lo resuelve `each()` antes). "Libre" =
+     * activa y no mapeada a ninguna sucursal del legacy.
+     *
+     *   1. Libre y con el MISMO nombre (sin distinguir mayúsculas ni espacios).
+     *   2. Si no: la libre más antigua (la del alta, típicamente).
+     *   3. Ninguna libre → null: todas ya son de otras sucursales del legacy.
+     *
+     * Ante empate, la más antigua: es la que el comercio más probablemente ya
+     * usa, y el orden es determinístico al relanzar.
+     *
+     * @return array{id: string, name: string, porNombre: bool}|null
+     */
+    private function sucursalExistentePara(string $name, array $reservados): ?array
+    {
+        global $db;
+
+        $libres = [];
+        $rs = $db->Execute(
+            "SELECT o.outletId AS id, o.outletName AS name
+               FROM outlet o
+              WHERE o.companyId = ? AND o.outletStatus = 1
+                AND NOT EXISTS (
+                      SELECT 1 FROM migration_map m
+                       WHERE m.companyid = o.companyId
+                         AND m.domain    = 'outlet'
+                         AND m.puntoid   = o.outletId
+                )
+              ORDER BY o.outletCreationDate, o.outletId",
+            [$this->companyId]
+        );
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $libres[] = ['id' => (string) ($f['id'] ?? ''), 'name' => (string) ($f['name'] ?? '')];
+                $rs->MoveNext();
+            }
+        }
+
+        $clave = self::claveSucursal($name);
+        foreach ($libres as $o) {
+            if ($o['id'] !== '' && self::claveSucursal($o['name']) === $clave) {
+                return $o + ['porNombre' => true];
+            }
+        }
+
+        // Sin homónima: la libre más antigua que no sea la homónima de OTRA
+        // sucursal del legacy que todavía falta procesar.
+        $otras = $reservados;
+        foreach ($libres as $o) {
+            if ($o['id'] !== '' && !in_array(self::claveSucursal($o['name']), $otras, true)) {
+                return $o + ['porNombre' => false];
+            }
+        }
+
+        return null;
+    }
+
+    /** Nombre de sucursal normalizado: sin mayúsculas ni espacios de más. */
+    private static function claveSucursal(string $name): string
+    {
+        return mb_strtolower(trim((string) preg_replace('/\s+/u', ' ', $name)));
+    }
+
+    /** Nombre de una sucursal del destino, para la bitácora. */
+    private function nombreSucursal(string $outletId): string
+    {
+        $row = ncmExecute(
+            'SELECT outletName AS name FROM outlet WHERE companyId = ? AND outletId = ? LIMIT 1',
+            [$this->companyId, $outletId]
+        );
+        return $row ? (string) ($row['name'] ?? '') : '';
+    }
+
+    /**
+     * Completa la sucursal reusada con lo que el legacy trae y ella NO tiene
+     * (razón social, RUC, dirección…). Nunca pisa un dato cargado: la sucursal
+     * ya es del comercio, y el nombre se conserva.
+     */
+    private function completarSucursalReusada(
+        \Punto\Api\Outlets\OutletsService $outlets,
+        string $outletId,
+        array $fields,
+        string $phone
+    ): void {
+        $actual = $outlets->get($outletId, $this->companyId) ?? [];
+
+        $patch = [];
+        foreach (['address', 'email', 'billingName', 'ruc'] as $k) {
+            if (($fields[$k] ?? '') !== '' && trim((string) ($actual[$k] ?? '')) === '') {
+                $patch[$k] = $fields[$k];
+            }
+        }
+        if (isset($fields['lat'], $fields['lng']) && ($actual['lat'] ?? null) === null && ($actual['lng'] ?? null) === null) {
+            $patch['lat'] = $fields['lat'];
+            $patch['lng'] = $fields['lng'];
+        }
+        if ($patch !== []) {
+            $outlets->update($outletId, $this->companyId, $patch);
+        }
+
+        if ($phone !== '' && trim((string) ($actual['phone'] ?? '')) === '') {
+            try {
+                $outlets->update($outletId, $this->companyId, ['phone' => $phone]);
+            } catch (\Throwable $e) {
+                $this->note('La sucursal "' . (string) ($actual['name'] ?? '') . '" quedó sin teléfono: el legacy tenía "' . $phone . '", que no es un número válido.');
+            }
+        }
+    }
+
+    /** Si la sucursal ya existía en el destino y el migrador la reusó. */
+    private function esSucursalReusada(string $outletId): bool
+    {
+        $row = ncmExecute(
+            "SELECT 1 AS si FROM migration_map
+              WHERE companyid = ? AND domain = 'outlet_reused' AND puntoid = ?
+              LIMIT 1",
+            [$this->companyId, $outletId]
+        );
+        return (bool) $row;
     }
 
     /**
@@ -1311,7 +1495,12 @@ final class EncomImportService
                 // esa sucursal en vez de crear otra al lado: si no, cada
                 // sucursal migrada queda con una caja fantasma que el comercio
                 // tiene que borrar a mano.
-                $placeholder = $this->freePlaceholderRegister($outletId);
+                //
+                // En una sucursal que YA existía (la reusó `config`) no hay
+                // placeholder: su caja es del comercio —puede estar pareada y
+                // haber vendido— y convertirla en una caja del legacy sería
+                // fusionarlas. Las del legacy se crean al lado.
+                $placeholder = $this->esSucursalReusada($outletId) ? null : $this->freePlaceholderRegister($outletId);
                 if ($placeholder !== null) {
                     $svc->update($placeholder, ['name' => $name] + $extra);
                     $registerId = $placeholder;

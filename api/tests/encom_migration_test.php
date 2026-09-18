@@ -52,6 +52,10 @@ declare(strict_types=1);
  *   J. COMPLETAR — relanzar completa las compras que entraron sin líneas ni
  *      proveedor (y descarta el alias viejo que apuntaba a un cliente).
  *   U7. "Jefe" → Dueño (decisión del owner).
+ *
+ *   Y. SUCURSAL EXISTENTE (2026-09-18, regla del owner: nunca duplicar) —
+ *      mapeada → se usa; homónima libre → se reusa; otra libre → la más
+ *      antigua; todas tomadas → se crea. Sus cajas no se fusionan.
  */
 
 require_once __DIR__ . '/_harness.php';
@@ -74,6 +78,12 @@ $companyH  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0011';   // U7 — rol "Jefe"
 $companyI  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0022';   // T — taxonomías que ya existen
 $companyJ  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0033';   // J — completar compras
 $companyK  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0044';   // K — clientes duplicados
+// Caso Y (2026-09-18): la sucursal que ya existe en el destino no se duplica.
+$companyL  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0055';   // Y1 — reusa por nombre
+$companyM  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0066';   // Y2 — reusa la única del signup
+$companyN  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0077';   // Y3 — ninguna coincide: la más antigua libre
+$companyO  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0088';   // Y5 — todas tomadas: crea
+$companyP  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0099';   // Y6 — orden del export invertido
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -481,6 +491,48 @@ final class SinDetalleComprasEncomClient extends FixtureEncomClient
     }
 }
 
+/**
+ * Legacy con UNA sola sucursal y una caja: el caso del comercio chico que se
+ * dio de alta en Punto (el signup le creó "Central") y después migró.
+ */
+final class UnaSucursalEncomClient extends FixtureEncomClient
+{
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        if ($load === 'outlets') {
+            return [[
+                'outletId'    => 'una-out-1',
+                'name'        => 'Casa Central',
+                'outletRazon' => 'Una Sucursal SA',
+            ]];
+        }
+        if ($load === 'registers') {
+            return [
+                'registers' => [[
+                    'registerId'    => 'una-reg-1',
+                    'name'          => 'Caja Legacy',
+                    'outletId'      => 'una-out-1',
+                    'invoicePrefix' => '003-001-',
+                    'invoiceAuthNo' => '17777777',
+                    'leadingZero'   => 7,
+                ]],
+                'docsNum' => [['registerId' => 'una-reg-1', 'invoiceNo' => 40]],
+            ];
+        }
+        return parent::fetch($load, $outletHash);
+    }
+}
+
+/** El export con las sucursales en el orden inverso (caso Y6). */
+final class OrdenInvertidoEncomClient extends FixtureEncomClient
+{
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        $data = parent::fetch($load, $outletHash);
+        return $load === 'outlets' ? array_reverse($data) : $data;
+    }
+}
+
 /** Variante del caso E: dos cajas con el mismo (timbrado, punto). */
 final class ClashEncomClient extends EncomClient
 {
@@ -694,6 +746,11 @@ cleanup($companyH);
 cleanup($companyI);
 cleanup($companyJ);
 cleanup($companyK);
+cleanup($companyL);
+cleanup($companyM);
+cleanup($companyN);
+cleanup($companyO);
+cleanup($companyP);
 cleanup($companyC);
 cleanup($companyE);
 cleanup($companyF);
@@ -2823,6 +2880,185 @@ try {
         "errors = $motivo",
         $failures, $checks
     );
+    // ══════════════════════════════════════════════════════════════════
+    // Y. SUCURSAL QUE YA EXISTE — no se duplica (caso real 2026-09-18)
+    // ══════════════════════════════════════════════════════════════════
+    // El signup crea "Central" con su depósito y su caja. El dominio config
+    // creaba SIEMPRE otra por cada sucursal del legacy y el comercio quedaba
+    // con dos "Central": cajas y stock en una, histórico en la otra.
+    $outletSvc = new \Punto\Api\Outlets\OutletsService();
+    $origen    = \Punto\Api\Outlets\OutletsService::ORIGIN_SUPPORT;
+    $depositos = static fn (string $cid): int => (int) scalar(
+        "SELECT count(*) FROM taxonomy WHERE companyid = ? AND taxonomytype = 'location'", [$cid]
+    );
+    $nombreCaja = static fn (string $regId): string => (string) scalar(
+        'SELECT registerName FROM register WHERE registerId = ?', [$regId]
+    );
+    $cajaDe = static fn (string $cid): string => (string) scalar(
+        'SELECT registerId FROM register WHERE companyId = ? ORDER BY registerCreationDate LIMIT 1', [$cid]
+    );
+
+    // ── Y1. Reusa por NOMBRE, y la otra toma la libre que queda ───────
+    seedCompany($companyL, 'Comercio Con Dos Sucursales SA');
+    $centralL = (string) $outletSvc->create($companyL, ['name' => '  CASA   central '], $origen);
+    $norteL   = (string) $outletSvc->create($companyL, ['name' => 'Depósito Norte'], $origen);
+    $cajaPreviaL = $cajaDe($companyL);
+    $runL = (new EncomImportService($companyL, new FixtureEncomClient($fixtures), null))->run(['config']);
+
+    check(
+        'Y1 · la homónima se reusa por NOMBRE y la otra toma la libre que queda: 2 sucursales, no 4',
+        EncomMigrationService::mapped($companyL, 'outlet', 'out-1') === $centralL
+            && EncomMigrationService::mapped($companyL, 'outlet', 'out-2') === $norteL
+            && countOf('outlet', $companyL) === 2
+            && $depositos($companyL) === 2,
+        'mapa out-1 = ' . var_export(EncomMigrationService::mapped($companyL, 'outlet', 'out-1'), true)
+            . ' · outlets = ' . countOf('outlet', $companyL) . ' · depósitos = ' . $depositos($companyL)
+            . ' · errors = ' . json_encode($runL['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+    check(
+        'Y1b · la caja del comercio NO se fusiona con una del legacy (sigue siendo la suya)',
+        $nombreCaja($cajaPreviaL) === 'Nueva Caja'
+            && (int) scalar(
+                "SELECT count(*) FROM migration_map WHERE companyid = ? AND domain = 'register' AND puntoid = ?",
+                [$companyL, $cajaPreviaL]
+            ) === 0,
+        'nombre = ' . $nombreCaja($cajaPreviaL),
+        $failures, $checks
+    );
+    check(
+        'Y1c · la bitácora dice que se reusó la sucursal existente',
+        str_contains(json_encode($runL['log'] ?? [], JSON_UNESCAPED_UNICODE), 'mismo nombre')
+            && str_contains(json_encode($runL['log'] ?? [], JSON_UNESCAPED_UNICODE), 'la más antigua todavía sin asignar'),
+        'log = ' . json_encode($runL['log'] ?? [], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Y2. Reusa la ÚNICA sucursal del signup (nombre distinto) ──────
+    seedCompany($companyM, 'Comercio Recién Dado De Alta SA');
+    $centralM    = (string) $outletSvc->create($companyM, ['name' => 'Central'], $origen);
+    $cajaPreviaM = $cajaDe($companyM);
+    $runM = (new EncomImportService($companyM, new UnaSucursalEncomClient($fixtures), null))->run(['config']);
+    $cajaLegacyM = (string) EncomMigrationService::mapped($companyM, 'register', 'una-reg-1');
+
+    check(
+        'Y2 · con UNA sucursal de cada lado se reusa la del signup: sigue habiendo una sola "Central"',
+        EncomMigrationService::mapped($companyM, 'outlet', 'una-out-1') === $centralM
+            && countOf('outlet', $companyM) === 1
+            && $depositos($companyM) === 1,
+        'outlets = ' . countOf('outlet', $companyM) . ' · depósitos = ' . $depositos($companyM)
+            . ' · errors = ' . json_encode($runM['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+    check(
+        'Y2b · la caja del legacy se CREA dentro de la sucursal reusada, al lado de la del comercio',
+        $cajaLegacyM !== '' && $cajaLegacyM !== $cajaPreviaM
+            && (string) scalar('SELECT outletId FROM register WHERE registerId = ?', [$cajaLegacyM]) === $centralM
+            && $nombreCaja($cajaPreviaM) === 'Nueva Caja'
+            && countOf('register', $companyM) === 2,
+        'caja legacy = ' . $cajaLegacyM . ' · cajas = ' . countOf('register', $companyM),
+        $failures, $checks
+    );
+    check(
+        'Y2c · completa lo que la sucursal no tenía (razón social) sin pisarle el nombre',
+        (string) scalar('SELECT outletName FROM outlet WHERE outletId = ?', [$centralM]) === 'Central'
+            && ($outletSvc->get($centralM, $companyM)['billingName'] ?? '') === 'Una Sucursal SA',
+        'sucursal = ' . json_encode($outletSvc->get($centralM, $companyM), JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Y3. Dos sucursales libres y ninguna homónima → la más antigua ─
+    seedCompany($companyN, 'Comercio Sin Coincidencia SA');
+    $centralN = (string) $outletSvc->create($companyN, ['name' => 'Central'], $origen);
+    $outletSvc->create($companyN, ['name' => 'Norte'], $origen);
+    $runN = (new EncomImportService($companyN, new UnaSucursalEncomClient($fixtures), null))->run(['config']);
+    $nuevaN = (string) EncomMigrationService::mapped($companyN, 'outlet', 'una-out-1');
+
+    check(
+        'Y3 · sin homónima se reusa la sucursal libre MÁS ANTIGUA, no se crea otra',
+        $nuevaN === $centralN && countOf('outlet', $companyN) === 2,
+        'outlets = ' . countOf('outlet', $companyN) . ' · errors = ' . json_encode($runN['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Y5. Todas las del destino ya tomadas → recién ahí se crea ─────
+    seedCompany($companyO, 'Comercio Que Crece SA');
+    $centralO = (string) $outletSvc->create($companyO, ['name' => 'Central'], $origen);
+    $runO = (new EncomImportService($companyO, new FixtureEncomClient($fixtures), null))->run(['config']);
+    $out2O = (string) EncomMigrationService::mapped($companyO, 'outlet', 'out-2');
+
+    check(
+        'Y5 · la primera toma la única libre y la segunda, sin ninguna libre, se CREA',
+        EncomMigrationService::mapped($companyO, 'outlet', 'out-1') === $centralO
+            && $out2O !== '' && $out2O !== $centralO
+            && countOf('outlet', $companyO) === 2
+            && str_contains(json_encode($runO['log'] ?? [], JSON_UNESCAPED_UNICODE), 'se creó nueva'),
+        'outlets = ' . countOf('outlet', $companyO) . ' · log = ' . json_encode($runO['log'] ?? [], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Y6. El orden del export no roba la homónima de otra ───────────
+    // "Sucursal Shopping" llega PRIMERO y no tiene homónima: la más antigua
+    // libre es "Norte", no "Casa Central", que está reservada para la suya.
+    seedCompany($companyP, 'Comercio Orden Invertido SA');
+    $norteP   = (string) $outletSvc->create($companyP, ['name' => 'Norte'], $origen);
+    $centralP = (string) $outletSvc->create($companyP, ['name' => 'Casa Central'], $origen);
+    (new EncomImportService($companyP, new OrdenInvertidoEncomClient($fixtures), null))->run(['config']);
+
+    check(
+        'Y6 · con el export invertido cada una cae en la que corresponde (sin robar la homónima)',
+        EncomMigrationService::mapped($companyP, 'outlet', 'out-1') === $centralP
+            && EncomMigrationService::mapped($companyP, 'outlet', 'out-2') === $norteP
+            && countOf('outlet', $companyP) === 2,
+        'out-1 = ' . var_export(EncomMigrationService::mapped($companyP, 'outlet', 'out-1'), true)
+            . ' · out-2 = ' . var_export(EncomMigrationService::mapped($companyP, 'outlet', 'out-2'), true),
+        $failures, $checks
+    );
+
+    // ── Y7. Crash entre la marca `outlet_reused` y el mapa `outlet` ───
+    // El worker murió después de marcar la reusada y antes de mapearla: al
+    // relanzar tiene que volver a caer en LA MISMA sucursal, sin crear otra.
+    cleanup($companyP);
+    seedCompany($companyP, 'Comercio Que Se Cortó SA');
+    $centralY7 = (string) $outletSvc->create($companyP, ['name' => 'Central'], $origen);
+    EncomMigrationService::remember($companyP, 'outlet_reused', 'una-out-1', $centralY7, null);
+    $runY7 = (new EncomImportService($companyP, new UnaSucursalEncomClient($fixtures), null))->run(['config']);
+
+    check(
+        'Y7 · tras un corte a mitad de camino, relanzar mapea la misma sucursal y no crea otra',
+        EncomMigrationService::mapped($companyP, 'outlet', 'una-out-1') === $centralY7
+            && countOf('outlet', $companyP) === 1
+            && $runY7['errors'] === [],
+        'outlets = ' . countOf('outlet', $companyP) . ' · errors = ' . json_encode($runY7['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    // ── Y4. Idempotencia: relanzar no crea sucursales, depósitos ni cajas ─
+    $fotoY = static fn (string $cid): array => [
+        countOf('outlet', $cid), $depositos($cid), countOf('register', $cid),
+        (int) scalar('SELECT count(*) FROM migration_map WHERE companyid = ?', [$cid]),
+    ];
+    $antesL = $fotoY($companyL);
+    $antesM = $fotoY($companyM);
+    $antesN = $fotoY($companyN);
+    $antesO = $fotoY($companyO);
+    $rerunL = (new EncomImportService($companyL, new FixtureEncomClient($fixtures), null))->run(['config']);
+    $rerunM = (new EncomImportService($companyM, new UnaSucursalEncomClient($fixtures), null))->run(['config']);
+    (new EncomImportService($companyN, new UnaSucursalEncomClient($fixtures), null))->run(['config']);
+    (new EncomImportService($companyO, new FixtureEncomClient($fixtures), null))->run(['config']);
+
+    check(
+        'Y4 · relanzar no duplica nada, dice que ya estaba migrada y la caja del comercio sigue intacta',
+        $fotoY($companyL) === $antesL && $fotoY($companyM) === $antesM && $fotoY($companyN) === $antesN
+            && $fotoY($companyO) === $antesO
+            && str_contains(json_encode($rerunL['log'] ?? [], JSON_UNESCAPED_UNICODE), 'ya estaba migrada')
+            && $nombreCaja($cajaPreviaL) === 'Nueva Caja' && $nombreCaja($cajaPreviaM) === 'Nueva Caja'
+            && $rerunL['errors'] === [] && $rerunM['errors'] === [],
+        'L ' . json_encode([$antesL, $fotoY($companyL)]) . ' · M ' . json_encode([$antesM, $fotoY($companyM)])
+            . ' · N ' . json_encode([$antesN, $fotoY($companyN)])
+            . ' · errors = ' . json_encode([$rerunL['errors'], $rerunM['errors']], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
 } finally {
     cleanup($companyId);
     cleanup($companyB);
@@ -2834,6 +3070,11 @@ try {
     cleanup($companyI);
     cleanup($companyJ);
     cleanup($companyK);
+    cleanup($companyL);
+    cleanup($companyM);
+    cleanup($companyN);
+    cleanup($companyO);
+    cleanup($companyP);
     // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
     // línea, una segunda corrida del arnés contra la misma base encontraría el
     // período ya cerrado y H17 pasaría por el motivo equivocado.

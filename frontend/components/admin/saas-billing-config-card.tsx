@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Check, ChevronsUpDown, Loader2 } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -15,12 +15,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { cn } from "@/lib/utils"
+import { CompanyCombobox } from "@/components/admin/company-combobox"
 
 import {
-  useAdminCompanies,
   useAdminPlatformConfig,
   useAdminSetSaasBilling,
   useAdminTenantOutlets,
@@ -102,7 +99,12 @@ export function SaasBillingConfigCard() {
           <>
             <div className="space-y-1.5">
               <Label>Tenant emisor</Label>
-              <TenantCombobox value={tenantId} valueName={tenantName} onPick={onPickTenant} />
+              <CompanyCombobox
+                value={tenantId}
+                valueName={tenantName}
+                placeholder="Buscar tenant…"
+                onPick={(c, name) => onPickTenant(c.id, name)}
+              />
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -170,66 +172,5 @@ export function SaasBillingConfigCard() {
         )}
       </CardContent>
     </Card>
-  )
-}
-
-function TenantCombobox({
-  value,
-  valueName,
-  onPick,
-}: {
-  value: string
-  valueName: string
-  onPick: (id: string, name: string) => void
-}) {
-  const [open, setOpen] = React.useState(false)
-  const [search, setSearch] = React.useState("")
-  const { data, isLoading } = useAdminCompanies({ q: search, pageSize: 20 })
-  const rows = data?.rows ?? []
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between font-normal"
-        >
-          <span className={cn("truncate", !value && "text-muted-foreground")}>
-            {value ? valueName || value : "Buscar tenant…"}
-          </span>
-          <ChevronsUpDown className="size-4 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-        <Command shouldFilter={false}>
-          <CommandInput placeholder="Buscar por nombre…" value={search} onValueChange={setSearch} />
-          <CommandList>
-            <CommandEmpty>{isLoading ? "Buscando…" : "Sin resultados."}</CommandEmpty>
-            <CommandGroup>
-              {rows.map((c) => {
-                const name = c.name || c.companyName || "(sin nombre)"
-                const checked = c.id === value
-                return (
-                  <CommandItem
-                    key={c.id}
-                    value={c.id}
-                    onSelect={() => {
-                      onPick(c.id, name)
-                      setOpen(false)
-                    }}
-                  >
-                    <Check className={cn("size-4", checked ? "opacity-100" : "opacity-0")} />
-                    <span>{name}</span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
   )
 }

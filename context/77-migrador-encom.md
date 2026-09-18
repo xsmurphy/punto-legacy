@@ -335,7 +335,9 @@ Re-correr da los mismos conteos con todo en `skipped`, y **no vuelve a mover la
 numeración fiscal**.
 
 Dominios del mapa: `category`, `brand`, `tag`, `item`, **`compound`**,
-`customer`, `outlet`, `register`, `user`, `payment`.
+`customer`, `outlet`, `register`, `user`, `payment`. Más **`outlet_reused`**
+(§11.2): marca que esa sucursal YA existía en el destino y el migrador la
+reusó en vez de crearla.
 
 **`compound` es un dominio aparte del `item` a propósito**, y es el caso donde
 la idempotencia no era gratis: `ItemCompoundService::add()` **suma** la cantidad
@@ -521,6 +523,63 @@ canónico de altas de caja —que abre la suya y publica un evento realtime al
 commitear— para servir a un caso del migrador. Un arreglo manual de un minuto,
 en un flujo que corre una vez por cliente y con un operador mirando, contra
 tocar el camino por el que se dan de alta TODAS las cajas del producto.
+
+### 11.2 La sucursal que ya existe se REUSA (2026-09-18)
+
+El signup crea "Central" con su depósito y su caja. `config` creaba SIEMPRE
+una sucursal nueva por cada una del legacy, y el comercio quedaba con dos
+"Central": las cajas del legacy y la apertura de stock en la nueva, el
+histórico en la original (caso real, tenant `019ff24f…`; esa duplicada NO se
+unificó todavía en prod, está pendiente de permiso).
+
+**Regla del owner: el destino SIEMPRE tiene al menos una sucursal (la crea el
+alta) y el migrador NUNCA duplica.** Para cada sucursal del legacy, en orden
+(`EncomImportService::sucursalExistentePara()`; "libre" = activa y no mapeada
+a ninguna sucursal del legacy):
+
+1. Ya mapeada en `migration_map` → se usa (idempotencia de siempre).
+2. Una libre con el MISMO nombre (sin distinguir mayúsculas ni espacios) → se
+   reusa. Ante dos homónimas, la más antigua.
+3. Si no, la libre MÁS ANTIGUA → se reusa (típicamente la del alta).
+4. Recién si TODAS las del destino ya están mapeadas a otras del legacy → se
+   crea.
+
+Cada caso deja su línea en la bitácora (ya estaba migrada / mismo nombre / la
+más antigua sin asignar / se creó nueva).
+
+**El orden del export no se controla**, así que la regla 3 no puede darle a
+una sucursal la homónima de OTRA del legacy que se procesa después: los
+nombres de las del legacy todavía sin procesar quedan RESERVADOS y se liberan
+a medida que cada una se resuelve (caso Y6 del arnés, export invertido). Por
+eso con dos "Central" en el destino y dos sucursales en el legacy, la segunda
+toma la segunda "Central" en vez de crear una tercera.
+
+La reusada se completa con lo que el legacy trae y ella no tiene (razón
+social, RUC, dirección, email, teléfono, coordenadas); nunca se pisa un dato
+cargado ni el nombre. La bitácora dice "se unió a la sucursal existente X".
+
+**El depósito no necesita regla propia**: el único creador del depósito por
+defecto es `OutletsService::create()`, así que reusar la sucursal reusa el
+suyo.
+
+**Las cajas NO se fusionan.** La regla de §11 (la placeholder se reusa para
+la primera caja importada) se APAGA en una sucursal reusada: su caja es del
+comercio —puede estar pareada y haber vendido— y darle el timbrado del legacy
+la convertiría en otra caja. Las del legacy se crean al lado. Para que eso
+valga también al relanzar, la reusada queda marcada en `migration_map` con el
+dominio `outlet_reused` (legacyId → outletId), y `registers()` lo consulta.
+
+En `/admin`, el selector "Sucursal de respaldo para las cajas" agrega fecha de
+alta y cantidad de cajas SOLO a las sucursales con nombre repetido
+(`CompanyAdminService::listOutlets()` devuelve `createdAt` y `registers`). El
+selector de empresa destino es un combobox con búsqueda en el servidor (nombre,
+RUC o slug), el mismo `CompanyCombobox` que usa la configuración de
+facturación SaaS.
+
+Cubierto por el caso Y del arnés: Y1 por nombre y la otra toma la libre que
+queda, Y2 la única del alta, Y3 sin homónima toma la más antigua, Y5 todas
+tomadas → crea, Y6 export invertido, Y4 relanzar no duplica y registra "ya
+estaba migrada".
 
 ## 12. Qué NO se migra, y por qué
 

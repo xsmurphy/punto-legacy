@@ -970,16 +970,27 @@ class CompanyAdminService
         global $db;
 
         $out = [];
+        // Fecha de alta y cantidad de cajas: con dos sucursales homónimas (el
+        // "Central" del signup y una creada al lado) el nombre solo no alcanza
+        // para elegir la correcta en un selector.
         $r = $db->Execute(
-            'SELECT outletId, outletName FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
+            'SELECT o.outletId, o.outletName, o.outletCreationDate AS createdat,
+                    (SELECT count(*) FROM register r
+                      WHERE r.companyId = o.companyId AND r.outletId = o.outletId
+                        AND r.registerStatus = true) AS registers
+               FROM outlet o
+              WHERE o.companyId = ? AND o.outletStatus = 1
+              ORDER BY o.outletName ASC, o.outletCreationDate ASC',
             [$companyId]
         );
         if ($r) {
             while (!$r->EOF) {
                 $f = $r->fields;
                 $out[] = [
-                    'id'   => (string) ($f['outletid']   ?? $f['outletId']   ?? ''),
-                    'name' => (string) ($f['outletname'] ?? $f['outletName'] ?? ''),
+                    'id'        => (string) ($f['outletid']   ?? $f['outletId']   ?? ''),
+                    'name'      => (string) ($f['outletname'] ?? $f['outletName'] ?? ''),
+                    'createdAt' => (string) ($f['createdat']  ?? ''),
+                    'registers' => (int) ($f['registers'] ?? 0),
                 ];
                 $r->MoveNext();
             }
