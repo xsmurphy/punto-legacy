@@ -26,11 +26,29 @@ import {
 } from "@/components/ui/select"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
-  useAdminCompanies,
   useAdminTenantOutlets,
   useAdminCreateMigration,
+  type AdminTenantOutlet,
+  type AdminCompanyRow,
 } from "@/hooks/use-admin"
 import { SUPPORTED_COUNTRIES, getCountry } from "@/lib/countries"
+import { CompanyCombobox } from "@/components/admin/company-combobox"
+import { formatDate } from "@/lib/format-date"
+
+/**
+ * Nombre de la sucursal en el selector. Si otra se llama igual, se agrega la
+ * fecha de alta y la cantidad de cajas: dos "Central" idénticas no se pueden
+ * elegir a ciegas.
+ */
+function outletLabel(o: AdminTenantOutlet, all: AdminTenantOutlet[]): string {
+  const key = (s: string) => s.trim().replace(/\s+/g, " ").toLowerCase()
+  const homonyms = all.filter((x) => key(x.name) === key(o.name)).length
+  if (homonyms < 2) return o.name
+  const parts = [o.name]
+  if (o.createdAt) parts.push(`creada el ${formatDate(o.createdAt)}`)
+  if (o.registers !== undefined) parts.push(o.registers === 1 ? "1 caja" : `${o.registers} cajas`)
+  return parts.join(" · ")
+}
 
 /**
  * Lo que el form del legacy trata como celular: SOLO dígitos. Es la regla de
@@ -130,7 +148,7 @@ export function MigrationFormDialog({
   onCreated: (jobId: string) => void
 }) {
   const [companyId, setCompanyId] = React.useState("")
-  const [search, setSearch] = React.useState("")
+  const [companyName, setCompanyName] = React.useState("")
   // Un solo campo de texto: email o celular, tal como lo tipea el cliente.
   // Si es un celular, el form legacy le antepone el código de país de un
   // desplegable; acá se elige aparte y el backend los junta igual que el
@@ -149,7 +167,6 @@ export function MigrationFormDialog({
   const wantsHistory = domains.some((d) => HISTORY_DOMAINS.includes(d))
   const isPhone = isPhoneIdentifier(identifier)
 
-  const companies = useAdminCompanies({ limit: 30, q: search || undefined })
   const outlets = useAdminTenantOutlets(companyId)
   const create = useAdminCreateMigration()
 
@@ -158,7 +175,7 @@ export function MigrationFormDialog({
   React.useEffect(() => {
     if (!open) {
       setCompanyId("")
-      setSearch("")
+      setCompanyName("")
       setIdentifier("")
       setPhoneCountry("")
       setPhoneCountryTouched(false)
@@ -170,16 +187,18 @@ export function MigrationFormDialog({
     }
   }, [open])
 
-  // El país de la empresa elegida propone el código, mientras el operador no
-  // haya elegido otro a mano.
-  // `undefined` = la empresa no está en la página de resultados actual (la
-  // búsqueda cambió): no se pisa lo que ya se había propuesto.
-  const companyCountry = (companies.data?.rows ?? []).find((c) => c.id === companyId)?.country
-  React.useEffect(() => {
-    if (phoneCountryTouched || companyId === "" || companyCountry === undefined) return
-    const iso = companyCountry.trim().toUpperCase()
-    setPhoneCountry(iso !== "" && isSupportedCountry(iso) ? (iso as CountryCode) : "")
-  }, [companyId, companyCountry, phoneCountryTouched])
+  // Al elegir la empresa: su país propone el código del celular, mientras el
+  // operador no haya elegido otro a mano. Cambiar de empresa invalida la
+  // sucursal de respaldo (es de la otra).
+  const pickCompany = (c: AdminCompanyRow, name: string) => {
+    if (c.id !== companyId) setRegisterOutletId("")
+    setCompanyId(c.id)
+    setCompanyName(name)
+    if (!phoneCountryTouched) {
+      const iso = (c.country ?? "").trim().toUpperCase()
+      setPhoneCountry(iso !== "" && isSupportedCountry(iso) ? (iso as CountryCode) : "")
+    }
+  }
 
   // El país de la empresa puede no estar en la lista corta del selector.
   const phoneCountries = React.useMemo(
@@ -240,24 +259,13 @@ export function MigrationFormDialog({
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="migration-company">Empresa destino en Punto</Label>
-            <Input
-              id="migration-company-search"
-              placeholder="Buscar empresa por nombre o RUC…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+            <CompanyCombobox
+              id="migration-company"
+              value={companyId}
+              valueName={companyName}
+              placeholder="Elegí la empresa"
+              onPick={pickCompany}
             />
-            <Select value={companyId} onValueChange={setCompanyId}>
-              <SelectTrigger id="migration-company">
-                <SelectValue placeholder="Elegí la empresa" />
-              </SelectTrigger>
-              <SelectContent>
-                {(companies.data?.rows ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.name || c.companyName || c.id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <p className="text-sm text-muted-foreground">
               La empresa tiene que existir en Punto: el migrador importa datos, no crea cuentas.
             </p>
@@ -340,9 +348,9 @@ export function MigrationFormDialog({
                   <SelectValue placeholder="Sin respaldo" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(outlets.data?.outlets ?? []).map((o) => (
+                  {(outlets.data?.outlets ?? []).map((o, _i, all) => (
                     <SelectItem key={o.id} value={o.id}>
-                      {o.name}
+                      {outletLabel(o, all)}
                     </SelectItem>
                   ))}
                 </SelectContent>
