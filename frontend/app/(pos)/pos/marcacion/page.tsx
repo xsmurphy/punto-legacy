@@ -391,13 +391,16 @@ export default function MarcacionPage() {
   // Se resuelven ANTES del layout: son pantallas distintas, no un layout con
   // partes apagadas.
 
+  // RRHH es core: el roster baja siempre. Que falte la clave solo puede
+  // significar que esta caja guarda un arranque anterior a ese cambio — se
+  // arregla con una sincronización, no hay nada que habilitar.
   if (rosterMissing) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <EmptyState
           icon={UserCheck}
-          title="La marcación no está habilitada"
-          description="El dueño la habilita prendiendo el módulo RRHH desde el panel."
+          title="Esta caja necesita actualizarse"
+          description="Conectá el dispositivo a internet y volvé a abrir la app para que baje la lista de empleados."
         />
       </div>
     )
