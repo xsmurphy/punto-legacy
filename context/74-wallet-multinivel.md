@@ -1,7 +1,8 @@
 # 74 — Módulo Wallet multi-nivel
 
 > Estado: **F1 y F2 implementadas 2026-09-18** (núcleo §11, caja §12), más el
-> **reporte de bolsillos** (§13, mismo día). F3-F5 pendientes.
+> **reporte de bolsillos** (§13, mismo día) y la **reversa de cargas al anular
+> o devolver** (§14, mismo día). F3-F5 pendientes.
 > Módulo NUEVO, diseñado desde cero: no se construye sobre giftcard ni sobre el
 > crédito interno existentes (§9). La v1 es deliberadamente chica (§2).
 > **Todas las decisiones de la v1 están cerradas** (2026-09-16).
@@ -84,6 +85,7 @@ alguien pueda pisar, y los movimientos nunca se editan ni se borran.
 | Tipo | Qué es | Efecto |
 |---|---|---|
 | `load` | carga con una venta | + en el bolsillo del titular |
+| `load_reversal` | anulación o nota de crédito de la venta de carga (§14) | − en el bolsillo de la carga, atado a ella |
 | `transfer` | titular → hijo | − en el titular, + en el hijo (par atómico) |
 | `spend` | pago en la caja | − en el bolsillo elegido |
 | `refund` | reversa de un pago | + |
@@ -530,15 +532,163 @@ apagado 403.
 del bolsillo o hablando con el cajero); la devolución de un consumo (§12.5)
 tampoco se refleja todavía en "Consumido".
 
-**Gap de F2 encontrado en el review (NO resuelto acá):** anular una venta de
-CARGA (`SaleVoidService`, tipos 0/3) no revierte el `load` del bolsillo: la
-factura queda anulada y el saldo sigue acreditado. El reporte excluye las
-cargas anuladas de "Cargado", así que ese saldo aparece en "Saldo por
-entregar" sin carga que lo respalde — es la señal visible hasta que la
-anulación revierta la carga (o la rechace si el saldo ya se consumió).
+~~**Gap de F2 encontrado en el review:** anular una venta de CARGA no
+revierte el `load` del bolsillo.~~ **RESUELTO 2026-09-18 (§14)**: anular o
+devolver con nota de crédito una venta de carga revierte el saldo en la misma
+transacción, o se rechaza si el cliente ya lo usó. "Cargado" pasó a ser neto
+de las devoluciones de carga. Las cargas anuladas o devueltas ANTES de la
+mig 236 quedaron sin reversa: la query de §14.5 las lista.
 
 Otros dos detalles de la cuenta: "descuento registrado" es el mayor entre el
 del comprobante y la suma de los de sus líneas; y qué línea es hija de un
 add-on/combo lo decide la marca que pone el servidor al expandir, nunca el
 `type` del payload (una caja que marcara un producto como `addon` se habría
 llevado su precio bajado como lista).
+
+## 14. Reversa de cargas al anular o devolver — implementado (2026-09-18)
+
+Branch `api/wallet-anulacion-carga`. Bug en producción: la carga es una venta
+con línea `walletLoad` y su `load` se escribe dentro de la venta (§12.2), pero
+anularla o devolverla con nota de crédito no tocaba el bolsillo — el cliente
+quedaba con saldo que nadie pagó. Lo encontró el reporte (§13).
+
+### 14.1 Caminos que anulan o devuelven una venta
+
+Todos terminan en uno de dos servicios, y el arreglo va ahí, no en los
+endpoints:
+
+- **Anulación** — `SaleVoidService::void()`. Lo llaman `/v1/sales-void` (POS)
+  y `PUT /v1/transactions?resource=void` para tipos 0/3 (panel,
+  `/transactions/[id]`).
+- **Devolución / nota de crédito** — `ReturnService::create()`. Lo llama
+  `/v1/returns` (POS y panel).
+- **Anulación legacy** — `TransactionService::voidTransaction()` (tipo→7), la
+  rama de `transactions.php` para los demás tipos. No anula ventas de carga,
+  pero sí podía anular una NC que ya revirtió saldo o un consumo tipo 15, y no
+  sabe deshacer un movimiento de saldo. Ahora se NIEGA sobre cualquier
+  documento con movimientos de saldo (`WalletService::hasMovementsFromSource`).
+
+### 14.2 Tipo propio `load_reversal` (mig 236), no `adjust`
+
+`adjust` es la corrección MANUAL de un error; la reversa es el efecto
+automático de un documento fiscal. Con tipo propio los reportes los separan
+sin adivinar por `sourcetype`, y la BD puede sostener las dos invariantes que
+un `adjust` no tiene a qué atar:
+
+- `reversesmovementid` obligatorio si y solo si es `load_reversal`, y con
+  origen: `sourcetype = 'sale_void'` + `sourceid` = la venta anulada (la
+  anulación no crea documento), o `sourcetype = 'return'` + `sourceid` = la
+  nota de crédito.
+- Trigger: la carga referida es un `load` del mismo comercio, cliente y
+  bolsillo, y lo revertido de ella nunca supera lo cargado. Siempre negativo
+  (CHECK de signo). `type` pasó a `VARCHAR(20)`.
+
+### 14.3 Regla: el bolsillo nunca queda negativo
+
+`WalletService::reverseLoads()` corre DENTRO de la transacción de la
+anulación/devolución, después del `FOR UPDATE` de la venta (que serializa dos
+anulaciones/devoluciones de la misma venta) y bajo el `pg_advisory_xact_lock`
+de cada bolsillo de la venta (que la serializa contra los consumos). Si el
+saldo leído bajo el lock no alcanza para lo que hay que revertir en un
+bolsillo, lanza `WalletLoadAlreadyUsedException` y la operación entera hace
+rollback: ni la venta queda anulada, ni nace la NC (con su número), ni se
+mueve caja ni saldo. 409 `WALLET_LOAD_USED` con el motivo ("el cliente ya usó
+parte del saldo que se cargó con esta venta") y `available`/`required`.
+`canVoid()` lo avisa antes, para que la UI apague "Anular" con el motivo.
+
+En la anulación la reversa va PRIMERO, antes de la cancelación síncrona en
+SIFEN — lo único que un rollback no deshace.
+
+### 14.4 Cuánto se revierte
+
+- **Anulación**: todo lo que queda de cada carga de la venta.
+- **Nota de crédito**: el NETO devuelto de la línea de carga (bruto −
+  descuento, lo mismo que sale de la caja). La NC que completa la línea
+  revierte todo lo que queda (absorbe los centavos de redondeo de las
+  parciales). Una devolución PARCIAL de una venta que cargó en MÁS DE UN
+  bolsillo se rechaza — las líneas de carga comparten el ítem de sistema y la
+  devolución agrega por ítem, así que "una parte" no tiene bolsillo — y se
+  devuelve entera.
+- Carga retenida por permiso (`meta.walletLoadWithheld`): nunca se acreditó,
+  no hay nada que revertir.
+
+Realtime: `publishChange()` tras el commit del servicio que orquesta, nunca
+antes. Reporte (`WalletReportService`): "Cargado" = cargas de ventas no
+anuladas − reversas por nota de crédito (por fecha y sucursal de la NC); la
+carga anulada y su reversa netean cero; el saldo por entregar las ve a las
+dos. Panel: el movimiento se muestra como "Anulación de carga" o "Devolución
+de carga".
+
+### 14.5 Datos anteriores en producción — diagnóstico (NO ejecutado)
+
+Cargas anuladas o devueltas antes de la mig 236 quedaron sin reversa. Esta
+query de SOLO LECTURA las lista para que el owner decida (correrla DESPUÉS del
+deploy: usa `reversesmovementid`). "devuelto_por_nc" es por VENTA: si la venta
+cargó en varios bolsillos, se repite en cada carga.
+
+```sql
+SELECT m.companyid,
+       c.contactname                         AS cliente,
+       p.name                                AS bolsillo,
+       m.id                                  AS carga_movimiento_id,
+       m.amount                              AS cargado,
+       t.transactionid                       AS venta_id,
+       t.invoiceno                           AS venta_numero,
+       t.transactiondate                     AS venta_fecha,
+       t.voidedat                            AS anulada_el,
+       COALESCE(d.devuelto, 0)               AS devuelto_por_nc,
+       COALESCE(r.revertido, 0)              AS ya_revertido,
+       (SELECT b.balanceafter FROM wallet_movement b
+         WHERE b.companyid = m.companyid AND b.contactid = m.contactid AND b.pocketid = m.pocketid
+         ORDER BY b.seq DESC LIMIT 1)        AS saldo_actual_bolsillo
+  FROM wallet_movement m
+  JOIN transaction t   ON t.transactionid = m.sourceid AND t.companyid = m.companyid
+  JOIN contact c       ON c.contactid = m.contactid
+  JOIN wallet_pocket p ON p.id = m.pocketid AND p.companyid = m.companyid
+  LEFT JOIN LATERAL (
+        SELECT SUM(-(i.itemsoldtotal - COALESCE(i.itemsolddiscount, 0))) AS devuelto
+          FROM transaction_link l
+          JOIN transaction nc ON nc.transactionid = l.derivedid AND nc.companyid = l.companyid
+          JOIN itemsold i     ON i.transactionid = nc.transactionid
+          JOIN item it        ON it.itemid = i.itemid AND it.systemkey = 'wallet_load'
+         WHERE l.companyid = m.companyid AND l.originid = t.transactionid AND l.kind = 'return'
+           AND nc.transactiontype = 6 AND nc.voidedat IS NULL
+  ) d ON TRUE
+  LEFT JOIN LATERAL (
+        SELECT SUM(-x.amount) AS revertido
+          FROM wallet_movement x
+         WHERE x.reversesmovementid = m.id
+  ) r ON TRUE
+ WHERE m.type = 'load' AND m.sourcetype = 'sale'
+   AND (
+         -- venta anulada: toda la carga debería estar revertida
+         ((t.voidedat IS NOT NULL OR t.transactiontype = 7) AND COALESCE(r.revertido, 0) < m.amount)
+         -- venta vigente con NC sobre la carga: lo devuelto debería estar revertido
+      OR (t.voidedat IS NULL AND t.transactiontype <> 7 AND COALESCE(r.revertido, 0) < COALESCE(d.devuelto, 0))
+   )
+ ORDER BY m.companyid, t.transactiondate;
+```
+
+Corregirlas es un `adjust` negativo por cliente y bolsillo (o nada, si el
+comercio decide absorberlo); si el saldo actual es menor que lo cargado, el
+cliente ya lo consumió.
+
+### 14.6 Tests
+
+`wallet_reversal_test.php` (38 checks) en `run_wallet_test.sh`, contra
+Postgres real: la BD rechaza reversas sin carga o por más de lo cargado;
+anular con saldo intacto revierte a 0 (reversa atada a la carga, con autor y
+origen); anular con saldo consumido se rechaza y NADA cambia (ni `voidedAt`,
+ni saldo, ni caja); NC parcial revierte la parte y la que completa el resto;
+NC con saldo usado no nace; dos bolsillos: parcial rechazada, entera revierte
+los dos; la anulación legacy no anula la NC; carrera real (consumo con el lock
+tomado y anulación a la vez: la anulación espera y se rechaza con el saldo
+real — sin el lock pasaría); y el reporte cuadra.
+
+### 14.7 Qué NO está
+
+- Deshacer la reversa si se anula la NC: la anulación legacy de una NC con
+  reversa se NIEGA (no hay camino para anular una NC que no sea el legacy).
+- Devolución de un consumo con saldo (§12.5): sigue sin flujo; por eso la
+  anulación legacy también se niega sobre un consumo tipo 15.
+
