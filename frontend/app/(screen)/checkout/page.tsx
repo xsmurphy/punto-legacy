@@ -9,6 +9,7 @@ import { getDeviceClaims, clearDeviceClaims } from "@/lib/auth/device-claims"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { loadScreenTheme, resolveScreenMode, saveScreenTheme, type ScreenTheme } from "@/lib/screens/theme"
 import { ScreenThemeToggle } from "@/components/screens/screen-theme-toggle"
+import { ScreenFullscreenToggle } from "@/components/screens/screen-fullscreen-toggle"
 
 const HEARTBEAT_INTERVAL = 30_000
 const CONFIRMED_DURATION = 5_000
@@ -264,14 +265,6 @@ export default function CheckoutPage() {
     }, HEARTBEAT_INTERVAL)
   }
 
-  const toggleFullscreen = () => {
-    if (!document.fullscreenElement) {
-      void document.documentElement.requestFullscreen()
-    } else {
-      void document.exitFullscreen()
-    }
-  }
-
   if (state.kind === "unpaired") {
     // Reusa el mismo componente que el POS (paridad visual obligatoria).
     return <DeviceNotConnected kind="screen" />
@@ -288,27 +281,9 @@ export default function CheckoutPage() {
         onChange={changeTheme}
         className="absolute top-4 right-4 z-50 size-9 text-muted-foreground opacity-60 hover:opacity-100 hover:bg-muted hover:text-foreground transition-opacity"
       />
-      {/* Botón fullscreen — top-left, visible permanente (mockup 2026-06-28). */}
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        aria-label="Pantalla completa"
-        className="absolute top-4 left-4 z-50 rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M3 7V3h4M21 7V3h-4M3 17v4h4M21 17v4h-4" />
-        </svg>
-      </button>
+      {/* Botón fullscreen — top-left, visible permanente (mockup 2026-06-28).
+          Compartido con el reloj de marcación desde 2026-09-18. */}
+      <ScreenFullscreenToggle className="absolute top-4 left-4 z-50" />
       {state.kind === "live" && <LiveView cart={state.cart} ctx={screenCtx} />}
       {state.kind === "qr" && <QrView qr={state.qr} ctx={screenCtx} />}
       {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} ctx={screenCtx} />}
