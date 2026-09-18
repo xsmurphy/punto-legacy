@@ -185,6 +185,20 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   // (no tiene sentido mostrar un picker con una sola opción).
   const outlets = bootstrap?.outlets ?? []
 
+  // La sucursal recordada (`X-Outlet-Id`) tiene que ser una de las que el
+  // usuario puede elegir. Si ya no lo es —se desactivó, se borró o se le quitó
+  // el acceso— se vuelve a la del JWT. Sin esto, el header seguía filtrando
+  // por la sucursal vieja mientras el selector mostraba otro nombre, y todos
+  // los listados y reportes quedaban vacíos sin explicación (Sushi Rox,
+  // 2026-09-18: la "Central" duplicada desactivada).
+  React.useEffect(() => {
+    if (!bootstrap) return
+    if (typeof viewScope !== "string" || viewScope === "all") return
+    if (outlets.some((o) => o.id === viewScope)) return
+    setViewScope(null)
+    qc.invalidateQueries()
+  }, [bootstrap, outlets, viewScope, setViewScope, qc])
+
   // Sucursal SELECCIONADA (view-scope) que ve el operador en el dropdown del
   // logo. El agente IA debe respetarla igual que el resto del panel (header
   // `X-Outlet-Id`). Si no hay override (viewScope null), cae al outlet del JWT.
@@ -194,7 +208,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     viewScope === "all"
       ? "Todas las sucursales"
       : typeof viewScope === "string"
-        ? (outlets.find((o) => o.id === viewScope)?.name ?? bootstrap?.activeOutletName ?? "")
+        ? (outlets.find((o) => o.id === viewScope)?.name ?? "")
         : (bootstrap?.activeOutletName ?? "")
 
   // El footer muestra la sucursal SELECCIONADA (view-scope), consistente con el
