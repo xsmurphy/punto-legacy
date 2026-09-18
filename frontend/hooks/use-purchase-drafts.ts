@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
-import type { PurchaseCreatePayload } from "@/hooks/use-purchases"
+import type { MarginAlertRow, PurchaseCreatePayload } from "@/hooks/use-purchases"
 
 /**
  * Borradores de compra generados por OCR/IA — context/32-ocr-facturas-compra.md.
@@ -112,6 +112,8 @@ export interface ApproveDraftResult {
   transactionId: string | null
   alreadyApproved: boolean
   warning: string | null
+  /** Ver `MarginAlertRow` en use-purchases. Vacío si la alerta está apagada. */
+  marginAlerts?: MarginAlertRow[]
 }
 
 const DRAFTS_KEY = ["purchase-drafts"] as const

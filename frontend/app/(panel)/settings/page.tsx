@@ -13,6 +13,12 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from "@/components/ui/input-group"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
 import { Switch } from "@/components/ui/switch"
@@ -200,6 +206,13 @@ const settingsSchema = z.object({
   // propósito, igual que `stockCountRecordOnly`: el default del comercio es que
   // el código esté disponible, y un flag ausente en el JSONB vale falso.
   attendanceAllowPin: z.boolean(),
+  // Margen objetivo de la alerta de compras. Vacío = apagada. Mismo rango que
+  // MarginAlert::parseTarget() (api), que es quien manda.
+  marginTarget: z
+    .number()
+    .gt(0, "Tiene que ser mayor a 0")
+    .max(99, "Máximo 99")
+    .nullable(),
   // D7/E1b de context/48-escalamiento-de-datos.md — editable desde
   // /settings/cierre-de-periodo (page propia), no desde este modal. Vive en
   // el schema porque el form hidrata desde el GET; ninguna sección de este
@@ -281,7 +294,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "thousandSeparator", "taxName", "tin",
   ],
   pos: [
-    "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
+    "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit", "marginTarget",
     "drawerEmail", "drawerBlind", "drawerRequireClosedOrders", "settingDrawerTolerance",
     "paymentOrderRequireSecondApprover",
     "settingOrderItemCancelWindowMinutes",
@@ -479,6 +492,7 @@ function SettingsPageInner() {
       weightBarcodes: !!data.weightBarcodes,
       deletedItemsHistory: !!data.deletedItemsHistory,
       attendanceAllowPin: !!data.attendanceAllowPin,
+      marginTarget: typeof data.marginTarget === "number" ? data.marginTarget : null,
       agentName: data.agentName ?? "",
       agentPersonality: data.agentPersonality ?? "professional",
       agentBusinessContext: data.agentBusinessContext ?? "",
@@ -1037,6 +1051,46 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
               </FormControl>
               <FormDescription className="text-xs">
                 Vacío = sin límite. Útil para cajas autoservicio.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        {/* Alerta de margen (owner 2026-09-18): al guardar una compra que sube
+            costos, el panel lista lo que quedó por debajo de este número y
+            sugiere un precio. Acá y no en Compras porque es un criterio de
+            PRECIO de venta; vacío = alerta apagada. */}
+        <FormField
+          control={form.control}
+          name="marginTarget"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Margen objetivo</FormLabel>
+              <FormControl>
+                <InputGroup>
+                  <InputGroupInput
+                    type="number"
+                    inputMode="decimal"
+                    min={1}
+                    max={99}
+                    step="0.1"
+                    placeholder="Sin alerta"
+                    className="tabular-nums"
+                    name={field.name}
+                    ref={field.ref}
+                    onBlur={field.onBlur}
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupText>%</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
+              </FormControl>
+              <FormDescription className="text-xs">
+                Al registrar una compra te avisamos qué artículos quedaron por debajo. Vacío = sin alerta.
               </FormDescription>
               <FormMessage />
             </FormItem>
@@ -1809,6 +1863,7 @@ function emptyValues(): SettingsFormValues {
     weightBarcodes: false,
     deletedItemsHistory: false,
     attendanceAllowPin: false,
+    marginTarget: null,
     settingPeriodCloseMonths: 1,
     agentName: "",
     agentPersonality: "professional",

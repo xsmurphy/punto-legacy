@@ -114,6 +114,14 @@ export interface SettingsGeneral {
    */
   attendanceAllowPin: boolean
 
+  /**
+   * Margen objetivo (%) de la alerta de margen de compras: al guardar una
+   * compra que sube costos, el panel lista los artículos que quedaron por
+   * debajo y sugiere un precio. `null` = alerta apagada. Vive en
+   * `settingObj.marginTarget`; el rango lo valida `MarginAlert::parseTarget()`.
+   */
+  marginTarget: number | null
+
   // D7/E1b de context/48-escalamiento-de-datos.md — ancho de la ventana
   // abierta de cierre de período (mes en curso + N meses anteriores).
   // Clampeado 1..12 server-side (default 1).

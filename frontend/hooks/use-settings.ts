@@ -164,6 +164,11 @@ function serialize(values: Partial<SettingsFormValues>): Record<string, unknown>
   for (const key of SERIALIZE_BOOL_FIELDS) {
     if (values[key] !== undefined) out[key] = values[key] ? 1 : 0
   }
+  // Margen objetivo: número o vacío. `null` viaja como "" para que el backend
+  // lo lea como "apagar la alerta" (con la key ausente no la tocaría).
+  if (values.marginTarget !== undefined) {
+    out.marginTarget = values.marginTarget ?? ""
+  }
   // Nombres de etapas de órdenes: viajan como UN string JSON con solo los
   // renombrados. Vacío = nombre de fábrica, así que no se manda.
   if (values.orderStatusLabels !== undefined) {
