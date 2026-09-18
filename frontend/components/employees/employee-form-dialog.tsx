@@ -50,6 +50,7 @@ import { useOutlets } from "@/hooks/use-outlets"
 import { useTeamMembers } from "@/hooks/use-team"
 import {
   useCreateEmployee,
+  useEmployees,
   useUpdateEmployee,
   type Employee,
   type EmployeeFormValues,
@@ -69,6 +70,15 @@ import { formatPhoneForTenant } from "@/lib/phone"
  */
 const NONE = "__none__"
 
+/**
+ * "Crear un usuario nuevo" en el selector de persona.
+ *
+ * Mismo motivo que `NONE` para existir como centinela: `<SelectItem>` no admite
+ * value="". Se traduce a "no mandes `contactId`" al enviar, que es como el
+ * backend entiende "creá la persona con estos datos".
+ */
+const NEW = "__new__"
+
 const PERIOD_LABEL: Record<FixedPeriod, string> = {
   monthly: "Por mes",
   biweekly: "Por quincena",
@@ -87,7 +97,14 @@ const scheduleSchema = z.custom<EmployeeSchedule | null>(() => true)
 
 const schema = z
   .object({
-    fullName: z.string().min(1, "El nombre es requerido"),
+    /**
+     * A quién le corresponde este legajo (context/83 §9.1).
+     *
+     * `NEW` = se crea el usuario en el mismo alta, con el nombre/teléfono/email
+     * de abajo. Un id = se le cuelga el legajo a alguien que ya existe.
+     */
+    contactId: z.string(),
+    fullName: z.string(),
     documentNumber: z.string(),
     phone: z.string(),
     email: z.string(),
@@ -96,18 +113,11 @@ const schema = z
     jobTitle: z.string(),
     hireDate: z.string().min(1, "La fecha de ingreso es requerida"),
     outletId: z.string(),
-    userId: z.string(),
     fixedAmount: z.number().nullable(),
     fixedPeriod: z.string(),
     hourlyRate: z.number().nullable(),
     commissions: z.boolean(),
     notes: z.string(),
-    // PIN de marcación en claro. Vacío = no se toca (ver `onSubmit`).
-    markPin: z.string().refine((v) => v === "" || /^\d{4}$/.test(v), {
-      message: "Tiene que ser de 4 dígitos",
-    }),
-    /** El usuario pidió BORRAR el PIN. Distinto de dejar el campo vacío. */
-    markPinCleared: z.boolean(),
     schedule: scheduleSchema,
     /**
      * La persona aceptó identificarse con su rostro (F2).
@@ -123,10 +133,17 @@ const schema = z
     message: "Elegí cada cuánto se paga",
     path: ["fixedPeriod"],
   })
+  // El nombre se pide solo cuando hay que CREAR la persona. Si se eligió a
+  // alguien del equipo, su nombre es el que ya tiene.
+  .refine((v) => v.contactId !== NEW || v.fullName.trim() !== "", {
+    message: "El nombre es requerido",
+    path: ["fullName"],
+  })
 
 type FormValues = z.infer<typeof schema>
 
 const EMPTY: FormValues = {
+  contactId: NEW,
   fullName: "",
   documentNumber: "",
   phone: "",
@@ -136,14 +153,11 @@ const EMPTY: FormValues = {
   jobTitle: "",
   hireDate: "",
   outletId: NONE,
-  userId: NONE,
   fixedAmount: null,
   fixedPeriod: "",
   hourlyRate: null,
   commissions: false,
   notes: "",
-  markPin: "",
-  markPinCleared: false,
   schedule: null,
   biometricConsent: false,
 }
@@ -162,7 +176,18 @@ export function EmployeeFormDialog({
   const { data: outletsData } = useOutlets()
   const outlets = outletsData?.rows ?? []
   const { data: teamData } = useTeamMembers()
-  const team = teamData?.users ?? []
+  // Los que YA tienen legajo no se ofrecen: el backend los rechaza igual ("esa
+  // persona ya tiene un legajo cargado"), pero ofrecerlos y después explicar el
+  // error es hacerle recorrer el formulario entero para nada.
+  //
+  // `includeArchived` porque el índice único no distingue: un legajo archivado
+  // sigue ocupando a esa persona hasta que alguien lo borre.
+  const { data: existing } = useEmployees({ state: "all", includeArchived: true })
+  const taken = React.useMemo(
+    () => new Set((existing ?? []).map((e) => e.id)),
+    [existing],
+  )
+  const team = (teamData?.users ?? []).filter((u) => !taken.has(u.id))
 
   const createEmployee = useCreateEmployee()
   const updateEmployee = useUpdateEmployee()
@@ -184,6 +209,8 @@ export function EmployeeFormDialog({
     form.reset(
       employee
         ? {
+            // En la edición el legajo ya tiene dueño y no cambia (§9.1).
+            contactId: employee.id,
             fullName: employee.fullName,
             documentNumber: employee.documentNumber ?? "",
             // Guardado en E.164 sin '+': se muestra en formato nacional.
@@ -194,17 +221,11 @@ export function EmployeeFormDialog({
             jobTitle: employee.jobTitle ?? "",
             hireDate: employee.hireDate ?? "",
             outletId: employee.outletId ?? NONE,
-            userId: employee.userId ?? NONE,
             fixedAmount: employee.fixedAmount,
             fixedPeriod: employee.fixedPeriod ?? "",
             hourlyRate: employee.hourlyRate,
             commissions: employee.commissions,
             notes: employee.notes ?? "",
-            // Vacío SIEMPRE al abrir, tenga PIN o no: el campo es "poné uno
-            // nuevo", no "acá está el que tiene". El que tiene no se muestra —
-            // ni el backend lo manda.
-            markPin: "",
-            markPinCleared: false,
             schedule: employee.schedule,
             biometricConsent: employee.biometricConsentAt !== null,
           }
@@ -217,20 +238,31 @@ export function EmployeeFormDialog({
 
   const isEdit = employee !== null
   const saving = createEmployee.isPending || updateEmployee.isPending
+  /** En el alta, sin elegir a nadie del equipo: la persona se crea con este form. */
+  const creatingUser = !isEdit && form.watch("contactId") === NEW
 
   const onSubmit = async (values: FormValues) => {
+    const creatingUser = !isEdit && values.contactId === NEW
+
     const payload: EmployeeFormValues = {
-      fullName: values.fullName,
+      // El nombre, el teléfono y el email son de la PERSONA y solo viajan
+      // cuando hay que crearla: editarlos desde acá sería un segundo lugar
+      // donde se cambia el nombre de un usuario (§9.1).
+      ...(creatingUser
+        ? {
+            fullName: values.fullName,
+            phone: values.phone || null,
+            country: phoneCountry,
+            email: values.email || null,
+          }
+        : {}),
+      ...(!isEdit && !creatingUser ? { contactId: values.contactId } : {}),
       documentNumber: values.documentNumber || null,
-      phone: values.phone || null,
-      country: phoneCountry,
-      email: values.email || null,
       address: values.address || null,
       birthDate: values.birthDate || null,
       jobTitle: values.jobTitle || null,
       hireDate: values.hireDate,
       outletId: values.outletId === NONE ? null : values.outletId,
-      userId: values.userId === NONE ? null : values.userId,
       fixedAmount: values.fixedAmount,
       fixedPeriod: values.fixedAmount === null ? null : (values.fixedPeriod as FixedPeriod),
       hourlyRate: values.hourlyRate,
@@ -238,14 +270,6 @@ export function EmployeeFormDialog({
       notes: values.notes || null,
       schedule: values.schedule,
       biometricConsent: values.biometricConsent,
-      // Los tres estados del PIN, y el orden importa. Pedir borrarlo gana sobre
-      // haber tipeado uno; dejar el campo vacío NO manda la clave, así que
-      // corregir un teléfono no le saca el PIN a nadie.
-      ...(values.markPinCleared
-        ? { markPin: null }
-        : values.markPin !== ""
-          ? { markPin: values.markPin }
-          : {}),
     }
 
     try {
@@ -278,21 +302,96 @@ export function EmployeeFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="contents">
             <DialogBody className="flex flex-col gap-6">
-              <FormSection title="Datos personales">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="fullName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Nombre y apellido</FormLabel>
-                        <FormControl>
-                          <Input autoFocus {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
+              {/* La persona. En el alta se elige del equipo o se crea acá
+                  mismo; en la edición ya está definida y su nombre, teléfono y
+                  email se gestionan en Equipo, que es donde se gestiona
+                  cualquier usuario (context/83 §9.1). */}
+              {!isEdit && (
+                <FormSection title="Persona">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="contactId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Quién</FormLabel>
+                          <Select value={field.value} onValueChange={field.onChange}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value={NEW}>Agregar a alguien nuevo</SelectItem>
+                              {team.map((u) => (
+                                <SelectItem key={u.id} value={u.id}>
+                                  {u.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {creatingUser && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="fullName"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Nombre y apellido</FormLabel>
+                              <FormControl>
+                                <Input autoFocus {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="phone"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Teléfono</FormLabel>
+                              <FormControl>
+                                <PhoneInput
+                                  value={field.value}
+                                  country={phoneCountry}
+                                  onChange={(v) => {
+                                    field.onChange(v.value)
+                                    setPhoneCountry(v.country)
+                                  }}
+                                  onBlur={field.onBlur}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="email"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Email</FormLabel>
+                              <FormControl>
+                                <Input type="email" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
                     )}
-                  />
+                  </div>
+                </FormSection>
+              )}
+
+              <FormSection title="Datos del legajo">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
                     name="documentNumber"
@@ -301,40 +400,6 @@ export function EmployeeFormDialog({
                         <FormLabel>Documento</FormLabel>
                         <FormControl>
                           <Input {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="phone"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Teléfono</FormLabel>
-                        <FormControl>
-                          <PhoneInput
-                            value={field.value}
-                            country={phoneCountry}
-                            onChange={(v) => {
-                              field.onChange(v.value)
-                              setPhoneCountry(v.country)
-                            }}
-                            onBlur={field.onBlur}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                          <Input type="email" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -430,31 +495,6 @@ export function EmployeeFormDialog({
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="userId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Usuario del sistema</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Sin usuario" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value={NONE}>Sin usuario</SelectItem>
-                            {team.map((u) => (
-                              <SelectItem key={u.id} value={u.id}>
-                                {u.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </div>
               </FormSection>
 
@@ -529,81 +569,33 @@ export function EmployeeFormDialog({
                 </div>
               </FormSection>
 
-              {/* Marcación de asistencia (context/83 F1). Va DESPUÉS de la
-                  remuneración y antes de las notas porque el horario es lo que
-                  hace medible la tardanza, y el sueldo por hora se liquida
-                  contra las horas que sale de acá. */}
-              <FormSection title="Marcación de asistencia">
-                <div className="flex flex-col gap-6">
-                  <FormField
-                    control={form.control}
-                    name="markPin"
-                    render={({ field }) => (
-                      <FormItem className="max-w-xs">
-                        <FormLabel>
-                          {employee?.hasMarkPin ? "Cambiar el código" : "Código de marcación"}
-                        </FormLabel>
-                        <FormControl>
-                          <Input
-                            inputMode="numeric"
-                            maxLength={4}
-                            placeholder={employee?.hasMarkPin ? "••••" : "4 dígitos"}
-                            {...field}
-                            onChange={(e) => {
-                              // Tipear cancela el borrado: son dos intenciones
-                              // opuestas y la última gana.
-                              form.setValue("markPinCleared", false)
-                              field.onChange(e.target.value.replace(/\D/g, "").slice(0, 4))
-                            }}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          {employee?.hasMarkPin
-                            ? form.watch("markPinCleared")
-                              ? "Se va a quitar al guardar: esta persona no va a poder marcar."
-                              : "Dejalo vacío para no cambiarlo."
-                            : "Con este código la persona marca su entrada y salida en la caja."}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+              {/* El horario declarado (context/83 F1). Va DESPUÉS de la
+                  remuneración porque es lo que hace medible la tardanza, y el
+                  sueldo por hora se liquida contra las horas que salen de acá.
 
-                  {employee?.hasMarkPin && !form.watch("markPinCleared") && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="w-fit -mt-3 text-muted-foreground"
-                      onClick={() => {
-                        form.setValue("markPinCleared", true)
-                        form.setValue("markPin", "")
-                      }}
-                    >
-                      Quitar el código
-                    </Button>
+                  El código de marcación ya no está en esta pantalla: desde el
+                  §9.3 hay UN PIN por persona —el del usuario— y se carga donde
+                  se cargan los usuarios. */}
+              <FormSection title="Horario">
+                <FormField
+                  control={form.control}
+                  name="schedule"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormDescription>
+                        Sin horario cargado, el reporte muestra las horas trabajadas pero no
+                        las llegadas tarde.
+                      </FormDescription>
+                      <FormControl>
+                        <EmployeeScheduleField
+                          value={field.value}
+                          onChange={field.onChange}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-
-                  <FormField
-                    control={form.control}
-                    name="schedule"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Horario</FormLabel>
-                        <FormDescription>
-                          Sin horario cargado, el reporte muestra las horas trabajadas pero no
-                          las llegadas tarde.
-                        </FormDescription>
-                        <FormControl>
-                          <EmployeeScheduleField
-                            value={field.value}
-                            onChange={field.onChange}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
+                />
               </FormSection>
 
               {/* Reconocimiento por rostro (F2). Va pegado a la marcación
@@ -628,7 +620,7 @@ export function EmployeeFormDialog({
                               context/14): la persona acepta algo concreto, no
                               firma un tratado. */}
                           <FormLabel className="font-normal">
-                            La persona aceptó que la caja la identifique por su rostro
+                            La persona aceptó que se la identifique por su rostro
                           </FormLabel>
                           <FormDescription>
                             Se puede desmarcar cuando quiera. Al desmarcarlo, el rostro se borra.

@@ -19,7 +19,28 @@
  * incidente 2026-06-28 con pos/screen).
  */
 
-export type DeviceModule = "pos" | "screen" | "kds" | "display" | "print"
+/**
+ * Los tipos de dispositivo que se pueden parear. UNA lista, y el orden es el de
+ * `DeviceInvitationService::VALID_MODULES` del backend.
+ *
+ * Es `const` y no solo un type porque `toDeviceModule()` la recorre en runtime:
+ * un tipo nuevo se suma acá y las dos narrowings que había duplicadas —el canje
+ * de la invitación y el listado del panel— lo aprenden juntas. Cuando eran dos
+ * `if` con la lista escrita a mano, sumar un tipo y olvidar uno de los dos daba
+ * un dispositivo silenciosamente etiquetado como caja.
+ */
+export const DEVICE_MODULES = ["pos", "screen", "kds", "display", "print", "clock"] as const
+
+export type DeviceModule = (typeof DEVICE_MODULES)[number]
+
+/**
+ * String libre → `DeviceModule`. Lo desconocido cae en `"pos"`, que es lo que
+ * había antes de que existieran los otros tipos: un bundle viejo mirando una
+ * fila nueva muestra "Caja POS" en vez de romperse.
+ */
+export function toDeviceModule(module: string | null | undefined): DeviceModule {
+  return DEVICE_MODULES.includes(module as DeviceModule) ? (module as DeviceModule) : "pos"
+}
 
 const KEY_PREFIX = "punto.device.token"
 const LEGACY_KEY = KEY_PREFIX // pre-namespacing — se trata como POS al migrar

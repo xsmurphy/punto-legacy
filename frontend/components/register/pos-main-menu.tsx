@@ -281,23 +281,9 @@ const SECTIONS: Omit<MenuSection, "disabled" | "disabledReason">[] = [
       router.push("/pos/conteo")
     },
   },
-  {
-    // Marcación de asistencia (context/83 F1). Navega directo a
-    // /pos/marcacion, como el conteo: es una pantalla propia, no un panel
-    // dentro del menú.
-    //
-    // A diferencia del conteo, NO tiene gate de permiso del operador — solo de
-    // módulo. El quiosco atiende a gente que no tiene usuario del sistema, así
-    // que no hay permiso de operador que evaluar: quién marca lo dice su PIN de
-    // marcación propio.
-    key: "attendance",
-    label: "Marcación",
-    icon: UserCheck,
-    onSelect: ({ setOpen, router }) => {
-      setOpen(false)
-      router.push("/pos/marcacion")
-    },
-  },
+  // Marcación: ya NO está en el menú del POS (context/83 §9.2). Se marca en el
+  // RELOJ, un dispositivo aparte que se parea desde Configuración ›
+  // Dispositivos y arranca en su propia pantalla. En la caja opera el cajero.
   // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
   // construyamos esas secciones reales (hoy son previews). 2026-06-28.
   // {

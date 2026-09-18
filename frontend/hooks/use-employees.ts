@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
 /**
- * Legajo de empleados (RRHH F0, context/83, mig 229).
+ * Legajo de empleados (RRHH, context/83 §9.1, migs 229 + 233).
  *
- * Un empleado NO es un usuario del sistema: el vínculo `userId` es opcional y
- * existe personal que nunca entra a Punto. Ver el docblock de
+ * Un empleado ES un usuario del sistema: el legajo es un satélite 1:1 del
+ * `contact` type=0, y su `id` ES el id de esa persona. El personal que no opera
+ * Punto es un usuario SIN PERMISOS. Ver el docblock de
  * `api/lib/Hr/EmployeeService.php`.
  *
  * Dos bajas distintas, y por eso dos mutaciones:
@@ -37,21 +38,31 @@ export interface Employee {
   endReason: string | null
   outletId: string | null
   outletName: string | null
-  /** Contacto type=0 vinculado, si esta persona además opera el sistema. */
-  userId: string | null
-  userName: string | null
+  /**
+   * El usuario del sistema. Es el MISMO id que `id` (el legajo cuelga de la
+   * persona): viaja aparte para que el panel pueda linkear a su ficha sin tener
+   * que saber que son el mismo.
+   */
+  userId: string
+  /** ¿La credencial está activa? Un legajo vigente con el usuario desactivado
+   *  es alguien que trabaja pero no entra al sistema. */
+  userActive: boolean
   fixedAmount: number | null
   fixedPeriod: FixedPeriod | null
   hourlyRate: number | null
   commissions: boolean
   notes: string | null
   /**
-   * ¿Esta persona tiene PIN de marcación cargado? El PIN mismo NO viaja, ni
-   * siquiera hasheado: es SHA-256 sin sal de 4 dígitos, o sea el PIN para quien
-   * tenga cinco minutos. Al quiosco baja por otro camino y con otro gate (el
-   * bootstrap del device). Un PIN olvidado se reemplaza, no se consulta.
+   * ¿Esta persona tiene código cargado? Es el PIN del USUARIO —el único que hay
+   * desde la mig 233— y se gestiona en Equipo, no acá.
+   *
+   * El PIN mismo NO viaja, ni siquiera hasheado: es SHA-256 sin sal de 4
+   * dígitos, o sea el PIN para quien tenga cinco minutos. Al reloj baja por otro
+   * camino y con otro gate.
+   *
+   * Es OPCIONAL (§9.3): sin código, la persona marca con el rostro.
    */
-  hasMarkPin: boolean
+  hasPin: boolean
   /** Horario declarado. `null` = sin horario: el reporte no mide tardanzas. */
   schedule: EmployeeSchedule | null
   biometricConsentAt: string | null
@@ -100,35 +111,35 @@ export interface EmployeeAttachment {
 
 /** Lo que el formulario manda. Todo opcional salvo lo que el backend exige. */
 export interface EmployeeFormValues {
-  fullName: string
+  /**
+   * La persona del legajo, en el ALTA.
+   *
+   * Vacío = se crea un usuario nuevo con `fullName`/`phone`/`email` (sin rol y
+   * sin contraseña: el personal que no opera el sistema). Con valor = se le
+   * cuelga el legajo a un usuario que ya existe.
+   *
+   * En la EDICIÓN no se manda: el legajo no cambia de dueño.
+   */
+  contactId?: string | null
+  /** Solo se usa al crear el usuario. El nombre de alguien que ya existe se edita en Equipo. */
+  fullName?: string
   documentNumber?: string | null
+  /** Solo al crear el usuario. E.164 lo resuelve el backend con `country`. */
   phone?: string | null
   /** ISO alpha-2 con el que interpretar el teléfono nacional. */
   country?: string | null
+  /** Solo al crear el usuario. */
   email?: string | null
   address?: string | null
   birthDate?: string | null
   jobTitle?: string | null
   hireDate: string
   outletId?: string | null
-  userId?: string | null
   fixedAmount?: number | null
   fixedPeriod?: FixedPeriod | null
   hourlyRate?: number | null
   commissions?: boolean
   notes?: string | null
-  /**
-   * PIN de marcación en CLARO (4 dígitos). El backend lo guarda hasheado.
-   *
-   * Tres valores con tres significados, y hay que respetarlos:
-   *   ausente → no se toca el que ya tenga
-   *   `null`  → se BORRA (la persona deja de poder marcar)
-   *   "1234"  → se reemplaza
-   *
-   * Mandar `null` "por las dudas" en cada edición le sacaría el PIN a todo el
-   * equipo cada vez que alguien corrige un teléfono.
-   */
-  markPin?: string | null
   /** Horario declarado. `null` lo borra. Ausente no lo toca. */
   schedule?: EmployeeSchedule | null
   biometricConsent?: boolean

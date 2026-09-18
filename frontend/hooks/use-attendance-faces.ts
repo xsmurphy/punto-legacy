@@ -1,24 +1,20 @@
 "use client"
 
 /**
- * Los rostros que el quiosco puede reconocer, y el registro de uno nuevo
- * (RRHH F2, context/83 D5).
+ * Los rostros que el reloj de marcación puede reconocer, y el registro de uno
+ * nuevo (RRHH F2, context/83 D5 y §9.2).
  *
- * ── Por qué NO viaja en el bootstrap del POS ───────────────────────────────
+ * ── Solo el reloj los pide ─────────────────────────────────────────────────
  *
- * El roster de códigos de marcación (F1) sí baja ahí, y los vectores no. Son
- * decisiones distintas porque son datos distintos:
- *
- *   - El bootstrap lo pide TODA caja al arrancar. Estos vectores los necesita
- *     UNA pantalla, en los comercios que activaron RRHH.
- *   - Es biometría: se manda a quien la va a usar, cuando la va a usar. Bajarla
- *     "por las dudas" a cada dispositivo del comercio es justo lo que la D5
- *     evita.
+ * Desde el §9.2 la marcación es un dispositivo propio (`module='clock'`), así
+ * que estos vectores no bajan a ninguna caja: se mandan a quien los va a usar,
+ * cuando los va a usar. Bajar biometría "por las dudas" a cada dispositivo del
+ * comercio es justo lo que la D5 evita.
  *
  * ── Y sin embargo funciona sin internet ────────────────────────────────────
  *
  * La lista se cachea en IndexedDB por sucursal (`face-cache.ts`) y el hook
- * arranca desde ahí. Sin red, el quiosco reconoce con la última lista que bajó
+ * arranca desde ahí. Sin red, el reloj reconoce con la última lista que bajó
  * — que es exactamente el comportamiento de cualquier otro dato derivado del
  * POS sin conexión.
  *
@@ -37,7 +33,7 @@ import { posFetch } from "@/lib/api/pos-fetch"
 import { loadFaces, saveFaces } from "@/lib/pos/face/face-cache"
 import { FACE_MODEL_VERSION, type FaceCandidate } from "@/lib/pos/face/face-match"
 
-/** La ventana de registro abierta desde el panel, si le toca a este quiosco. */
+/** La ventana de registro abierta desde el panel, si le toca a este reloj. */
 export interface PendingEnrollment {
   employeeId: string
   name: string
@@ -75,6 +71,11 @@ export function useAttendanceFaces(outletId: string, enabled = true) {
       try {
         const res = await posFetch(
           `/api/v1/attendance?resource=faces&modelVersion=${encodeURIComponent(FACE_MODEL_VERSION)}`,
+          {},
+          // El Bearer del RELOJ, no el de la caja (§9.2): desde el refactor el
+          // único aparato que puede pedir rostros es el reloj de marcación, y
+          // el slot de token está namespaceado por module.
+          "clock",
         )
         const json = (await res.json().catch(() => null)) as {
           ok?: boolean
@@ -144,10 +145,11 @@ export function useEnrollFace(outletId: string) {
 
       // Sin `Content-Type` a mano: el boundary del multipart lo pone el browser
       // al serializar el FormData.
-      const res = await posFetch("/api/v1/attendance?action=face-enroll", {
-        method: "POST",
-        body: form,
-      })
+      const res = await posFetch(
+        "/api/v1/attendance?action=face-enroll",
+        { method: "POST", body: form },
+        "clock",
+      )
       const json = (await res.json().catch(() => null)) as {
         ok?: boolean
         data?: { face?: { enrolledAt?: string | null } }

@@ -1,4 +1,13 @@
-export type DeviceKind = "pos" | "screen" | "kds" | "display" | "print"
+import type { DeviceModule } from "@/lib/auth/device-token"
+
+/**
+ * El tipo de un dispositivo, como lo muestra el panel.
+ *
+ * Es ALIAS de `DeviceModule` y no una segunda unión escrita a mano: son la
+ * misma lista (la del backend) mirada desde dos lados, y mantenerlas separadas
+ * significaba que agregar un tipo compilaba igual con una de las dos vieja.
+ */
+export type DeviceKind = DeviceModule
 
 /**
  * Tipos de rastro operativo que un dispositivo puede dejar. Las CLAVES son el
@@ -90,6 +99,7 @@ export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {
   kds: "KDS (preparación)",
   display: "Pantalla de despacho",
   print: "Estación de impresión",
+  clock: "Reloj de marcación",
 }
 
 /**
@@ -109,4 +119,5 @@ export const DEVICE_KIND_ROUTES: Record<DeviceKind, string> = {
   kds: "/kds",
   display: "/display",
   print: "/print",
+  clock: "/marcacion",
 }

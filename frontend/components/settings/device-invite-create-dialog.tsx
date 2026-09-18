@@ -26,6 +26,8 @@ import {
   useCreateDeviceInvitation,
   type CreateInvitationResponse,
 } from "@/hooks/use-device-invitations"
+import { DEVICE_MODULES } from "@/lib/auth/device-token"
+import { DEVICE_KIND_LABELS } from "@/lib/devices/connected-device"
 
 interface Props {
   open: boolean
@@ -79,9 +81,9 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
 
   // Solo la caja POS y la pantalla de cliente pertenecen a una CAJA: la
   // primera ES una caja, la segunda espeja el carrito de una caja concreta.
-  // KDS, pantalla de despacho y estación de impresión son de SUCURSAL — pedirles
-  // una caja es pedir un dato que no significa nada (el backend ya aceptaba
-  // registerId nulo; la exigencia era solo de esta UI).
+  // KDS, pantalla de despacho, estación de impresión y reloj de marcación son
+  // de SUCURSAL — pedirles una caja es pedir un dato que no significa nada (el
+  // backend ya aceptaba registerId nulo; la exigencia era solo de esta UI).
   const needsRegister = module === "pos" || module === "screen"
   const canSubmit =
     module !== "" && outletId !== "" && (!needsRegister || registerId !== "")
@@ -121,11 +123,12 @@ export function DeviceInviteCreateDialog({ open, onOpenChange }: Props) {
                     <SelectValue placeholder="Seleccioná el tipo de dispositivo..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pos">Caja POS</SelectItem>
-                    <SelectItem value="screen">Pantalla cliente</SelectItem>
-                    <SelectItem value="kds">KDS (preparación)</SelectItem>
-                    <SelectItem value="display">Pantalla de despacho</SelectItem>
-                    <SelectItem value="print">Estación de impresión</SelectItem>
+                    {/* La lista sale del mapa canónico de tipos: escrita a
+                        mano, sumar un tipo obligaba a acordarse de este
+                        archivo además del resto. */}
+                    {DEVICE_MODULES.map((m) => (
+                      <SelectItem key={m} value={m}>{DEVICE_KIND_LABELS[m]}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

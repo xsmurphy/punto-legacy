@@ -55,15 +55,66 @@ export type PairState = "unpaired" | "connecting" | "ready"
 export type WsState = "connecting" | "online" | "offline"
 
 interface UseePairedScreenOpts {
-  module: Extract<DeviceModule, "kds" | "display" | "print">
+  module: Extract<DeviceModule, "kds" | "display" | "print" | "clock">
   /** Canales adicionales a suscribir además de `${module}:${deviceId}` (revocación). */
   channels: (ctx: PairedScreenContext) => string[]
   onEvent: (event: string, data: unknown) => void
   /** Se dispara cada vez que el WS abre (conexión inicial y reconexiones). */
   onOpen?: () => void
+  /**
+   * El aparato tiene que funcionar SIN RED.
+   *
+   * Por default, un dispositivo pareado que no logra traer su contexto cae a
+   * `unpaired` y muestra "no conectado". Para un KDS o una pantalla de despacho
+   * eso es correcto: sin servidor no tienen nada que mostrar.
+   *
+   * El reloj de marcación es lo contrario (context/83 D7): la gente entra y sale
+   * igual, y la marcación se encola. Con esta opción el último contexto conocido
+   * se guarda en el dispositivo y se reusa cuando la red no contesta, así que la
+   * pantalla queda operativa. Lo que NO cambia es el 401: una sesión revocada
+   * sigue olvidando el device — eso es una respuesta del servidor, no un
+   * silencio.
+   */
+  offlineFirst?: boolean
 }
 
-export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePairedScreenOpts) {
+/**
+ * El último contexto conocido del dispositivo, para `offlineFirst`.
+ *
+ * `localStorage` y no IndexedDB porque son cuatro strings que se leen una vez
+ * al arrancar. Si el storage está bloqueado (modo privado), las dos funciones
+ * fallan en silencio y el aparato se comporta como antes de esta opción.
+ */
+const CTX_KEY_PREFIX = "punto.device.context"
+
+function readCachedContext(module: string): PairedScreenContext | null {
+  try {
+    const raw = window.localStorage.getItem(`${CTX_KEY_PREFIX}.${module}`)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as PairedScreenContext
+    return parsed?.companyId && parsed?.outletId ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writeCachedContext(module: string, ctx: PairedScreenContext): void {
+  try {
+    window.localStorage.setItem(`${CTX_KEY_PREFIX}.${module}`, JSON.stringify(ctx))
+  } catch {
+    /* sin storage el aparato sigue andando con red */
+  }
+}
+
+function clearCachedContext(module: string): void {
+  try {
+    window.localStorage.removeItem(`${CTX_KEY_PREFIX}.${module}`)
+  } catch {
+    /* idem */
+  }
+}
+
+export function usePairedScreen({ module, channels, onEvent, onOpen, offlineFirst }: UseePairedScreenOpts) {
   const [pairState, setPairState] = React.useState<PairState>("unpaired")
   const [wsState, setWsState] = React.useState<WsState>("connecting")
   const [ctx, setCtx] = React.useState<PairedScreenContext | null>(null)
@@ -81,6 +132,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
   const forgetDevice = React.useCallback(() => {
     clearDeviceToken(module)
     clearDeviceClaims(module)
+    clearCachedContext(module)
     cleanup()
     setCtx(null)
     setPairState("unpaired")
@@ -106,6 +158,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
     if (!res.ok) return null
     const body = (await res.json()) as { data?: PairedScreenContext }
     if (!body.data?.companyId || !body.data?.outletId) return null
+    if (offlineFirst) writeCachedContext(module, body.data)
     return body.data
   }
 
@@ -186,7 +239,10 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
       if (!token) { setPairState("unpaired"); return }
       setPairState("connecting")
       try {
-        const context = await fetchContext(token)
+        // Sin red, un aparato offline-first arranca con lo último que supo. El
+        // 401 no pasa por acá: `fetchContext` ya olvidó el device en ese caso,
+        // así que un contexto cacheado nunca resucita una sesión revocada.
+        const context = (await fetchContext(token)) ?? (offlineFirst ? readCachedContext(module) : null)
         // Un 401 ya olvidó el device dentro de fetchContext (estado `unpaired`).
         if (!getDeviceToken(module)) return
         if (!context) throw new Error("context fetch failed")
@@ -200,7 +256,16 @@ export function usePairedScreen({ module, channels, onEvent, onOpen }: UseePaire
         startHeartbeat(token)
         setPairState("ready")
       } catch {
-        if (!cancelled) setPairState("unpaired")
+        if (cancelled) return
+        const cached = offlineFirst ? readCachedContext(module) : null
+        if (cached && getDeviceToken(module)) {
+          // El aparato SÍ está pareado; lo que falló fue la red. Queda operativo
+          // con lo último que supo y el socket reintenta solo.
+          setCtx(cached)
+          setPairState("ready")
+          return
+        }
+        setPairState("unpaired")
       }
     }
 

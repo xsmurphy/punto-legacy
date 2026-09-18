@@ -2,6 +2,7 @@
 import { useMemo } from "react"
 import { usePosDevices } from "@/hooks/use-pos-devices"
 import type { ConnectedDevice, DeviceKind } from "@/lib/devices/connected-device"
+import { toDeviceModule } from "@/lib/auth/device-token"
 
 /**
  * Fuente única de devices conectados: lee de `/v1/devices` (que retorna TODAS
@@ -10,10 +11,10 @@ import type { ConnectedDevice, DeviceKind } from "@/lib/devices/connected-device
  * que duplicaba filas y hardcodeaba `kind="pos"` para todo (bug: pantallas
  * cliente aparecían etiquetadas como "Caja POS" en la columna Tipo).
  */
-function moduleToKind(module: string | null | undefined): DeviceKind {
-  if (module === "screen" || module === "kds" || module === "display" || module === "print") return module
-  return "pos"
-}
+// El narrowing es el canónico de `lib/auth/device-token.ts`: `DeviceKind` y
+// `DeviceModule` son la misma lista, y tenerla escrita dos veces ya había dejado
+// un tipo sin mapear.
+const moduleToKind = (module: string | null | undefined): DeviceKind => toDeviceModule(module)
 
 export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
   const showRevoked = opts.showRevoked === true

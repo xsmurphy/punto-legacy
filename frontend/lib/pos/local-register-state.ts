@@ -132,11 +132,14 @@ export interface AttendanceMarkPayload {
   employeeName: string
   /**
    * El hash del PIN tipeado. Viaja para que el SERVIDOR pueda verificar el par
-   * (empleado, PIN) en vez de creerle al match que hizo el browser. No es un
+   * (persona, PIN) en vez de creerle al match que hizo el browser. No es un
    * gate: si no coincide, la marcación entra igual y queda flageada — el
    * porqué está en el docblock de `AttendanceService`.
+   *
+   * `null` cuando se identificó por el rostro, o cuando esa persona no tiene
+   * código (§9.3: el PIN es opcional desde que hay uno solo por persona).
    */
-  markPinHash: string
+  pinHash: string | null
   kind: 'in' | 'out'
   /** Momento en que la persona marcó (ISO). NUNCA el de la sincronización. */
   markedAt: string

@@ -12,6 +12,7 @@ import {
   openInvitation,
   persistRedeemedDevice,
 } from "@/lib/devices/redeem-invitation"
+import { DEVICE_KIND_ROUTES, type DeviceKind } from "@/lib/devices/connected-device"
 
 const POLL_INTERVAL_MS = 3000
 const MAX_POLL_MS      = 30 * 60 * 1000 // 30 minutos
@@ -19,15 +20,20 @@ const ENDPOINT         = INVITATIONS_ENDPOINT
 
 type InvitationStatus = "pending" | "opened" | "approved" | "denied" | "expired" | "consumed"
 
-/** module → ruta de la pantalla pareada. */
+/**
+ * module → ruta de la pantalla pareada.
+ *
+ * Sale del MISMO mapa que usa el panel para ofrecer "abrir" un dispositivo
+ * conectado (`DEVICE_KIND_ROUTES`). Acá había una copia del switch, y una copia
+ * es un lugar más donde olvidarse al sumar un tipo: el reloj de marcación
+ * (context/83 §9.2) habría quedado redirigido a `/pos`, o sea a la caja.
+ *
+ * El default se mantiene: un `module` que este bundle no conoce —un panel más
+ * nuevo que el JS de esta tablet— aterriza en la caja, que es lo que era antes
+ * de que existieran los otros tipos.
+ */
 function moduleRoute(module: string): string {
-  switch (module) {
-    case "screen":  return "/checkout"
-    case "kds":     return "/kds"
-    case "display": return "/display"
-    case "print":   return "/print"
-    default:        return "/pos"
-  }
+  return DEVICE_KIND_ROUTES[module as DeviceKind] ?? "/pos"
 }
 
 interface StatusData {
