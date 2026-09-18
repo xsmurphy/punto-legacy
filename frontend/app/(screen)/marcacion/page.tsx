@@ -79,7 +79,9 @@ import { findRecentMark, rememberMark, type SessionMark } from "@/lib/clock/sess
 import { peekOpsByStream } from "@/lib/pos/pending-ops"
 import type { AttendanceMarkPayload } from "@/lib/pos/local-register-state"
 import { useSubmitAttendanceMark } from "@/hooks/use-attendance-mark"
-import { useAttendanceFaces, useEnrollFace } from "@/hooks/use-attendance-faces"
+import { useQueryClient } from "@tanstack/react-query"
+
+import { ATTENDANCE_FACES_KEY, useAttendanceFaces, useEnrollFace } from "@/hooks/use-attendance-faces"
 import { resolveFaceOutcome, useFaceRecognition } from "@/hooks/use-face-recognition"
 import type { ClockEmployee } from "@/lib/types/clock"
 
@@ -109,14 +111,21 @@ export default function MarcacionPage() {
   // heartbeat. `offlineFirst` porque este aparato tiene que seguir andando sin
   // red — ver el docblock del hook.
   //
-  // No se suscribe a ningún canal propio: lo único que le llega por WS es la
-  // revocación (que el hook maneja) y la invalidación del tenant, que refresca
-  // el roster por su `queryKey`.
+  // No se suscribe a ningún canal propio: le llegan la revocación (que el
+  // hook maneja) y la invalidación del tenant, de la que solo le importa la
+  // entidad `employee` (rostros y ventana de registro).
+  const qc = useQueryClient()
   const { pairState, ctx } = usePairedScreen({
     module: "clock",
     offlineFirst: true,
     channels: () => [],
     onEvent: () => {},
+    // El alta/borrado de un rostro y la apertura del registro publican entidad
+    // `employee`: al llegar, se repregunta por rostros y ventana. Es lo que
+    // hace que "Registrar rostro" en el panel aparezca acá en segundos.
+    onInvalidate: (entity) => {
+      if (entity === "employee") void qc.invalidateQueries({ queryKey: ATTENDANCE_FACES_KEY })
+    },
   })
 
   // La cola de operaciones del device. En un reloj solo puede tener

@@ -94,8 +94,8 @@ export function EmployeeFaceField({ employee, consentChecked }: EmployeeFaceFiel
     try {
       const res = await start.mutateAsync(employee!.id)
       setOpenUntil(res.enrollment.expiresAt)
-      toast.success("Listo para registrar en la caja", {
-        description: "La persona tiene que pararse frente a la caja de su sucursal.",
+      toast.success("Listo para registrar", {
+        description: "La persona tiene que pararse frente al reloj de marcación de su sucursal.",
       })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo habilitar")
@@ -156,7 +156,7 @@ export function EmployeeFaceField({ employee, consentChecked }: EmployeeFaceFiel
             </span>
           </TooltipTrigger>
           <TooltipContent>
-            {blocked ?? "La persona se para frente a la caja de su sucursal y se registra ahí."}
+            {blocked ?? "La persona se para frente al reloj de marcación de su sucursal y se registra ahí."}
           </TooltipContent>
         </Tooltip>
 

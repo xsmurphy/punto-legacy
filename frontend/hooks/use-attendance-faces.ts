@@ -53,7 +53,8 @@ export interface AttendanceFaces {
   fromCache: boolean
 }
 
-const KEY = ["employees", "faces"] as const
+export const ATTENDANCE_FACES_KEY = ["employees", "faces"] as const
+const KEY = ATTENDANCE_FACES_KEY
 
 /**
  * Trae los rostros de la sucursal del dispositivo y la ventana de registro.
@@ -106,6 +107,9 @@ export function useAttendanceFaces(outletId: string, enabled = true) {
     // Los rostros cambian poco (se registran una vez). Lo que los refresca de
     // verdad es el evento de realtime, no el paso del tiempo.
     staleTime: 5 * 60 * 1000,
+    // Respaldo del realtime: si el WS estaba caído cuando el panel abrió la
+    // ventana de registro, el reloj la descubre igual en menos de un minuto.
+    refetchInterval: 60 * 1000,
     // Sin reintentos: el fallo ya cae al caché local, que es una respuesta
     // válida. Reintentar solo demoraría esa caída.
     retry: false,

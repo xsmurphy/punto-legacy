@@ -59,6 +59,13 @@ interface UseePairedScreenOpts {
   /** Canales adicionales a suscribir además de `${module}:${deviceId}` (revocación). */
   channels: (ctx: PairedScreenContext) => string[]
   onEvent: (event: string, data: unknown) => void
+  /**
+   * Invalidación del tenant (canal de sync del comercio): entidad que cambió.
+   * El hook ya usa 'setting' para refrescar su propio contexto; el resto de
+   * las entidades le llegan al caller por acá — antes se TRAGABAN, y el reloj
+   * nunca se enteraba de que el panel abrió un registro de rostro.
+   */
+  onInvalidate?: (entity: string) => void
   /** Se dispara cada vez que el WS abre (conexión inicial y reconexiones). */
   onOpen?: () => void
   /**
@@ -114,7 +121,7 @@ function clearCachedContext(module: string): void {
   }
 }
 
-export function usePairedScreen({ module, channels, onEvent, onOpen, offlineFirst }: UseePairedScreenOpts) {
+export function usePairedScreen({ module, channels, onEvent, onInvalidate, onOpen, offlineFirst }: UseePairedScreenOpts) {
   const [pairState, setPairState] = React.useState<PairState>("unpaired")
   const [wsState, setWsState] = React.useState<WsState>("connecting")
   const [ctx, setCtx] = React.useState<PairedScreenContext | null>(null)
@@ -126,8 +133,10 @@ export function usePairedScreen({ module, channels, onEvent, onOpen, offlineFirs
   const hasOpenedRef = React.useRef(false)
   const onEventRef = React.useRef(onEvent)
   const onOpenRef = React.useRef(onOpen)
+  const onInvalidateRef = React.useRef(onInvalidate)
   onEventRef.current = onEvent
   onOpenRef.current = onOpen
+  onInvalidateRef.current = onInvalidate
 
   const forgetDevice = React.useCallback(() => {
     clearDeviceToken(module)
@@ -196,6 +205,7 @@ export function usePairedScreen({ module, channels, onEvent, onOpen, offlineFirs
         if (msg.channel === invalidateChannel) {
           const entity = (msg.data as { entity?: string } | null)?.entity
           if (entity === "setting") void refreshContext(token)
+          if (entity) onInvalidateRef.current?.(entity)
           return
         }
         onEventRef.current(msg.event, msg.data)
