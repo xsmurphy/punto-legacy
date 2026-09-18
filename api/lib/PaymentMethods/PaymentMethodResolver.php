@@ -34,15 +34,26 @@ final class PaymentMethodResolver
      * pago (ventas con pago dividido, drenado de outbox en lote), y la
      * taxonomía no cambia dentro de un mismo request.
      *
-     * @var array<string,array<int,array{id:string,name:string,code:?string,systemKey:?string}>>
+     * @var array<string,array<int,array{id:string,name:string,code:?string,systemKey:?string,feePercent:?float,feeFixed:?float}>>
      */
     private static array $cache = [];
 
     /**
-     * Medios de pago reales del tenant, con `code` y `systemKey` (viven en el
-     * JSONB `taxonomyExtra` — ver PaymentMethodService).
+     * Descarta la caché del tenant. La llama `PaymentMethodService` después de
+     * crear/editar/borrar un medio: sin esto, un proceso largo (worker, arnés)
+     * seguiría cobrando con la tarifa de procesadora vieja.
+     */
+    public static function forget(string $companyId): void
+    {
+        unset(self::$cache[$companyId]);
+    }
+
+    /**
+     * Medios de pago reales del tenant, con `code`, `systemKey` y la tarifa de
+     * la procesadora (`feePercent`/`feeFixed`, null = sin comisión) — viven en
+     * el JSONB `taxonomyExtra`, ver PaymentMethodService.
      *
-     * @return array<int,array{id:string,name:string,code:?string,systemKey:?string}>
+     * @return array<int,array{id:string,name:string,code:?string,systemKey:?string,feePercent:?float,feeFixed:?float}>
      */
     public function methods(string $companyId): array
     {
@@ -73,6 +84,8 @@ final class PaymentMethodResolver
                     'name'      => (string) $res->fields['taxonomyname'],
                     'code'      => isset($extra['code']) && $extra['code'] !== '' ? (string) $extra['code'] : null,
                     'systemKey' => isset($extra['systemKey']) && $extra['systemKey'] !== '' ? (string) $extra['systemKey'] : null,
+                    'feePercent' => self::feeValue($extra['feePercent'] ?? null),
+                    'feeFixed'   => self::feeValue($extra['feeFixed'] ?? null),
                 ];
                 $res->MoveNext();
             }
@@ -113,6 +126,42 @@ final class PaymentMethodResolver
             }
         }
         return null;
+    }
+
+    /**
+     * Tarifa de procesadora del medio que resuelve `$key`, o null si el medio
+     * no cobra comisión (ambos campos vacíos/cero, o clave que no matchea).
+     *
+     * @return array{methodId:string,methodName:string,percent:float,fixed:float}|null
+     */
+    public function resolveProcessorFee(string $companyId, string $key): ?array
+    {
+        $id = $this->resolveMethodId($companyId, $key);
+        if ($id === null) {
+            return null;
+        }
+        foreach ($this->methods($companyId) as $method) {
+            if ($method['id'] !== $id) {
+                continue;
+            }
+            $percent = (float) ($method['feePercent'] ?? 0);
+            $fixed   = (float) ($method['feeFixed'] ?? 0);
+            if ($percent <= 0 && $fixed <= 0) {
+                return null;
+            }
+            return ['methodId' => $id, 'methodName' => $method['name'], 'percent' => $percent, 'fixed' => $fixed];
+        }
+        return null;
+    }
+
+    /** '' / null / no numérico / negativo → null. */
+    private static function feeValue(mixed $v): ?float
+    {
+        if ($v === null || $v === '' || !is_numeric($v)) {
+            return null;
+        }
+        $f = (float) $v;
+        return $f > 0 ? $f : null;
     }
 
     public function resolveMethodId(string $companyId, string $key): ?string
