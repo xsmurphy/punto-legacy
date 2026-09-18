@@ -15,6 +15,18 @@
  * lado, nunca empujando) y el código numérico es una acción secundaria para
  * quien no tiene el rostro registrado.
  *
+ * ── El código puede estar apagado (context/83) ────────────────────────────
+ *
+ * El comercio decide en Ajustes si se puede marcar con código. Apagado, esta
+ * pantalla no ofrece "Usar código" y el teclado físico deja de abrirlo. Lo que
+ * IMPIDE marcar por código no es esto —una pantalla es un cliente y un cliente
+ * se edita— sino el servidor, que rechaza la marcación en `mark()`. Acá solo se
+ * evita ofrecer lo que del otro lado va a ser rechazado.
+ *
+ * El flag baja en el contexto del device y vuelve a bajar solo cuando cambian
+ * los Ajustes (`usePairedScreen` repregunta con la entidad 'setting'). Ausente
+ * —contexto cacheado de una versión anterior— significa el default: disponible.
+ *
  * ── Automático de punta a punta, y eso prohíbe cosas ──────────────────────
  *
  * Nadie elige entrada o salida: se infiere de la última marcación conocida
@@ -133,6 +145,15 @@ export default function MarcacionPage() {
   usePendingOpsSync()
 
   const outletId = ctx?.outletId ?? ""
+
+  // ¿Este comercio deja marcar con código? Se resuelve ACÁ arriba y no junto al
+  // resto de los derivados de abajo porque un efecto lo necesita (el atajo del
+  // teclado físico), y los efectos viven antes del corte por `pairState`.
+  //
+  // Ausente = el default del comercio: disponible. Ver el docblock — un
+  // contexto cacheado por una versión anterior no trae la clave, y leerla como
+  // "apagado" dejaría relojes sin teclado por una actualización.
+  const allowCode = ctx?.attendanceFaceOnly !== true
   const roster = useClockRoster(outletId, pairState === "ready")
   const employees = React.useMemo(() => roster.data?.employees ?? [], [roster.data])
   const submit = useSubmitAttendanceMark()
@@ -341,7 +362,10 @@ export default function MarcacionPage() {
   // puesto. Así el comercio que tiene la tablet con teclado sigue marcando sin
   // tocar nada, sin que el código ocupe la pantalla.
   React.useEffect(() => {
-    if (codeOpen || pendingEnrollment) return
+    // Con el código apagado el atajo también muere: sin esto, tipear un dígito
+    // abriría un teclado que el botón ya no ofrece y cuya marcación el servidor
+    // va a rechazar.
+    if (!allowCode || codeOpen || pendingEnrollment) return
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return
       if (!/^[0-9]$/.test(e.key)) return
@@ -351,7 +375,7 @@ export default function MarcacionPage() {
     }
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
-  }, [codeOpen, pendingEnrollment])
+  }, [allowCode, codeOpen, pendingEnrollment])
 
   /** Guarda el rostro capturado y avisa. No se encola: ver `useEnrollFace`. */
   async function submitEnrollment(samples: number[][], photo: Blob | null) {
@@ -376,12 +400,12 @@ export default function MarcacionPage() {
   // misma, encima del video. Cambiar de pantalla desmontaría el `<video>`, que
   // es justo el camino por el que la cámara se quedaba congelada.
   const nobodyLoaded = employees.length === 0
-  const nobodyIdentifiable =
-    !nobodyLoaded &&
-    employees.every((e) => e.pinHash === null) &&
-    (faces.data?.faces.length ?? 0) === 0
+  // Con el código apagado, tener PIN no identifica a nadie en este reloj: la
+  // condición de "se puede marcar" pasa a ser el rostro y nada más.
+  const hasCode = allowCode && employees.some((e) => e.pinHash !== null)
+  const hasFace = (faces.data?.faces.length ?? 0) > 0
+  const nobodyIdentifiable = !nobodyLoaded && !hasCode && !hasFace
   const canMark = !nobodyLoaded && !nobodyIdentifiable
-  const hasCode = employees.some((e) => e.pinHash !== null)
 
   /**
    * La línea de estado bajo el bloque central.
@@ -502,7 +526,9 @@ export default function MarcacionPage() {
               Todavía nadie se puede identificar
             </p>
             <p className="text-base text-muted-foreground text-balance">
-              Registrá el rostro o el código de cada persona.
+              {allowCode
+                ? "Registrá el rostro o el código de cada persona."
+                : "Registrá el rostro de cada persona."}
             </p>
           </>
         ) : (
@@ -553,27 +579,36 @@ export default function MarcacionPage() {
             ? `${queued.length} marcación${queued.length === 1 ? "" : "es"} sin enviar`
             : ""}
         </p>
-        <Button
-          variant="outline"
-          // 56px: se toca con el dedo en una tablet colgada de la pared (§2 de
-          // context/14 habilita el override con razón documentada).
-          className="h-14 shrink-0 px-6 text-base"
-          // Sin nadie con código, el teclado no puede identificar a nadie: el
-          // impedimento se dice en el control que impide, no en una banda (§10
-          // de context/14). El motivo ya está en el centro de la pantalla.
-          disabled={!hasCode || phase.kind === "marking" || pendingEnrollment !== null}
-          onClick={() => {
-            setCodeSeed(undefined)
-            setCodeOpen(true)
-          }}
-        >
-          <KeyRound className="size-5" />
-          Usar código
-        </Button>
+        {/* Con el código apagado el botón NO se renderiza deshabilitado: un
+            control gris con tooltip dice "esto no anda hoy" y acá no es eso —
+            la acción no existe en este comercio. Lo que sí se deshabilita es lo
+            impedido por el estado (sin nadie con código cargado), que es el
+            caso que §10 de context/14 manda decir en el propio control. */}
+        {allowCode && (
+          <Button
+            variant="outline"
+            // 56px: se toca con el dedo en una tablet colgada de la pared (§2 de
+            // context/14 habilita el override con razón documentada).
+            className="h-14 shrink-0 px-6 text-base"
+            // Sin nadie con código, el teclado no puede identificar a nadie: el
+            // impedimento se dice en el control que impide, no en una banda (§10
+            // de context/14). El motivo ya está en el centro de la pantalla.
+            disabled={!hasCode || phase.kind === "marking" || pendingEnrollment !== null}
+            onClick={() => {
+              setCodeSeed(undefined)
+              setCodeOpen(true)
+            }}
+          >
+            <KeyRound className="size-5" />
+            Usar código
+          </Button>
+        )}
       </footer>
 
       <CodeDialog
-        open={codeOpen}
+        // Si el panel apaga el código mientras el teclado está abierto, se
+        // cierra solo: el contexto se repregunta al llegar el evento 'setting'.
+        open={allowCode && codeOpen}
         onOpenChange={setCodeOpen}
         employees={employees}
         seed={codeSeed}
