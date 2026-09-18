@@ -696,7 +696,7 @@ export default function PurchaseDraftReviewPage() {
 
               {isCheckMethod && (
                 <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">
-                  <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <div className="text-sm text-muted-foreground">
                     Datos del cheque
                   </div>
                   <Field label="Número de cheque" id="checkNumber">

@@ -386,7 +386,7 @@ function EditDialogBody({
 
         {canEditItems && form.items.length > 0 && (
           <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
+            <p className="mb-2 text-sm font-medium">Items</p>
             <Table>
               <TableHeader>
                 <TableRow>
@@ -425,7 +425,7 @@ function EditDialogBody({
 
         {!isQuote && (
           <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pagos</p>
+            <p className="mb-2 text-sm font-medium">Pagos</p>
             <div className="flex flex-col gap-2">
               {form.payments.map((p, i) => (
                 <div key={i} className="flex items-center gap-2">

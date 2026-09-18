@@ -154,7 +154,7 @@ export function CompleteProductionDialog({ open, onOpenChange, order }: Props) {
 
           {capacity && capacity.directIngredients.length > 0 && (
             <div className="space-y-2 rounded-md border p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="text-sm font-medium">
                 Consumo real de insumos (opcional)
               </p>
               <p className="text-xs text-muted-foreground">

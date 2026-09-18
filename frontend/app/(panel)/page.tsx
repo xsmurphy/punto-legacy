@@ -29,6 +29,7 @@ import {
 } from "recharts"
 
 import { Button } from "@/components/ui/button"
+import { StatTile } from "@/components/stat-tile"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -237,7 +238,7 @@ export default function DashboardPage() {
             />
             <div className="flex flex-col self-start">
               <div className="flex flex-col items-center gap-1 py-6">
-                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <span className="text-xs font-medium text-muted-foreground">
                   Ganancia
                 </span>
                 {stats.isLoading ? (
@@ -250,7 +251,7 @@ export default function DashboardPage() {
               </div>
               <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     Margen
                   </span>
                   {stats.isLoading ? (
@@ -262,7 +263,7 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     Cant. Ventas
                   </span>
                   {stats.isLoading ? (
@@ -343,7 +344,7 @@ export default function DashboardPage() {
 // ── KPI cards ──────────────────────────────────────────────────────────────
 
 /**
- * BigMetricCard — KPI card grande con label uppercase, valor enorme y
+ * BigMetricCard — KPI card grande con label, valor enorme y
  * sparkline al pie. Sin íconos en el title. La flecha trend va al lado del
  * label como indicador semántico.
  */
@@ -376,7 +377,7 @@ function BigMetricCard({
     <Card className="relative overflow-hidden">
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
             {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
             <span className="truncate">{label}</span>
           </div>
@@ -638,7 +639,7 @@ function FinanceCard() {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             Saldo disponible
           </span>
           {summary.isLoading ? (
@@ -651,7 +652,7 @@ function FinanceCard() {
         </div>
 
         <div className="flex flex-col gap-2 border-t pt-3">
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>Próximos 7 días</span>
             {!forecast.isLoading && (
               <span className="text-xs font-medium normal-case tabular-nums text-foreground">
@@ -881,7 +882,7 @@ function PaymentSplitCard({
               </ChartContainer>
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-xl font-bold tabular-nums">{totalCount}</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   ventas
                 </span>
               </div>
@@ -920,7 +921,7 @@ function SplitRow({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <span
           className="size-2 shrink-0 rounded-full"
           style={{ backgroundColor: dotColor }}
@@ -959,24 +960,29 @@ function CustomersCard({
   const growth = toPct(rates?.growth)
   const churn = toPct(rates?.churn)
 
+  // Card blanca (contenido: tasas); los conteos son números → StatTile gris
+  // (context/20 2026-09-09).
   return (
-    <Card variant="soft">
+    <Card>
       <CardHeader>
         <CardTitle className="text-sm font-medium">Clientes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="grid grid-cols-3 gap-3">
-          <Stat
+          <StatTile
             label="Total"
-            value={isLoading ? null : formatInt(data?.total, undefined)}
+            value={formatInt(data?.total, undefined)}
+            isLoading={isLoading}
           />
-          <Stat
+          <StatTile
             label="Nuevos"
-            value={isLoading ? null : formatInt(data?.new, undefined)}
+            value={formatInt(data?.new, undefined)}
+            isLoading={isLoading}
           />
-          <Stat
+          <StatTile
             label="Recurrentes"
-            value={isLoading ? null : formatInt(data?.old, undefined)}
+            value={formatInt(data?.old, undefined)}
+            isLoading={isLoading}
           />
         </div>
         <div className="flex flex-col gap-2">
@@ -1406,26 +1412,6 @@ function TopCategoriesCard({
 
 // ── Pequeños helpers ─────────────────────────────────────────────────────
 
-function Stat({
-  label,
-  value,
-}: {
-  label: string
-  value: string | null
-}) {
-  return (
-    <div className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
-      {value === null ? (
-        <Skeleton className="h-6 w-16" />
-      ) : (
-        <span className="text-lg font-semibold tabular-nums">{value}</span>
-      )}
-    </div>
-  )
-}
 
 function ModuleOffCard({ title }: { title: string }) {
   return (

@@ -650,7 +650,7 @@ function InfoCard({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        <CardTitle>
           {title}
         </CardTitle>
       </CardHeader>

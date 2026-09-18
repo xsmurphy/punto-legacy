@@ -138,7 +138,7 @@ function ForecastTable({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
         {rows.length === 0 ? (

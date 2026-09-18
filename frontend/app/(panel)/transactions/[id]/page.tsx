@@ -751,7 +751,7 @@ function TransactionDetailView({
             )}
             {(detail.orders?.length ?? 0) > 0 && (
               <section>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="mb-2 text-sm font-medium">
                   Órdenes cobradas
                 </p>
                 {/* Sin ruta de detalle de orden en el frontend todavía — se
@@ -774,7 +774,7 @@ function TransactionDetailView({
             )}
             {detail.appointments.length > 0 && (
               <section>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p className="mb-2 text-sm font-medium">
                   Agendamientos
                 </p>
                 <div className="divide-y divide-border rounded-lg border border-border">
@@ -916,7 +916,7 @@ function RelatedDocSection({
 }) {
   return (
     <section>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>
+      <p className="mb-2 text-sm font-medium">{title}</p>
       <div className="divide-y divide-border rounded-lg border border-border">
         {docs.map((doc) => (
           <Link
@@ -947,7 +947,7 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+        <CardTitle>
           {title}
         </CardTitle>
       </CardHeader>

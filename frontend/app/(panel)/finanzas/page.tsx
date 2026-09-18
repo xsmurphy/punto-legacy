@@ -107,7 +107,7 @@ export default function FinanzasResumenPage() {
       {/* Últimos movimientos */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Últimos movimientos
           </CardTitle>
         </CardHeader>

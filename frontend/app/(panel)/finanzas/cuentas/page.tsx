@@ -124,7 +124,7 @@ export default function FinanzasCuentasPage() {
             >
               <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
                 <div className="flex flex-col gap-1.5">
-                  <CardTitle className="text-base font-semibold tracking-tight">
+                  <CardTitle>
                     {account.name}
                   </CardTitle>
                   <div className="flex gap-1.5">

@@ -159,7 +159,7 @@ export default function CashflowReportPage() {
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      <tr className="border-b text-xs font-medium text-muted-foreground">
                         <th className="py-2 text-left font-semibold">Cuenta</th>
                         <th className="py-2 text-right font-semibold">Inicial</th>
                         <th className="py-2 text-right font-semibold">Entradas</th>

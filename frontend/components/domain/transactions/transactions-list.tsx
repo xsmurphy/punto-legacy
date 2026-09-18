@@ -1454,7 +1454,7 @@ export function TransactionDetailContent({
       {/* Items */}
       {(tx.transactionDatas ?? []).filter((i) => i.status !== 0).length > 0 && (
         <section>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="mb-2 text-sm font-medium">
             Items
           </p>
           <div className="divide-y divide-border rounded-lg border border-border">
@@ -1467,7 +1467,7 @@ export function TransactionDetailContent({
 
       {/* Totales */}
       <section>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="mb-2 text-sm font-medium">
           Totales
         </p>
         <div className="space-y-1.5 rounded-lg border border-border p-3">
@@ -1491,7 +1491,7 @@ export function TransactionDetailContent({
       {/* Pagos */}
       {tx.pMethods.length > 0 && (
         <section>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="mb-2 text-sm font-medium">
             Pagos
           </p>
           <div className="divide-y divide-border rounded-lg border border-border">
@@ -1513,7 +1513,7 @@ export function TransactionDetailContent({
       {/* Nota */}
       {tx.note && (
         <section>
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="mb-1 text-sm font-medium">
             Nota
           </p>
           <p className="text-sm text-foreground">{tx.note}</p>
@@ -1529,7 +1529,7 @@ export function TransactionDetailContent({
         const defaultTab = hasNC ? "nc" : hasPay ? "payments" : "appointments"
         return (
           <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <p className="mb-2 text-sm font-medium">
               Documentos asociados
             </p>
             <Tabs defaultValue={defaultTab}>

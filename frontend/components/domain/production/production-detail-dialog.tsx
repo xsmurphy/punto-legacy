@@ -26,6 +26,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
+import { StatTile } from "@/components/stat-tile"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
@@ -107,14 +108,14 @@ export function ProductionDetailDialog({ orderId, open, onOpenChange }: Props) {
             <Separator />
 
             {order.status === "completed" ? (
-              <div className="grid grid-cols-2 gap-3">
-                <Metric label="Costo de insumos" value={formatMoney(order.ingredientCost, bootstrap)} />
-                <Metric label="Costo unitario" value={formatMoney(order.unitCogs, bootstrap)} />
+              <div className="flex flex-col gap-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <StatTile label="Costo de insumos" value={formatMoney(order.ingredientCost, bootstrap)} />
+                  <StatTile label="Costo unitario" value={formatMoney(order.unitCogs, bootstrap)} />
+                </div>
                 {order.recipeSnapshot && order.recipeSnapshot.length > 0 && (
-                  <div className="col-span-2 space-y-1.5">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Insumos consumidos
-                    </p>
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-sm font-medium">Insumos consumidos</p>
                     {order.recipeSnapshot.map((line, i) => (
                       <div key={`${line.itemId}-${i}`} className="flex items-center justify-between text-sm">
                         <span className="text-muted-foreground">
@@ -125,10 +126,9 @@ export function ProductionDetailDialog({ orderId, open, onOpenChange }: Props) {
                     ))}
                   </div>
                 )}
-                <Metric
-                  label="Completada"
-                  value={order.completedAt ? formatDateTime(order.completedAt) : "—"}
-                />
+                <p className="text-sm text-muted-foreground">
+                  Completada {order.completedAt ? formatDateTime(order.completedAt) : "—"}
+                </p>
               </div>
             ) : order.status === "cancelled" ? (
               <p className="text-sm text-muted-foreground">Esta orden fue cancelada.</p>
@@ -206,11 +206,3 @@ export function ProductionDetailDialog({ orderId, open, onOpenChange }: Props) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="space-y-0.5">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium tabular-nums">{value}</p>
-    </div>
-  )
-}
