@@ -16,7 +16,7 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { CircleOff, IdCard, Plus, Shield, Users } from "lucide-react"
+import { CircleOff, Plus, Shield, Users } from "lucide-react"
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
@@ -30,13 +30,12 @@ import {
 } from "@/components/ui/select"
 import { DataTable, FilterField } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
-import { EmployeeFormDialog } from "@/components/employees/employee-form-dialog"
-import { UserFormDialog } from "@/components/employees/user-form-dialog"
+import { NewPersonDialog } from "@/components/employees/person-form"
 import { OwnPinDialog } from "@/components/domain/contacts/own-pin-dialog"
 
 import { useOutlets } from "@/hooks/use-outlets"
 import { usePermission } from "@/hooks/use-permissions"
-import { useTeamMembers, type TeamMember } from "@/hooks/use-team"
+import { useTeamMembers } from "@/hooks/use-team"
 import { useEmployees, type Employee } from "@/hooks/use-employees"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { formatDate } from "@/lib/format-date"
@@ -68,7 +67,6 @@ export default function TeamPage() {
   const canViewUsers = usePermission("contacts.user.view")
   const canManageUsers = usePermission("contacts.user.manage")
   const canViewHr = usePermission("hr.employees.view")
-  const canManageHr = usePermission("hr.employees.manage")
 
   const { data: teamData, isLoading: usersLoading } = useTeamMembers()
   // `state: "all"` + archivados: la lista de personas no se recorta por el
@@ -80,10 +78,9 @@ export default function TeamPage() {
   )
 
   const [outletId, setOutletId] = React.useState<string>(ALL)
-  const [state, setState] = React.useState<"all" | "active" | "inactive" | "sin-legajo">("all")
+  const [state, setState] = React.useState<"all" | "active" | "inactive" | "sin-puesto">("all")
 
-  const [creatingUser, setCreatingUser] = React.useState(false)
-  const [legajoFor, setLegajoFor] = React.useState<TeamMember | null>(null)
+  const [creating, setCreating] = React.useState(false)
 
   const people = React.useMemo<Person[]>(() => {
     const byId = new Map<string, Employee>()
@@ -128,7 +125,9 @@ export default function TeamPage() {
     return people.filter((p) => {
       if (state === "active" && !p.userActive) return false
       if (state === "inactive" && p.userActive) return false
-      if (state === "sin-legajo" && p.employee !== null) return false
+      // El filtro dice lo que filtra: a quien no se le cargó el puesto. Antes
+      // miraba si existía la fila satélite, que no es lo mismo ni se ve.
+      if (state === "sin-puesto" && (p.employee?.jobTitle ?? "") !== "") return false
       if (outletId !== ALL) {
         const inLegajo = p.employee?.outletId === outletId
         const inUser = (teamData?.users ?? [])
@@ -164,11 +163,11 @@ export default function TeamPage() {
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Equipo</h1>
           <p className="text-sm text-muted-foreground">
-            Las personas del comercio: su acceso al sistema y su legajo.
+            Las personas del comercio: su acceso al sistema y su trabajo.
           </p>
         </div>
         {canManageUsers && (
-          <Button onClick={() => setCreatingUser(true)}>
+          <Button onClick={() => setCreating(true)}>
             <Plus className="size-4" />
             Nueva persona
           </Button>
@@ -179,10 +178,10 @@ export default function TeamPage() {
         <EmptyState
           icon={Users}
           title="Sin personas cargadas"
-          description="Agregá a la primera persona para darle acceso o llevar su legajo."
+          description="Agregá a la primera persona del comercio."
           actions={
             canManageUsers ? (
-              <Button onClick={() => setCreatingUser(true)}>
+              <Button onClick={() => setCreating(true)}>
                 <Plus className="size-4" />
                 Nueva persona
               </Button>
@@ -215,7 +214,7 @@ export default function TeamPage() {
                     <SelectItem value="all">Todos</SelectItem>
                     <SelectItem value="active">Activos</SelectItem>
                     <SelectItem value="inactive">Inactivos</SelectItem>
-                    <SelectItem value="sin-legajo">Sin legajo</SelectItem>
+                    <SelectItem value="sin-puesto">Sin puesto</SelectItem>
                   </SelectContent>
                 </Select>
               </FilterField>
@@ -239,23 +238,13 @@ export default function TeamPage() {
         />
       )}
 
-      {/* Alta: primero la persona. Si además lleva legajo, se encadena con la
-          persona ya fijada — el alta unificada del pedido del owner. */}
-      <UserFormDialog
-        open={creatingUser}
-        member={null}
-        onOpenChange={setCreatingUser}
-        onCreated={(created) => {
-          if (canManageHr) setLegajoFor(created)
-        }}
-      />
-
-      <EmployeeFormDialog
-        open={legajoFor !== null}
-        employee={null}
-        presetContactId={legajoFor?.id}
-        presetName={legajoFor?.name}
-        onOpenChange={(open) => !open && setLegajoFor(null)}
+      {/* El alta es el MISMO formulario que la ficha, en un diálogo: en un paso
+          quedan sus datos, su acceso y su trabajo. Antes eran dos diálogos
+          encadenados que pedían el nombre y la sucursal dos veces. */}
+      <NewPersonDialog
+        open={creating}
+        onOpenChange={setCreating}
+        onCreated={(created) => router.push(`/employees/${created.id}`)}
       />
 
       {/* Código POS propio cuando todavía es el del alta de la cuenta y el
@@ -324,15 +313,7 @@ function buildColumns(): ColumnDef<Person, unknown>[] {
       accessorFn: (p) => p.employee?.jobTitle ?? "",
       cell: ({ row }) => {
         const e = row.original.employee
-        if (!e) {
-          return (
-            <Badge variant="outline" className="gap-1 text-muted-foreground">
-              <IdCard className="size-3" />
-              Sin legajo
-            </Badge>
-          )
-        }
-        return e.jobTitle ?? <span className="text-xs text-muted-foreground">—</span>
+        return e?.jobTitle ?? <span className="text-xs text-muted-foreground">—</span>
       },
     },
     {
