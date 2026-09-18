@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { CalendarDays } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,7 +10,6 @@ import {
   rangeToBackend,
   type DateRangeValue,
 } from "@/components/date-range-picker"
-import { EmptyState } from "@/components/empty-state"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatMoney } from "@/lib/format"
@@ -80,11 +78,7 @@ export function ContactScheduleCompact({ customerId }: Props) {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={CalendarDays}
-          title="Sin citas"
-          description="No hay citas en el rango seleccionado."
-        />
+        <p className="text-sm text-muted-foreground">Sin citas en el rango seleccionado.</p>
       ) : (
         <ul className="divide-y divide-border rounded-lg border">
           {filtered.map((row) => {

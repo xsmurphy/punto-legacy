@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { toast } from "sonner"
 import { Loader2, Wallet } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/responsive-dialog"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
-import { KpiCard } from "@/components/domain/contacts/kpi-card"
+import { StatTile } from "@/components/stat-tile"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useAdjustWallet, useWalletBalances, useWalletMovements } from "@/hooks/use-wallet"
 import { formatMoney } from "@/lib/format"
@@ -118,10 +119,38 @@ export function WalletSection({
     [bootstrap],
   )
 
+  // Saldos por bolsillo = números → StatTile gris, en grilla porque la
+  // cantidad de bolsillos varía (context/20 2026-09-09). Los movimientos son
+  // contenido → card blanca. Antes los saldos iban como tiles blancos DENTRO
+  // de la card de movimientos (owner 2026-09-18: nada de KPIs anidados).
   return (
+    <>
+      {balances.isLoading ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatTile label="Saldo" value={null} isLoading />
+        </div>
+      ) : pocketBalances.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Sin bolsillos.{" "}
+          <Link href="/settings/catalog?tab=wallet-pockets" className="text-foreground underline-offset-4 hover:underline">
+            Crear bolsillos
+          </Link>
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {pocketBalances.map((b) => (
+            <StatTile
+              key={b.pocketId}
+              label={b.active ? b.name : `${b.name} (inactivo)`}
+              value={formatMoney(b.balance, bootstrap)}
+            />
+          ))}
+        </div>
+      )}
+
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
-        <CardTitle className="text-base font-semibold tracking-tight">Bolsillos</CardTitle>
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
+        <CardTitle>Movimientos de saldo</CardTitle>
         {canManage && pocketBalances.length > 0 && (
           <Button size="sm" variant="outline" onClick={() => setAdjustOpen(true)}>
             Ajustar
@@ -129,30 +158,6 @@ export function WalletSection({
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {balances.isLoading ? (
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            <KpiCard label="Saldo" value={null} />
-          </div>
-        ) : pocketBalances.length === 0 ? (
-          <EmptyState
-            icon={Wallet}
-            title="Sin bolsillos"
-            description="Creá los bolsillos en Ajustes, Catálogo."
-            showMarquee={false}
-            className="border-0 py-6"
-          />
-        ) : (
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
-            {pocketBalances.map((b) => (
-              <KpiCard
-                key={b.pocketId}
-                label={b.active ? b.name : `${b.name} (inactivo)`}
-                value={formatMoney(b.balance, bootstrap)}
-              />
-            ))}
-          </div>
-        )}
-
         <DataTable
           tableId="contact-wallet-movements"
           data={rows}
@@ -195,6 +200,7 @@ export function WalletSection({
         />
       )}
     </Card>
+    </>
   )
 }
 

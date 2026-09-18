@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { ShoppingBag } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -10,7 +9,6 @@ import {
   rangeToBackend,
   type DateRangeValue,
 } from "@/components/date-range-picker"
-import { EmptyState } from "@/components/empty-state"
 import { useOrdersByCustomer, type Order } from "@/hooks/use-orders"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { orderTotal, orderSearchHaystack } from "@/lib/orders/order-display"
@@ -72,11 +70,7 @@ export function ContactOrdersCompact({ customerId }: Props) {
           ))}
         </div>
       ) : filtered.length === 0 ? (
-        <EmptyState
-          icon={ShoppingBag}
-          title="Sin órdenes"
-          description="No hay órdenes en el rango seleccionado."
-        />
+        <p className="text-sm text-muted-foreground">Sin órdenes en el rango seleccionado.</p>
       ) : (
         <ul className="divide-y divide-border rounded-lg border">
           {filtered.map((order) => (
