@@ -1691,7 +1691,8 @@ function DaySchedule({
   return (
     <div className="flex flex-col gap-2 rounded-md border p-3">
       <div className="flex items-center justify-between">
-        <FormLabel>{DAY_LABELS[day]}</FormLabel>
+        {/* Label suelto y no FormLabel: nombra el día, no un campo del form. */}
+        <Label>{DAY_LABELS[day]}</Label>
         <FormField
           control={form.control}
           name={`availability.days.${day}.enabled`}
