@@ -78,7 +78,7 @@ export default function TeamPage() {
   )
 
   const [outletId, setOutletId] = React.useState<string>(ALL)
-  const [state, setState] = React.useState<"all" | "active" | "inactive" | "sin-legajo">("all")
+  const [state, setState] = React.useState<"all" | "active" | "inactive" | "sin-puesto">("all")
 
   const [creating, setCreating] = React.useState(false)
 
@@ -125,7 +125,9 @@ export default function TeamPage() {
     return people.filter((p) => {
       if (state === "active" && !p.userActive) return false
       if (state === "inactive" && p.userActive) return false
-      if (state === "sin-legajo" && p.employee !== null) return false
+      // El filtro dice lo que filtra: a quien no se le cargó el puesto. Antes
+      // miraba si existía la fila satélite, que no es lo mismo ni se ve.
+      if (state === "sin-puesto" && (p.employee?.jobTitle ?? "") !== "") return false
       if (outletId !== ALL) {
         const inLegajo = p.employee?.outletId === outletId
         const inUser = (teamData?.users ?? [])
@@ -212,7 +214,7 @@ export default function TeamPage() {
                     <SelectItem value="all">Todos</SelectItem>
                     <SelectItem value="active">Activos</SelectItem>
                     <SelectItem value="inactive">Inactivos</SelectItem>
-                    <SelectItem value="sin-legajo">Sin puesto</SelectItem>
+                    <SelectItem value="sin-puesto">Sin puesto</SelectItem>
                   </SelectContent>
                 </Select>
               </FilterField>
