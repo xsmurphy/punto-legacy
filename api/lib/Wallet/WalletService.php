@@ -60,7 +60,17 @@ namespace Punto\Api\Wallet;
  */
 final class WalletService
 {
-    public const TYPES          = ['load', 'transfer', 'spend', 'refund', 'adjust'];
+    public const TYPES          = ['load', 'load_reversal', 'transfer', 'spend', 'refund', 'adjust'];
+
+    /**
+     * `sourcetype` de la carga que escribe la venta (F2): el `sourceid` es la
+     * venta. `SaleService::WALLET_SOURCE_LOAD` apunta acá.
+     */
+    public const SOURCE_SALE = 'sale';
+    /** Origen de la reversa por ANULACIÓN: `sourceid` = la venta anulada (no nace documento nuevo). */
+    public const SOURCE_SALE_VOID = 'sale_void';
+    /** Origen de la reversa por DEVOLUCIÓN: `sourceid` = la nota de crédito. */
+    public const SOURCE_RETURN = 'return';
     public const BILLING_MODES  = ['A', 'B'];
     /** Modo que implementa la v1 (§4, D1). B es F5. */
     public const BILLING_MODE_V1 = 'A';
@@ -361,6 +371,7 @@ final class WalletService
         $rs = $this->db()->Execute(
             'SELECT m.id, m.seq, m.pocketid, p.name AS pocketname, m.type, m.amount, m.balanceafter,
                     m.billingmode, m.transfergroupid, m.sourcetype, m.sourceid, m.reason, m.createdat,
+                    m.reversesmovementid,
                     m.actorcontactid, a.contactname AS actorname,
                     (SELECT o.contactid FROM wallet_movement o
                       WHERE o.companyid = m.companyid AND o.transfergroupid = m.transfergroupid
@@ -618,6 +629,288 @@ final class WalletService
         });
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Reversa de cargas (anulación / nota de crédito de la venta de carga)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Revierte lo que acreditaron las cargas de una venta (context/74 §14):
+     * un `load_reversal` negativo por carga, atado a ella
+     * (`reversesmovementid`), con origen = la anulación o la nota de crédito.
+     *
+     * Lo llaman `SaleVoidService::void()` y `ReturnService::create()` DENTRO de
+     * su transacción, después de lockear la fila de la venta — así dos
+     * anulaciones/devoluciones de la misma venta ya vienen serializadas, y lo
+     * que falta serializar es contra los CONSUMOS del bolsillo, que es el lock
+     * de acá.
+     *
+     * `$amount`:
+     *   - null  → todo lo que queda sin revertir de cada carga (anulación, o
+     *             la devolución que completa la línea de carga);
+     *   - monto → devolución parcial: se reparte entre las cargas en el orden
+     *             en que se hicieron. Si la venta cargó en MÁS DE UN bolsillo,
+     *             una parte no tiene bolsillo definido (las líneas de carga
+     *             comparten el ítem de sistema y la devolución agrega por
+     *             ítem) y se rechaza: esa carga se devuelve entera.
+     *
+     * Invariante que manda: el bolsillo NUNCA queda negativo. Si el saldo
+     * actual (leído bajo el lock) no alcanza para lo que hay que revertir en
+     * ese bolsillo, lanza `WalletLoadAlreadyUsedException` y no escribe nada —
+     * el caller hace rollback de la anulación/devolución entera.
+     *
+     * Una venta sin cargas acreditadas (sin carga, o carga retenida por
+     * permiso, `meta.walletLoadWithheld`) no hace nada y devuelve [].
+     *
+     * No publica realtime si corre anidada (siempre, en la práctica): el
+     * caller llama a `publishChange()` con `contactIds` tras SU commit.
+     *
+     * @return array{movements: list<array>, contactIds: list<string>}
+     */
+    public function reverseLoads(
+        string $companyId,
+        string $saleId,
+        ?float $amount,
+        string $sourceType,
+        string $sourceId,
+        string $actorId,
+        ?string $reason = null,
+    ): array {
+        if (!in_array($sourceType, [self::SOURCE_SALE_VOID, self::SOURCE_RETURN], true)) {
+            throw new WalletException('Origen de la reversa inválido');
+        }
+        if (!self::isUuid($saleId) || !self::isUuid($sourceId)) {
+            throw new WalletException('Origen de la reversa inválido');
+        }
+        $cents = $amount === null ? null : self::positiveCents($amount);
+
+        // Las cargas son inmutables: leerlas antes del lock solo sirve para
+        // saber QUÉ lockear. Lo que cambia (lo ya revertido y el saldo) se lee
+        // después del lock.
+        $loads = $this->loadsOfSale($companyId, $saleId);
+        if ($loads === []) {
+            return ['movements' => [], 'contactIds' => []];
+        }
+        $contactIds = array_values(array_unique(array_column($loads, 'contactid')));
+
+        $movements = $this->mutate($companyId, $actorId, $contactIds, function () use ($companyId, $loads, $contactIds, $cents, $sourceType, $sourceId, $actorId, $reason) {
+            foreach ($contactIds as $cid) {
+                $this->requireCustomer($companyId, $cid, false);
+            }
+
+            // Todos los bolsillos de la venta, en orden determinístico (mismo
+            // criterio que la transferencia).
+            $keys = [];
+            foreach ($loads as $l) {
+                $keys[self::lockKey($l['contactid'], $l['pocketid'])] = true;
+            }
+            $keys = array_keys($keys);
+            sort($keys, SORT_STRING);
+            foreach ($keys as $key) {
+                $this->lockByKey($key);
+            }
+
+            $remaining = $this->remainingByLoad($companyId, array_column($loads, 'id'));
+
+            // Plan: cuánto se revierte de cada carga.
+            $plan = [];
+            if ($cents === null) {
+                foreach ($loads as $l) {
+                    $r = $remaining[$l['id']] ?? 0;
+                    if ($r > 0) {
+                        $plan[] = [$l, $r];
+                    }
+                }
+            } else {
+                $pocketsLeft = [];
+                foreach ($loads as $l) {
+                    if (($remaining[$l['id']] ?? 0) > 0) {
+                        $pocketsLeft[$l['pocketid']] = true;
+                    }
+                }
+                $totalLeft = array_sum($remaining);
+                if (count($pocketsLeft) > 1 && $cents < $totalLeft) {
+                    throw new WalletException(
+                        'Esta venta cargó saldo en más de un bolsillo: la carga se devuelve entera, no una parte.'
+                    );
+                }
+                if ($cents > $totalLeft) {
+                    throw new WalletException('Lo que se devuelve de la carga supera lo que queda de ella', 409);
+                }
+                $left = $cents;
+                foreach ($loads as $l) {
+                    if ($left <= 0) {
+                        break;
+                    }
+                    $take = min($left, $remaining[$l['id']] ?? 0);
+                    if ($take > 0) {
+                        $plan[] = [$l, $take];
+                        $left  -= $take;
+                    }
+                }
+            }
+            if ($plan === []) {
+                return [];
+            }
+
+            // Chequeo por bolsillo ANTES de escribir, con lo que haría falta
+            // en total en ese bolsillo: el mensaje dice cuánto había y cuánto
+            // se necesitaba, no el primer faltante de una carga suelta.
+            $need = [];
+            foreach ($plan as [$l, $c]) {
+                $k = $l['contactid'] . '|' . $l['pocketid'];
+                $need[$k] = ($need[$k] ?? 0) + $c;
+            }
+            foreach ($need as $k => $c) {
+                [$cid, $pid] = explode('|', $k);
+                $available   = $this->balanceCents($companyId, $cid, $pid);
+                if ($available < $c) {
+                    $pocket = $this->findPocket($companyId, $pid);
+                    throw new WalletLoadAlreadyUsedException(
+                        (string) ($pocket['name'] ?? ''),
+                        self::fromCents($available),
+                        self::fromCents($c),
+                    );
+                }
+            }
+
+            $out = [];
+            foreach ($plan as [$l, $c]) {
+                $out[] = $this->insert($companyId, $l['contactid'], $l['pocketid'], 'load_reversal', -$c, [
+                    'sourcetype' => $sourceType,
+                    'sourceid'   => $sourceId,
+                    'reverses'   => $l['id'],
+                    'reason'     => $reason,
+                    'actor'      => $actorId,
+                ]);
+            }
+            return $out;
+        });
+
+        return ['movements' => $movements, 'contactIds' => $movements === [] ? [] : $contactIds];
+    }
+
+    /**
+     * Lo que queda sin revertir de las cargas de una venta, en total. Lectura
+     * sin lock: el caller que decide con esto (ReturnService, para saber si la
+     * devolución completa la carga) ya tiene lockeada la fila de la venta, y
+     * las reversas de esa venta solo nacen bajo ese mismo lock.
+     */
+    public function loadRemaining(string $companyId, string $saleId): float
+    {
+        $loads = $this->loadsOfSale($companyId, $saleId);
+        if ($loads === []) {
+            return 0.0;
+        }
+        return self::fromCents(array_sum($this->remainingByLoad($companyId, array_column($loads, 'id'))));
+    }
+
+    /**
+     * Para PINTAR la pantalla antes de intentar anular (`SaleVoidService::
+     * canVoid()`): ¿alcanza el saldo para revertir las cargas de esta venta?
+     * null = sí (o no hay cargas). Sin lock — el guard real es
+     * `reverseLoads()`.
+     *
+     * @return array{pocketName: string, available: float, required: float}|null
+     */
+    public function loadReversalShortfall(string $companyId, string $saleId): ?array
+    {
+        $loads = $this->loadsOfSale($companyId, $saleId);
+        if ($loads === []) {
+            return null;
+        }
+        $remaining = $this->remainingByLoad($companyId, array_column($loads, 'id'));
+        $need = [];
+        foreach ($loads as $l) {
+            $k = $l['contactid'] . '|' . $l['pocketid'];
+            $need[$k] = ($need[$k] ?? 0) + ($remaining[$l['id']] ?? 0);
+        }
+        foreach ($need as $k => $c) {
+            [$cid, $pid] = explode('|', $k);
+            $available   = $this->balanceCents($companyId, $cid, $pid);
+            if ($c > 0 && $available < $c) {
+                $pocket = $this->findPocket($companyId, $pid);
+                return [
+                    'pocketName' => (string) ($pocket['name'] ?? ''),
+                    'available'  => self::fromCents($available),
+                    'required'   => self::fromCents($c),
+                ];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * ¿Algún movimiento de saldo nació de este documento? Para los caminos
+     * que NO saben deshacer un movimiento de saldo (la anulación legacy
+     * tipo→7) y tienen que negarse en vez de dejarlo colgado.
+     */
+    public function hasMovementsFromSource(string $companyId, string $sourceId): bool
+    {
+        if (!self::isUuid($sourceId)) {
+            return false;
+        }
+        $rs = $this->db()->Execute(
+            'SELECT 1 FROM wallet_movement WHERE companyid = ? AND sourceid = ? LIMIT 1',
+            [$companyId, $sourceId]
+        );
+        return $rs && !$rs->EOF;
+    }
+
+    /** @return list<array{id: string, contactid: string, pocketid: string, cents: int}> en el orden en que se cargaron */
+    private function loadsOfSale(string $companyId, string $saleId): array
+    {
+        if (!self::isUuid($saleId)) {
+            return [];
+        }
+        $rs = $this->db()->Execute(
+            "SELECT id, contactid, pocketid, amount * 100 AS cents
+               FROM wallet_movement
+              WHERE companyid = ? AND type = 'load' AND sourcetype = ? AND sourceid = ?
+              ORDER BY seq",
+            [$companyId, self::SOURCE_SALE, $saleId]
+        );
+        $out = [];
+        while ($rs && !$rs->EOF) {
+            $out[] = [
+                'id'        => (string) $rs->fields['id'],
+                'contactid' => (string) $rs->fields['contactid'],
+                'pocketid'  => (string) $rs->fields['pocketid'],
+                'cents'     => (int) round((float) $rs->fields['cents']),
+            ];
+            $rs->MoveNext();
+        }
+        return $out;
+    }
+
+    /**
+     * Centavos que quedan sin revertir de cada carga.
+     *
+     * @param list<string> $loadIds
+     * @return array<string,int>
+     */
+    private function remainingByLoad(string $companyId, array $loadIds): array
+    {
+        if ($loadIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($loadIds), '?'));
+        $rs = $this->db()->Execute(
+            "SELECT l.id, (l.amount - COALESCE(SUM(-r.amount), 0)) * 100 AS cents
+               FROM wallet_movement l
+               LEFT JOIN wallet_movement r
+                 ON r.reversesmovementid = l.id AND r.type = 'load_reversal'
+              WHERE l.companyid = ? AND l.id IN ($ph)
+              GROUP BY l.id, l.amount",
+            array_merge([$companyId], $loadIds)
+        );
+        $out = [];
+        while ($rs && !$rs->EOF) {
+            $out[(string) $rs->fields['id']] = max(0, (int) round((float) $rs->fields['cents']));
+            $rs->MoveNext();
+        }
+        return $out;
+    }
+
     /**
      * Aviso de tiempo real para los contactos cuyo saldo cambió. Lo llama el
      * orquestador que envolvió operaciones de la wallet en SU transacción
@@ -674,7 +967,7 @@ final class WalletService
      * ya tomó). Si dejaría el bolsillo negativo, no escribe y lanza con lo
      * que había.
      *
-     * @param array{billingmode?: ?string, transfergroupid?: ?string, sourcetype?: ?string, sourceid?: ?string, reason?: ?string, actor: string} $opts
+     * @param array{billingmode?: ?string, transfergroupid?: ?string, sourcetype?: ?string, sourceid?: ?string, reverses?: ?string, reason?: ?string, actor: string} $opts
      */
     private function insert(string $companyId, string $contactId, string $pocketId, string $type, int $cents, array $opts): array
     {
@@ -694,8 +987,8 @@ final class WalletService
         $rs = $this->db()->Execute(
             'INSERT INTO wallet_movement
                 (companyid, contactid, pocketid, type, amount, balanceafter, billingmode,
-                 transfergroupid, sourcetype, sourceid, actorcontactid, reason)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 transfergroupid, sourcetype, sourceid, reversesmovementid, actorcontactid, reason)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING id, seq, createdat',
             [
                 $companyId,
@@ -708,6 +1001,7 @@ final class WalletService
                 $opts['transfergroupid'] ?? null,
                 $sourceType !== '' ? $sourceType : null,
                 ($sourceId !== null && $sourceId !== '') ? $sourceId : null,
+                $opts['reverses'] ?? null,
                 $opts['actor'],
                 $reason !== '' ? $reason : null,
             ]
@@ -942,6 +1236,7 @@ final class WalletService
             'counterpartName' => $opt($f['counterpartname']),
             'sourceType'      => $opt($f['sourcetype']),
             'sourceId'        => $opt($f['sourceid']),
+            'reversesMovementId' => $opt($f['reversesmovementid'] ?? null),
             'reason'          => $opt($f['reason']),
             'actorId'         => (string) $f['actorcontactid'],
             'actorName'       => $opt($f['actorname']),

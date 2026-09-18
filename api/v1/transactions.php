@@ -317,7 +317,14 @@ if ($method === 'PUT' && $resource === 'void') {
 
     // Resto de los tipos (cotizaciones, etc.): camino legacy sin cambios,
     // type→7, borra sub-transacciones vinculadas.
-    if (!$svc->voidTransaction($transactionId, $companyId, $outletId, $userId, $motive)) {
+    try {
+        $voidedOk = $svc->voidTransaction($transactionId, $companyId, $outletId, $userId, $motive);
+    } catch (\Punto\Api\Wallet\WalletException $e) {
+        // Documento que movió saldo de bolsillo (context/74 §13): el
+        // servicio se niega con un motivo para el operador.
+        apiError($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422);
+    }
+    if (!$voidedOk) {
         apiError('No se pudo anular la transacción', 500);
     }
 

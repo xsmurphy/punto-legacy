@@ -60,8 +60,12 @@ final class SaleService
      */
     public const WALLET_CONSUMPTION_DOCTYPE = 'consumo_saldo';
 
-    /** `wallet_movement.sourcetype` de la carga: la venta que la facturó. */
-    public const WALLET_SOURCE_LOAD = 'sale';
+    /**
+     * `wallet_movement.sourcetype` de la carga: la venta que la facturó. Es el
+     * mismo valor con el que `WalletService::reverseLoads()` encuentra las
+     * cargas de una venta que se anula o se devuelve — una sola fuente.
+     */
+    public const WALLET_SOURCE_LOAD = \Punto\Api\Wallet\WalletService::SOURCE_SALE;
 
     /** `wallet_movement.sourcetype` del débito: el comprobante de consumo. */
     public const WALLET_SOURCE_CONSUMPTION = 'consumption';

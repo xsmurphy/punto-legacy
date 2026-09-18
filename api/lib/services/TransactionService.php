@@ -1159,6 +1159,20 @@ final class TransactionService
         string $userId,
         string $motive = ''
     ): bool {
+        // Un documento que movió saldo de bolsillo (context/74) — la nota de
+        // crédito que revirtió una carga, o un consumo con saldo (tipo 15) —
+        // NO se anula por este camino: pisa el tipo a 7 y borra las líneas,
+        // pero no sabe deshacer el movimiento de saldo, que quedaría colgado
+        // de un documento anulado (saldo descontado por una devolución que ya
+        // no existe, o un consumo anulado que siguió debitando). Fail-closed
+        // hasta que exista la reversa de cada uno.
+        if ((new \Punto\Api\Wallet\WalletService())->hasMovementsFromSource($companyId, $transactionId)) {
+            throw new \Punto\Api\Wallet\WalletException(
+                'Este comprobante movió saldo de bolsillo del cliente y anularlo no lo devolvería, así que no se puede anular.',
+                409
+            );
+        }
+
         $this->db->StartTrans();
 
         // La TX se cierra SIEMPRE, también si algo lanza: la reposición de

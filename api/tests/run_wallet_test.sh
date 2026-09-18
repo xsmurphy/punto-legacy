@@ -120,5 +120,10 @@ echo ""
 echo "[run_wallet_test.sh] === reporte de bolsillos (lista congelada, KPIs, diferencias, alcance) ==="
 harness_run "$SCRIPT_DIR/wallet_report_test.php"
 
+# ── 5. Reversa de cargas: anulación y nota de crédito (context/74 §13) ─────
+echo ""
+echo "[run_wallet_test.sh] === reversa de cargas (anulación, NC parcial, saldo usado, carrera, reporte) ==="
+harness_run "$SCRIPT_DIR/wallet_reversal_test.php"
+
 echo ""
 echo "[run_wallet_test.sh] TODO OK."

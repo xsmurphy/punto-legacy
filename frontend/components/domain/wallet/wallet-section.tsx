@@ -208,6 +208,10 @@ function movementLabel(m: WalletMovement): string {
   switch (m.type) {
     case "load":
       return "Carga"
+    case "load_reversal":
+      // La reversa nace de anular la venta de carga o de devolverla con
+      // nota de crédito (context/74 §13).
+      return m.sourceType === "sale_void" ? "Anulación de carga" : "Devolución de carga"
     case "spend":
       return "Pago"
     case "refund":

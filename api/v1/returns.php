@@ -128,6 +128,14 @@ if ($method === 'POST') {
         apiOk($result);
     } catch (\InvalidArgumentException $e) {
         apiError($e->getMessage(), 422);
+    } catch (\Punto\Api\Wallet\WalletLoadAlreadyUsedException $e) {
+        // Devolución de una CARGA de saldo que el cliente ya usó (context/74
+        // §13): rechazada entera, con el motivo para el operador.
+        apiConflict($e->getMessage(), $e->details());
+    } catch (\Punto\Api\Wallet\WalletException $e) {
+        // Antes que RuntimeException (WalletException lo es): sus mensajes son
+        // para el operador, no un 500 genérico.
+        apiError($e->getMessage(), $e->getCode() >= 400 ? $e->getCode() : 422);
     } catch (\RuntimeException $e) {
         error_log('[returns] ' . $e->getMessage());
         apiError('No se pudo procesar la devolución', 500);
