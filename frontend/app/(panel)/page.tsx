@@ -351,7 +351,7 @@ export default function DashboardPage() {
                 {statsPending ? (
                   <Skeleton className="h-8 w-32" />
                 ) : (
-                  <span className="text-2xl font-bold tabular-nums text-[var(--chart-1)]">
+                  <span className="text-2xl font-bold tabular-nums">
                     {formatMoney(stats.data?.revenue, bootstrap)}
                   </span>
                 )}
