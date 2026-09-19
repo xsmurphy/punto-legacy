@@ -369,6 +369,33 @@
     code, kbd, pre, samp { @apply font-mono; }
 }
 
+/* Superficie INVERTIDA (card `inverse`, "Objetivo semanal" del dashboard —
+   owner 2026-09-19: la única card oscura de la pantalla). Colores del tema al
+   revés, sin un solo color propio: fondo = --foreground, texto = --background,
+   y lo "muted" en su versión con opacidad. En dark se invierte sola (queda
+   clara sobre el canvas oscuro).
+
+   Dos pasos a propósito: los valores se CAPTURAN en la raíz (donde --foreground
+   y --background ya son los del tema activo) y la card los reasigna. Redefinir
+   `--foreground: var(--background)` y viceversa en el mismo elemento es un
+   ciclo y CSS descarta los dos. Como la card redefine los tokens y no pinta
+   clases, todo lo que vive adentro (`text-muted-foreground`, `bg-foreground/10`
+   de las barras, skeletons, pills) se adapta sin tocar ningún call-site. */
+:root, .light, .dark {
+    --inverse-surface: var(--foreground);
+    --inverse-on-surface: var(--background);
+}
+[data-slot="card"][data-variant="inverse"] {
+    --background: var(--inverse-surface);
+    --foreground: var(--inverse-on-surface);
+    --card: var(--inverse-surface);
+    --card-foreground: var(--inverse-on-surface);
+    --muted: color-mix(in oklab, var(--inverse-on-surface) 12%, transparent);
+    --accent: color-mix(in oklab, var(--inverse-on-surface) 12%, transparent);
+    --muted-foreground: color-mix(in oklab, var(--inverse-on-surface) 65%, transparent);
+    --border: color-mix(in oklab, var(--inverse-on-surface) 15%, transparent);
+}
+
 /* Campos dentro de una card `soft` (fondo gris): el fill default del Input es
    `bg-input/50`, que sobre gris se funde con la superficie y el campo deja de
    leerse como campo. Dentro de una superficie soft el fill pasa a sólido.

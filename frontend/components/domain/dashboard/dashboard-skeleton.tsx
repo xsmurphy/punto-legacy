@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TileRow, TileRows } from "@/components/domain/dashboard/tile"
 
@@ -30,9 +30,10 @@ export function DashboardHeader({ actions }: { actions: React.ReactNode }) {
  * shells del layout real (columna principal + sidebar de 22rem) con el caso
  * típico de bloques, para que el contenido lo reemplace sin saltos.
  *
- * Los títulos fijos (KPIs, gráfico) van como texto; los de bloques que pueden
- * no montarse (Ahora, Requiere atención, rankings) van como skeleton, para no
- * anunciar algo que después desaparece.
+ * Los títulos fijos (KPIs, gráfico, Ganancia) van como texto; los de bloques
+ * que pueden no montarse (Objetivo semanal, lo del momento, Requiere
+ * atención, rankings) van como skeleton, para no anunciar algo que después
+ * desaparece.
  */
 export function DashboardSkeleton() {
   return (
@@ -54,7 +55,12 @@ export function DashboardSkeleton() {
             </div>
           </section>
 
+          {/* Grilla principal: primero las compactas del momento (órdenes,
+              espacios) apareadas, después bloques de media fila. */}
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {Array.from({ length: 2 }, (_, i) => (
+              <CompactBlockSkeleton key={`c${i}`} />
+            ))}
             {Array.from({ length: 4 }, (_, i) => (
               <BlockSkeleton key={i} />
             ))}
@@ -63,14 +69,37 @@ export function DashboardSkeleton() {
 
         {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
-          {/* Misma forma que la card de Ganancia real: cifra + pill y las
-              filas directo sobre el gris, sin caja interna. */}
+          {/* Objetivo semanal: la card invertida, misma forma (cifra, barra
+              con marca, estado / monto). Título en skeleton: puede no
+              montarse sin historia suficiente. */}
+          <Card variant="inverse">
+            <CardHeader>
+              <TitleSkeleton />
+              <Skeleton className="h-4 w-40" />
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <FigureSkeleton />
+              <div className="flex flex-col gap-1.5">
+                <Skeleton className="h-1 w-full rounded-full" />
+                <div className="flex items-center justify-between gap-3">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-4 w-16" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Misma forma que la card de Ganancia real: comparativa en la
+              línea del título, la cifra y filas de una línea sobre el gris. */}
           <Card variant="soft">
             <CardHeader>
               <CardTitle>Ganancia</CardTitle>
+              <CardAction>
+                <Skeleton className="h-4 w-12" />
+              </CardAction>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <FigureSkeleton pill />
+              <FigureSkeleton />
               <TileRows>
                 <TileRow label="Margen" value={null} />
                 <TileRow label="Ventas" value={null} />
@@ -79,19 +108,7 @@ export function DashboardSkeleton() {
             </CardContent>
           </Card>
 
-          {/* "Ahora": sin títulos fijos, pueden no montarse. */}
-          {Array.from({ length: 2 }, (_, i) => (
-            <Card key={i} variant="soft">
-              <CardHeader>
-                <TitleSkeleton />
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <FigureSkeleton />
-                <RowsSkeleton rows={2} />
-              </CardContent>
-            </Card>
-          ))}
-
+          {/* Requiere atención y Finanzas: pueden no montarse. */}
           <SidebarCardSkeleton rows={3} />
 
           <Card variant="soft">
@@ -103,8 +120,6 @@ export function DashboardSkeleton() {
               <RowsSkeleton rows={3} />
             </CardContent>
           </Card>
-
-          <SidebarCardSkeleton rows={3} bars={4} />
         </aside>
       </div>
     </div>
@@ -132,13 +147,12 @@ function TitleSkeleton() {
   )
 }
 
-/** Forma de `TileFigure`: label opcional, cifra destacada y pill opcional. */
-function FigureSkeleton({ label, pill }: { label?: boolean; pill?: boolean }) {
+/** Forma de `TileFigure`: label opcional y cifra destacada. */
+function FigureSkeleton({ label }: { label?: boolean }) {
   return (
     <div className="flex flex-col items-start gap-1.5">
       {label && <Skeleton className="h-4 w-24" />}
       <Skeleton className="h-8 w-36" />
-      {pill && <Skeleton className="h-4 w-14 rounded-full" />}
     </div>
   )
 }
@@ -157,7 +171,21 @@ function RowsSkeleton({ rows }: { rows: number }) {
   )
 }
 
-/** Card de un bloque del período (ranking / barra partida): título + lista. */
+/** Card compacta de la grilla (órdenes, espacios): título + cifra. */
+function CompactBlockSkeleton() {
+  return (
+    <Card>
+      <CardHeader>
+        <TitleSkeleton />
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <FigureSkeleton />
+      </CardContent>
+    </Card>
+  )
+}
+
+/** Card de un bloque de la grilla (ranking / barra partida): título + lista. */
 function BlockSkeleton() {
   return (
     <Card>

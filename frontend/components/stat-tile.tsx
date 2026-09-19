@@ -67,15 +67,32 @@ export interface StatDelta {
  *
  * `compact` deja solo la cifra —sin "vs período anterior"— para ir al lado
  * del monto; el contexto queda en el `title` (hover).
+ *
+ * `variant="text"` (con `compact`): la misma cifra y el mismo color pero como
+ * TEXTO chico sin fondo, para ir en la misma línea que un valor (filas de la
+ * card de Ganancia del dashboard, owner 2026-09-19: el pill ahí rompía la
+ * lectura). El resto del panel sigue con el pill.
  */
 function DeltaLine({
   pct,
   higherIsBetter = true,
   kind = "percent",
   compact = false,
+  variant = "pill",
   className,
-}: StatDelta & { compact?: boolean; className?: string }) {
+}: StatDelta & { compact?: boolean; variant?: "pill" | "text"; className?: string }) {
+  const asText = compact && variant === "text"
   if (pct === null) {
+    if (asText) {
+      return (
+        <span
+          className={cn("whitespace-nowrap text-xs text-muted-foreground", className)}
+          title="vs período anterior"
+        >
+          Sin base
+        </span>
+      )
+    }
     return (
       <span className={cn("text-xs text-muted-foreground", className)}>
         Sin base para comparar
@@ -98,6 +115,17 @@ function DeltaLine({
   const sign = pct > 0 ? "+" : ""
   const figure =
     pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}${kind === "points" ? " pts" : "%"}`
+  if (asText) {
+    return (
+      <span
+        data-slot="delta-text"
+        className={cn("whitespace-nowrap text-xs tabular-nums", tone, className)}
+        title="vs período anterior"
+      >
+        {figure}
+      </span>
+    )
+  }
   const pill = (
     <span
       data-slot="delta-pill"

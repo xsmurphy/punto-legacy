@@ -25,6 +25,7 @@ import type {
 import type { StatDelta } from "@/components/stat-tile"
 import { pctDelta } from "@/lib/reports/previous-range"
 import { hourBars, peakHour } from "@/lib/dashboard/top-hours"
+import { GOAL_MIN_WEEKS, type GoalWidget, type WeeklyGoal } from "@/lib/dashboard/weekly-goal"
 
 // ── Ahora ──────────────────────────────────────────────────────────────────
 
@@ -176,6 +177,21 @@ export function kpiDeltas(
     out.margin = { pct: Number(stats.margin) - Number(prev.margin), kind: "points" }
   }
   return out
+}
+
+// ── Objetivo semanal ───────────────────────────────────────────────────────
+
+/**
+ * Solo con historia suficiente (owner): al menos `GOAL_MIN_WEEKS` semanas
+ * completas con ventas en las últimas 12 y una mejor semana con ventas. El
+ * backend ya devuelve `null` sin eso; esto es la red si no.
+ */
+export function visibleWeeklyGoal(data: GoalWidget | undefined): WeeklyGoal | null {
+  const g = data?.goal
+  if (!g || !g.best) return null
+  if (Number(g.weeksWithSales) < GOAL_MIN_WEEKS) return null
+  if (!(Number(g.best.total) > 0)) return null
+  return g
 }
 
 // ── Ventas por sucursal ────────────────────────────────────────────────────
