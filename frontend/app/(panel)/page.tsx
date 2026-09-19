@@ -341,66 +341,44 @@ export default function DashboardPage() {
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
-            {/* KPIs del período en su propia card (owner): ordena el bloque. */}
-            <Card className="gap-0 self-start py-0">
-              <div className="flex flex-col items-center gap-1 py-6">
-                <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs font-medium text-muted-foreground">
-                  Ganancia
+            {/* KPIs del período: la Ganancia manda (número grande + pill),
+                el resto va como lista dentro de una caja gris — un solo foco
+                visual, nada compite con el monto (owner). */}
+            <Card className="gap-4 self-start">
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm text-muted-foreground">Ganancia</span>
+                  {statsPending ? (
+                    <Skeleton className="h-9 w-40" />
+                  ) : (
+                    <span className="text-3xl font-bold tracking-tight tabular-nums">
+                      {formatMoney(stats.data?.revenue, bootstrap)}
+                    </span>
+                  )}
                   <KpiDelta delta={deltas.revenue} loading={statsPending} />
-                </span>
-                {statsPending ? (
-                  <Skeleton className="h-8 w-32" />
-                ) : (
-                  <span className="text-2xl font-bold tabular-nums">
-                    {formatMoney(stats.data?.revenue, bootstrap)}
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
-                <div className="flex flex-col items-center gap-1">
-                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
-                    Margen
-                    <KpiDelta delta={deltas.margin} loading={statsPending} />
-                  </span>
-                  {statsPending ? (
-                    <Skeleton className="h-6 w-12" />
-                  ) : (
-                    <span className="text-xl font-bold tabular-nums">
-                      {stats.data?.margin ?? 0}%
-                    </span>
+                </div>
+                <div className="flex flex-col rounded-lg bg-muted/50 px-3 py-1 text-sm">
+                  <KpiRow
+                    label="Margen"
+                    value={statsPending ? null : `${stats.data?.margin ?? 0}%`}
+                    delta={deltas.margin}
+                  />
+                  <KpiRow
+                    label="Ventas"
+                    value={statsPending ? null : formatInt(stats.data?.count, bootstrap)}
+                    delta={deltas.count}
+                  />
+                  {/* Sin ventas no hay ticket que promediar: la fila no va. */}
+                  {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
+                    <KpiRow
+                      label="Ticket promedio"
+                      value={statsPending ? null : formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
+                      delta={deltas.customerAverage}
+                      emphasis
+                    />
                   )}
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
-                    Ventas
-                    <KpiDelta delta={deltas.count} loading={statsPending} />
-                  </span>
-                  {statsPending ? (
-                    <Skeleton className="h-6 w-12" />
-                  ) : (
-                    <span className="text-xl font-bold tabular-nums">
-                      {formatInt(stats.data?.count, bootstrap)}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {/* Ticket promedio junto a los otros KPIs del período (owner).
-                  Sin ventas no promedia nada: no se muestra. */}
-              {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
-                <div className="flex flex-col items-center gap-1 border-t py-4">
-                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
-                    Ticket promedio
-                    <KpiDelta delta={deltas.customerAverage} loading={statsPending} />
-                  </span>
-                  {statsPending ? (
-                    <Skeleton className="h-6 w-24" />
-                  ) : (
-                    <span className="text-xl font-bold tabular-nums">
-                      {formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
-                    </span>
-                  )}
-                </div>
-              )}
+              </CardContent>
             </Card>
           </section>
 
@@ -582,6 +560,42 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
  * pinta nada: el dashboard no dice "sin base para comparar" (regla del owner,
  * nada de ceros ni avisos muertos).
  */
+/**
+ * Fila label/valor de la lista de KPIs del período. La comparativa va al lado
+ * del label; la última fila (`emphasis`) se separa con una línea y va en
+ * negrita, patrón "total" de las cards de referencia.
+ */
+function KpiRow({
+  label,
+  value,
+  delta,
+  emphasis,
+}: {
+  label: string
+  value: React.ReactNode | null
+  delta?: StatDelta
+  emphasis?: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-3 py-2.5",
+        emphasis && "mt-0.5 border-t border-border/60",
+      )}
+    >
+      <span className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+        {label}
+        {delta && <DeltaLine {...delta} compact />}
+      </span>
+      {value === null ? (
+        <Skeleton className="h-5 w-16" />
+      ) : (
+        <span className={cn("tabular-nums", emphasis ? "font-semibold" : "font-medium")}>{value}</span>
+      )}
+    </div>
+  )
+}
+
 function KpiDelta({ delta, loading }: { delta?: StatDelta; loading: boolean }) {
   if (loading || !delta) return null
   return <DeltaLine {...delta} compact />
