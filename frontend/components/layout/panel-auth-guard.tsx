@@ -213,10 +213,18 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
 
   // El footer muestra la sucursal SELECCIONADA (view-scope), consistente con el
   // dropdown del logo — antes mostraba la del JWT (activeOutlet) y desalineaba.
+  // Quién está logueado, no el comercio: el nombre de la persona arriba y el
+  // comercio con la sucursal que está mirando abajo. El bootstrap ya trae el
+  // nombre del usuario; antes esto mostraba el nombre del comercio y no había
+  // forma de saber con qué usuario se estaba operando.
+  const personName = bootstrap?.user?.name?.trim() ?? ""
+  const companyName = bootstrap?.companyName?.trim() || "Punto"
   const user = bootstrap
     ? {
-        name: bootstrap.companyName || "Punto",
-        subtitle: viewOutletName,
+        name: personName || companyName,
+        subtitle: personName
+          ? [companyName, viewOutletName].filter(Boolean).join(" · ")
+          : viewOutletName,
       }
     : {
         name: isLoading ? "Cargando…" : "Punto User",

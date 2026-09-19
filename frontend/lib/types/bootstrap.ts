@@ -34,12 +34,11 @@ export interface Bootstrap {
   user: {
     id: string | number
     role: number
-    /** Nombre legible del usuario logueado (ej. "Christian Murphy").
-     *  Opcional — TODO backend: exponerlo desde /v1/bootstrap.php (hoy solo
-     *  trae id+role). Mientras tanto el menú de usuario del POS oculta la
-     *  línea cuando no llega. */
+    /** Nombre legible del usuario logueado (ej. "Christian Murphy"). Lo
+     *  sirve /v1/bootstrap.php; opcional porque un contacto puede no tener
+     *  nombre cargado — los consumidores caen al nombre del comercio. */
     name?: string
-    /** Etiqueta legible del rol (ej. "Cajero"). Opcional — mismo TODO que `name`. */
+    /** Etiqueta legible del rol (ej. "Cajero"). Opcional, como `name`. */
     roleName?: string
     /** Permisos del usuario logueado — expuestos por /v1/bootstrap desde 2026-06-25. */
     permissions?: string[]
