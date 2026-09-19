@@ -164,40 +164,16 @@ final class DashboardService
         return $current + ['previous' => $hasPrev ? $previous : null];
     }
 
-    /** @return array{total:float,expenses:float,revenue:float,margin:float,count:int,customerAverage:float} */
+    /**
+     * La fórmula vive en `PeriodStats` (ventas/egresos/ganancia/margen/ticket),
+     * leída por sucursal y sumada: el reporte de Sucursales usa la misma
+     * lectura, así que la suma de sus filas es este número por construcción.
+     *
+     * @return array{total:float,expenses:float,revenue:float,margin:float,count:int,customerAverage:float}
+     */
     private function periodStats(string $from, string $to, string $roc): array
     {
-        $sales = ncmExecute(
-            "SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount,
-                    SUM(transactionUnitsSold) as units, COUNT(transactionId) as count
-             FROM transaction WHERE transactionType IN (0,3,6)
-             AND " . SaleFilters::notVoidedSql() . "
-             AND transactionDate >= ? AND transactionDate <= ?" . $roc,
-            [$from, $to]
-        );
-        $internals = NonAddingSales::lessInternalTotals($roc, $from, $to);
-        $finalTotal = $sales ? (((float) $sales['total'] - (float) $sales['discount']) - (float) ($internals['total'] ?? 0)) : 0.0;
-        $count = $sales ? (int) $sales['count'] : 0;
-        $customerAverage = ($sales && $count) ? ((float) $sales['total'] / $count) : 0.0;
-
-        $expen = ncmExecute(
-            "SELECT SUM(transactionTotal) as total FROM transaction
-             WHERE transactionType IN (1,4) AND transactionDate >= ? AND transactionDate <= ?
-             AND transactionStatus = 1" . $roc,
-            [$from, $to]
-        );
-        $totalExpenses = $expen ? (float) ($expen['total'] ?? 0) : 0.0;
-        $revenue = $finalTotal - $totalExpenses;
-        $margin = ($finalTotal > 0 && $totalExpenses > 0) ? max(0, ($revenue / $finalTotal) * 100) : 100;
-
-        return [
-            'total'           => $finalTotal,
-            'expenses'        => $totalExpenses,
-            'revenue'         => $revenue,
-            'margin'          => round($margin),
-            'count'           => $count,
-            'customerAverage' => $customerAverage,
-        ];
+        return PeriodStats::compute(PeriodStats::sum(PeriodStats::rawByOutlet($from, $to, $roc)));
     }
 
     /**
@@ -265,32 +241,19 @@ final class DashboardService
         return ['rows' => $rows];
     }
 
-    /** @return array<string, array{total:float,count:int}> */
+    /**
+     * Ventas y cantidad por sucursal, de la MISMA lectura que el KPI
+     * (`PeriodStats::rawByOutlet()`): no hay una segunda copia del SQL de
+     * "venta" que pueda divergir.
+     *
+     * @return array<string, array{total:float,count:int}>
+     */
     private function salesPerOutlet(string $from, string $to, string $roc): array
     {
-        $rs = ncmExecute(
-            "SELECT outletId AS \"outletId\", SUM(transactionTotal) AS total, SUM(transactionDiscount) AS discount,
-                    COUNT(transactionId) AS count
-             FROM transaction WHERE transactionType IN (0,3,6)
-             AND " . SaleFilters::notVoidedSql() . "
-             AND transactionDate >= ? AND transactionDate <= ?" . $roc . "
-             GROUP BY outletId",
-            [$from, $to], false, true
-        );
-        $internals = NonAddingSales::internalTotalsByOutlet($roc, $from, $to);
-
         $out = [];
-        if ($rs && is_object($rs)) {
-            while (!$rs->EOF) {
-                $f   = $rs->fields;
-                $oid = (string) ($f['outletId'] ?? $f['outletid'] ?? '');
-                $out[$oid] = [
-                    'total' => (float) $f['total'] - (float) $f['discount'] - (float) ($internals[$oid] ?? 0),
-                    'count' => (int) $f['count'],
-                ];
-                $rs->MoveNext();
-            }
-            $rs->Close();
+        foreach (PeriodStats::rawByOutlet($from, $to, $roc) as $oid => $raw) {
+            $stats     = PeriodStats::compute($raw);
+            $out[$oid] = ['total' => $stats['total'], 'count' => $stats['count']];
         }
         return $out;
     }
