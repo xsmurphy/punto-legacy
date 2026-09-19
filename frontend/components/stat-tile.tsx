@@ -86,21 +86,22 @@ function DeltaLine({
   // "subió" (`0 >= 0`) y un período idéntico al anterior se pintaba de rojo en
   // cualquier métrica donde bajar es lo deseable.
   //
-  // La cifra va en un PILL (`rounded-full`, fondo suave del mismo tono que el
-  // texto): se lee como estado y no compite con el monto al que acompaña.
+  // La cifra va en un PILL chico (`rounded-full`) con fondo gris claro para
+  // todos (owner): el color vive solo en el texto, así no compite con el
+  // monto al que acompaña.
   const tone =
     pct === 0
-      ? "bg-muted text-muted-foreground"
+      ? "text-muted-foreground"
       : pct > 0 === higherIsBetter
-        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-        : "bg-destructive/10 text-destructive"
+        ? "text-emerald-700 dark:text-emerald-400"
+        : "text-destructive"
   const sign = pct > 0 ? "+" : ""
   const figure =
     pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}${kind === "points" ? " pts" : "%"}`
   const pill = (
     <span
       className={cn(
-        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium leading-none tabular-nums",
+        "inline-flex items-center whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums",
         tone,
         compact && className,
       )}
