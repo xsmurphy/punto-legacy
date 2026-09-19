@@ -264,12 +264,12 @@ export function showTopCategories(rows: TopTaxonomyRow[] | undefined): boolean {
 // ── Clientes ───────────────────────────────────────────────────────────────
 
 /**
- * La card habla de los clientes DEL PERÍODO (nuevos, recurrentes, retorno). Un
- * comercio que no identifica al cliente en la venta no tiene nada de eso: el
- * total histórico solo reflejaría el catálogo de contactos.
+ * La card habla de los clientes DEL PERÍODO (activos, nuevos, recurrentes,
+ * retorno). Un comercio que no identifica al cliente en la venta no tiene nada
+ * de eso: sin clientes activos en el período, la card no existe.
  */
 export function showCustomers(data: CustomersWidget | undefined): boolean {
-  return Number(data?.totalPeriod ?? 0) > 0
+  return Number(data?.totales?.activos ?? 0) > 0
 }
 
 // ── Información general ────────────────────────────────────────────────────

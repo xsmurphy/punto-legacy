@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
+import type { CustomersKpis } from "@/hooks/use-reports"
 
 /**
  * Llama a `GET /v1/reports/dashboard?widget=<name>&from=&to=` para un widget.
@@ -101,21 +102,12 @@ export interface PaymentStatusWidget {
   porcobrarCount: number
 }
 
-export interface CustomersWidget {
-  total: number       // total de clientes
-  totalPeriod: number // nuevos + recurrentes del período
-  new: number         // nuevos en el período
-  old: number         // recurrentes (volvieron) en el período
-  returnRate: number  // % retorno
-}
-
-export interface CustomersRatesWidget {
-  retention?: number
-  growth?: number
-  churn?: number
-  // shape exacto depende del helper customersRate del backend
-  [key: string]: unknown
-}
+/**
+ * Card "Clientes": los KPIs del reporte de clientes al que linkea — el backend
+ * delega en el mismo `CustomersService::kpis()`. "Nuevo" = primera venta
+ * histórica en el período (no el alta del contacto).
+ */
+export type CustomersWidget = CustomersKpis
 
 export interface TopItemRow {
   name: string

@@ -502,13 +502,16 @@ export interface CustomerRow {
 }
 
 /**
- * Dashboard del reporte de clientes (`?include=dashboard`).
+ * KPIs de clientes del período (`CustomersService::kpis()` del backend). Los
+ * sirven el reporte de clientes (`?include=dashboard`, con la serie encima) y
+ * la card "Clientes" del Inicio (widget `customers`): MISMAS definiciones, así
+ * que para el mismo rango y alcance dan los mismos números.
  *
  * Las tasas son PORCENTAJES (0-100) y pueden venir `null`: eso significa "sin
  * base de comparación" (el período anterior no tuvo clientes activos), NO 0%.
  * La UI tiene que distinguirlas — un 0% dice "los perdiste a todos".
  */
-export interface CustomersDashboard {
+export interface CustomersKpis {
   periodo: {
     from: string
     to: string
@@ -548,6 +551,10 @@ export interface CustomersDashboard {
     /** Sobre cuántos clientes se calculó el intervalo. */
     intervaloBase: number
   }
+}
+
+/** Dashboard del reporte de clientes (`?include=dashboard`): KPIs + serie. */
+export interface CustomersDashboard extends CustomersKpis {
   /** Grano de la serie: día / semana / mes según el largo del rango (servidor). */
   granularity: Granularity
   /**

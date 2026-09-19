@@ -80,8 +80,8 @@ describe("rankings", () => {
 
 describe("clientes", () => {
   it("solo con clientes identificados en el período", () => {
-    const c = (totalPeriod: number): CustomersWidget =>
-      ({ total: 40, totalPeriod, new: 0, old: 0, returnRate: 0 })
+    const c = (activos: number) =>
+      ({ totales: { activos, nuevos: 0, recurrentes: activos } }) as CustomersWidget
     expect(showCustomers(undefined)).toBe(false)
     expect(showCustomers(c(0))).toBe(false)
     expect(showCustomers(c(3))).toBe(true)

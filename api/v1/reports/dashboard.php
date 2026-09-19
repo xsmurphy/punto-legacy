@@ -20,7 +20,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 }
 
 $widgets = [
-    'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersRates', 'customersSeries',
+    'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersSeries',
     'topItems', 'topHours', 'topCategories', 'topBrands', 'topPayments', 'satisfaction',
     'orders', 'tables', 'schedule', 'notifications', 'notificationsCount', 'getReminders',
     'attention', 'now', 'salesByOutlet',
@@ -80,7 +80,6 @@ const WIDGET_PERMISO = [
     'salesByOutlet'      => 'reports.sales.view',
     'paymentStatus'      => 'reports.sales.view',
     'customers'          => 'reports.sales.view',
-    'customersRates'     => 'reports.sales.view',
     'customersSeries'    => 'reports.sales.view',
     'topItems'           => 'reports.sales.view',
     'topHours'           => 'reports.sales.view',

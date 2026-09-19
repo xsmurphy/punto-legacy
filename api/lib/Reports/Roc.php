@@ -91,4 +91,30 @@ final class Roc
         }
         return $roc;
     }
+
+    /**
+     * El mismo fragmento que `build()`, pero con el alcance EXPLÍCITO: la lista
+     * de sucursales entra por parámetro (`OutletScope::effectiveIds()` en un
+     * endpoint) en vez de leerse de las constantes de la request.
+     *
+     * Existe para los servicios que sirven a más de un endpoint con la MISMA
+     * definición (ej. `CustomersService::kpis()`, que usan el reporte de
+     * clientes y el dashboard): si cada uno resolviera el alcance por su lado
+     * —uno con `build($id)`, otro con `build('')` + `VIEW_OUTLET_IDS`— los dos
+     * números podrían divergir sin que nada lo avise. Con la lista explícita,
+     * el mismo argumento da el mismo SQL, y un arnés puede probar un alcance
+     * sin definir constantes.
+     *
+     * @param list<string> $outletIds `[]` = sin filtro (todo el tenant);
+     *                                1 = esa sucursal; 2+ = `IN (...)`.
+     */
+    public static function scoped(string $companyId, array $outletIds, string $alias = ''): string
+    {
+        if (!preg_match(self::UUID_RE, $companyId)) {
+            throw new \RuntimeException('Contexto de empresa inválido (companyId no es UUID)');
+        }
+        $p = $alias !== '' ? rtrim($alias, '.') . '.' : '';
+        return " AND {$p}companyId = '" . $companyId . "'"
+            . \Punto\Api\Outlets\OutletScope::sqlFilter($p . 'outletId', $outletIds);
+    }
 }
