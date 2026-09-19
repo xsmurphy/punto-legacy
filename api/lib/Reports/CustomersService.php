@@ -217,9 +217,12 @@ final class CustomersService
         $totalFacturado = 0.0;
         $conDosOMas     = 0;
         $intervalos     = [];
-        // Clientes nuevos por día: la fecha de su primera compra histórica.
-        // Sirve para partir la serie diaria sin repetir la CTE `historia`.
-        $nuevosPorDia   = [];
+        // Grano de la serie (día / semana / mes según el largo del rango): la
+        // regla única de `TimeBuckets`, la misma de todos los gráficos.
+        $tb = \Punto\Api\Support\TimeBuckets::forRange($from, $to);
+        // Clientes nuevos por bucket: el período de su primera compra
+        // histórica. Sirve para partir la serie sin repetir la CTE `historia`.
+        $nuevosPorBucket = [];
 
         foreach ($activos as $r) {
             $cnt   = (int)   $r['cnt'];
@@ -232,8 +235,10 @@ final class CustomersService
             $feTs      = $firstEver ? strtotime((string) $firstEver) : null;
             if ($feTs !== null && $feTs >= $fromTs && $feTs <= $toTs) {
                 $totalNuevos++;
-                $dia = date('Y-m-d', $feTs);
-                $nuevosPorDia[$dia] = ($nuevosPorDia[$dia] ?? 0) + 1;
+                // `date()` ya está en la zona del tenant (TenantClock) y
+                // `keyFor()` corta igual que el `date_trunc` de la query de abajo.
+                $key = $tb->keyFor(date('Y-m-d', $feTs));
+                $nuevosPorBucket[$key] = ($nuevosPorBucket[$key] ?? 0) + 1;
             }
 
             if ($cnt >= 2) {
@@ -245,12 +250,14 @@ final class CustomersService
             }
         }
 
-        // ── 2. Serie diaria: clientes distintos por día ─────────────────────
-        // Los nuevos salen del paso 1 (un cliente es nuevo exactamente el día
-        // de su primera compra); el resto de los que compraron ese día son
-        // recurrentes por definición.
-        $porDia = $this->fetchAll(
-            "SELECT to_char(date_trunc('day', t.transactionDate), 'YYYY-MM-DD') AS day_key,
+        // ── 2. Serie: clientes distintos por bucket ──────────────────────────
+        // Un cliente cuenta UNA vez por bucket (COUNT DISTINCT), aunque haya
+        // comprado cinco veces esa semana. Es nuevo en el bucket de su primera
+        // compra histórica (paso 1) y recurrente en cualquier otro en el que
+        // compre: el resto de los que compraron en el bucket son recurrentes
+        // por definición.
+        $porBucket = $this->fetchAll(
+            "SELECT {$tb->sql('t.transactionDate')} AS day_key,
                     COUNT(DISTINCT t.customerId)         AS clientes,
                     COALESCE(SUM(t.transactionTotal), 0) AS total
                FROM transaction t
@@ -263,18 +270,20 @@ final class CustomersService
             [$from, $to]
         );
 
-        $serie = [];
-        foreach ($porDia as $d) {
-            $dia      = (string) $d['day_key'];
+        $valores = [];
+        foreach ($porBucket as $d) {
+            $key      = (string) $d['day_key'];
             $clientes = (int) $d['clientes'];
-            $nuevos   = min($nuevosPorDia[$dia] ?? 0, $clientes);
-            $serie[]  = [
-                'date'        => $dia,
+            $nuevos   = min($nuevosPorBucket[$key] ?? 0, $clientes);
+            $valores[$key] = [
                 'nuevos'      => $nuevos,
                 'recurrentes' => $clientes - $nuevos,
                 'total'       => (float) $d['total'],
             ];
         }
+        // Calendario completo: un bucket sin ventas a clientes va en cero, no
+        // desaparece del eje.
+        $serie = $tb->fill($valores, ['nuevos' => 0, 'recurrentes' => 0, 'total' => 0.0]);
 
         // ── 3. Período anterior (misma duración, inmediatamente previo) ─────
         [$prevFrom, $prevTo] = self::previousWindow($from, $to);
@@ -352,7 +361,8 @@ final class CustomersService
                 // puede juzgar si el promedio significa algo.
                 'intervaloBase'      => count($intervalos),
             ],
-            'serie' => $serie,
+            'granularity' => $tb->granularity,
+            'serie'       => $serie,
         ];
     }
 

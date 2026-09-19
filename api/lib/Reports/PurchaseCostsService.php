@@ -50,7 +50,7 @@ final class PurchaseCostsService
      * @param array{itemId?:string,supplierId?:string} $filters
      * @return array<string,mixed>
      *   Sin artículo:  ['mode'=>'items', 'items'=>[…]]
-     *   Con artículo:  ['mode'=>'item', 'item'=>{…}, 'rows'=>[…], 'suppliers'=>[…]]
+     *   Con artículo:  ['mode'=>'item', 'item'=>{…}, 'rows'=>[…], 'suppliers'=>[…], 'series'=>{granularity, buckets, points}]
      */
     public function costs(array $filters, string $from, string $to, string $roc, string $companyId): array
     {
@@ -125,7 +125,50 @@ final class PurchaseCostsService
             'item'      => $item,
             'rows'      => $rows,
             'suppliers' => $cmp,
+            'series'    => $this->costSeries($rows, $from, $to),
         ];
+    }
+
+    /**
+     * Costo unitario por período y proveedor, para el gráfico. El grano —día,
+     * semana o mes según el largo del rango— es la regla única de
+     * `TimeBuckets`, la de todos los gráficos con fechas.
+     *
+     * Dentro de un período el costo es el PROMEDIO PONDERADO por unidades de
+     * las compras a ese proveedor: dos compras de la misma semana, una de 10
+     * unidades y otra de 1000, no pesan igual. Los períodos sin compra no
+     * llevan punto (un costo no es cero porque no se compró): el calendario
+     * completo va en `buckets` para que el eje respete el tiempo.
+     *
+     * @param list<array<string,mixed>> $rows las compras del período, ya filtradas
+     * @return array{granularity: string, buckets: list<array<string,mixed>>, points: list<array<string,mixed>>}
+     */
+    private function costSeries(array $rows, string $from, string $to): array
+    {
+        $tb  = \Punto\Api\Support\TimeBuckets::forRange($from, $to);
+        $acc = [];
+        foreach ($rows as $r) {
+            $key = $tb->keyFor((string) $r['date']);
+            $sup = (string) ($r['supplierId'] ?? '');
+            $g   = &$acc[$key . '|' . $sup];
+            $g ??= ['bucket' => $key, 'supplierId' => $sup !== '' ? $sup : null, 'units' => 0.0, 'cost' => 0.0, 'purchases' => 0];
+            $g['units']     += (float) $r['units'];
+            $g['cost']      += (float) $r['unitCost'] * (float) $r['units'];
+            $g['purchases'] += 1;
+            unset($g);
+        }
+
+        $points = [];
+        foreach ($acc as $g) {
+            $points[] = [
+                'bucket'     => $g['bucket'],
+                'supplierId' => $g['supplierId'],
+                'unitCost'   => $g['units'] > 0 ? $g['cost'] / $g['units'] : 0.0,
+                'purchases'  => $g['purchases'],
+            ];
+        }
+
+        return ['granularity' => $tb->granularity, 'buckets' => $tb->buckets(), 'points' => $points];
     }
 
     /* ───────────────────────── sin artículo ───────────────────────── */

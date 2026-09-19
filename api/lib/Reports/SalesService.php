@@ -149,8 +149,11 @@ final class SalesService
     }
 
     /**
-     * Series crudas de UN período para el gráfico. Si el rango es de un solo día, agrupa
-     * por hora; si abarca varios, agrupa por fecha. Devuelve ventas (0,3,6) y egresos (1,4).
+     * Series de UN período para el gráfico. Si el rango es de un solo día, agrupa por
+     * hora; si abarca varios, el grano lo decide `TimeBuckets` (día / semana / mes según
+     * el largo del rango) y el corte lo hace Postgres. Devuelve ventas (0,3,6) y
+     * egresos (1,4) por bucket, más el calendario COMPLETO (`buckets`, con los vacíos y
+     * los bordes `partial`) para que el consumidor no tenga que enumerar fechas.
      */
     public function series($from, $to, $roc, $isDay, HourBand $hours = new HourBand()): array
     {
@@ -158,9 +161,10 @@ final class SalesService
         // comparten fragmento y params — pero cada una los bindea por su cuenta.
         [$hourSql, $hourParams] = $hours->on('transactionDate');
 
-        $bucket = $isDay
+        $tb     = $isDay ? null : \Punto\Api\Support\TimeBuckets::forRange((string) $from, (string) $to);
+        $bucket = $tb === null
             ? 'EXTRACT(HOUR FROM transactionDate)::int'
-            : 'transactionDate::date';
+            : $tb->sql('transactionDate');
 
         $salesSql = 'SELECT ' . $bucket . ' AS bucket,
                         COUNT(transactionId)                   AS count,
@@ -188,10 +192,26 @@ final class SalesService
                    ORDER BY bucket ASC';
 
         return [
-            'isDay'    => (bool) $isDay,
-            'sales'    => $this->rows($salesSql, array_merge([$from, $to], $hourParams), $isDay),
-            'expenses' => $this->rows($expSql, array_merge([$from, $to], $hourParams), $isDay),
+            'isDay'       => (bool) $isDay,
+            'granularity' => $tb === null ? 'hour' : $tb->granularity,
+            'buckets'     => $tb === null ? self::hourBuckets() : $tb->buckets(),
+            'sales'       => $this->rows($salesSql, array_merge([$from, $to], $hourParams), $isDay),
+            'expenses'    => $this->rows($expSql, array_merge([$from, $to], $hourParams), $isDay),
         ];
+    }
+
+    /**
+     * Las 24 horas de un día, con la misma forma que `TimeBuckets::buckets()`.
+     *
+     * @return list<array{bucket: string, end: string, partial: bool}>
+     */
+    private static function hourBuckets(): array
+    {
+        $out = [];
+        for ($h = 0; $h < 24; $h++) {
+            $out[] = ['bucket' => (string) $h, 'end' => (string) $h, 'partial' => false];
+        }
+        return $out;
     }
 
     /**

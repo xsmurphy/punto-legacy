@@ -8,7 +8,7 @@
  *   dataset (default 'full'):
  *     summary → KPIs: cargado, consumido, saldo vigente, diferencias.
  *               El panel lo pide también para el período anterior.
- *     full    → summary + byDay + byProduct + byPocket + differences
+ *     full    → summary + series (día/semana/mes) + byProduct + byPocket + differences
  *               (detalle y agrupado por usuario y por caja).
  *
  * Es la pestaña "Bolsillos" del reporte de Ventas, y el control de los

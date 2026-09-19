@@ -6,7 +6,9 @@
  *
  *   dataset (default 'summary'):
  *     summary → totales, devoluciones, por tipo, giftcards, medios, non-adding.
- *     series  → series por fecha/hora de UN período (BFF llama actual + anterior).
+ *     series  → serie de UN período: por hora si es un solo día; si no, por día,
+ *               semana o mes según el largo del rango (`Support\TimeBuckets`),
+ *               con `granularity` y el calendario completo en `buckets`.
  *     hours   → conteo de ventas por hora del día.
  *     byday   → filas por día.
  *

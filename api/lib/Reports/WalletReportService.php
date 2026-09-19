@@ -5,6 +5,7 @@ namespace Punto\Api\Reports;
 
 use Punto\Api\Sales\SaleService;
 use Punto\Api\Sales\SaleType;
+use Punto\Api\Support\TimeBuckets;
 use Punto\Api\Wallet\WalletService;
 
 /**
@@ -135,7 +136,7 @@ final class WalletReportService
     {
         return [
             'summary'     => $this->summary($from, $to, $roc, $companyId),
-            'byDay'       => $this->byDay($from, $to, $roc, $companyId),
+            'series'      => $this->series($from, $to, $roc, $companyId),
             'byProduct'   => $this->byProduct($from, $to, $roc, $companyId),
             'byPocket'    => $this->byPocket($from, $to, $roc, $companyId),
             'differences' => $this->differences($from, $to, $roc, $companyId),
@@ -259,25 +260,22 @@ final class WalletReportService
     }
 
     /**
-     * Cargado y consumido por día, con TODOS los días del rango (el gráfico
-     * no puede saltearse los días en cero).
+     * Cargado y consumido por período, con el calendario COMPLETO del rango (el
+     * gráfico no puede saltearse los períodos en cero). El grano —día, semana o
+     * mes según el largo del rango— lo decide `TimeBuckets`, la regla única de
+     * todos los gráficos; el corte lo hace Postgres en la zona de la sesión.
      *
-     * @return list<array{date: string, loaded: float, consumed: float}>
+     * @return array{granularity: string, points: list<array{bucket: string, end: string, partial: bool, loaded: float, consumed: float}>}
      */
-    private function byDay(string $from, string $to, string $roc, string $companyId): array
+    private function series(string $from, string $to, string $roc, string $companyId): array
     {
         global $db;
-        $days = [];
-        $d    = new \DateTimeImmutable(substr($from, 0, 10));
-        $end  = new \DateTimeImmutable(substr($to, 0, 10));
-        // Tope de un año de puntos: el panel no pide más, y un rango absurdo
-        // por la API no puede devolver un array sin límite.
-        for ($i = 0; $d <= $end && $i < 400; $i++, $d = $d->modify('+1 day')) {
-            $days[$d->format('Y-m-d')] = ['date' => $d->format('Y-m-d'), 'loaded' => 0.0, 'consumed' => 0.0];
-        }
+        $tb  = TimeBuckets::forRange($from, $to);
+        $key = $tb->sql('t.transactiondate');
+        $val = [];
 
         $rs = $db->Execute(
-            'SELECT to_char(t.transactiondate, \'YYYY-MM-DD\') AS day, SUM(m.amount) AS total
+            'SELECT ' . $key . ' AS day, SUM(m.amount) AS total
                FROM wallet_movement m
                JOIN transaction t
                  ON t.transactionid = m.sourceid AND t.companyid = m.companyid
@@ -287,31 +285,30 @@ final class WalletReportService
             [$companyId, SaleService::WALLET_SOURCE_LOAD, $from, $to]
         );
         while ($rs && !$rs->EOF) {
-            $k = (string) $rs->fields['day'];
-            if (isset($days[$k])) {
-                $days[$k]['loaded'] = round((float) $rs->fields['total'], 2);
-            }
+            $val[(string) $rs->fields['day']]['loaded'] = (float) $rs->fields['total'];
             $rs->MoveNext();
         }
-        foreach ($this->returnedLoads($from, $to, $roc, $companyId, "to_char(t.transactiondate, 'YYYY-MM-DD')") as $k => $v) {
-            if (isset($days[$k])) {
-                $days[$k]['loaded'] = round($days[$k]['loaded'] - $v, 2);
-            }
+        foreach ($this->returnedLoads($from, $to, $roc, $companyId, $key) as $k => $v) {
+            $val[$k]['loaded'] = ($val[$k]['loaded'] ?? 0.0) - $v;
         }
 
         [$cte, $params] = $this->differencesCte($from, $to, $roc, $companyId);
         $rs = $db->Execute(
-            $cte . ' SELECT to_char(transactiondate, \'YYYY-MM-DD\') AS day, SUM(charged) AS total FROM c GROUP BY 1',
+            $cte . ' SELECT ' . $tb->sql('transactiondate') . ' AS day, SUM(charged) AS total FROM c GROUP BY 1',
             $params
         );
         while ($rs && !$rs->EOF) {
-            $k = (string) $rs->fields['day'];
-            if (isset($days[$k])) {
-                $days[$k]['consumed'] = round((float) $rs->fields['total'], 2);
-            }
+            $val[(string) $rs->fields['day']]['consumed'] = (float) $rs->fields['total'];
             $rs->MoveNext();
         }
-        return array_values($days);
+
+        $points = [];
+        foreach ($tb->fill($val, ['loaded' => 0.0, 'consumed' => 0.0]) as $p) {
+            $p['loaded']   = round((float) $p['loaded'], 2);
+            $p['consumed'] = round((float) $p['consumed'], 2);
+            $points[]      = $p;
+        }
+        return ['granularity' => $tb->granularity, 'points' => $points];
     }
 
     /**

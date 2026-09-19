@@ -12,7 +12,7 @@ namespace Punto\Api\Reports;
  * Incluye usuarios sin actividad (en 0). El filtro de outlet del legacy era no-op (uuid
  * vs int → 0), se omite por paridad con el comportamiento efectivo del legacy.
  *
- * 2026-09-11: se suman `summary()` (KPIs + ranking + serie diaria) y
+ * 2026-09-11: se suman `summary()` (KPIs + ranking + serie por día/semana/mes) y
  * `commissions()` (detalle liquidable por vendedor) detrás del parámetro
  * `view`. `salesByUser()` NO se tocó — sigue siendo la respuesta sin `view`,
  * con su `count` por LÍNEAS y todo. Las tres leen el mismo universo de filas;
@@ -139,7 +139,7 @@ final class UsersService
     /**
      * `view=summary` — el dashboard del período.
      *
-     * @return array{totals:array,ranking:array,daily:array}
+     * @return array{totals:array,ranking:array,series:array}
      *
      * Tres cosas que NO son obvias y por eso están acá:
      *
@@ -155,9 +155,12 @@ final class UsersService
      *    es un ticket de cada uno y uno solo del comercio. Por eso el
      *    promedio global se calcula con el distinct global, no sumando filas.
      *
-     * 3. La serie diaria corta con `::date` sin `AT TIME ZONE`: `TenantClock`
-     *    ya fija la zona del tenant en la sesión de Postgres antes de la query
-     *    (mismo razonamiento que `EXTRACT(HOUR …)` en `SalesService`).
+     * 3. La serie (`series`) corta por día, semana o mes según el largo del
+     *    rango —la regla única de `TimeBuckets`— sin `AT TIME ZONE`:
+     *    `TenantClock` ya fija la zona del tenant en la sesión de Postgres
+     *    antes de la query (mismo razonamiento que `EXTRACT(HOUR …)` en
+     *    `SalesService`). Trae el calendario completo en `buckets` y los
+     *    puntos `(bucket, vendedor, total)` solo donde hubo ventas.
      */
     public function summary($from, $to, $companyId): array
     {
@@ -226,21 +229,22 @@ final class UsersService
         }
         $totals['avgTicket'] = $totals['tickets'] > 0 ? $totals['total'] / $totals['tickets'] : 0.0;
 
-        $daily = [];
+        $tb     = \Punto\Api\Support\TimeBuckets::forRange((string) $from, (string) $to);
+        $points = [];
         $resD = ncmExecute(
-            'SELECT t.transactionDate::date AS day,
+            'SELECT ' . $tb->sql('t.transactionDate') . ' AS bucket,
                     COALESCE(i.userId, t.userId) AS userid,
                     SUM(i.itemSoldTotal) AS total
              ' . self::baseFromWhere() . '
-             GROUP BY t.transactionDate::date, COALESCE(i.userId, t.userId)
+             GROUP BY 1, 2
              ORDER BY 1',
             $args, false, true
         );
         if ($resD && is_object($resD)) {
             while (!$resD->EOF) {
                 $f = $resD->fields;
-                $daily[] = [
-                    'date'   => substr((string) $f['day'], 0, 10),
+                $points[] = [
+                    'bucket' => (string) $f['bucket'],
                     'userId' => (string) $f['userid'],
                     'total'  => (float) $f['total'],
                 ];
@@ -249,7 +253,15 @@ final class UsersService
             $resD->Close();
         }
 
-        return ['totals' => $totals, 'ranking' => $ranking, 'daily' => $daily];
+        return [
+            'totals'  => $totals,
+            'ranking' => $ranking,
+            'series'  => [
+                'granularity' => $tb->granularity,
+                'buckets'     => $tb->buckets(),
+                'points'      => $points,
+            ],
+        ];
     }
 
     /**

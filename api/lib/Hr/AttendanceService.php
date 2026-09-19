@@ -560,7 +560,39 @@ final class AttendanceService
             $rs->Close();
         }
 
-        return $this->summarize($companyId, $marks);
+        $out           = $this->summarize($companyId, $marks);
+        $out['series'] = self::workedSeries($from, $to, $out['marks']);
+        return $out;
+    }
+
+    /**
+     * Horas trabajadas por período del rango, para el gráfico. El grano —día,
+     * semana o mes según el largo del rango— es la regla única de
+     * `TimeBuckets`, la misma que usan los gráficos de ventas.
+     *
+     * Cada par suma en el período de la marca que lo CIERRA (`pairedMinutes`
+     * viaja en la salida): así un turno nocturno no se cuenta dos veces, y un
+     * par abierto no suma nada.
+     *
+     * @param array<int, array<string,mixed>> $marks ya apareadas por `summarize()`
+     * @return array{granularity: string, points: list<array<string,mixed>>}
+     */
+    private static function workedSeries(string $from, string $to, array $marks): array
+    {
+        $tb      = \Punto\Api\Support\TimeBuckets::forRange($from, $to);
+        $minutes = [];
+        foreach ($marks as $m) {
+            $paired = (int) ($m['pairedMinutes'] ?? 0);
+            if ($paired <= 0) {
+                continue;
+            }
+            $key = $tb->keyFor((string) $m['localDay']);
+            $minutes[$key]['workedMinutes'] = ($minutes[$key]['workedMinutes'] ?? 0) + $paired;
+        }
+        return [
+            'granularity' => $tb->granularity,
+            'points'      => $tb->fill($minutes, ['workedMinutes' => 0]),
+        ];
     }
 
     // ── Cálculo ─────────────────────────────────────────────────────────────
