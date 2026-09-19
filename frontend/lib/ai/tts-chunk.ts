@@ -1,3 +1,5 @@
+import { spellFormattedNumbers } from "@/lib/ai/spoken-numbers"
+
 /**
  * Troceo del texto para el TTS del agente (`context/80-voz-del-agente.md`).
  *
@@ -28,9 +30,11 @@
  *
  * Criterio: conservar las PALABRAS, tirar la sintaxis. De un link queda el
  * texto, de una imagen el alt, de una tabla las celdas separadas por pausas.
+ * Y los números con separadores se pasan a palabras ("1.500.000" → "un millón
+ * quinientos mil", `spoken-numbers.ts`): el motor los leía dígito por dígito.
  */
 export function textForSpeech(markdown: string): string {
-  return (
+  return spellFormattedNumbers(
     markdown
       // Fences de código: fuera los ``` y el nombre del lenguaje; el contenido
       // queda — leerlo suena raro, pero callarlo esconde parte de la respuesta.
@@ -53,7 +57,7 @@ export function textForSpeech(markdown: string): string {
       .replace(/\s*\|\s*/g, ", ")
       // La limpieza deja huérfanos (", ," de una fila separadora, dobles espacios).
       .replace(/(, )+,/g, ",")
-      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]{2,}/g, " "),
   )
 }
 
