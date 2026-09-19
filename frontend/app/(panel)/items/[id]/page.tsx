@@ -706,6 +706,8 @@ function ItemEditPageInner() {
           summary={isNew ? null : <ItemSummaryTab itemId={id} />}
           data={
             <FormSubtabs
+              // Los links viejos a `?tab=disponibilidad` caen en Inventario.
+              defaultTab={searchParams.get("tab") === "disponibilidad" ? "inventario" : undefined}
               tabs={[
                 {
                   id: "general",

@@ -40,9 +40,12 @@ export interface FormSubtab {
 export function FormSubtabs({
   tabs,
   param = "sub",
+  defaultTab,
 }: {
   tabs: ReadonlyArray<FormSubtab>
   param?: string
+  /** Sub-pestaña inicial cuando `?sub=` no dice nada (ej. un link viejo). */
+  defaultTab?: string
 }) {
   const visible = tabs.filter((t) => !t.hidden)
   const router = useRouter()
@@ -55,7 +58,9 @@ export function FormSubtabs({
   const active =
     requested && visible.some((t) => t.id === requested)
       ? requested
-      : (visible[0]?.id ?? "")
+      : defaultTab && visible.some((t) => t.id === defaultTab)
+        ? defaultTab
+        : (visible[0]?.id ?? "")
 
   const setActive = React.useCallback(
     (id: string) => {
