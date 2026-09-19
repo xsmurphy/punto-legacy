@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from "react"
+
+import type { SpeechOptions } from "@/lib/ai/tts-chunk"
 import { isFileUIPart, isTextUIPart, isToolOrDynamicToolUIPart, type UIMessage } from "ai"
 import { ArrowDown, MessageCircle, Upload, X } from "lucide-react"
 import Link from "next/link"
@@ -118,6 +120,8 @@ export interface AgentChatContentProps {
    * `speechSynthesis` como siempre.
    */
   remoteVoice?: boolean
+  /** Lectura de montos con el nombre de la moneda (`speechOptionsFor`). */
+  speech?: SpeechOptions
   /** Banner de saldo + link a comprar créditos. Solo panel: `/history-billing` es ruta de panel. */
   showCredits?: boolean
   /** Descuenta las áreas seguras del dispositivo. Lo pide un contenedor fullscreen del POS. */
@@ -164,6 +168,7 @@ export function AgentChatContent({
   showAttachments = true,
   showVoice = true,
   remoteVoice = false,
+  speech,
   showCredits = true,
   safeArea = false,
   hasNoCredits = false,
@@ -449,7 +454,7 @@ export function AgentChatContent({
                         <MessageMarkdown content={part.text} />
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <MessageActions text={part.text} remoteVoice={remoteVoice} />
+                        <MessageActions text={part.text} remoteVoice={remoteVoice} speech={speech} />
                         {ts !== undefined && (
                           <time className="text-xs text-muted-foreground">
                             {formatRelativeTime(ts)}

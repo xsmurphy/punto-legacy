@@ -68,7 +68,7 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "CATÁLOGO — `COUNTRY_LOCALE` es la tabla país → moneda/TZ/impuesto/TIN/separadores. Es " +
       "la fuente que permite NO asumir Paraguay: la fila PY existe para que un tenant " +
       "paraguayo siga funcionando igual que el resto.",
-    allow: { 'símbolo "Gs"': 1, 'TZ "America/Asuncion"': 1 },
+    allow: { 'símbolo "Gs"': 1, 'TZ "America/Asuncion"': 1, 'código "PYG"': 1 },
   },
   "api/libraries/countries.php": {
     reason:

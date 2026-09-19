@@ -6,6 +6,7 @@ import { MessageCircle, WifiOff } from "lucide-react"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/empty-state"
 import { AgentChatContent } from "@/components/agent/agent-chat-content"
+import { speechOptionsFor } from "@/lib/ai/tts-chunk"
 import { usePosAgentChat } from "@/lib/pos/use-pos-agent-chat"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -143,6 +144,7 @@ export function PosAgentDialog() {
           sendMessage={(m) => void sendMessage(m)}
           onClear={clear}
           agentName="Punto AI"
+          speech={speechOptionsFor(config)}
           // El alcance de los datos es de SUCURSAL, nunca del turno ni de esta
           // caja (Roc::build filtra por company + outlet y nada más). El copy lo
           // dice para que nadie lea "lo mío".

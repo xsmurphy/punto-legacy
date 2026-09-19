@@ -28,6 +28,14 @@ import type { CountryCode } from "libphonenumber-js"
 
 export interface CountryLocaleDefaults {
   currency: string
+  /**
+   * Código ISO 4217 de la moneda del país. Lo que se MUESTRA sigue siendo
+   * `currency` (la etiqueta corta); el código sirve para lo que necesita saber
+   * QUÉ moneda es —hoy, decirla en voz ("guaraníes", no "ge ese")— sin fijar
+   * un país. EC/SV/US usan dólar; PA muestra "B/." pero opera en USD y su
+   * balboa es 1:1, así que "balboas" es lo que un panameño espera oír.
+   */
+  currencyCode: string
   timeZone: string
   taxName: string
   /**
@@ -73,28 +81,28 @@ export interface CountryLocaleDefaults {
  * (incluido BR). El día que se traduzca, esta columna es donde se decide.
  */
 export const COUNTRY_LOCALE: Record<string, CountryLocaleDefaults> = {
-  PY: { currency: "Gs", timeZone: "America/Asuncion", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
-  AR: { currency: "$", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", tinName: "CUIT", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
-  UY: { currency: "$", timeZone: "America/Montevideo", taxName: "IVA", tinName: "RUT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
-  BR: { currency: "R$", timeZone: "America/Sao_Paulo", taxName: "ICMS", tinName: "CNPJ", personalIdName: "CPF", decimal: true, thousandSeparator: ".", language: "es" },
-  CL: { currency: "$", timeZone: "America/Santiago", taxName: "IVA", tinName: "RUT", personalIdName: "RUT", decimal: false, thousandSeparator: ".", language: "es" },
-  BO: { currency: "Bs", timeZone: "America/La_Paz", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
-  PE: { currency: "S/", timeZone: "America/Lima", taxName: "IGV", tinName: "RUC", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
-  CO: { currency: "$", timeZone: "America/Bogota", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de ciudadanía", decimal: false, thousandSeparator: ".", language: "es" },
-  EC: { currency: "$", timeZone: "America/Guayaquil", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
-  VE: { currency: "Bs", timeZone: "America/Caracas", taxName: "IVA", tinName: "RIF", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
-  MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", tinName: "RFC", personalIdName: "CURP", decimal: true, thousandSeparator: ",", language: "es" },
-  ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", tinName: "NIF", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
-  US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", tinName: "EIN", personalIdName: "SSN", decimal: true, thousandSeparator: ",", language: "es" },
+  PY: { currency: "Gs", currencyCode: "PYG", timeZone: "America/Asuncion", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
+  AR: { currency: "$", currencyCode: "ARS", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", tinName: "CUIT", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  UY: { currency: "$", currencyCode: "UYU", timeZone: "America/Montevideo", taxName: "IVA", tinName: "RUT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  BR: { currency: "R$", currencyCode: "BRL", timeZone: "America/Sao_Paulo", taxName: "ICMS", tinName: "CNPJ", personalIdName: "CPF", decimal: true, thousandSeparator: ".", language: "es" },
+  CL: { currency: "$", currencyCode: "CLP", timeZone: "America/Santiago", taxName: "IVA", tinName: "RUT", personalIdName: "RUT", decimal: false, thousandSeparator: ".", language: "es" },
+  BO: { currency: "Bs", currencyCode: "BOB", timeZone: "America/La_Paz", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  PE: { currency: "S/", currencyCode: "PEN", timeZone: "America/Lima", taxName: "IGV", tinName: "RUC", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  CO: { currency: "$", currencyCode: "COP", timeZone: "America/Bogota", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de ciudadanía", decimal: false, thousandSeparator: ".", language: "es" },
+  EC: { currency: "$", currencyCode: "USD", timeZone: "America/Guayaquil", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  VE: { currency: "Bs", currencyCode: "VES", timeZone: "America/Caracas", taxName: "IVA", tinName: "RIF", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  MX: { currency: "$", currencyCode: "MXN", timeZone: "America/Mexico_City", taxName: "IVA", tinName: "RFC", personalIdName: "CURP", decimal: true, thousandSeparator: ",", language: "es" },
+  ES: { currency: "€", currencyCode: "EUR", timeZone: "Europe/Madrid", taxName: "IVA", tinName: "NIF", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  US: { currency: "$", currencyCode: "USD", timeZone: "America/New_York", taxName: "Sales Tax", tinName: "EIN", personalIdName: "SSN", decimal: true, thousandSeparator: ",", language: "es" },
   // Centroamérica y Caribe — espejo de CountryDefaults::LOCALE (PHP), que los
   // sumó primero; el guard de contact-id-types exige que ambos lados coincidan.
-  CR: { currency: "₡", timeZone: "America/Costa_Rica", taxName: "IVA", tinName: "Cédula jurídica", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
-  DO: { currency: "RD$", timeZone: "America/Santo_Domingo", taxName: "ITBIS", tinName: "RNC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
-  GT: { currency: "Q", timeZone: "America/Guatemala", taxName: "IVA", tinName: "NIT", personalIdName: "DPI", decimal: true, thousandSeparator: ",", language: "es" },
-  HN: { currency: "L", timeZone: "America/Tegucigalpa", taxName: "ISV", tinName: "RTN", personalIdName: "Tarjeta de identidad", decimal: true, thousandSeparator: ",", language: "es" },
-  NI: { currency: "C$", timeZone: "America/Managua", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
-  PA: { currency: "B/.", timeZone: "America/Panama", taxName: "ITBMS", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
-  SV: { currency: "$", timeZone: "America/El_Salvador", taxName: "IVA", tinName: "NIT", personalIdName: "DUI", decimal: true, thousandSeparator: ",", language: "es" },
+  CR: { currency: "₡", currencyCode: "CRC", timeZone: "America/Costa_Rica", taxName: "IVA", tinName: "Cédula jurídica", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
+  DO: { currency: "RD$", currencyCode: "DOP", timeZone: "America/Santo_Domingo", taxName: "ITBIS", tinName: "RNC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  GT: { currency: "Q", currencyCode: "GTQ", timeZone: "America/Guatemala", taxName: "IVA", tinName: "NIT", personalIdName: "DPI", decimal: true, thousandSeparator: ",", language: "es" },
+  HN: { currency: "L", currencyCode: "HNL", timeZone: "America/Tegucigalpa", taxName: "ISV", tinName: "RTN", personalIdName: "Tarjeta de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  NI: { currency: "C$", currencyCode: "NIO", timeZone: "America/Managua", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  PA: { currency: "B/.", currencyCode: "PAB", timeZone: "America/Panama", taxName: "ITBMS", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  SV: { currency: "$", currencyCode: "USD", timeZone: "America/El_Salvador", taxName: "IVA", tinName: "NIT", personalIdName: "DUI", decimal: true, thousandSeparator: ",", language: "es" },
 }
 
 /**
@@ -180,6 +188,23 @@ export function resolveCurrencyLabel(
     countryDefaults(config)?.currency ??
     UNKNOWN_CURRENCY_SIGN
   )
+}
+
+/**
+ * Código ISO 4217 de la moneda del tenant, o `null` si no se puede saber.
+ *
+ * Solo se conoce cuando la etiqueta que el tenant muestra es la de su país
+ * (o no configuró ninguna): un comercio en PY que puso "US$" opera en otra
+ * moneda y el código del país sería falso. En ese caso quien lo llama sigue
+ * con la etiqueta, que es lo único cierto.
+ */
+export function resolveCurrencyCode(
+  config: TenantLocaleConfig | null | undefined,
+): string | null {
+  const defaults = countryDefaults(config)
+  if (!defaults) return null
+  const label = present(config?.currency)
+  return label === null || label === defaults.currency ? defaults.currencyCode : null
 }
 
 // ── Identificadores (documento fiscal y documento personal) ──────────────────

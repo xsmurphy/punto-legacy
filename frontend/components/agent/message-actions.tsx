@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api, ApiError } from "@/lib/api-client"
-import { mapWithConcurrency, splitTextForTts, textForSpeech } from "@/lib/ai/tts-chunk"
+import { mapWithConcurrency, splitTextForTts, textForSpeech, type SpeechOptions } from "@/lib/ai/tts-chunk"
 
 /**
  * Acciones inline debajo de cada mensaje del assistant: copiar al clipboard +
@@ -71,6 +71,7 @@ export function MessageActions({
   // que quizás no tiene — la voz remota se ENCIENDE explícitamente donde
   // corresponde, nunca por omisión.
   remoteVoice = false,
+  speech,
 }: {
   text: string
   /** Mensajes del user solo muestran "Copiar" — leerse a sí mismo no aporta. */
@@ -80,6 +81,8 @@ export function MessageActions({
    * Lo apaga la caja: su credencial no abre un endpoint del realm panel.
    */
   remoteVoice?: boolean
+  /** Cómo leer montos (nombre de la moneda del tenant). Ver `speechOptionsFor`. */
+  speech?: SpeechOptions
 }) {
   const [copied, setCopied] = React.useState(false)
   const [speakState, setSpeakState] = React.useState<SpeakState>("idle")
@@ -135,7 +138,7 @@ export function MessageActions({
     synth.cancel()
 
     // La voz nativa lee el markdown literal igual que el TTS pago — misma limpieza.
-    const u = new SpeechSynthesisUtterance(textForSpeech(text))
+    const u = new SpeechSynthesisUtterance(textForSpeech(text, speech))
     u.lang = "es-ES"
     u.rate = 1
     u.onend = () => {
@@ -241,7 +244,7 @@ export function MessageActions({
       // verifica en CI).
       // Markdown → texto hablable ANTES de trocear: "**Lote**" se leía como
       // "asterisco asterisco lote asterisco asterisco".
-      const chunks = splitTextForTts(textForSpeech(text))
+      const chunks = splitTextForTts(textForSpeech(text, speech))
       if (chunks.length === 0) return
       const urlPromises = mapWithConcurrency(chunks, 3, async (chunk) => {
         const blob = await api.postBlob("/agent/tts", { text: chunk })

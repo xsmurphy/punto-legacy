@@ -1,4 +1,5 @@
-import { spellFormattedNumbers } from "@/lib/ai/spoken-numbers"
+import { spellCurrencyAmounts, spellFormattedNumbers, spokenCurrencyName } from "@/lib/ai/spoken-numbers"
+import { resolveCurrencyCode, resolveCurrencyLabel, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 /**
  * Troceo del texto para el TTS del agente (`context/80-voz-del-agente.md`).
@@ -33,8 +34,24 @@ import { spellFormattedNumbers } from "@/lib/ai/spoken-numbers"
  * Y los números con separadores se pasan a palabras ("1.500.000" → "un millón
  * quinientos mil", `spoken-numbers.ts`): el motor los leía dígito por dígito.
  */
-export function textForSpeech(markdown: string): string {
-  return spellFormattedNumbers(
+export interface SpeechOptions {
+  /** Etiqueta corta del tenant y su nombre hablado en plural ("Gs" → "guaraníes"). */
+  currency?: { label: string; spoken: string } | null
+}
+
+/**
+ * Opciones de lectura para la config del tenant (panel: bootstrap; caja:
+ * config del catálogo). Sin código de moneda conocido —etiqueta distinta a la
+ * del país— no hay nombre que decir y la etiqueta se lee tal cual.
+ */
+export function speechOptionsFor(config: TenantLocaleConfig | null | undefined): SpeechOptions {
+  const code = resolveCurrencyCode(config)
+  const spoken = code ? spokenCurrencyName(code) : null
+  return { currency: spoken ? { label: resolveCurrencyLabel(config), spoken } : null }
+}
+
+export function textForSpeech(markdown: string, opts: SpeechOptions = {}): string {
+  const cleaned =
     markdown
       // Fences de código: fuera los ``` y el nombre del lenguaje; el contenido
       // queda — leerlo suena raro, pero callarlo esconde parte de la respuesta.
@@ -57,8 +74,11 @@ export function textForSpeech(markdown: string): string {
       .replace(/\s*\|\s*/g, ", ")
       // La limpieza deja huérfanos (", ," de una fila separadora, dobles espacios).
       .replace(/(, )+,/g, ",")
-      .replace(/[ \t]{2,}/g, " "),
-  )
+      .replace(/[ \t]{2,}/g, " ")
+  const withCurrency = opts.currency
+    ? spellCurrencyAmounts(cleaned, opts.currency.label, opts.currency.spoken)
+    : cleaned
+  return spellFormattedNumbers(withCurrency)
 }
 
 /** Tope del PRIMER pedazo — define la espera hasta que empieza a sonar. */

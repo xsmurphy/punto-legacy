@@ -49,14 +49,14 @@ describe("formattedNumberToWords", () => {
 
 describe("spellFormattedNumbers", () => {
   it("el caso del owner: el monto se lee como monto", () => {
-    expect(spellFormattedNumbers("Vendiste Gs 1.500.000 este mes")).toBe(
-      "Vendiste Gs un millón quinientos mil este mes",
+    expect(spellFormattedNumbers("Vendiste ₡ 1.500.000 este mes")).toBe(
+      "Vendiste ₡ un millón quinientos mil este mes",
     )
   })
 
   it("variaciones negativas y porcentajes con decimal", () => {
-    expect(spellFormattedNumbers("-Gs 475.000 (-20,7%)")).toBe(
-      "-Gs cuatrocientos setenta y cinco mil (menos veinte coma siete%)",
+    expect(spellFormattedNumbers("-₡ 475.000 (-20,7%)")).toBe(
+      "-₡ cuatrocientos setenta y cinco mil (menos veinte coma siete%)",
     )
   })
 
@@ -64,5 +64,32 @@ describe("spellFormattedNumbers", () => {
     expect(spellFormattedNumbers("el 18/09/2026 hubo 164 ventas")).toBe("el 18/09/2026 hubo 164 ventas")
     expect(spellFormattedNumbers("1-7 May")).toBe("1-7 May")
     expect(spellFormattedNumbers("2026")).toBe("2026")
+  })
+})
+
+describe("moneda hablada", () => {
+  it("el nombre sale del código ISO, en plural y sin el país", async () => {
+    const { spokenCurrencyName, spellCurrencyAmounts } = await import("@/lib/ai/spoken-numbers")
+    expect(spokenCurrencyName("ARS")).toBe("pesos")
+    expect(spokenCurrencyName("USD")).toBe("dólares")
+    expect(spokenCurrencyName("BRL")).toBe("reales")
+    expect(spokenCurrencyName("CRC")).toBe("colones")
+    expect(spokenCurrencyName("XXX_NO")).toBeNull()
+    expect(spellCurrencyAmounts("Vendiste ₡ 1.500.000 y -₡ 475.000 (en ₡)", "₡", "colones")).toBe(
+      "Vendiste 1.500.000 colones y -475.000 colones (en ₡)",
+    )
+    expect(spellCurrencyAmounts("Total $ 1,200.50", "$", "dólares")).toBe("Total 1,200.50 dólares")
+  })
+
+  it("de punta a punta: etiqueta + número → monto hablado", async () => {
+    const { textForSpeech, speechOptionsFor } = await import("@/lib/ai/tts-chunk")
+    const opts = speechOptionsFor({ currency: "₡", country: "CR" } as never)
+    expect(textForSpeech("Vendiste **₡ 1.500.000** (-20,7%)", opts)).toBe(
+      "Vendiste un millón quinientos mil colones (menos veinte coma siete%)",
+    )
+    // Sin etiqueta configurada vale la del país.
+    expect(speechOptionsFor({ currency: "", country: "AR" } as never).currency).toEqual({ label: "$", spoken: "pesos" })
+    // Etiqueta distinta a la del país: no se sabe qué moneda es, se lee tal cual.
+    expect(speechOptionsFor({ currency: "US$", country: "CR" } as never).currency).toBeNull()
   })
 })

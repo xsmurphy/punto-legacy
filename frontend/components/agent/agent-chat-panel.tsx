@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { AgentChatContent } from "@/components/agent/agent-chat-content"
+import { speechOptionsFor } from "@/lib/ai/tts-chunk"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { useSettings } from "@/hooks/use-settings"
@@ -96,6 +97,7 @@ export function AgentChatPanel({
     <AgentChatContent
       // Voz remota SOLO acá y en /chat: superficies con sesión de panel.
       remoteVoice
+      speech={speechOptionsFor(bootstrap)}
       messages={messages}
       status={status}
       error={error}

@@ -21,6 +21,7 @@ import { useSettings } from "@/hooks/use-settings"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
+import { speechOptionsFor } from "@/lib/ai/tts-chunk"
 import { MessageAttachment } from "@/components/agent/message-attachment"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
@@ -358,7 +359,7 @@ export default function ChatPage() {
                               <MessageMarkdown content={part.text} />
                             </div>
                             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <MessageActions text={part.text} remoteVoice />
+                              <MessageActions text={part.text} remoteVoice speech={speechOptionsFor(bootstrap)} />
                               {ts !== undefined && (
                                 <time className="text-xs text-muted-foreground">
                                   {formatRelativeTime(ts)}

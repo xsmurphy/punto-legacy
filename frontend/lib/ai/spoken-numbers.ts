@@ -130,3 +130,50 @@ export function spellFormattedNumbers(text: string): string {
     return words === null ? whole : `${before}${words}`
   })
 }
+
+// ── Moneda ───────────────────────────────────────────────────────────────────
+
+/**
+ * Nombre hablado, en plural, de una moneda por su código ISO: "guaraníes",
+ * "pesos", "dólares", "reales". Sale del nombre que el navegador ya conoce
+ * (`Intl.DisplayNames`: "guaraní paraguayo", "dólar estadounidense") tomando
+ * la primera palabra —el adjetivo del país sobra al hablar— y pluralizándola
+ * con las reglas del español. Null si el motor no conoce el código.
+ */
+export function spokenCurrencyName(code: string): string | null {
+  let name: string | undefined
+  try {
+    name = new Intl.DisplayNames(["es"], { type: "currency" }).of(code)
+  } catch {
+    return null
+  }
+  if (!name || name === code) return null
+  const first = name.split(" ")[0].toLowerCase()
+  return pluralEs(first)
+}
+
+/** Plural de un sustantivo español regular: peso→pesos, dólar→dólares, colón→colones. */
+function pluralEs(word: string): string {
+  if (/[aeiou]$/i.test(word)) return `${word}s`
+  // Agudas en -ón/-ín/-án pierden la tilde al pluralizar: colón → colones.
+  const m = /^(.*)([áéíóú])([ns])$/i.exec(word)
+  if (m) {
+    const plain = { á: "a", é: "e", í: "i", ó: "o", ú: "u" }[m[2].toLowerCase() as "á" | "é" | "í" | "ó" | "ú"]
+    return `${m[1]}${plain}${m[3]}es`
+  }
+  return `${word}es`
+}
+
+/**
+ * "Gs 1.500.000" → "1.500.000 guaraníes" (y "-Gs 475.000" → "-475.000
+ * guaraníes"): la etiqueta corta se lee como letras ("ge ese"), el nombre de
+ * la moneda se lee como una persona. Va ANTES de `spellFormattedNumbers`, que
+ * después convierte el número. Solo toca etiqueta + número; una etiqueta
+ * suelta ("en Gs") queda como está.
+ */
+export function spellCurrencyAmounts(text: string, label: string, spoken: string): string {
+  const esc = label.trim().replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")
+  if (!esc) return text
+  const re = new RegExp(`(-?)${esc}\\.?\\s?(-?)(\\d[\\d.,]*\\d|\\d)`, "g")
+  return text.replace(re, (_w, s1: string, s2: string, num: string) => `${s1 || s2}${num} ${spoken}`)
+}
