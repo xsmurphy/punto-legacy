@@ -52,6 +52,7 @@ import {
   ShoppingBasket,
   Sparkles,
   SquareKanban,
+  Store,
   Tag,
   TrendingUp,
   Truck,
@@ -603,6 +604,20 @@ export const PANEL_ROUTES: RouteEntry[] = [
     paletteGroup: "Reportes",
     requires: "reports.sales.view",
     keywords: ["payment methods", "tarjeta", "efectivo", "cobros", "qr"],
+  },
+  {
+    // Comparativo entre sucursales (2026-09-19). Mismo gate que el endpoint
+    // (`reports/outlets.php`: `reports.sales.view`) y solo con 2+ sucursales
+    // activas en el alcance del usuario — con una sola no hay qué comparar.
+    to: "/reports/outlets",
+    title: "Sucursales",
+    paletteTitle: "Reportes · Sucursales",
+    icon: Store,
+    surface: "palette",
+    paletteGroup: "Reportes",
+    requires: "reports.sales.view",
+    requiresMultiOutlet: true,
+    keywords: ["outlets", "sucursales", "locales", "comparativo", "por sucursal", "ranking de sucursales"],
   },
   {
     to: "/reports/orders",

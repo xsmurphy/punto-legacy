@@ -22,6 +22,7 @@ import { api } from "@/lib/api-client"
 import { clearPanelToken } from "@/lib/auth/panel-token"
 import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
+import { useHasMultipleOutlets } from "@/hooks/use-outlets"
 import type { ModulesMap } from "@/lib/types/module"
 import { AuthSentinel } from "@/components/auth/auth-sentinel"
 import { TableStateScopeProvider, type TableStateNamespace } from "@/lib/table-state/scope"
@@ -61,6 +62,10 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     return !modulesLoading && m?.[key]?.enabled === true
   }
   const { data: bootstrap, isLoading, error: bootstrapError } = useBootstrap()
+  // Alcance de sucursales del usuario (`/v1/outlets` ya viene acotado). Solo
+  // en el panel: en /pos no hay sesión de panel garantizada y el sidebar de
+  // la caja no tiene entradas que dependan de esto.
+  const multiOutlet = useHasMultipleOutlets({ enabled: !isPos })
 
   // Contexto de navegación: lo que el registro de rutas necesita para decidir
   // qué se muestra. `permsLoaded` solo es true cuando llegó el bootstrap — si
@@ -70,6 +75,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     perms: permissions,
     permsLoaded: !!bootstrap,
     moduleEnabled: (key) => moduleEnabled(modules, key),
+    multiOutlet,
     badges: {
       parkedSales: parkedSales?.length ? String(parkedSales.length) : undefined,
     },

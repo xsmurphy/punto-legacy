@@ -8,13 +8,35 @@ import type {
   OutletListItem,
 } from "@/lib/types/outlet"
 
-/** Lista todas las sucursales del tenant. */
-export function useOutlets() {
+/**
+ * Lista las sucursales que el usuario ALCANZA: `/v1/outlets` devuelve todas
+ * las del tenant para un usuario global y solo las asignadas para uno acotado
+ * (`OutletScope::current()`, ver `api/v1/outlets.php`).
+ */
+export function useOutlets(opts: { enabled?: boolean } = {}) {
   return useQuery<{ rows: OutletListItem[] }>({
     queryKey: ["outlets"],
     queryFn: () => api.get<{ rows: OutletListItem[] }>("/v1/outlets"),
     staleTime: 30 * 1000,
+    enabled: opts.enabled ?? true,
   })
+}
+
+/**
+ * ¿El alcance del usuario tiene 2 o más sucursales ACTIVAS? Es la condición
+ * para comparar sucursales (reporte de Sucursales): con una sola no hay nada
+ * que comparar. Mientras carga (o si falla) responde `false` — el default
+ * conservador de la navegación es no ofrecer lo que todavía no se sabe si
+ * aplica.
+ */
+export function useHasMultipleOutlets(opts: { enabled?: boolean } = {}): boolean {
+  const { data } = useOutlets(opts)
+  return countActiveOutlets(data?.rows) >= 2
+}
+
+/** Sucursales activas (`status === 1`) de una lista de `/v1/outlets`. */
+export function countActiveOutlets(rows: Pick<OutletListItem, "status">[] | undefined): number {
+  return (rows ?? []).filter((o) => Number(o.status) === 1).length
 }
 
 /** Sucursal individual + lista de impuestos disponibles para el dropdown. */

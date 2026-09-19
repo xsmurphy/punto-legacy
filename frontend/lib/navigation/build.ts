@@ -33,6 +33,11 @@ export interface NavContext {
    * módulos carga debe devolver `false` (no mostrar el item todavía).
    */
   moduleEnabled?: (key: string) => boolean
+  /**
+   * El alcance del usuario tiene 2+ sucursales activas. Default conservador:
+   * `undefined`/`false` mientras carga oculta las entradas que lo exigen.
+   */
+  multiOutlet?: boolean
   /** Badges dinámicos, indexados por `badgeKey` de la entrada. */
   badges?: Record<string, string | undefined>
 }
@@ -46,6 +51,7 @@ function isVisible(entry: RouteEntry, ctx: NavContext): boolean {
   if (entry.requiresModule) {
     if (!ctx.moduleEnabled?.(entry.requiresModule)) return false
   }
+  if (entry.requiresMultiOutlet && !ctx.multiOutlet) return false
   if (!ctx.permsLoaded) return true
   if (entry.requiresAll?.some((key) => !ctx.perms.includes(key))) return false
   if (entry.requiresAny && !entry.requiresAny.some((key) => ctx.perms.includes(key))) {
