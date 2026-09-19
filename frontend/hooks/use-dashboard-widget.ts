@@ -157,6 +157,8 @@ export interface ScheduleWidget {
 export interface TopHoursWidget {
   hour: string[]  // ej. "14:00 Ventas"
   total: number[] // mismo orden que hour, tickets vendidos en esa hora
+  /** Mismo orden que hour, unidades vendidas. Opcional: backends previos no lo mandan. */
+  units?: number[]
 }
 
 // ── Income chart (BFF) ────────────────────────────────────────────────────

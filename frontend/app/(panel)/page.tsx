@@ -16,22 +16,28 @@ import {
   Area,
   AreaChart,
   Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
   Line,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   XAxis,
   YAxis,
 } from "recharts"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BarList } from "@/components/charts/bar-list"
+import { MiniBars } from "@/components/charts/mini-bars"
+import { SplitBar } from "@/components/charts/split-bar"
 import { DeltaLine, type StatDelta } from "@/components/stat-tile"
 import {
   ChartContainer,
@@ -76,7 +82,7 @@ import {
   packGrid,
   showCustomers,
   showSalesByOutlet,
-  showSplitDonut,
+  showSplitBar,
   showTopCategories,
   showTopHours,
   showTopItems,
@@ -97,6 +103,7 @@ import {
   type NowSpacesTile,
   type NowStaffTile,
   type NowTile,
+  type GridBlock,
 } from "@/lib/dashboard/visibility"
 import { formatInt, formatIntCompact, formatMoney, formatMoneyCompact } from "@/lib/format"
 import { formatDate, formatDateTime, formatTime } from "@/lib/format-date"
@@ -110,6 +117,7 @@ import {
 import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import { cn } from "@/lib/utils"
 import { isDashboardFirstLoad, isSettled } from "@/lib/dashboard/first-load"
+import { hourBars, hourRange, peakHour } from "@/lib/dashboard/top-hours"
 import { DashboardHeader, DashboardSkeleton } from "@/components/domain/dashboard/dashboard-skeleton"
 
 /**
@@ -398,15 +406,15 @@ export default function DashboardPage() {
 
           {/* Bloques del período en una grilla de 2 columnas. Cada uno se
               pinta SOLO si tiene algo que decir (lib/dashboard/visibility.ts:
-              un donut de una porción, un ranking vacío o una sola categoría
-              no informan), y `packGrid` los acomoda para que ocultar uno no
-              deje un hueco. */}
+              una barra partida de una sola parte, un ranking vacío o una sola
+              categoría no informan), y `packGrid` los acomoda para que ocultar
+              uno no deje un hueco ni un compacto quede al lado de uno alto. */}
           <PeriodBlocksGrid
             blocks={{
               salesByOutlet: showSalesByOutlet(salesByOutlet.data?.rows) && (
                 <SalesByOutletCard rows={salesByOutlet.data!.rows} bootstrap={bootstrap} />
               ),
-              saleType: showSplitDonut(paymentStatus.data, "sale-type") && (
+              saleType: showSplitBar(paymentStatus.data, "sale-type") && (
                 <PaymentSplitCard
                   title="Tipos de venta"
                   data={paymentStatus.data}
@@ -414,7 +422,7 @@ export default function DashboardPage() {
                   mode="sale-type"
                 />
               ),
-              receivables: showSplitDonut(paymentStatus.data, "receivables") && (
+              receivables: showSplitBar(paymentStatus.data, "receivables") && (
                 <PaymentSplitCard
                   title="Cuentas por cobrar"
                   data={paymentStatus.data}
@@ -425,7 +433,9 @@ export default function DashboardPage() {
               topItems: showTopItems(topItems.data) && (
                 <TopItemsCard data={topItems.data ?? []} bootstrap={bootstrap} />
               ),
-              topHours: showTopHours(topHours.data) && <TopHoursCard data={topHours.data!} />,
+              topHours: showTopHours(topHours.data) && (
+                <TopHoursCard data={topHours.data!} bootstrap={bootstrap} />
+              ),
               topCategories: showTopCategories(topCategories.data) && (
                 <TopCategoriesCard data={topCategories.data ?? []} bootstrap={bootstrap} />
               ),
@@ -921,16 +931,10 @@ function NpsTooltipRow({
 
 // ── Tipos de ventas + Cuentas por cobrar ──────────────────────────────────
 
-const donutChartConfig = {
-  contado: { label: "Al contado", color: "var(--chart-1)" },
-  credito: { label: "A crédito", color: "var(--chart-3)" },
-  cobrado: { label: "Cobrado", color: "var(--chart-1)" },
-  porcobrar: { label: "Por cobrar", color: "var(--chart-3)" },
-} satisfies ChartConfig
-
 /**
- * Donut de dos porciones. Solo se monta con las DOS porciones en > 0
- * (`showSplitDonut`): con una sola no informa y el bloque no existe.
+ * Barra partida en dos. Solo se monta con las DOS partes en > 0
+ * (`showSplitBar`): con una sola no informa y el bloque no existe. Bloque
+ * compacto (media altura) en la grilla del período.
  */
 function PaymentSplitCard({
   title,
@@ -944,116 +948,37 @@ function PaymentSplitCard({
   mode: "sale-type" | "receivables"
 }) {
   const isSaleType = mode === "sale-type"
-  const left = (isSaleType ? data?.contado : data?.cobrado) ?? 0
-  const right = (isSaleType ? data?.credito : data?.porcobrar) ?? 0
+  const left = Number((isSaleType ? data?.contado : data?.cobrado) ?? 0)
+  const right = Number((isSaleType ? data?.credito : data?.porcobrar) ?? 0)
   const leftCount = isSaleType ? data?.contadoCount : data?.cobradoCount
   const rightCount = isSaleType ? data?.creditoCount : data?.porcobrarCount
-  const leftLabel = isSaleType ? "Al contado" : "Cobrado"
-  const rightLabel = isSaleType ? "A crédito" : "Por cobrar"
-  const totalCount = (leftCount ?? 0) + (rightCount ?? 0)
-
-  const pieData = [
-    { name: leftLabel, value: left, color: "var(--chart-1)" },
-    { name: rightLabel, value: right, color: "var(--chart-3)" },
-  ]
+  const totalCount = Number(leftCount ?? 0) + Number(rightCount ?? 0)
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{title}</CardTitle>
+        {totalCount > 0 && (
+          <CardDescription className="tabular-nums">{formatInt(totalCount, bootstrap)} ventas</CardDescription>
+        )}
       </CardHeader>
-      <CardContent className="flex flex-col items-center gap-4">
-        <div className="relative h-[200px] w-[200px] shrink-0">
-          <ChartContainer config={donutChartConfig} className="size-full aspect-square">
-            <PieChart>
-              <Pie
-                data={pieData}
-                dataKey="value"
-                cx="50%"
-                cy="50%"
-                innerRadius={90}
-                outerRadius={100}
-                paddingAngle={2}
-                strokeWidth={0}
-              >
-                {pieData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color} />
-                ))}
-              </Pie>
-              <ChartTooltip
-                content={
-                  <ChartTooltipContent
-                    hideLabel
-                    formatter={(value, _name, item) => (
-                      <div className="flex w-full items-center justify-between gap-3">
-                        <span className="text-muted-foreground">
-                          {(item?.payload as { name?: string } | undefined)?.name}
-                        </span>
-                        <span className="font-medium tabular-nums">
-                          {formatMoney(Number(value) || 0, bootstrap)}
-                        </span>
-                      </div>
-                    )}
-                  />
-                }
-              />
-            </PieChart>
-          </ChartContainer>
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-xl font-bold tabular-nums">{totalCount}</span>
-            <span className="text-xs text-muted-foreground">ventas</span>
-          </div>
-        </div>
-        <div className="grid w-full grid-cols-2 gap-3">
-          <SplitRow
-            dotColor="var(--chart-1)"
-            label={leftLabel}
-            amount={formatMoney(left, bootstrap)}
-            count={formatInt(leftCount, bootstrap)}
-          />
-          <SplitRow
-            dotColor="var(--chart-3)"
-            label={rightLabel}
-            amount={formatMoney(right, bootstrap)}
-            count={formatInt(rightCount, bootstrap)}
-          />
-        </div>
+      <CardContent>
+        <SplitBar
+          parts={[
+            {
+              label: isSaleType ? "Al contado" : "Cobrado",
+              value: left,
+              display: formatMoneyCompact(left, bootstrap),
+            },
+            {
+              label: isSaleType ? "A crédito" : "Por cobrar",
+              value: right,
+              display: formatMoneyCompact(right, bootstrap),
+            },
+          ]}
+        />
       </CardContent>
     </Card>
-  )
-}
-
-function SplitRow({
-  dotColor,
-  label,
-  amount,
-  count,
-}: {
-  dotColor: string
-  label: string
-  amount: string | null
-  count: string | null
-}) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <span
-          className="size-2 shrink-0 rounded-full"
-          style={{ backgroundColor: dotColor }}
-        />
-        {label}
-      </div>
-      {amount === null ? (
-        <Skeleton className="h-6 w-20" />
-      ) : (
-        <>
-          <span className="text-xl font-semibold tabular-nums">{amount}</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {count} ventas
-          </span>
-        </>
-      )}
-    </div>
   )
 }
 
@@ -1325,13 +1250,13 @@ type PeriodBlockKey =
  * con barras (`BarList`) y entran en media fila; `packGrid` estira el que
  * quede solo.
  */
-const PERIOD_BLOCKS: { key: PeriodBlockKey; full: boolean }[] = [
+const PERIOD_BLOCKS: GridBlock<PeriodBlockKey>[] = [
   { key: "salesByOutlet", full: false },
-  { key: "saleType", full: false },
-  { key: "receivables", full: false },
+  { key: "saleType", full: false, short: true },
+  { key: "receivables", full: false, short: true },
   { key: "topItems", full: false },
   { key: "topCategories", full: false },
-  { key: "topHours", full: false },
+  { key: "topHours", full: false, short: true },
 ]
 
 /**
@@ -1355,49 +1280,54 @@ function PeriodBlocksGrid({ blocks }: { blocks: Record<PeriodBlockKey, React.Rea
 
 // ── Horarios Pico ────────────────────────────────────────────────────────
 
-const topHoursChartConfig = {
-  total: { label: "Ventas", color: "var(--chart-1)" },
-} satisfies ChartConfig
-
-/** Solo se monta con ventas en el período (`showTopHours`). */
-function TopHoursCard({ data }: { data: TopHoursWidget }) {
-  const points = React.useMemo(() => {
-    if (!data?.hour?.length) return []
-    return data.hour.map((h, i) => ({
-      hour: h.split(" ")[0],
-      total: data.total?.[i] ?? 0,
-    }))
-  }, [data])
+/**
+ * Bloque compacto: la hora pico destacada y mini barras de las horas con más
+ * ventas, en orden del día. El detalle (ventas y unidades) va en el tooltip de
+ * cada barra. Solo se monta con ventas en el período (`showTopHours`).
+ */
+function TopHoursCard({
+  data,
+  bootstrap,
+}: {
+  data: TopHoursWidget
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  const bars = React.useMemo(() => hourBars(data), [data])
+  const peak = peakHour(bars)
+  if (!peak) return null
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Horarios pico</CardTitle>
       </CardHeader>
-      <CardContent>
-          <ChartContainer config={topHoursChartConfig} className="h-[200px] w-full">
-            <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="hour"
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-                width={28}
-              />
-              <ChartTooltip
-                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
-                content={<ChartTooltipContent />}
-              />
-              <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ChartContainer>
+      <CardContent className="flex items-end gap-6">
+        <div className="flex shrink-0 flex-col gap-0.5">
+          <span className="text-2xl font-bold tabular-nums">{hourRange(peak.hour)}</span>
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {formatInt(peak.sales, bootstrap)} ventas
+          </span>
+        </div>
+        <MiniBars
+          className="min-w-0 flex-1"
+          items={bars.map((b) => {
+            const sales = `${formatInt(b.sales, bootstrap)} ventas`
+            const units = b.units === null ? null : `${formatIntCompact(b.units, bootstrap)} u.`
+            return {
+              key: String(b.hour),
+              label: String(b.hour),
+              value: b.sales,
+              highlight: b.hour === peak.hour,
+              ariaLabel: [hourRange(b.hour), sales, units].filter(Boolean).join(", "),
+              detail: (
+                <span className="flex flex-col gap-0.5 tabular-nums">
+                  <span className="font-medium">{hourRange(b.hour)}</span>
+                  <span>{units ? `${sales} · ${units}` : sales}</span>
+                </span>
+              ),
+            }
+          })}
+        />
       </CardContent>
     </Card>
   )

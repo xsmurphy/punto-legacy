@@ -336,12 +336,15 @@ final class DashboardService
             [$from, $to], false, false, true
         );
         $res = is_array($res) ? $res : [];
-        $hour = []; $total = [];
+        $hour = []; $total = []; $units = [];
         foreach ($res as $r) {
             $hour[]  = str_pad((string) (int) $r['hora'], 2, '0', STR_PAD_LEFT) . ':00 Ventas';
             $total[] = round((float) $r['total'], 2);
+            $units[] = round((float) $r['units'], 2);
         }
-        return ['hour' => $hour, 'total' => $total];
+        // `units` va paralelo a `hour`/`total`: el dashboard lo muestra en el
+        // detalle de cada hora (ventas + unidades).
+        return ['hour' => $hour, 'total' => $total, 'units' => $units];
     }
 
     private function topItems(array $opts, string $roc, string $companyId): array

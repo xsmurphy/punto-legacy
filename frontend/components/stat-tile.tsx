@@ -85,21 +85,35 @@ function DeltaLine({
   // Cero es SIN CAMBIOS, y eso no es ni bueno ni malo. Antes caía del lado de
   // "subió" (`0 >= 0`) y un período idéntico al anterior se pintaba de rojo en
   // cualquier métrica donde bajar es lo deseable.
-  const color =
+  //
+  // La cifra va en un PILL (`rounded-full`, fondo suave del mismo tono que el
+  // texto): se lee como estado y no compite con el monto al que acompaña.
+  const tone =
     pct === 0
-      ? "text-muted-foreground"
+      ? "bg-muted text-muted-foreground"
       : pct > 0 === higherIsBetter
-        ? "text-emerald-600"
-        : "text-destructive"
+        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+        : "bg-destructive/10 text-destructive"
   const sign = pct > 0 ? "+" : ""
   const figure =
     pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}${kind === "points" ? " pts" : "%"}`
-  return (
+  const pill = (
     <span
-      className={cn("text-xs tabular-nums", color, className)}
+      className={cn(
+        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium leading-none tabular-nums",
+        tone,
+        compact && className,
+      )}
       title={compact ? "vs período anterior" : undefined}
     >
-      {compact ? figure : `${figure} vs período anterior`}
+      {figure}
+    </span>
+  )
+  if (compact) return pill
+  return (
+    <span className={cn("flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground", className)}>
+      {pill}
+      vs período anterior
     </span>
   )
 }

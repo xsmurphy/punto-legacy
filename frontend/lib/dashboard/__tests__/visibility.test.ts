@@ -6,7 +6,7 @@ import {
   packGrid,
   showCustomers,
   showSalesByOutlet,
-  showSplitDonut,
+  showSplitBar,
   showTopCategories,
   showTopHours,
   showTopItems,
@@ -51,15 +51,15 @@ describe("Requiere atención", () => {
 
 describe("donuts", () => {
   it("tipo de venta: solo con contado Y crédito", () => {
-    expect(showSplitDonut(undefined, "sale-type")).toBe(false)
-    expect(showSplitDonut(pay({ contado: 100 }), "sale-type")).toBe(false)
-    expect(showSplitDonut(pay({ contado: 100, credito: 50 }), "sale-type")).toBe(true)
+    expect(showSplitBar(undefined, "sale-type")).toBe(false)
+    expect(showSplitBar(pay({ contado: 100 }), "sale-type")).toBe(false)
+    expect(showSplitBar(pay({ contado: 100, credito: 50 }), "sale-type")).toBe(true)
   })
 
   it("cobranza: solo con cobrado Y por cobrar", () => {
-    expect(showSplitDonut(pay({ contado: 100 }), "receivables")).toBe(false)
-    expect(showSplitDonut(pay({ credito: 50, porcobrar: 50 }), "receivables")).toBe(false)
-    expect(showSplitDonut(pay({ credito: 50, cobrado: 20, porcobrar: 30 }), "receivables")).toBe(true)
+    expect(showSplitBar(pay({ contado: 100 }), "receivables")).toBe(false)
+    expect(showSplitBar(pay({ credito: 50, porcobrar: 50 }), "receivables")).toBe(false)
+    expect(showSplitBar(pay({ credito: 50, cobrado: 20, porcobrar: 30 }), "receivables")).toBe(true)
   })
 })
 
@@ -236,5 +236,16 @@ describe("packGrid (sin huecos)", () => {
 
   it("nada visible → nada", () => {
     expect(packGrid([])).toEqual([])
+  })
+
+  it("un compacto solo se aparea con otro compacto (sin celda vacía al lado de uno alto)", () => {
+    const s = (key: string) => ({ key, full: false, short: true })
+    expect(shape(packGrid([s("x"), h("a"), s("y"), h("b")]))).toEqual(["x", "y", "a", "b"])
+    expect(shape(packGrid([h("a"), s("x"), h("b")]))).toEqual(["a", "b", "x*"])
+  })
+
+  it("un compacto sin pareja compacta ocupa la fila entera", () => {
+    const s = (key: string) => ({ key, full: false, short: true })
+    expect(shape(packGrid([h("a"), h("b"), s("x")]))).toEqual(["a", "b", "x*"])
   })
 })

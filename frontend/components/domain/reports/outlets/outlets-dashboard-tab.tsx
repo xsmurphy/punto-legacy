@@ -117,7 +117,7 @@ export function OutletsDashboardTab({ range }: { range: DateRangeValue }) {
 
 function DeltaCell({ pct }: { pct: number | null | undefined }) {
   if (pct === undefined) return <span className="text-muted-foreground">—</span>
-  return <DeltaLine pct={pct} compact className="text-sm" />
+  return <DeltaLine pct={pct} compact />
 }
 
 function ComparisonTable({
