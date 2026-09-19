@@ -23,6 +23,7 @@ $widgets = [
     'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersRates', 'customersSeries',
     'topItems', 'topHours', 'topCategories', 'topBrands', 'topPayments', 'satisfaction',
     'orders', 'tables', 'schedule', 'notifications', 'notificationsCount', 'getReminders',
+    'attention',
 ];
 $widget = (string) (validateHttp('widget') ?: '');
 if (!in_array($widget, $widgets, true)) {
@@ -61,6 +62,15 @@ if (!in_array($widget, $widgets, true)) {
  * Va por `OperatorContext::requirePermission()` por el mismo motivo que el
  * resto del directorio (ver el docblock de `api/lib/Auth/OperatorContext.php`).
  */
+/*
+ * `attention` ("Requiere atención") NO está en la tabla a propósito: no es un
+ * dato, es una lista de pendientes de dominios distintos (FE, stock, margen,
+ * deudas, asistencia), y cada fila exige la clave de la pantalla a la que
+ * linkea. Gatearlo entero con una sola clave sería la equivocada para cuatro
+ * de las cinco filas. El gate va fila por fila, con la MISMA resolución de
+ * permiso que el resto (`OperatorContext::allows()`), dentro de
+ * `AttentionService`.
+ */
 const WIDGET_PERMISO = [
     'incomeOutcomeStats' => 'reports.sales.view',
     'paymentStatus'      => 'reports.sales.view',
@@ -75,8 +85,8 @@ const WIDGET_PERMISO = [
     'satisfaction'       => 'reports.satisfaction.view',
     'schedule'           => 'reports.schedule.view',
 ];
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
 if (isset(WIDGET_PERMISO[$widget])) {
-    require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
     \Punto\Api\Auth\OperatorContext::requirePermission($ctx, WIDGET_PERMISO[$widget]);
 }
 
@@ -126,5 +136,6 @@ apiOk($svc->widget(
     $roc,
     (string) COMPANY_ID,
     $effectiveOutletIds,
-    (string) $ctx['userId']
+    (string) $ctx['userId'],
+    static fn (string $perm): bool => \Punto\Api\Auth\OperatorContext::allows($ctx, $perm)
 ));

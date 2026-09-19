@@ -30,6 +30,16 @@ require_once __DIR__ . '/../../Outlets/OutletScope.php';
 final class Inventory
 {
     /**
+     * Predicado SQL de "la venta de este ítem explota su receta" — sin stock
+     * propio y sin producción previa. Es la fuente única del criterio: lo usa
+     * `saleExplodesRecipe()` (un ítem) y `ItemUnitCost::usesRecipeMany()`
+     * (lote), para que el costeo en bloque no pueda divergir del que mueve el
+     * stock. Ver el comentario de `saleExplodesRecipe()` sobre por qué va en
+     * SQL y por qué los flags y no `itemKind`.
+     */
+    public const EXPLODES_RECIPE_SQL = 'itemProduction IS NOT TRUE AND itemTrackInventory IS NOT TRUE';
+
+    /**
      * Acumulador de `realtimePublish` dentro de `manageStock()` — ver
      * comentario en el bloque que lo llena, más abajo. Un solo evento `item`
      * por request aunque haya N movimientos, con los N itemIds tocados (no
@@ -484,8 +494,7 @@ final class Inventory
         // el tipo más cercano, así que hay filas con kind impreciso. Los flags
         // son los que el POS y el panel legacy mantienen al día.
         $row = ncmExecute(
-            'SELECT CASE WHEN itemProduction IS NOT TRUE
-                          AND itemTrackInventory IS NOT TRUE
+            'SELECT CASE WHEN ' . self::EXPLODES_RECIPE_SQL . '
                          THEN 1 ELSE 0 END AS explodes
                FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
             [$itemId, $companyId]

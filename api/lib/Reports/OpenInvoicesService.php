@@ -170,6 +170,37 @@ final class OpenInvoicesService
     }
 
     /**
+     * Deuda VENCIDA de clientes: monto y cuántos clientes la deben. Es la fila
+     * "Deuda de clientes vencida" del dashboard.
+     *
+     * Sale de `openBalances()` con la MISMA definición de vencido que
+     * `sideSummary()` —`daysOverdue >= 0`, contado desde el vencimiento y,
+     * sin vencimiento cargado, desde la emisión—, así que la cifra coincide con
+     * la del bloque "Vencido" del reporte de cuentas por cobrar al que linkea.
+     *
+     * @param list<string> $outletIds
+     * @return array{amount:float,contacts:int}
+     */
+    public function overdueReceivable(string $companyId, array $outletIds = []): array
+    {
+        $today = new \DateTimeImmutable(
+            substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10),
+            new \DateTimeZone('UTC')
+        );
+
+        $amount   = 0.0;
+        $contacts = [];
+        foreach ($this->openBalances($companyId, true, $outletIds, $today) as $b) {
+            if ($b['daysOverdue'] >= 0) {
+                $amount += $b['open'];
+                $contacts[$b['cid']] = true;
+            }
+        }
+
+        return ['amount' => $amount, 'contacts' => count($contacts)];
+    }
+
+    /**
      * Las facturas ABIERTAS de una punta, ya con su saldo y su fecha de corte
      * resuelta. Es el insumo único de los tres bloques del dashboard
      * (antigüedad, ranking por contacto y proyección) — que los tres lean la
