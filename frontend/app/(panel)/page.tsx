@@ -1351,7 +1351,11 @@ function TopHoursCard({ data }: { data: TopHoursWidget }) {
 
 // ── Rankings (lista con barras) ──────────────────────────────────────────
 
-/** Solo se monta con ventas en el período (`showTopItems`). */
+/**
+ * Solo se monta con ventas en el período (`showTopItems`). El backend rankea
+ * por UNIDADES, así que la barra mide unidades (medir el monto dejaba barras
+ * que no seguían el orden de la lista); el monto va como dato.
+ */
 function TopItemsCard({
   data,
   bootstrap,
@@ -1369,7 +1373,7 @@ function TopItemsCard({
           items={data.map((row, i) => ({
             key: `${row.name}-${i}`,
             label: row.name || "(sin nombre)",
-            value: Number(row.total) || 0,
+            value: Number(row.count) || 0,
             display: formatMoney(row.total, bootstrap),
             meta: `${formatQty(row.count, bootstrap)} vendidos`,
           }))}
@@ -1394,11 +1398,12 @@ function TopCategoriesCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Top 10 categorías</CardTitle>
+        <CardTitle>Top 5 categorías</CardTitle>
       </CardHeader>
       <CardContent>
         <BarList
-          items={data.map((row, i) => ({
+          // 5, parejo con Top artículos (misma fila del grid).
+          items={data.slice(0, 5).map((row, i) => ({
             key: `${row.title}-${i}`,
             label: row.title,
             value: Number(row.total) || 0,
