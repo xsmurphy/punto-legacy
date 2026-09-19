@@ -46,24 +46,26 @@ export function DashboardSkeleton() {
             <BigMetricSkeleton label="Egresos" />
           </section>
 
-          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_15rem]">
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
             <div className="flex flex-col gap-2">
               <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
               <Skeleton className="h-[240px] w-full" />
             </div>
-            <div className="flex flex-col self-start">
-              <div className="flex flex-col items-center gap-1 py-6">
-                <span className="text-xs font-medium text-muted-foreground">Ganancia</span>
-                <Skeleton className="h-8 w-32" />
-              </div>
-              <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
-                <KpiSkeleton label="Margen" width="w-12" />
-                <KpiSkeleton label="Cant. Ventas" width="w-12" />
-              </div>
-              <div className="border-t py-4">
-                <KpiSkeleton label="Ticket promedio" width="w-24" />
-              </div>
-            </div>
+            {/* Misma forma que la card de KPIs real: Ganancia grande + lista gris. */}
+            <Card className="gap-4 self-start">
+              <CardContent className="flex flex-col gap-4">
+                <div className="flex flex-col items-start gap-2">
+                  <span className="text-sm text-muted-foreground">Ganancia</span>
+                  <Skeleton className="h-8 w-40" />
+                  <Skeleton className="h-4 w-14 rounded-full" />
+                </div>
+                <div className="flex flex-col rounded-lg bg-muted/50 px-3 py-1 text-sm">
+                  <KpiSkeleton label="Margen" width="w-12" />
+                  <KpiSkeleton label="Ventas" width="w-10" />
+                  <KpiSkeleton label="Ticket promedio" width="w-24" emphasis />
+                </div>
+              </CardContent>
+            </Card>
           </section>
 
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -130,11 +132,11 @@ function BigMetricSkeleton({ label }: { label: string }) {
   )
 }
 
-function KpiSkeleton({ label, width }: { label: string; width: string }) {
+function KpiSkeleton({ label, width, emphasis }: { label: string; width: string; emphasis?: boolean }) {
   return (
-    <div className="flex flex-col items-center gap-1">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <Skeleton className={`h-6 ${width}`} />
+    <div className={`flex items-center justify-between gap-3 py-2.5 ${emphasis ? "mt-0.5 border-t border-border/60" : ""}`}>
+      <span className="text-muted-foreground">{label}</span>
+      <Skeleton className={`h-5 ${width}`} />
     </div>
   )
 }

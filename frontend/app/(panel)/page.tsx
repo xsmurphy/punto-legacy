@@ -334,7 +334,7 @@ export default function DashboardPage() {
 
           {/* Chart Ingresos vs Egresos + Margen — con sidebar de KPIs derivados
               (Ganancia / Margen% / Cant. Ventas) a la derecha en lg+. */}
-          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_15rem]">
+          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
             <IncomeOutcomeChart
               data={incomeChart.data}
               isLoading={chartPending}
@@ -346,12 +346,12 @@ export default function DashboardPage() {
                 visual, nada compite con el monto (owner). */}
             <Card className="gap-4 self-start">
               <CardContent className="flex flex-col gap-4">
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col items-start gap-2">
                   <span className="text-sm text-muted-foreground">Ganancia</span>
                   {statsPending ? (
-                    <Skeleton className="h-9 w-40" />
+                    <Skeleton className="h-8 w-40" />
                   ) : (
-                    <span className="text-3xl font-bold tracking-tight tabular-nums">
+                    <span className="text-2xl font-bold tracking-tight tabular-nums">
                       {formatMoney(stats.data?.revenue, bootstrap)}
                     </span>
                   )}
@@ -561,9 +561,10 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
  * nada de ceros ni avisos muertos).
  */
 /**
- * Fila label/valor de la lista de KPIs del período. La comparativa va al lado
- * del label; la última fila (`emphasis`) se separa con una línea y va en
- * negrita, patrón "total" de las cards de referencia.
+ * Fila label/valor de la lista de KPIs del período. La comparativa va debajo
+ * del valor, a la derecha: en una columna angosta al lado del label rompía la
+ * fila en tres renglones. La última fila (`emphasis`) se separa con una línea
+ * y va en negrita, patrón "total" de las cards de referencia.
  */
 function KpiRow({
   label,
@@ -583,14 +584,16 @@ function KpiRow({
         emphasis && "mt-0.5 border-t border-border/60",
       )}
     >
-      <span className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
-        {label}
-        {delta && <DeltaLine {...delta} compact />}
-      </span>
+      <span className="text-muted-foreground">{label}</span>
       {value === null ? (
         <Skeleton className="h-5 w-16" />
       ) : (
-        <span className={cn("tabular-nums", emphasis ? "font-semibold" : "font-medium")}>{value}</span>
+        <span className="flex flex-col items-end gap-1">
+          <span className={cn("whitespace-nowrap tabular-nums", emphasis ? "font-semibold" : "font-medium")}>
+            {value}
+          </span>
+          {delta && <DeltaLine {...delta} compact />}
+        </span>
       )}
     </div>
   )
