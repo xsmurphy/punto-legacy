@@ -4,6 +4,8 @@
  *
  *   GET  /v1/reports/purchases?view=general|cobros|detail&from=&to=
  *        [&supId=&itmId=&singleRow=&src=]
+ *   GET  /v1/reports/purchases?view=costs&from=&to=[&itemId=&supplierId=]
+ *        Evolución de costos por proveedor (`Reports/PurchaseCostsService`).
  *   POST /v1/reports/purchases (action=deletePayment&id=…)
  *
  * Las 3 vistas de LECTURA + borrado de pagos a proveedor.
@@ -69,7 +71,7 @@ if ($method !== 'GET') {
 }
 
 $view = (string) (validateHttp('view') ?: 'general');
-if (!in_array($view, ['general', 'cobros', 'detail'], true)) {
+if (!in_array($view, ['general', 'cobros', 'detail', 'costs'], true)) {
     apiError('Vista no soportada', 422);
 }
 
@@ -101,7 +103,17 @@ try {
 
 $companyId = (string) COMPANY_ID;
 
-if ($view === 'cobros') {
+if ($view === 'costs') {
+    // Evolución de costos: mismo permiso y mismo alcance de sucursal que el
+    // resto del reporte de compras — es otro corte de los mismos documentos.
+    apiOk((new \Punto\Api\Reports\PurchaseCostsService())->costs(
+        [
+            'itemId'     => $uuidOrEmpty(validateHttp('itemId')),
+            'supplierId' => $uuidOrEmpty(validateHttp('supplierId')),
+        ],
+        (string) $from, (string) $to, $roc, $companyId
+    ));
+} elseif ($view === 'cobros') {
     apiOk($svc->cobros($filters, $from, $to, $roc, $companyId));
 } elseif ($view === 'detail') {
     apiOk($svc->detail($filters, $from, $to, $roc, $companyId));
