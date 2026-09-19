@@ -72,6 +72,12 @@ final class DashboardService
                 // esconden con esa misma regla.
                 static fn (string $module): bool => (new \Punto\Api\Modules\ModulesService())->isEnabled($companyId, $module)
             );
+            // "Objetivo semanal": independiente del rango (como `now`), en la
+            // hora de pared del comercio. `null` = sin historia suficiente.
+            case 'goal':                return ['goal' => (new WeeklyGoalService())->goal(
+                $roc,
+                \Punto\Api\Support\TenantClock::now($companyId)
+            )];
             case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
             case 'customers':           return $this->customers($opts, $companyId, $outletIds);
             case 'customersSeries':     return $this->customersSeries($opts, $companyId, $outletIds);

@@ -23,7 +23,7 @@ $widgets = [
     'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersSeries',
     'topItems', 'topHours', 'topCategories', 'topBrands', 'topPayments', 'satisfaction',
     'orders', 'tables', 'schedule', 'notifications', 'notificationsCount', 'getReminders',
-    'attention', 'now', 'salesByOutlet',
+    'attention', 'now', 'salesByOutlet', 'goal',
 ];
 $widget = (string) (validateHttp('widget') ?: '');
 if (!in_array($widget, $widgets, true)) {
@@ -78,6 +78,7 @@ if (!in_array($widget, $widgets, true)) {
 const WIDGET_PERMISO = [
     'incomeOutcomeStats' => 'reports.sales.view',
     'salesByOutlet'      => 'reports.sales.view',
+    'goal'               => 'reports.sales.view',
     'paymentStatus'      => 'reports.sales.view',
     'customers'          => 'reports.sales.view',
     'customersSeries'    => 'reports.sales.view',
