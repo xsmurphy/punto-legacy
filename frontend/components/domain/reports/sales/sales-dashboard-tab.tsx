@@ -27,7 +27,8 @@
  *  - /v1/reports/sales?dataset=summary  → totals, returns, byType, giftcards, payments, nonAddingToSales
  *  - /v1/reports/sales?dataset=hours    → ventas por hora
  *  - /v1/reports/sales?dataset=byday    → buckets diarios
- *  - BFF /api/dashboard/income-chart    → series con ingresos+egresos+margen, llamado 2 veces
+ *  - BFF /api/dashboard/income-chart    → series con ingresos+egresos+margen por hora/día/
+ *    semana/mes (grano del servidor, `lib/charts/granularity.ts` lo muestra), llamado 2 veces
  *    (rango actual y rango shifted hacia atrás del mismo length) para comparativa.
  */
 
@@ -70,6 +71,14 @@ import {
   type SalesSummaryResponse,
 } from "@/hooks/use-reports"
 import { useIncomeChart } from "@/hooks/use-dashboard-widget"
+import {
+  averageLabel,
+  bucketTooltipLabel,
+  formatBucketTick,
+  tooltipPoint,
+  type Granularity,
+} from "@/lib/charts/granularity"
+import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 import { cn } from "@/lib/utils"
@@ -165,8 +174,12 @@ export function SalesDashboardTab({ range }: { range: DateRangeValue }) {
   const composedData = React.useMemo(() => {
     const curr = incomeCurr.data?.data ?? []
     const prev = incomePrev.data?.data ?? []
+    // El período anterior tiene el mismo largo y por eso el mismo grano; se
+    // alinea por posición (bucket i contra bucket i).
     return curr.map((p, i) => ({
       bucket: p.bucket,
+      end: p.end,
+      partial: p.partial,
       ingresoActual: p.ingresos,
       ingresoAnterior: prev[i]?.ingresos ?? 0,
       egresos: p.egresos,
@@ -214,7 +227,7 @@ export function SalesDashboardTab({ range }: { range: DateRangeValue }) {
       {/* 1. Chart comparativo principal */}
       <ComparativeChart
         data={composedData}
-        isDay={incomeCurr.data?.isDay ?? false}
+        granularity={incomeCurr.data?.granularity ?? "day"}
         average={incomeCurr.data?.totals.average ?? 0}
         isLoading={incomeCurr.isLoading || incomePrev.isLoading}
         error={incomeCurr.error}
@@ -323,7 +336,7 @@ const comparativeChartConfig = {
 
 function ComparativeChart({
   data,
-  isDay,
+  granularity,
   average,
   isLoading,
   error,
@@ -331,12 +344,14 @@ function ComparativeChart({
 }: {
   data: Array<{
     bucket: string
+    end: string
+    partial: boolean
     ingresoActual: number
     ingresoAnterior: number
     egresos: number
     margen: number
   }>
-  isDay: boolean
+  granularity: Granularity
   average: number
   isLoading: boolean
   error: Error | null
@@ -376,7 +391,7 @@ function ComparativeChart({
         <CardTitle className="flex items-center justify-between text-sm font-medium">
           <span>Margen, Ingresos y Egresos</span>
           <span className="text-xs font-normal text-muted-foreground">
-            Promedio: {formatMoney(average, bootstrap)}
+            {averageLabel(granularity)}: {formatMoney(average, bootstrap)}
           </span>
         </CardTitle>
       </CardHeader>
@@ -386,7 +401,7 @@ function ComparativeChart({
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(v: string) => formatBucketLabel(v, isDay)}
+              tickFormatter={(v: string) => formatBucketTick(String(v), granularity)}
               fontSize={10}
               stroke="var(--muted-foreground)"
               tickLine={false}
@@ -403,7 +418,10 @@ function ComparativeChart({
               cursor={{ fill: "var(--accent)", opacity: 0.4 }}
               content={
                 <ChartTooltipContent
-                  labelFormatter={(label) => formatBucketLabel(String(label), isDay)}
+                  labelFormatter={(label, payload) =>
+                    bucketTooltipLabel(tooltipPoint(payload), granularity) ||
+                    formatBucketTick(String(label), granularity)
+                  }
                   formatter={(value, name) => (
                     <div className="flex w-full items-center justify-between gap-3">
                       <span className="text-muted-foreground">
@@ -430,20 +448,26 @@ function ComparativeChart({
               fill="var(--color-ingresoActual)"
               radius={[4, 4, 0, 0]}
               maxBarSize={28}
-            />
+            >
+              {partialBarCells(data)}
+            </Bar>
             <Bar
               dataKey="ingresoAnterior"
               fill="var(--color-ingresoAnterior)"
               radius={[4, 4, 0, 0]}
               maxBarSize={28}
               fillOpacity={0.6}
-            />
+            >
+              {partialBarCells(data, 0.6)}
+            </Bar>
             <Bar
               dataKey="egresos"
               fill="var(--color-egresos)"
               radius={[4, 4, 0, 0]}
               maxBarSize={28}
-            />
+            >
+              {partialBarCells(data)}
+            </Bar>
             <Line
               type="monotone"
               dataKey="margen"
@@ -947,14 +971,6 @@ function num(v: unknown): number {
     return Number.isFinite(n) ? n : 0
   }
   return 0
-}
-
-function formatBucketLabel(b: string, isDay: boolean): string {
-  if (isDay) return String(b).padStart(2, "0") + "h"
-  if (/^\d{4}-\d{2}-\d{2}$/.test(b)) {
-    return b.slice(8) + "/" + b.slice(5, 7)
-  }
-  return b
 }
 
 function compactNumber(v: number): string {

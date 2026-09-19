@@ -297,13 +297,16 @@ try {
         check('summary: la comisión de Bruno es 22.000 — la devolución RESTA 5.000',
             $rBruno !== null && near($rBruno['comission'], 22000), v($rBruno['comission'] ?? null), $failures, $checks);
 
-        // Serie diaria: 3 días con actividad, 5 pares (día, vendedor).
-        $daily = $sum['daily'];
+        // Serie: el rango es de un mes, así que el grano es el DÍA (TimeBuckets).
+        // 3 días con actividad, 5 pares (día, vendedor).
+        check('summary: un rango de un mes grafica por día',
+            ($sum['series']['granularity'] ?? null) === 'day', v($sum['series']['granularity'] ?? null), $failures, $checks);
+        $daily = $sum['series']['points'];
         check('summary: la serie diaria trae 5 filas (día × vendedor)',
             count($daily) === 5, 'obtenido ' . count($daily) . ': ' . json_encode($daily), $failures, $checks);
         $find = static function (array $daily, string $date, string $uid): ?array {
             foreach ($daily as $d) {
-                if ($d['date'] === $date && $d['userId'] === $uid) return $d;
+                if ($d['bucket'] === $date && $d['userId'] === $uid) return $d;
             }
             return null;
         };
@@ -381,7 +384,7 @@ try {
         $empty = $svc->summary('2025-01-01 00:00:00', '2025-01-31 23:59:59', $companyId);
         check('summary: un período sin ventas devuelve ceros, no una división por cero',
             $empty['ranking'] === [] && (int) $empty['totals']['tickets'] === 0
-                && near($empty['totals']['avgTicket'], 0) && $empty['daily'] === [],
+                && near($empty['totals']['avgTicket'], 0) && $empty['series']['points'] === [],
             json_encode($empty['totals']), $failures, $checks);
         $emptyC = $svc->commissions('2025-01-01 00:00:00', '2025-01-31 23:59:59', $companyId);
         check('commissions: un período sin ventas devuelve la lista vacía',

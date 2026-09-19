@@ -138,10 +138,10 @@ export interface TopHoursWidget {
 // ── Income chart (BFF) ────────────────────────────────────────────────────
 // Llama al route handler de frontend (/api/dashboard/income-chart) que
 // hace el reshape del raw /v1/reports/sales?dataset=series. Arquitectura:
-// API = raw data, BFF = shape, front = render.
+// API = agregado por hora / día / semana / mes (`TimeBuckets`), BFF = shape,
+// front = render con `lib/charts/granularity.ts`.
 
-export interface IncomeChartPoint {
-  bucket: string
+export interface IncomeChartPoint extends TimeBucket {
   ingresos: number
   egresos: number
   margen: number
@@ -149,6 +149,7 @@ export interface IncomeChartPoint {
 
 export interface IncomeChartData {
   isDay: boolean
+  granularity: Granularity
   data: IncomeChartPoint[]
   totals: {
     ingresos: number
@@ -159,6 +160,7 @@ export interface IncomeChartData {
 }
 
 import { useQuery as useQ } from "@tanstack/react-query"
+import type { Granularity, TimeBucket } from "@/lib/charts/granularity"
 import { readViewScope } from "@/hooks/use-view-scope"
 
 export function useIncomeChart(

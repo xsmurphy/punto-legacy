@@ -55,6 +55,15 @@ import { formatInt, formatMoney } from "@/lib/format"
 import { formatQty } from "@/lib/format-qty"
 import { formatDateTime } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
+import {
+  bucketTooltipLabel,
+  formatBucketTick,
+  perUnit,
+  tooltipPoint,
+  type Granularity,
+  type TimeBucket,
+} from "@/lib/charts/granularity"
+import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 
 // ── Contrato de /v1/reports/wallet ──────────────────────────────────────────
 
@@ -95,7 +104,11 @@ interface DifferenceGroup {
 
 interface WalletReport {
   summary: WalletSummary
-  byDay: Array<{ date: string; loaded: number; consumed: number }>
+  /** Cargado y consumido por período: día / semana / mes según el rango (servidor). */
+  series: {
+    granularity: Granularity
+    points: Array<TimeBucket & { loaded: number; consumed: number }>
+  }
   byProduct: Array<{ itemId: string; name: string; units: number; value: number }>
   byPocket: Array<{
     pocketId: string
@@ -183,7 +196,12 @@ export function SalesWalletTab({ range }: { range: DateRangeValue }) {
         />
       </StatsRow>
 
-      <DailyChart data={report.data?.byDay ?? []} isLoading={loading} bootstrap={bootstrap} />
+      <SeriesChart
+        data={report.data?.series.points ?? []}
+        granularity={report.data?.series.granularity ?? "day"}
+        isLoading={loading}
+        bootstrap={bootstrap}
+      />
 
       <DifferencesSection
         data={report.data?.differences}
@@ -201,17 +219,19 @@ export function SalesWalletTab({ range }: { range: DateRangeValue }) {
 
 // ── Gráfico: cargado vs consumido por día ───────────────────────────────────
 
-const dailyChartConfig = {
+const seriesChartConfig = {
   loaded: { label: "Cargado", color: "var(--chart-1)" },
   consumed: { label: "Consumido", color: "var(--chart-3)" },
 } satisfies ChartConfig
 
-function DailyChart({
+function SeriesChart({
   data,
+  granularity,
   isLoading,
   bootstrap,
 }: {
-  data: WalletReport["byDay"]
+  data: WalletReport["series"]["points"]
+  granularity: Granularity
   isLoading: boolean
   bootstrap: Bootstrap
 }) {
@@ -219,7 +239,7 @@ function DailyChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Cargado y consumido por día</CardTitle>
+        <CardTitle>{perUnit("Cargado y consumido", granularity)}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -227,12 +247,12 @@ function DailyChart({
         ) : empty ? (
           <p className="text-sm text-muted-foreground">Sin cargas ni consumos en el período.</p>
         ) : (
-          <ChartContainer config={dailyChartConfig} className="h-[260px] w-full">
+          <ChartContainer config={seriesChartConfig} className="h-[260px] w-full">
             <BarChart data={data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
               <XAxis
-                dataKey="date"
-                tickFormatter={(v: string) => `${v.slice(8, 10)}/${v.slice(5, 7)}`}
+                dataKey="bucket"
+                tickFormatter={(v: string) => formatBucketTick(String(v), granularity)}
                 tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
                 tickLine={false}
                 axisLine={false}
@@ -247,14 +267,14 @@ function DailyChart({
                 cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                 content={
                   <ChartTooltipContent
-                    labelFormatter={(label) => {
-                      const v = String(label)
-                      return `${v.slice(8, 10)}/${v.slice(5, 7)}`
-                    }}
+                    labelFormatter={(label, payload) =>
+                      bucketTooltipLabel(tooltipPoint(payload), granularity) ||
+                      formatBucketTick(String(label), granularity)
+                    }
                     formatter={(value, name) => (
                       <div className="flex w-full items-center justify-between gap-3">
                         <span className="text-muted-foreground">
-                          {dailyChartConfig[name as keyof typeof dailyChartConfig]?.label ?? name}
+                          {seriesChartConfig[name as keyof typeof seriesChartConfig]?.label ?? name}
                         </span>
                         <span className="font-medium tabular-nums">
                           {formatMoney(Number(value) || 0, bootstrap)}
@@ -265,8 +285,12 @@ function DailyChart({
                 }
               />
               <ChartLegend content={<ChartLegendContent />} />
-              <Bar dataKey="loaded" fill="var(--color-loaded)" radius={[4, 4, 0, 0]} maxBarSize={28} />
-              <Bar dataKey="consumed" fill="var(--color-consumed)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+              <Bar dataKey="loaded" fill="var(--color-loaded)" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                {partialBarCells(data)}
+              </Bar>
+              <Bar dataKey="consumed" fill="var(--color-consumed)" radius={[4, 4, 0, 0]} maxBarSize={28}>
+                {partialBarCells(data)}
+              </Bar>
             </BarChart>
           </ChartContainer>
         )}

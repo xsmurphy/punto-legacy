@@ -331,8 +331,10 @@ try {
     $pk = array_values(array_filter($full['byPocket'], fn ($p) => $p['pocketId'] === $pid));
     check('(d2) por bolsillo: cargado 120.000, consumido 60.900', count($pk) === 1 && near($pk[0]['loaded'], 120000) && near($pk[0]['consumed'], 60900),
         json_encode($pk), $failures, $checks);
-    check('(d3) día a día: un punto por día con lo del día', count($full['byDay']) === 1 && $full['byDay'][0]['date'] === WR_DAY
-        && near($full['byDay'][0]['loaded'], 120000) && near($full['byDay'][0]['consumed'], 60900), json_encode($full['byDay']), $failures, $checks);
+    $pts = $full['series']['points'] ?? [];
+    check('(d3) día a día: un punto por día con lo del día', ($full['series']['granularity'] ?? null) === 'day'
+        && count($pts) === 1 && $pts[0]['bucket'] === WR_DAY
+        && near($pts[0]['loaded'], 120000) && near($pts[0]['consumed'], 60900), json_encode($full['series'] ?? null), $failures, $checks);
 
     // ═════════════════════════════════════════════════════════════════════════
     echo "\n=== (e) saldo vigente ===\n";

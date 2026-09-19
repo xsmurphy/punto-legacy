@@ -207,6 +207,29 @@ check('filtro de proveedor acota las compras', count($f['rows'] ?? []) === 1 && 
 check('filtro de proveedor no achica el comparativo', count($f['suppliers'] ?? []) === 2,
     json_encode($f['suppliers'] ?? null), $failures, $checks);
 
+// ── (G) Serie del gráfico: grano por largo del rango (TimeBuckets) ───────────
+$pointOf = static function (array $series, string $bucket, string $sup): ?array {
+    foreach ($series['points'] ?? [] as $p) {
+        if ($p['bucket'] === $bucket && (string) $p['supplierId'] === $sup) {
+            return $p;
+        }
+    }
+    return null;
+};
+$s = $r['series'] ?? [];
+check('(G) febrero (28 días) grafica por día', ($s['granularity'] ?? null) === 'day', json_encode($s['granularity'] ?? null), $failures, $checks);
+check('(G) por día: S1 el 03/02 a 1.100', near($pointOf($s, '2026-02-03', $S1)['unitCost'] ?? null, 1100), json_encode($s['points'] ?? null), $failures, $checks);
+check('(G) por día: el calendario trae los 28 días', count($s['buckets'] ?? []) === 28, (string) count($s['buckets'] ?? []), $failures, $checks);
+
+$mo = $report->costs(['itemId' => $X], '2025-10-01 00:00:00', $to, $roc, $companyId)['series'] ?? [];
+check('(G) cinco meses grafican por mes', ($mo['granularity'] ?? null) === 'month', json_encode($mo['granularity'] ?? null), $failures, $checks);
+// 5 u a 1.100 + 24 u a 1.200 = 34.300 / 29 u — no el promedio simple (1.150).
+check('(G) por mes: el costo de S1 en febrero es el promedio PONDERADO por unidades',
+    near($pointOf($mo, '2026-02-01', $S1)['unitCost'] ?? null, 34300 / 29), json_encode($pointOf($mo, '2026-02-01', $S1)), $failures, $checks);
+check('(G) por mes: la compra anulada no entra en el promedio de S2',
+    near($pointOf($mo, '2026-02-01', $S2)['unitCost'] ?? null, 900), json_encode($pointOf($mo, '2026-02-01', $S2)), $failures, $checks);
+check('(G) por mes: enero tiene su propio punto', near($pointOf($mo, '2026-01-01', $S1)['unitCost'] ?? null, 1000), json_encode($mo['points'] ?? null), $failures, $checks);
+
 // ── (E) La otra empresa ve solo lo suyo ──────────────────────────────────────
 $b = $report->costs(['itemId' => $X], $from, $to, Roc::build($companyB), $companyB);
 check('(E) la otra empresa ve solo su compra',

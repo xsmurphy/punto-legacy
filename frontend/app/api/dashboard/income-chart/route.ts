@@ -1,4 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
+import {
+  asGranularity,
+  averagePerBucket,
+  type Granularity,
+  type TimeBucket,
+} from "@/lib/charts/granularity"
+import type { SalesSeriesResponse, SalesSeriesRow } from "@/hooks/use-reports"
 
 /**
  * BFF — Income Chart Dashboard.
@@ -6,12 +13,14 @@ import { NextRequest, NextResponse } from "next/server"
  *   GET /api/dashboard/income-chart?from=YYYY-MM-DD&to=YYYY-MM-DD
  *
  * Arquitectura (mismo patrón que /panel/bff/reports/summary.php?view=chart):
- *   - API (/v1/reports/sales?dataset=series): devuelve buckets crudos por
- *     día/hora con sales[]/expenses[] y flag isDay
+ *   - API (/v1/reports/sales?dataset=series): agrega en el SERVIDOR por hora
+ *     (un solo día) o por día / semana / mes según el largo del rango
+ *     (`api/lib/Support/TimeBuckets.php`) y devuelve el calendario completo
+ *     (`buckets`, con los bordes `partial`) + ventas y egresos por bucket.
  *   - Este BFF (Next route handler, server-side): reshape para el chart →
- *     buckets alineados con calendario completo (rellena ceros), calcula
- *     margen por bucket, totales agregados. Devuelve JSON listo para
- *     <LineChart>
+ *     un punto por bucket del calendario (ceros donde no hubo movimiento),
+ *     margen por bucket y totales. No enumera fechas ni decide el grano: eso
+ *     es del servidor.
  *   - Frontend (frontend page): solo renderea
  *
  * La credencial viaja en `Authorization: Bearer` (context/54 F2) y este
@@ -19,20 +28,12 @@ import { NextRequest, NextResponse } from "next/server"
  * propaga nada automáticamente.
  */
 
-interface SeriesBucket {
-  bucket: string  // 'YYYY-MM-DD' multi-día / '0'-'23' single
-  total: number
-  discount?: number
-}
+// El contrato del dataset es UNO, compartido con los que lo leen directo.
+type SeriesResponse = Partial<Pick<SalesSeriesResponse, "granularity" | "buckets">> &
+  Pick<SalesSeriesResponse, "isDay" | "sales" | "expenses">
+type SeriesBucket = SalesSeriesRow
 
-interface SeriesResponse {
-  isDay: boolean
-  sales: SeriesBucket[]
-  expenses: SeriesBucket[]
-}
-
-export interface IncomeChartPoint {
-  bucket: string         // label crudo: fecha ISO multi / hora '00' single
+export interface IncomeChartPoint extends TimeBucket {
   ingresos: number       // = total - discount
   egresos: number
   margen: number         // = ingresos - egresos (clamped a >= 0)
@@ -40,12 +41,14 @@ export interface IncomeChartPoint {
 
 export interface IncomeChartResponse {
   isDay: boolean
+  granularity: Granularity
   data: IncomeChartPoint[]
   totals: {
     ingresos: number
     egresos: number
     margen: number
-    average: number      // promedio de ingresos por bucket (para línea de referencia)
+    /** Ingresos promedio por período COMPLETO (línea de referencia). */
+    average: number
   }
 }
 
@@ -105,67 +108,45 @@ export async function GET(req: NextRequest) {
   }
 
   const envelope = (await res.json()) as { ok?: boolean; data?: SeriesResponse }
-  const raw = envelope.data ?? { isDay: false, sales: [], expenses: [] }
-  const shaped = shapeForChart(raw, from, to)
+  const raw = envelope.data ?? { isDay: false, buckets: [], sales: [], expenses: [] }
+  const shaped = shapeForChart(raw)
   return NextResponse.json({ ok: true, data: shaped })
 }
 
 /**
- * Convierte el dataset crudo (sales/expenses por bucket) a una serie
- * alineada con el calendario completo entre from y to. Rellena ceros para
- * días sin movimientos. Calcula totales agregados.
+ * Un punto por bucket del calendario que mandó el servidor, con ceros donde no
+ * hubo movimiento, margen por bucket y totales.
  */
-function shapeForChart(raw: SeriesResponse, from: string, to: string): IncomeChartResponse {
-  const isDay = !!raw.isDay
+function shapeForChart(raw: SeriesResponse): IncomeChartResponse {
   const salesByBucket = new Map<string, SeriesBucket>()
   for (const r of raw.sales ?? []) salesByBucket.set(String(r.bucket), r)
   const expsByBucket = new Map<string, SeriesBucket>()
   for (const r of raw.expenses ?? []) expsByBucket.set(String(r.bucket), r)
 
-  const buckets: string[] = isDay
-    ? Array.from({ length: 24 }, (_, i) => String(i))
-    : enumerateDates(from, to)
-
   let totalIng = 0
   let totalEgr = 0
   let totalMargen = 0
-  const data: IncomeChartPoint[] = buckets.map((b) => {
-    const s = salesByBucket.get(b)
-    const e = expsByBucket.get(b)
+  const data: IncomeChartPoint[] = (raw.buckets ?? []).map((b) => {
+    const s = salesByBucket.get(String(b.bucket))
+    const e = expsByBucket.get(String(b.bucket))
     const ingresos = (s?.total ?? 0) - (s?.discount ?? 0)
     const egresos = e?.total ?? 0
     const margen = Math.max(0, ingresos - egresos)
     totalIng += ingresos
     totalEgr += egresos
     totalMargen += margen
-    return { bucket: b, ingresos, egresos, margen }
+    return { bucket: String(b.bucket), end: String(b.end), partial: !!b.partial, ingresos, egresos, margen }
   })
 
-  const average = buckets.length > 0 ? totalIng / buckets.length : 0
   return {
-    isDay,
+    isDay: !!raw.isDay,
+    granularity: asGranularity(raw.granularity),
     data,
     totals: {
       ingresos: totalIng,
       egresos: totalEgr,
       margen: totalMargen,
-      average,
+      average: averagePerBucket(data, (p) => p.ingresos),
     },
   }
-}
-
-function enumerateDates(from: string, to: string): string[] {
-  // 'YYYY-MM-DD HH:mm:ss' → tomar solo la parte de fecha.
-  const start = new Date(from.slice(0, 10) + "T00:00:00Z")
-  const end = new Date(to.slice(0, 10) + "T00:00:00Z")
-  const dates: string[] = []
-  const cur = new Date(start)
-  while (cur <= end) {
-    const yyyy = cur.getUTCFullYear()
-    const mm = String(cur.getUTCMonth() + 1).padStart(2, "0")
-    const dd = String(cur.getUTCDate()).padStart(2, "0")
-    dates.push(`${yyyy}-${mm}-${dd}`)
-    cur.setUTCDate(cur.getUTCDate() + 1)
-  }
-  return dates
 }

@@ -6,7 +6,7 @@
  *
  * Sin `view`: la respuesta histórica (array plano de filas). NO se toca — la
  * consumen la pestaña Detalle del panel y los lectores programáticos.
- *   `view=summary`     → { totals, ranking, daily } para el dashboard.
+ *   `view=summary`     → { totals, ranking, series } para el dashboard.
  *   `view=commissions` → { sellers, totals } con el detalle liquidable.
  *
  * Sin formatear, sin HTML. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID del JWT.

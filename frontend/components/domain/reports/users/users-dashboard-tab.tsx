@@ -4,7 +4,9 @@
  * Dashboard de Equipo — cómo vendió cada persona en el período.
  *
  * Sale de `GET /v1/reports/users?view=summary`, que trae los KPIs, el ranking
- * por vendedor y la serie diaria en una sola respuesta.
+ * por vendedor y la serie en una sola respuesta. El grano de la serie (día,
+ * semana o mes según el largo del rango) lo decide el servidor y se muestra
+ * con `lib/charts/granularity.ts`.
  *
  * Dos cosas que la pantalla dice en voz alta porque si no se malinterpretan:
  *
@@ -37,11 +39,19 @@ import { rangeToBackend, type DateRangeValue } from "@/components/date-range-pic
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,
-  type UserDailyPoint,
+  type UsersSeries,
   type UserRankingRow,
   type UsersSummaryResponse,
 } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
+import {
+  bucketTooltipLabel,
+  formatBucketTick,
+  perUnit,
+  tooltipPoint,
+  type Granularity,
+} from "@/lib/charts/granularity"
+import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 
 /** Verde de charts, del vendedor más grande al más chico; la cola en gris. */
 const SERIES_COLORS = [
@@ -54,14 +64,17 @@ const SERIES_COLORS = [
 const REST_COLOR = "var(--border)"
 const REST_KEY = "__otros"
 
-export interface DailyStack {
-  days: Array<Record<string, string | number>>
+export interface SeriesStack {
+  /** Una fila por período del calendario (con `bucket`/`end`/`partial`) y una columna por vendedor. */
+  rows: Array<Record<string, string | number | boolean>>
   series: Array<{ key: string; label: string; color: string }>
 }
 
 /**
- * Pivotea la serie plana `(día, vendedor, total)` a una fila por día con una
- * columna por vendedor, que es lo que come Recharts.
+ * Pivotea la serie plana `(período, vendedor, total)` a una fila por período
+ * con una columna por vendedor, que es lo que come Recharts. Las filas salen
+ * del calendario que manda el servidor: un período sin ventas queda en cero en
+ * vez de desaparecer del eje.
  *
  * Exportada y pura por el mismo motivo que `buildRankingSlices`: es donde vive
  * la aritmética del gráfico, y un chart que se dibuja vacío no tira ningún
@@ -72,28 +85,29 @@ export interface DailyStack {
  * sin agrupar haría que la barra de un día valiera menos que las ventas de ese
  * día.
  */
-export function buildDailyStack(
-  daily: UserDailyPoint[],
+export function buildSeriesStack(
+  data: UsersSeries | undefined,
   ranking: UserRankingRow[],
   limit = 5,
-): DailyStack {
+): SeriesStack {
   const top = ranking.slice(0, limit)
   const topIds = new Set(top.map((r) => r.userId))
   const hasRest = ranking.length > top.length
 
-  const byDate = new Map<string, Record<string, string | number>>()
-  daily.forEach((p) => {
-    let row = byDate.get(p.date)
-    if (!row) {
-      row = { date: p.date }
-      top.forEach((t) => { row![t.userId] = 0 })
-      if (hasRest) row[REST_KEY] = 0
-      byDate.set(p.date, row)
-    }
+  const byBucket = new Map<string, Record<string, string | number | boolean>>()
+  for (const b of data?.buckets ?? []) {
+    const row: Record<string, string | number | boolean> = { bucket: b.bucket, end: b.end, partial: b.partial }
+    top.forEach((t) => { row[t.userId] = 0 })
+    if (hasRest) row[REST_KEY] = 0
+    byBucket.set(b.bucket, row)
+  }
+  for (const p of data?.points ?? []) {
+    const row = byBucket.get(p.bucket)
+    if (!row) continue
     const key = topIds.has(p.userId) ? p.userId : REST_KEY
-    if (key === REST_KEY && !hasRest) return
+    if (key === REST_KEY && !hasRest) continue
     row[key] = (Number(row[key]) || 0) + p.total
-  })
+  }
 
   const series = top.map((t, i) => ({
     key: t.userId,
@@ -102,15 +116,16 @@ export function buildDailyStack(
   }))
   if (hasRest) series.push({ key: REST_KEY, label: "Otros", color: REST_COLOR })
 
-  return {
-    days: [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date))),
-    series,
-  }
+  // Sin ventas en todo el período no hay nada que apilar.
+  const rows = data?.points?.length ? [...byBucket.values()] : []
+  return { rows, series }
 }
 
-/** "2026-03-05" → "05/03". Sin `parseNaive`: una fecha pelada se correría un día. */
-function dayLabel(v: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v.slice(8)}/${v.slice(5, 7)}` : v
+/** "Evolución diaria" / "semanal" / "mensual". */
+function evolutionTitle(g: Granularity): string {
+  if (g === "week") return "Evolución semanal"
+  if (g === "month") return "Evolución mensual"
+  return "Evolución diaria"
 }
 
 export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
@@ -126,8 +141,9 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
   const units = React.useCallback((v: number) => formatInt(v, bootstrap), [bootstrap])
 
   const ranking = React.useMemo(() => data?.ranking ?? [], [data])
+  const granularity = data?.series?.granularity ?? "day"
   const stack = React.useMemo(
-    () => buildDailyStack(data?.daily ?? [], ranking),
+    () => buildSeriesStack(data?.series, ranking),
     [data, ranking],
   )
   const chartConfig = React.useMemo<ChartConfig>(() => {
@@ -212,21 +228,21 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Evolución diaria</CardTitle>
+          <CardTitle className="text-base font-semibold tracking-tight">{evolutionTitle(granularity)}</CardTitle>
           <CardDescription className="text-xs">
-            Ventas por día, apiladas por vendedor. Los días sin ventas no aparecen.
+            {perUnit("Ventas", granularity)}, apiladas por vendedor.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {stack.days.length === 0 ? (
+          {stack.rows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin ventas para graficar en este período.</p>
           ) : (
             <ChartContainer config={chartConfig} className="h-[280px] w-full">
-              <BarChart data={stack.days} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+              <BarChart data={stack.rows} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis
-                  dataKey="date"
-                  tickFormatter={dayLabel}
+                  dataKey="bucket"
+                  tickFormatter={(v: string) => formatBucketTick(String(v), granularity)}
                   fontSize={10}
                   stroke="var(--muted-foreground)"
                   tickLine={false}
@@ -244,7 +260,10 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
                   cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                   content={
                     <ChartTooltipContent
-                      labelFormatter={(v) => dayLabel(String(v))}
+                      labelFormatter={(v, payload) =>
+                        bucketTooltipLabel(tooltipPoint(payload), granularity) ||
+                        formatBucketTick(String(v), granularity)
+                      }
                       formatter={(value, name) => {
                         const label = chartConfig[String(name)]?.label ?? name
                         return `${label}: ${money(Number(value) || 0)}`
@@ -257,7 +276,9 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
                   // `fill` directo y no `var(--color-<key>)`: las claves de la
                   // config son UUIDs de vendedor, y el color lo toma también
                   // la leyenda desde el payload de la barra.
-                  <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} radius={0} />
+                  <Bar key={s.key} dataKey={s.key} stackId="v" fill={s.color} radius={0}>
+                    {partialBarCells(stack.rows)}
+                  </Bar>
                 ))}
               </BarChart>
             </ChartContainer>

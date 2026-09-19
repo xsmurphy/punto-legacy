@@ -292,6 +292,13 @@ try {
     check('(E1) entrada + salida suman las horas del intervalo',
         (int) ($fila['workedMinutes'] ?? 0) === 540,
         'workedMinutes vino: ' . json_encode($fila['workedMinutes'] ?? null), $failures, $checks);
+    // La serie del gráfico (TimeBuckets) suma el par en el período de la
+    // salida que lo cierra: las 9 h aparecen una sola vez en toda la serie.
+    $serie = $reporte['series']['points'] ?? [];
+    check('(E1s) la serie del gráfico suma las 9 h una sola vez',
+        array_sum(array_column($serie, 'workedMinutes')) === 540
+            && count(array_filter($serie, static fn($p) => $p['workedMinutes'] > 0)) === 1,
+        json_encode($reporte['series'] ?? null), $failures, $checks);
     check('(E1b) y el par queda cerrado',
         (int) ($fila['openPairs'] ?? -1) === 0 && (int) ($fila['pairs'] ?? 0) === 1,
         json_encode(['openPairs' => $fila['openPairs'] ?? null, 'pairs' => $fila['pairs'] ?? null]),
