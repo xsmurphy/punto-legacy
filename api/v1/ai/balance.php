@@ -34,4 +34,7 @@ if ($row && !$row->EOF) {
     $balance = (int) ($row->fields['aicreditsbalance'] ?? $row->fields['aiCreditsBalance'] ?? 0);
 }
 
-apiOk(['balance' => $balance]);
+// `companyId` es el del PROPIO tenant de la credencial (nada ajeno): el BFF del
+// asistente lo usa para identificar el turno en su log sin un round-trip extra
+// (frontend/lib/ai/billing-gate.ts). El cliente no lo manda, así que no se le cree.
+apiOk(['balance' => $balance, 'companyId' => (string) $companyId]);

@@ -54,6 +54,18 @@ import type { TextStreamPart, ToolSet } from "ai"
 export interface AgentMessageMetadata {
   /** Presente solo si la respuesta se cortó por el techo de tokens de salida. */
   truncated?: true
+  /**
+   * La respuesta a este turno se interrumpió: el stream se cortó sin su
+   * `finish`, llegó un error, o el cliente dejó de recibir datos. A diferencia
+   * de `truncated`, esta NO la pone el servidor —un servidor que se cayó no
+   * puede avisar que se cayó—: la pone el cliente al cerrar el turno. Ver
+   * `lib/agent/interruption.ts`. Puede quedar en un mensaje del asistente (con
+   * el texto parcial que alcanzó a llegar) o en el del usuario, si no llegó
+   * nada de la respuesta.
+   */
+  interrupted?: true
+  /** Frase del servidor que explica el corte, cuando es una frase para el usuario. */
+  interruptedDetail?: string
 }
 
 /**
