@@ -243,10 +243,6 @@ export default function DashboardPage() {
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
-      {/* "Ahora" va arriba de todo y NO sigue al rango del selector: es lo que
-          está pasando en este momento. Sin filas con dato, no existe. */}
-      <NowSection tiles={nowTiles} bootstrap={bootstrap} />
-
       {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
           sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_22rem]">
@@ -370,6 +366,10 @@ export default function DashboardPage() {
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
+          {/* "Ahora" encabeza la columna derecha (owner) y NO sigue al rango
+              del selector: es lo que está pasando en este momento. Sin filas
+              con dato, no existe. */}
+          <NowSection tiles={nowTiles} bootstrap={bootstrap} />
           <AttentionCard data={attention.data} bootstrap={bootstrap} />
           <FinanceCard />
           {/* NPS oculto a pedido del owner — el módulo de satisfacción de
@@ -1460,20 +1460,20 @@ function formatShare(share: number, bootstrap: ReturnType<typeof useBootstrap>["
 type Boot = ReturnType<typeof useBootstrap>["data"]
 
 /**
- * El estado del momento, arriba de todo e independiente del rango. Cada tile
+ * El estado del momento, arriba de la columna derecha e independiente del rango. Cada tile
  * es una card con el link a donde eso se opera; el backend (`NowService`) ya
  * mandó solo las que tienen dato y que la persona puede abrir. Sin tiles, la
  * sección no existe.
  *
- * `auto-fit` y no columnas fijas: con dos tiles se reparten la fila, con seis
- * bajan a la siguiente — nunca queda un hueco al ocultarse uno.
+ * Una columna: vive en el sidebar, así que los tiles se apilan — nunca queda
+ * un hueco al ocultarse uno.
  */
 function NowSection({ tiles, bootstrap }: { tiles: NowTile[]; bootstrap: Boot }) {
   if (tiles.length === 0) return null
   return (
     <section className="flex flex-col gap-3">
       <h2 className="text-xl font-semibold">Ahora</h2>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
+      <div className="flex flex-col gap-3">
         {tiles.map((t) => (
           <NowTileCard key={t.key} tile={t} bootstrap={bootstrap} />
         ))}
