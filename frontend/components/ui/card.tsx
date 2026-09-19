@@ -14,7 +14,13 @@ function Card({
    * dashboard, asides de forms). Canónico desde 2026-07-31 — no repetir
    * `bg-[#f3f4f6] dark:bg-muted` a mano (context/20 §cards).
    */
-  variant?: "default" | "soft"
+  /**
+   * `inverse` = colores del tema invertidos (fondo foreground, texto
+   * background). Reservado a la card destacada ÚNICA de una pantalla
+   * ("Objetivo semanal" del dashboard). Los tokens los redefine
+   * `globals.css` (`[data-variant="inverse"]`), no clases acá.
+   */
+  variant?: "default" | "soft" | "inverse"
 }) {
   return (
     <div

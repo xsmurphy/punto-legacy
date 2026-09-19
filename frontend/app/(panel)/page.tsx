@@ -55,6 +55,7 @@ import {
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import {
+  useDashboardGoal,
   useDashboardNow,
   useDashboardWidget,
   useIncomeChart,
@@ -83,6 +84,7 @@ import {
   visibleDuePart,
   visibleInfoRows,
   visibleNowTiles,
+  visibleWeeklyGoal,
   type AttentionKey,
   type AttentionWidget,
   type InfoRowKey,
@@ -108,9 +110,11 @@ import {
 import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import { cn } from "@/lib/utils"
 import { isDashboardFirstLoad, isSettled } from "@/lib/dashboard/first-load"
+import { goalPaceLabel, goalProgress, type WeeklyGoal } from "@/lib/dashboard/weekly-goal"
 import { hourBars, hourRange, peakHour } from "@/lib/dashboard/top-hours"
 import { DashboardHeader, DashboardSkeleton } from "@/components/domain/dashboard/dashboard-skeleton"
 import {
+  TileBar,
   TileCard,
   TileFigure,
   TileMeter,
@@ -169,6 +173,9 @@ export default function DashboardPage() {
   // `enabled` por la misma razón que "Requiere atención": el backend gatea
   // fila por fila (módulo y/o permiso de la pantalla a la que lleva cada una).
   const now = useDashboardNow()
+  // "Objetivo semanal": tampoco sigue al rango (semana en curso contra la
+  // mejor de las últimas 12). Es plata del comercio: va con la clave de ventas.
+  const goal = useDashboardGoal({ enabled: canViewSales })
   // Finanzas: sus queries viven acá (y no dentro de la card) para que la
   // primera carga las espere también. Sin `finance.manage` no se disparan.
   const canManageFinance = usePermission("finance.manage")
@@ -177,6 +184,7 @@ export default function DashboardPage() {
   const financeForecast = useFinanceForecast(forecastRange, { enabled: canManageFinance })
 
   const nowTiles = visibleNowTiles(now.data)
+  const weeklyGoal = visibleWeeklyGoal(goal.data)
   const deltas = kpiDeltas(stats.data)
 
   /**
@@ -197,6 +205,7 @@ export default function DashboardPage() {
       { query: info, enabled: true },
       { query: attention, enabled: true },
       { query: now, enabled: true },
+      { query: goal, enabled: canViewSales },
       { query: stats, enabled: canViewSales },
       { query: incomeChart, enabled: canViewSales },
       { query: salesByOutlet, enabled: canViewSales },
@@ -277,7 +286,7 @@ export default function DashboardPage() {
         <header className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Resumen general</h1>
         </header>
-        <NowSection tiles={nowTiles} bootstrap={bootstrap} />
+        <DashboardGrid blocks={nowBlocks(nowTiles, bootstrap)} />
         {/* "Sin acceso" solo con "Ahora" resuelto: mientras carga no se sabe. */}
         {isSettled(now) && nowTiles.length === 0 && (
           <EmptyState
@@ -342,15 +351,25 @@ export default function DashboardPage() {
             />
           </section>
 
-          {/* Bloques del período en una grilla de 2 columnas. Cada uno se
-              pinta SOLO si tiene algo que decir (lib/dashboard/visibility.ts:
-              una barra partida de una sola parte, un ranking vacío o una sola
-              categoría no informan), y `packGrid` los acomoda para que ocultar
-              uno no deje un hueco ni un compacto quede al lado de uno alto. */}
-          <PeriodBlocksGrid
+          {/* Grilla de 2 columnas debajo del gráfico (owner 2026-09-19: la
+              columna derecha quedó para lo que RESUME). Primero lo del
+              momento (órdenes, espacios, cajas, vencimientos), después los
+              rankings y horarios, la composición de las ventas, clientes y
+              sucursales. Cada bloque se pinta SOLO si tiene algo que decir
+              (lib/dashboard/visibility.ts) y `packGrid` los acomoda para que
+              ocultar uno no deje un hueco ni un compacto quede al lado de uno
+              alto. */}
+          <DashboardGrid
             blocks={{
-              salesByOutlet: showSalesByOutlet(salesByOutlet.data?.rows) && (
-                <SalesByOutletCard rows={salesByOutlet.data!.rows} bootstrap={bootstrap} />
+              ...nowBlocks(nowTiles, bootstrap),
+              topItems: showTopItems(topItems.data) && (
+                <TopItemsCard data={topItems.data ?? []} bootstrap={bootstrap} />
+              ),
+              topCategories: showTopCategories(topCategories.data) && (
+                <TopCategoriesCard data={topCategories.data ?? []} bootstrap={bootstrap} />
+              ),
+              topHours: showTopHours(topHours.data) && (
+                <TopHoursCard data={topHours.data!} bootstrap={bootstrap} />
               ),
               saleType: showSplitBar(paymentStatus.data, "sale-type") && (
                 <PaymentSplitCard
@@ -368,22 +387,26 @@ export default function DashboardPage() {
                   mode="receivables"
                 />
               ),
-              topItems: showTopItems(topItems.data) && (
-                <TopItemsCard data={topItems.data ?? []} bootstrap={bootstrap} />
+              customers: showCustomers(customers.data) && (
+                <CustomersCard data={customers.data} bootstrap={bootstrap} />
               ),
-              topHours: showTopHours(topHours.data) && (
-                <TopHoursCard data={topHours.data!} bootstrap={bootstrap} />
+              salesByOutlet: showSalesByOutlet(salesByOutlet.data?.rows) && (
+                <SalesByOutletCard rows={salesByOutlet.data!.rows} bootstrap={bootstrap} />
               ),
-              topCategories: showTopCategories(topCategories.data) && (
-                <TopCategoriesCard data={topCategories.data ?? []} bootstrap={bootstrap} />
+              info: visibleInfoRows(stats.data, info.data).length > 0 && (
+                <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} />
               ),
             }}
           />
         </div>
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
+        {/* Solo lo que RESUME (owner 2026-09-19): Objetivo semanal → Ganancia
+            → Requiere atención → Finanzas. Lo del momento y los rankings
+            viven en la grilla de la columna principal. */}
         <aside className="flex min-w-0 flex-col gap-4">
-        {/* KPIs del período encabezan la columna derecha (owner): la
+          {weeklyGoal && <WeeklyGoalCard goal={weeklyGoal} bootstrap={bootstrap} />}
+          {/* KPIs del período, debajo del objetivo (owner): la
             Ganancia manda (cifra destacada + pill) y el resto va como filas
             directo sobre el gris de la card, separadas por divisores — sin
             caja interna (owner 2026-09-19: la caja blanca "se ve muy mal"). */}
@@ -415,10 +438,6 @@ export default function DashboardPage() {
               )}
             </TileRows>
           </TileCard>
-          {/* "Ahora" encabeza la columna derecha (owner) y NO sigue al rango
-              del selector: es lo que está pasando en este momento. Sin filas
-              con dato, no existe. */}
-          <NowSection tiles={nowTiles} bootstrap={bootstrap} />
           <AttentionCard data={attention.data} bootstrap={bootstrap} />
           {canManageFinance && (
             <FinanceCard summary={financeSummary} forecast={financeForecast} bootstrap={bootstrap} />
@@ -427,10 +446,6 @@ export default function DashboardPage() {
               clientes todavía no está desarrollado. Componente y helpers
               (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
               vuelve más adelante. */}
-          {showCustomers(customers.data) && (
-            <CustomersCard data={customers.data} bootstrap={bootstrap} />
-          )}
-          <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} />
         </aside>
       </div>
     </div>
@@ -916,7 +931,7 @@ function CustomersCard({
     { label: "Pérdida (churn)", percent: tasas?.perdida, barColor: "var(--destructive)" },
   ]
   return (
-    <TileCard title="Clientes">
+    <TileCard title="Clientes" variant="default">
       <TileRows>
         {counts.map((c) => (
           <TileRow key={c.label} label={c.label} value={formatInt(c.value, bootstrap)} />
@@ -991,7 +1006,7 @@ function InfoGeneralCard({
   const keys = visibleInfoRows(stats, info)
   if (keys.length === 0) return null
   return (
-    <TileCard title="Información general">
+    <TileCard title="Información general" variant="default">
       <TileRows>
         {keys.map((k) => {
           const r = INFO_ROW[k]
@@ -1055,37 +1070,97 @@ function AttentionCard({
 }
 
 
-// ── Grilla de bloques del período ─────────────────────────────────────────
+// ── Objetivo semanal ──────────────────────────────────────────────────────
 
-type PeriodBlockKey =
-  | "salesByOutlet"
-  | "saleType"
-  | "receivables"
+/**
+ * La semana en curso contra la mejor de las últimas 12 (`WeeklyGoalService`).
+ * Única card oscura de la pantalla (`variant="inverse"`: el tema invertido,
+ * en dark se invierte sola). La barra mide contra el TOTAL de la mejor
+ * semana; la marca y la línea de estado, contra lo que esa semana llevaba a
+ * esta misma altura. Solo se monta con historia suficiente
+ * (`visibleWeeklyGoal`).
+ */
+function WeeklyGoalCard({ goal, bootstrap }: { goal: WeeklyGoal; bootstrap: Boot }) {
+  const p = goalProgress(goal)
+  return (
+    <TileCard
+      title="Objetivo semanal"
+      variant="inverse"
+      description={`Mejor semana: ${formatDateTime(goal.best.weekStart, "d MMM")} al ${formatDateTime(goal.best.weekEnd, "d MMM")}`}
+    >
+      <TileFigure
+        value={formatMoney(goal.current, bootstrap)}
+        note={
+          p.remaining > 0 ? (
+            <TileNote>Te faltan {formatMoneyCompact(p.remaining, bootstrap)} para igualarla</TileNote>
+          ) : undefined
+        }
+      />
+      <div className="flex flex-col gap-1.5">
+        <TileBar
+          percent={p.percent}
+          marker={p.pace === "passed" ? null : p.marker}
+          markerLabel="Ritmo de tu mejor semana"
+        />
+        <div className="flex items-baseline justify-between gap-3">
+          <TileNote tone="strong">{goalPaceLabel(p)}</TileNote>
+          <TileNote>{formatMoney(goal.best.total, bootstrap)}</TileNote>
+        </div>
+      </div>
+    </TileCard>
+  )
+}
+
+// ── Grilla de la columna principal ────────────────────────────────────────
+
+/** Las cards del momento, una por tile de "Ahora" (`NOW_KEYS`). */
+type NowBlockKey = `now-${NowTile["key"]}`
+
+type DashboardBlockKey =
+  | NowBlockKey
   | "topItems"
   | "topCategories"
   | "topHours"
+  | "saleType"
+  | "receivables"
+  | "customers"
+  | "salesByOutlet"
+  | "info"
 
 /**
- * Orden de pantalla y ancho natural de cada bloque. Los rankings son listas
- * con barras (`BarList`) y entran en media fila; `packGrid` estira el que
- * quede solo.
+ * Orden de pantalla y ancho natural de cada bloque (owner 2026-09-19): lo del
+ * momento, rankings y horarios, composición, clientes y sucursales. Los
+ * rankings son listas con barras (`BarList`) y entran en media fila; los
+ * compactos (una cifra, una barra partida) solo se aparean entre sí;
+ * `packGrid` estira el que quede solo.
  */
-const PERIOD_BLOCKS: GridBlock<PeriodBlockKey>[] = [
-  { key: "salesByOutlet", full: false },
-  { key: "saleType", full: false, short: true },
-  { key: "receivables", full: false, short: true },
+const DASHBOARD_BLOCKS: GridBlock<DashboardBlockKey>[] = [
+  { key: "now-orders", full: false, short: true },
+  { key: "now-spaces", full: false, short: true },
+  { key: "now-drawers", full: false },
+  { key: "now-dues", full: false },
+  { key: "now-staff", full: false },
+  { key: "now-agenda", full: false },
   { key: "topItems", full: false },
   { key: "topCategories", full: false },
   { key: "topHours", full: false, short: true },
+  { key: "saleType", full: false, short: true },
+  { key: "receivables", full: false, short: true },
+  { key: "customers", full: false },
+  { key: "salesByOutlet", full: false },
+  { key: "info", full: false, short: true },
 ]
+
+type DashboardBlocks = Partial<Record<DashboardBlockKey, React.ReactNode | false>>
 
 /**
  * Grilla de 2 columnas con los bloques que tienen algo que mostrar. Un bloque
- * en `false` no existe; `packGrid` reacomoda el resto para que no quede un
- * hueco (una media fila sola sube a la próxima media fila o se estira).
+ * en `false` (o ausente) no existe; `packGrid` reacomoda el resto para que no
+ * quede un hueco (una media fila sola sube a la próxima media fila o se
+ * estira).
  */
-function PeriodBlocksGrid({ blocks }: { blocks: Record<PeriodBlockKey, React.ReactNode | false> }) {
-  const visible = PERIOD_BLOCKS.filter((b) => blocks[b.key])
+function DashboardGrid({ blocks }: { blocks: DashboardBlocks }) {
+  const visible = DASHBOARD_BLOCKS.filter((b) => blocks[b.key])
   if (visible.length === 0) return null
   return (
     <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -1249,25 +1324,17 @@ function formatShare(share: number, bootstrap: ReturnType<typeof useBootstrap>["
 type Boot = ReturnType<typeof useBootstrap>["data"]
 
 /**
- * El estado del momento, arriba de la columna derecha e independiente del rango. Cada tile
- * es una card con el link a donde eso se opera; el backend (`NowService`) ya
- * mandó solo las que tienen dato y que la persona puede abrir. Sin tiles, la
- * sección no existe.
- *
- * Una columna: vive en el sidebar, así que los tiles se apilan — nunca queda
- * un hueco al ocultarse uno.
+ * El estado del momento, independiente del rango: una card por tile, en la
+ * grilla de la columna principal. El backend (`NowService`) ya mandó solo las
+ * que tienen dato y que la persona puede abrir; un tile ausente no ocupa
+ * lugar.
  */
-function NowSection({ tiles, bootstrap }: { tiles: NowTile[]; bootstrap: Boot }) {
-  if (tiles.length === 0) return null
-  return (
-    // Sin título "Ahora" (owner): cada card ya dice qué es, y la columna no
-    // necesita un rótulo que la separe del resto.
-    <section className="flex flex-col gap-4">
-      {tiles.map((t) => (
-        <NowTileCard key={t.key} tile={t} bootstrap={bootstrap} />
-      ))}
-    </section>
-  )
+function nowBlocks(tiles: NowTile[], bootstrap: Boot): DashboardBlocks {
+  const out: DashboardBlocks = {}
+  for (const t of tiles) {
+    out[`now-${t.key}`] = <NowTileCard tile={t} bootstrap={bootstrap} />
+  }
+  return out
 }
 
 function NowTileCard({ tile, bootstrap }: { tile: NowTile; bootstrap: Boot }) {
@@ -1298,7 +1365,9 @@ function NowCard({
   children: React.ReactNode
 }) {
   return (
-    <TileCard title={title} href={href}>
+    // Misma piel que el resto de la grilla principal (blanca), no el gris
+    // de la columna derecha.
+    <TileCard title={title} href={href} variant="default">
       {children}
     </TileCard>
   )

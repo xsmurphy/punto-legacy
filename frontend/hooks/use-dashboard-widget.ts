@@ -189,6 +189,7 @@ import { useQuery as useQ } from "@tanstack/react-query"
 import type { Granularity, TimeBucket } from "@/lib/charts/granularity"
 import { readViewScope } from "@/hooks/use-view-scope"
 import type { NowWidget } from "@/lib/dashboard/visibility"
+import type { GoalWidget } from "@/lib/dashboard/weekly-goal"
 
 export function useIncomeChart(
   opts: { from: string; to: string },
@@ -245,5 +246,26 @@ export function useDashboardNow() {
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
     retry: false,
+  })
+}
+
+// ── Objetivo semanal ──────────────────────────────────────────────────────
+
+/**
+ * "Objetivo semanal" (widget `goal`, `WeeklyGoalService`). Igual que "Ahora":
+ * NO depende del rango del dashboard, se invalida con los eventos de venta
+ * (`["dashboard-goal"]` en `use-realtime-sync.ts`) y se refresca cada 60 s —
+ * el ritmo de la mejor semana a "esta altura" avanza solo con el reloj.
+ * Devuelve plata del comercio: `enabled` con `reports.sales.view`.
+ */
+export function useDashboardGoal(opts?: { enabled?: boolean }) {
+  const scope = readViewScope()
+  return useQ<GoalWidget>({
+    queryKey: ["dashboard-goal", scope],
+    queryFn: () => api.get<GoalWidget>(`/v1/reports/dashboard?widget=goal`),
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: false,
+    enabled: opts?.enabled ?? true,
   })
 }

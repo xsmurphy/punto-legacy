@@ -29,15 +29,19 @@ import { cn } from "@/lib/utils"
  *  - Línea secundaria .. `TileNote`: `text-xs` (muted, o tono de estado).
  *                        Nunca más grande que el cuerpo.
  *  - Comparativa ....... `DeltaLine compact`, el pill compartido.
+ *  - Barra ............. `TileBar` (`h-1`), con marca opcional de referencia;
+ *                        `TileMeter` = fila label/valor + `TileBar`.
  *
  * `BigMetricCard` (Ingresos/Egresos) conserva su estilo propio por decisión
  * del owner y no pasa por acá.
  */
 
-type Tone = "muted" | "destructive" | "positive"
+type Tone = "muted" | "strong" | "destructive" | "positive"
 
 const NOTE_TONE: Record<Tone, string> = {
   muted: "text-muted-foreground",
+  /** El dato de la línea, no su contexto: mismo tamaño, color de texto pleno. */
+  strong: "font-medium text-foreground",
   destructive: "font-medium text-destructive",
   positive: "text-emerald-700 dark:text-emerald-400",
 }
@@ -57,8 +61,12 @@ export function TileCard({
   /** Nombre accesible del acceso; por default "Ir a {title}". */
   linkLabel?: string
   description?: React.ReactNode
-  /** `soft` (gris) = números; `default` (blanca) = rankings y gráficos. */
-  variant?: "soft" | "default"
+  /**
+   * `soft` (gris) = números; `default` (blanca) = rankings, gráficos y las
+   * cards de la grilla principal; `inverse` (tema invertido) = la card
+   * destacada única de la pantalla ("Objetivo semanal").
+   */
+  variant?: "soft" | "default" | "inverse"
   /** Solo layout (flex, gap, items); nunca tipografía. */
   contentClassName?: string
   children: React.ReactNode
@@ -209,32 +217,75 @@ export function TileNote({
   return <span className={cn("text-xs tabular-nums", NOTE_TONE[tone])}>{children}</span>
 }
 
-/** Fila de tasa: label / porcentaje con la barra de progreso debajo. */
-export function TileMeter({
-  label,
-  value,
+/**
+ * Barra de progreso fina. `marker` (0-100) pinta una marca vertical de
+ * referencia sobre la barra —p. ej. dónde iba la mejor semana a esta misma
+ * altura—; sobresale de la barra para leerse igual sobre lo lleno y lo vacío.
+ */
+export function TileBar({
   percent,
-  barColor,
+  barColor = "var(--foreground)",
+  marker,
+  markerLabel,
 }: {
-  label: React.ReactNode
-  value: React.ReactNode
   /** 0-100, se recorta al rango. */
   percent: number
-  barColor: string
+  barColor?: string
+  /** 0-100, se recorta al rango. Sin marca si no viene. */
+  marker?: number | null
+  /** Nombre accesible de la marca. */
+  markerLabel?: string
 }) {
-  const clamped = Math.max(0, Math.min(100, percent))
+  const clamped = clampPct(percent)
+  const hasMarker = marker !== undefined && marker !== null && Number.isFinite(marker)
   return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium tabular-nums">{value}</span>
-      </div>
+    <div className={cn("relative w-full", hasMarker && "py-1")}>
       <div className="h-1 w-full overflow-hidden rounded-full bg-foreground/10">
         <div
           className="h-full rounded-full transition-all"
           style={{ width: `${clamped}%`, backgroundColor: barColor }}
         />
       </div>
+      {hasMarker && (
+        <span
+          role="img"
+          aria-label={markerLabel}
+          className="absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-foreground"
+          style={{ left: `${clampPct(marker)}%` }}
+        />
+      )}
+    </div>
+  )
+}
+
+function clampPct(n: number): number {
+  return Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0))
+}
+
+/** Fila de tasa: label / porcentaje con la barra de progreso debajo. */
+export function TileMeter({
+  label,
+  value,
+  percent,
+  barColor,
+  marker,
+  markerLabel,
+}: {
+  label: React.ReactNode
+  value: React.ReactNode
+  /** 0-100, se recorta al rango. */
+  percent: number
+  barColor: string
+  marker?: number | null
+  markerLabel?: string
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium tabular-nums">{value}</span>
+      </div>
+      <TileBar percent={percent} barColor={barColor} marker={marker} markerLabel={markerLabel} />
     </div>
   )
 }

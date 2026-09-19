@@ -125,9 +125,10 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // `["sale-void-options"]` — el `canVoid` cacheado (motivo y ventana de 48h)
   // también envejece: sin invalidarlo, un segundo operador ve "se puede
   // anular" sobre una venta que ya no lo permite.
+  // `["dashboard-goal"]`: "Objetivo semanal" (ventas de la semana en curso).
   // `["dashboard-now"]`: las citas de la agenda son transacciones tipo 13 y
   // un cobro a crédito de una compra la saca de "Vencimientos de la semana".
-  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"], ["dashboard-now"]],
+  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"], ["dashboard-now"], ["dashboard-goal"]],
   // `["drawer"]` es el key del POS (use-drawer.ts:213) y estaba FUERA: el mapa
   // solo invalidaba el reporte del panel. Con dos cajas en el mismo turno, la
   // apertura/cierre/movimiento hecho en una no llegaba a la otra y las dos
