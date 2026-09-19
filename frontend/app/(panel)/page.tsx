@@ -288,8 +288,9 @@ export default function DashboardPage() {
             />
             <div className="flex flex-col self-start">
               <div className="flex flex-col items-center gap-1 py-6">
-                <span className="text-xs font-medium text-muted-foreground">
+                <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs font-medium text-muted-foreground">
                   Ganancia
+                  <KpiDelta delta={deltas.revenue} loading={stats.isLoading} />
                 </span>
                 {stats.isLoading ? (
                   <Skeleton className="h-8 w-32" />
@@ -298,12 +299,12 @@ export default function DashboardPage() {
                     {formatMoney(stats.data?.revenue, bootstrap)}
                   </span>
                 )}
-                <KpiDelta delta={deltas.revenue} loading={stats.isLoading} />
               </div>
               <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
                     Margen
+                    <KpiDelta delta={deltas.margin} loading={stats.isLoading} />
                   </span>
                   {stats.isLoading ? (
                     <Skeleton className="h-6 w-12" />
@@ -312,11 +313,11 @@ export default function DashboardPage() {
                       {stats.data?.margin ?? 0}%
                     </span>
                   )}
-                  <KpiDelta delta={deltas.margin} loading={stats.isLoading} />
                 </div>
                 <div className="flex flex-col items-center gap-1">
-                  <span className="text-xs text-muted-foreground">
+                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
                     Cant. Ventas
+                    <KpiDelta delta={deltas.count} loading={stats.isLoading} />
                   </span>
                   {stats.isLoading ? (
                     <Skeleton className="h-6 w-12" />
@@ -325,14 +326,16 @@ export default function DashboardPage() {
                       {formatInt(stats.data?.count, bootstrap)}
                     </span>
                   )}
-                  <KpiDelta delta={deltas.count} loading={stats.isLoading} />
                 </div>
               </div>
               {/* Ticket promedio junto a los otros KPIs del período (owner).
                   Sin ventas no promedia nada: no se muestra. */}
               {(stats.isLoading || Number(stats.data?.count ?? 0) > 0) && (
                 <div className="flex flex-col items-center gap-1 border-t py-4">
-                  <span className="text-xs text-muted-foreground">Ticket promedio</span>
+                  <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
+                    Ticket promedio
+                    <KpiDelta delta={deltas.customerAverage} loading={stats.isLoading} />
+                  </span>
                   {stats.isLoading ? (
                     <Skeleton className="h-6 w-24" />
                   ) : (
@@ -340,7 +343,6 @@ export default function DashboardPage() {
                       {formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
                     </span>
                   )}
-                  <KpiDelta delta={deltas.customerAverage} loading={stats.isLoading} />
                 </div>
               )}
             </div>
@@ -450,6 +452,12 @@ function BigMetricCard({
             {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
             <span className="truncate">{label}</span>
           </div>
+          {/* Comparativa en la línea del título (owner), no junto al monto. */}
+          {delta && !isLoading && (
+            <span className="ml-auto">
+              <DeltaLine {...delta} compact />
+            </span>
+          )}
           {href && (
             <Link
               href={href}
@@ -464,10 +472,7 @@ function BigMetricCard({
         {isLoading ? (
           <Skeleton className="h-10 w-40" />
         ) : (
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
-            {delta && <DeltaLine {...delta} compact />}
-          </div>
+          <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
         )}
 
         {sparkline && sparkline.length > 1 && (
