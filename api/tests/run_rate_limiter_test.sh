@@ -31,7 +31,7 @@ CONTAINER_NAME="punto_rate_limiter_test_$$"
 cleanup() {
   if [ "$OWN_DOCKER" = "1" ]; then
     echo "[run_rate_limiter_test.sh] deteniendo Redis descartable ($CONTAINER_NAME)..."
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm -fv "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

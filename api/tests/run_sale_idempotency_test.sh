@@ -36,7 +36,7 @@ CONTAINER_NAME="punto_sale_idem_$$"
 cleanup() {
   if [ "$OWN_DOCKER" = "1" ]; then
     echo "[run_sale_idempotency_test.sh] deteniendo Postgres descartable ($CONTAINER_NAME)..."
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm -fv "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

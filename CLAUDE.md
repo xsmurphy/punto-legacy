@@ -184,6 +184,27 @@ Reglas:
    por commit). El `_session-log.md` se actualiza desde `main` post-merge,
    no desde la branch — así dos sesiones paralelas no compiten por ese archivo.
 
+### Higiene de recursos locales (regla del owner 2026-09-19)
+
+La Mac del owner se quedó sin disco (24 GB en worktrees mergeados) y sin
+memoria (varios `next build`/vitest en paralelo). Obligatorio:
+
+1. **Worktree de agente = descartable.** Apenas su branch se mergea a `main`:
+   `git worktree remove --force <path>` + borrar la branch local
+   (`<branch>` y `worktree-agent-<id>`). Nunca cerrar una sesión con
+   worktrees mergeados en `.claude/worktrees/`.
+2. **Todo brief de agente con worktree** termina con: "al pushear, borrá
+   `frontend/node_modules` y `frontend/.next` de tu worktree y matá los
+   procesos node/vitest que hayas levantado".
+3. **UN agente con build a la vez** (ya vigente). Antes de lanzar otro,
+   `ps` para confirmar que no quedó un `next build`/`vitest`/`tsc` huérfano;
+   si quedó, matarlo.
+4. **Docker de los harness**: los `api/tests/run_*.sh` hacen
+   `docker rm -fv` (la `v` borra el volumen anónimo de Postgres — sin ella
+   quedaba un volumen por corrida). Script nuevo copia ese patrón. Imágenes
+   de prueba y build cache se limpian al cierre de sesión con
+   `docker volume prune -f` y `docker builder prune -f`.
+
 ---
 
 ## Deploy — lo disparás VOS con el MCP de Coolify

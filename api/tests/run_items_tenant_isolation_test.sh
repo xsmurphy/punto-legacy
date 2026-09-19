@@ -33,7 +33,7 @@ CONTAINER_NAME="punto_items_tenant_iso_test_$$"
 cleanup() {
   if [ "$OWN_DOCKER" = "1" ]; then
     echo "[run_items_tenant_isolation_test.sh] deteniendo Postgres descartable ($CONTAINER_NAME)..."
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm -fv "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT

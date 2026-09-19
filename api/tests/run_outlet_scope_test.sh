@@ -46,7 +46,7 @@ OWN_NETWORK=0
 cleanup() {
   if [ "$OWN_DOCKER" = "1" ]; then
     echo "[run_outlet_scope_test.sh] deteniendo Postgres descartable ($CONTAINER_NAME)..."
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm -fv "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
   if [ "$OWN_NETWORK" = "1" ]; then
     docker network rm "$NETWORK_NAME" >/dev/null 2>&1 || true
