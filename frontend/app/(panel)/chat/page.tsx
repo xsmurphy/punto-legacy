@@ -218,7 +218,10 @@ export default function ChatPage() {
     // que es casi toda conversación, exigir puntería sobre el textarea es
     // pedirle al usuario que adivine dónde está la zona válida.
     <div
-      className="relative flex h-[calc(100dvh-var(--main-pt)-var(--main-pb))] flex-col gap-0"
+      // Sin burbuja del asistente en esta página, el espacio que el layout le
+      // reserva abajo (`--main-pb` menos su base) se recupera para la
+      // conversación: el compositor queda pegado al borde inferior.
+      className="relative flex h-[calc(100dvh-var(--main-pt)-var(--main-pb-base))] flex-col gap-0 -mb-[calc(var(--main-pb)-var(--main-pb-base))]"
       {...dropHandlers}
     >
       {isDragging && <FileDropOverlay />}
