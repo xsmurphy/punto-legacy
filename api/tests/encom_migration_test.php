@@ -44,7 +44,15 @@ declare(strict_types=1);
  *      se REUSA y se mapea, no choca contra el UNIQUE.
  *   K. CLIENTES DUPLICADOS — política del owner: documento repetido unifica,
  *      teléfono repetido o inválido entra sin teléfono con el número en la
- *      nota; el cliente sin id del legacy queda NOMBRADO en el error.
+ *      nota; el cliente sin id del legacy queda NOMBRADO en la bitácora
+ *      como ADVERTENCIA, no como error (no marca el job `failed`).
+ *
+ * 2026-09-19:
+ *   CV. COMPLETAR CLIENTES YA IMPORTADOS — relanzar llena lo VACÍO en Punto
+ *      (incluida la fila default de dirección sin texto que dejó el migrador
+ *      viejo), no pisa lo editado, manda a la nota el teléfono repetido o
+ *      inválido sin duplicarla, respeta la unicidad del documento, y una
+ *      segunda corrida no cambia nada.
  *   V. PROVEEDORES — se migran como contactos type 2 y la compra se cuelga
  *      del proveedor, no del cliente homónimo.
  *   W. LOG DE ÍTEMS — el `data-id` es el de la VENTA: una venta partida entre
@@ -86,6 +94,8 @@ $companyO  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0088';   // Y5 — todas tomadas: 
 $companyP  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d0099';   // Y6 — orden del export invertido
 // Caso VC (2026-09-18): el cliente de las ventas históricas.
 $companyQ  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d00aa';
+// Caso CV (2026-09-19): completar clientes ya importados.
+$companyR  = '7b1d0c44-2f3e-4a51-9c77-0e8a5b6d00bb';
 
 define('COMPANY_ID', $companyId);
 define('OUTLET_ID', '');
@@ -480,6 +490,40 @@ final class DuplicadosEncomClient extends FixtureEncomClient
 }
 
 /**
+ * Clientes del legacy para el caso CV: relanzar sobre clientes que una versión
+ * vieja del migrador importó casi vacíos (el caso real de Don Ramón).
+ */
+final class CompletarEncomClient extends FixtureEncomClient
+{
+    protected function fetch(string $load, ?string $outletHash = null): array
+    {
+        if ($load === 'customers') {
+            return [
+                // Todo vacío en Punto: se completa todo.
+                ['customerId' => 'cv-1', 'name' => 'Ana Vacia', 'ci' => '2000001', 'phone' => '0981200001',
+                 'email' => 'ana@legacy.com', 'address' => 'Calle Uno 123', 'city' => 'Asuncion',
+                 'note' => 'Nota del legacy', 'birthDay' => '1990-05-06', 'creditLine' => 500000],
+                // Editado en Punto (teléfono y email): no se pisa; lo vacío sí se completa.
+                ['customerId' => 'cv-2', 'name' => 'Beto Editado', 'ci' => '2000002', 'phone' => '0981200002',
+                 'email' => 'beto@legacy.com', 'address' => 'Calle Dos 456'],
+                // Su teléfono lo tiene OTRO cliente en Punto (el de Beto, editado): va a la nota.
+                ['customerId' => 'cv-3', 'name' => 'Caro TelRep', 'phone' => '0981200099', 'note' => 'Viene los lunes'],
+                // Ya tiene dirección en Punto: la del legacy no se toca.
+                ['customerId' => 'cv-4', 'name' => 'Dani ConDir', 'address' => 'Otra Direccion Legacy',
+                 'city' => 'Luque'],
+                // Su documento ya lo tiene OTRO cliente de Punto (Beto, completado arriba).
+                ['customerId' => 'cv-5', 'name' => 'Eva DocRep', 'ci' => '2000002', 'email' => 'eva@legacy.com'],
+                // Teléfono inválido: va a la nota.
+                ['customerId' => 'cv-6', 'name' => 'Fede TelMalo', 'phone' => '12'],
+                // Sin id del legacy: advertencia, no error.
+                ['name' => 'Primer Cliente'],
+            ];
+        }
+        return parent::fetch($load, $outletHash);
+    }
+}
+
+/**
  * El legacy como lo leía el migrador ANTES del arreglo: el detalle de compras
  * no devuelve ninguna fila legible. Sirve para dejar una compra importada SIN
  * líneas —el estado en que quedaron las 246 del job 71e8282d— y probar que
@@ -853,6 +897,7 @@ cleanup($companyN);
 cleanup($companyO);
 cleanup($companyP);
 cleanup($companyQ);
+cleanup($companyR);
 cleanup($companyC);
 cleanup($companyE);
 cleanup($companyF);
@@ -1820,10 +1865,13 @@ try {
     );
 
     $errDup = json_encode($runDup['errors'], JSON_UNESCAPED_UNICODE);
+    $logSinId = json_encode($runDup['log'], JSON_UNESCAPED_UNICODE);
     check(
-        'K5 · el cliente sin id del legacy es el ÚNICO error, y lo NOMBRA (antes: "una fila vino sin identificador")',
-        count($runDup['errors']) === 1 && str_contains($errDup, 'Cliente Sin Id'),
-        "errors = $errDup",
+        'K5 · el cliente sin id del legacy es ADVERTENCIA con nombre, no error: el job no queda failed por él',
+        $runDup['errors'] === [] && str_contains($logSinId, 'Cliente Sin Id')
+            && ($runDup['progress']['customer']['omitted'] ?? 0) === 1
+            && ($runDup['progress']['customer']['failed'] ?? -1) === 0,
+        "errors = $errDup · progress = " . json_encode($runDup['progress']['customer'] ?? null),
         $failures, $checks
     );
 
@@ -1843,6 +1891,151 @@ try {
         (int) scalar('SELECT count(*) FROM contact WHERE companyId = ?', [$companyK]) === $contactosDup
             && (string) scalar("SELECT data->>'contactNote' FROM contact WHERE contactId = ?", [$idC ?? '']) === $notaC,
         'contactos antes/después = ' . $contactosDup . '/' . scalar('SELECT count(*) FROM contact WHERE companyId = ?', [$companyK]),
+        $failures, $checks
+    );
+
+    // ══════════════════════════════════════════════════════════════════
+    // CV. COMPLETAR CLIENTES YA IMPORTADOS (owner 2026-09-19)
+    // ══════════════════════════════════════════════════════════════════
+    // Estado de partida = lo que dejó el migrador viejo en Don Ramón: el
+    // cliente existe y está mapeado, sin teléfono/email/nota, y con una fila
+    // default de dirección con el texto VACÍO.
+    require_once dirname(__DIR__) . '/lib/Contacts/ContactService.php';
+    require_once dirname(__DIR__) . '/lib/Contacts/ContactRepository.php';
+    seedCompany($companyR, 'Comercio A Completar SA');
+    $svcR = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
+    $viejo = static function (string $legacy, array $in) use ($svcR, $companyR): string {
+        $id = $svcR->create($companyR, $in + ['type' => 1, 'address' => '', 'city' => '', 'note' => '']);
+        EncomMigrationService::remember($companyR, 'customer', $legacy, $id, null);
+        return $id;
+    };
+    $cv1 = $viejo('cv-1', ['name' => 'Ana Vacia']);
+    $cv2 = $viejo('cv-2', ['name' => 'Beto Editado', 'phone' => '0981200099', 'email' => 'beto@punto.com']);
+    $cv3 = $viejo('cv-3', ['name' => 'Caro TelRep']);
+    $cv4 = $viejo('cv-4', ['name' => 'Dani ConDir', 'address' => 'Direccion Punto 1']);
+    $cv5 = $viejo('cv-5', ['name' => 'Eva DocRep']);
+    $cv6 = $viejo('cv-6', ['name' => 'Fede TelMalo']);
+    $dirVieja1 = (string) scalar('SELECT customerAddressId FROM customeraddress WHERE customerId = ?', [$cv1]);
+
+    $runCv = (new EncomImportService($companyR, new CompletarEncomClient($fixtures), null))->run(['customers']);
+    $col = static fn (string $expr, string $id): string
+        => (string) scalar("SELECT COALESCE(($expr)::text, '') FROM contact WHERE contactId = ?", [$id]);
+    $dir = static fn (string $id): array => [
+        (int) scalar('SELECT count(*) FROM customeraddress WHERE customerId = ? AND status = 1', [$id]),
+        (string) scalar("SELECT COALESCE(string_agg(customerAddressText, '|'), '') FROM customeraddress WHERE customerId = ? AND status = 1", [$id]),
+    ];
+
+    [$nDir1, $txtDir1] = $dir($cv1);
+    check(
+        'CV1 · cliente vacío: se completan teléfono, email, documento, nota, nacimiento y línea de crédito',
+        $col('contactPhone', $cv1) === '595981200001'
+            && $col('contactEmail', $cv1) === 'ana@legacy.com'
+            && $col("data->>'contactCI'", $cv1) === '2000001'
+            && $col("data->>'contactNote'", $cv1) === 'Nota del legacy'
+            && str_starts_with($col("data->>'contactBirthDay'", $cv1), '1990-05-06')
+            && (float) $col('contactCreditLine', $cv1) === 500000.0,
+        'tel=' . $col('contactPhone', $cv1) . ' email=' . $col('contactEmail', $cv1) . ' ci=' . $col("data->>'contactCI'", $cv1)
+            . ' nota=' . $col("data->>'contactNote'", $cv1) . ' bday=' . $col("data->>'contactBirthDay'", $cv1)
+            . ' linea=' . $col('contactCreditLine', $cv1) . ' · errores=' . json_encode($runCv['errors'], JSON_UNESCAPED_UNICODE),
+        $failures, $checks
+    );
+
+    check(
+        'CV2 · la dirección se completa en la MISMA fila default vacía (no se crea una segunda)',
+        $nDir1 === 1 && $txtDir1 === 'Calle Uno 123'
+            && (string) scalar('SELECT customerAddressId FROM customeraddress WHERE customerId = ? AND status = 1', [$cv1]) === $dirVieja1
+            && (string) scalar('SELECT customerAddressCity FROM customeraddress WHERE customerId = ?', [$cv1]) === 'Asuncion',
+        "direcciones=$nDir1 texto=$txtDir1",
+        $failures, $checks
+    );
+
+    [$nDir2, $txtDir2] = $dir($cv2);
+    check(
+        'CV3 · lo editado en Punto NO se pisa (teléfono y email), lo vacío sí se completa (documento, dirección)',
+        $col('contactPhone', $cv2) === '595981200099'
+            && $col('contactEmail', $cv2) === 'beto@punto.com'
+            && $col("data->>'contactCI'", $cv2) === '2000002'
+            && $nDir2 === 1 && $txtDir2 === 'Calle Dos 456',
+        'tel=' . $col('contactPhone', $cv2) . ' email=' . $col('contactEmail', $cv2) . " dir=$txtDir2",
+        $failures, $checks
+    );
+
+    [$nDir4, $txtDir4] = $dir($cv4);
+    check(
+        'CV4 · el cliente que YA tiene dirección conserva la suya (ni texto ni ciudad del legacy)',
+        $nDir4 === 1 && $txtDir4 === 'Direccion Punto 1'
+            && (string) scalar("SELECT COALESCE(customerAddressCity, '') FROM customeraddress WHERE customerId = ?", [$cv4]) === '',
+        "direcciones=$nDir4 texto=$txtDir4",
+        $failures, $checks
+    );
+
+    $nota3 = $col("data->>'contactNote'", $cv3);
+    check(
+        'CV5 · teléfono que ya tiene otro cliente: no va al campo, va a la nota (junto con la nota del legacy)',
+        $col('contactPhone', $cv3) === ''
+            && substr_count($nota3, '0981200099') === 1
+            && str_contains($nota3, 'Viene los lunes'),
+        'nota=' . var_export($nota3, true),
+        $failures, $checks
+    );
+
+    $nota6 = $col("data->>'contactNote'", $cv6);
+    check(
+        'CV6 · teléfono inválido: a la nota',
+        $col('contactPhone', $cv6) === '' && str_contains($nota6, 'Teléfono del sistema anterior: 12'),
+        'nota=' . var_export($nota6, true),
+        $failures, $checks
+    );
+
+    $logCv = json_encode($runCv['log'], JSON_UNESCAPED_UNICODE);
+    check(
+        'CV7 · documento de OTRO cliente: no se completa (unicidad) y se cuenta; lo demás de ese cliente sí',
+        $col("data->>'contactCI'", $cv5) === ''
+            && $col('contactEmail', $cv5) === 'eva@legacy.com'
+            && str_contains($logCv, 'no recibieron el documento') && str_contains($logCv, 'Eva DocRep'),
+        'ci=' . $col("data->>'contactCI'", $cv5) . " log=$logCv",
+        $failures, $checks
+    );
+
+    check(
+        'CV8 · la bitácora dice cuántos se completaron (con qué) y cuántos datos se dejaron por tener otro valor',
+        str_contains($logCv, 'cliente(s) ya importados se completaron') && str_contains($logCv, 'con dirección')
+            && str_contains($logCv, 'con teléfono') && str_contains($logCv, 'con email')
+            && str_contains($logCv, 'NO se tocaron') && str_contains($logCv, 'teléfono'),
+        "log=$logCv",
+        $failures, $checks
+    );
+
+    check(
+        'CV9 · "Primer Cliente" sin id es advertencia: cero errores, el job no queda failed',
+        $runCv['errors'] === [] && str_contains($logCv, 'Primer Cliente')
+            && ($runCv['progress']['customer']['omitted'] ?? 0) === 1
+            && ($runCv['progress']['customer']['skipped'] ?? 0) === 6
+            && ($runCv['progress']['customer']['imported'] ?? -1) === 0,
+        'errores=' . json_encode($runCv['errors'], JSON_UNESCAPED_UNICODE) . ' progress=' . json_encode($runCv['progress']['customer'] ?? null),
+        $failures, $checks
+    );
+
+    // Idempotencia: `xmin` cambia con CUALQUIER UPDATE aunque escriba el mismo
+    // valor (y `updated_at` no sirve: TODAY es constante en el proceso).
+    $foto = static fn (): string => (string) scalar(
+        "SELECT string_agg(x, ';' ORDER BY x) FROM (
+            SELECT contactId::text || ':' || xmin::text AS x FROM contact WHERE companyId = ?
+            UNION ALL
+            SELECT customerAddressId::text || ':' || xmin::text FROM customeraddress WHERE companyId = ?
+         ) t",
+        [$companyR, $companyR]
+    );
+    $antes = $foto();
+    $runCv2 = (new EncomImportService($companyR, new CompletarEncomClient($fixtures), null))->run(['customers']);
+    $logCv2 = json_encode($runCv2['log'], JSON_UNESCAPED_UNICODE);
+    check(
+        'CV10 · segunda corrida: no escribe NADA (ni contactos ni direcciones) y no duplica la nota',
+        $foto() === $antes
+            && substr_count($col("data->>'contactNote'", $cv3), '0981200099') === 1
+            && !str_contains($logCv2, 'se completaron')
+            && $runCv2['errors'] === [],
+        "log2=$logCv2",
         $failures, $checks
     );
 
@@ -3293,6 +3486,8 @@ try {
     cleanup($companyN);
     cleanup($companyO);
     cleanup($companyP);
+    cleanup($companyQ);
+    cleanup($companyR);
     // `period_close` cuelga de la empresa y no la borra `cleanup()`: sin esta
     // línea, una segunda corrida del arnés contra la misma base encontraría el
     // período ya cerrado y H17 pasaría por el motivo equivocado.

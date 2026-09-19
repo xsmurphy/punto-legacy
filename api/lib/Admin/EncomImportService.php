@@ -672,7 +672,7 @@ final class EncomImportService
         global $db;
         $compounds = new \Punto\Api\Items\ItemCompoundService($db);
 
-        $counts    = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $counts    = ['total' => 0, 'imported' => 0, 'skipped' => 0, 'failed' => 0, 'omitted' => 0];
         $revisar   = [];
         $porNombre = [];
 
@@ -693,8 +693,11 @@ final class EncomImportService
             $kind     = $this->kindFor($row);
 
             if ($legacyId === null) {
-                $counts['failed']++;
-                $this->fail('compound', 'La composición de "' . $name . '" no se importó: el artículo vino sin id del legacy.');
+                // El artículo mismo ya quedó omitido (y nombrado) en la pasada
+                // de artículos por la misma razón: es un aviso, no una falla
+                // del job — ver el docblock de each().
+                $counts['omitted']++;
+                $this->note('La composición de "' . $name . '" no se importó: el artículo vino sin id del legacy.');
                 continue;
             }
 
@@ -919,86 +922,468 @@ final class EncomImportService
         // obligaba a una clave natural (documento, o el nombre normalizado) que
         // fusionaba a dos homónimos sin documento en un solo cliente. Ese
         // parche se fue junto con el scraping.
-        $this->each('customer', $this->source->customers(), function (array $row) use ($contacts, &$dup): ?string {
-            $fiscalName = trim((string) ($row['fiscalName'] ?? ''));
-            $personName = trim((string) ($row['name'] ?? ''));
-            if ($fiscalName === '' && $personName === '') {
-                return null;
-            }
-
-            $in = [
-                'tin'     => trim((string) ($row['tin'] ?? '')),
-                'ci'      => trim((string) ($row['ci'] ?? '')),
-                'phone'   => trim((string) ($row['phone'] ?? '')),
-                'email'   => trim((string) ($row['email'] ?? '')),
-                'address' => trim((string) ($row['address'] ?? '')),
-                'city'    => trim((string) ($row['city'] ?? '')),
-                'note'    => trim((string) ($row['note'] ?? '')),
-                'type'    => \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER,
-            ];
-            if ($fiscalName !== '') {
-                $in['fiscalName'] = $fiscalName;
-            }
-            if ($personName !== '') {
-                $in['name'] = $personName;
-            }
-
-            foreach (['location', 'country'] as $k) {
-                $v = trim((string) ($row[$k] ?? ''));
-                if ($v !== '') {
-                    $in[$k] = $v;
+        //
+        // Un cliente YA mapeado no se saltea a ciegas: se COMPLETA lo que en
+        // Punto está vacío (owner 2026-09-19, context/77 §17.19). Ver
+        // `completarCliente()`.
+        $fill = self::completadosVacios();
+        $this->each(
+            'customer',
+            $this->source->customers(),
+            function (array $row) use ($contacts, &$dup): ?string {
+                $in = $this->entradaCliente($row);
+                return $in === null ? null : $this->crearContacto($contacts, $in, 'cliente', $dup);
+            },
+            function (array $row, string $contactId) use ($contacts, &$fill): void {
+                $in = $this->entradaCliente($row);
+                if ($in !== null) {
+                    $this->completarCliente($contacts, $contactId, $in, $fill);
                 }
             }
-
-            // Tipo de documento: el legacy manda `typeIdentifier` con SU
-            // numeración, que NO es la Tabla 3 de la SET que usa Punto
-            // (`ID_TYPES` = 11..17). Su tabla de códigos no está relevada, así
-            // que traducirla sería adivinar sobre un dato FISCAL — y
-            // `ContactService` rechaza con excepción cualquier código que no
-            // reconozca, o sea que adivinar mal cuesta el cliente entero.
-            //
-            // Se manda SOLO si el valor ya es un código válido de Punto. Si no,
-            // se omite y Punto infiere el tipo al leer (el propio servicio lo
-            // documenta): el NÚMERO del documento se migra igual, en `tin`/`ci`,
-            // que es lo que identifica al cliente.
-            $idType = $row['idType'] ?? null;
-            if (is_numeric($idType)
-                && in_array((int) $idType, \Punto\Api\Contacts\ContactService::ID_TYPES, true)
-            ) {
-                $in['idType'] = (int) $idType;
-            }
-
-            // Saldo a favor y línea de crédito: el legacy los tenía y el CSV
-            // no los exponía. `creditLine > 0` es además lo que habilita la
-            // venta a crédito en el POS.
-            $storeCredit = $this->numOrNull($row['storeCredit'] ?? null);
-            if ($storeCredit !== null) {
-                $in['storeCredit'] = $storeCredit;
-            }
-            $creditLine = $this->numOrNull($row['creditLine'] ?? null);
-            if ($creditLine !== null) {
-                $in['creditLine']   = $creditLine;
-                $in['isCreditable'] = $creditLine > 0 ? 1 : 0;
-            }
-            $loyalty = $this->numOrNull($row['loyalty'] ?? null);
-            if ($loyalty !== null) {
-                $in['loyalty'] = $loyalty;
-            }
-
-            if (is_numeric($row['lat'] ?? null) && is_numeric($row['lng'] ?? null)) {
-                $in['lat'] = $row['lat'];
-                $in['lng'] = $row['lng'];
-            }
-
-            $bday = trim((string) ($row['bday'] ?? ''));
-            if (preg_match('/^\d{4}-\d{2}-\d{2}/', $bday)) {
-                $in['bday'] = substr($bday, 0, 10);
-            }
-
-            return $this->crearContacto($contacts, $in, 'cliente', $dup);
-        });
+        );
 
         $this->avisarDuplicados('cliente', $dup);
+        $this->avisarCompletados($fill);
+    }
+
+    /**
+     * Entrada de `ContactService` para un cliente del legacy, o null si la fila
+     * no trae ningún nombre (no es importable). La MISMA para el alta y para
+     * completar un cliente ya importado: así los dos caminos leen el legacy
+     * con un solo criterio.
+     */
+    private function entradaCliente(array $row): ?array
+    {
+        $fiscalName = trim((string) ($row['fiscalName'] ?? ''));
+        $personName = trim((string) ($row['name'] ?? ''));
+        if ($fiscalName === '' && $personName === '') {
+            return null;
+        }
+
+        $in = [
+            'tin'     => trim((string) ($row['tin'] ?? '')),
+            'ci'      => trim((string) ($row['ci'] ?? '')),
+            'phone'   => trim((string) ($row['phone'] ?? '')),
+            'email'   => trim((string) ($row['email'] ?? '')),
+            'address' => trim((string) ($row['address'] ?? '')),
+            'city'    => trim((string) ($row['city'] ?? '')),
+            'note'    => trim((string) ($row['note'] ?? '')),
+            'type'    => \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER,
+        ];
+        if ($fiscalName !== '') {
+            $in['fiscalName'] = $fiscalName;
+        }
+        if ($personName !== '') {
+            $in['name'] = $personName;
+        }
+
+        foreach (['location', 'country'] as $k) {
+            $v = trim((string) ($row[$k] ?? ''));
+            if ($v !== '') {
+                $in[$k] = $v;
+            }
+        }
+
+        // Tipo de documento: el legacy manda `typeIdentifier` con SU
+        // numeración, que NO es la Tabla 3 de la SET que usa Punto
+        // (`ID_TYPES` = 11..17). Su tabla de códigos no está relevada, así
+        // que traducirla sería adivinar sobre un dato FISCAL — y
+        // `ContactService` rechaza con excepción cualquier código que no
+        // reconozca, o sea que adivinar mal cuesta el cliente entero.
+        //
+        // Se manda SOLO si el valor ya es un código válido de Punto. Si no,
+        // se omite y Punto infiere el tipo al leer (el propio servicio lo
+        // documenta): el NÚMERO del documento se migra igual, en `tin`/`ci`,
+        // que es lo que identifica al cliente.
+        $idType = $row['idType'] ?? null;
+        if (is_numeric($idType)
+            && in_array((int) $idType, \Punto\Api\Contacts\ContactService::ID_TYPES, true)
+        ) {
+            $in['idType'] = (int) $idType;
+        }
+
+        // Saldo a favor y línea de crédito: el legacy los tenía y el CSV
+        // no los exponía. `creditLine > 0` es además lo que habilita la
+        // venta a crédito en el POS.
+        $storeCredit = $this->numOrNull($row['storeCredit'] ?? null);
+        if ($storeCredit !== null) {
+            $in['storeCredit'] = $storeCredit;
+        }
+        $creditLine = $this->numOrNull($row['creditLine'] ?? null);
+        if ($creditLine !== null) {
+            $in['creditLine']   = $creditLine;
+            $in['isCreditable'] = $creditLine > 0 ? 1 : 0;
+        }
+        $loyalty = $this->numOrNull($row['loyalty'] ?? null);
+        if ($loyalty !== null) {
+            $in['loyalty'] = $loyalty;
+        }
+
+        if (is_numeric($row['lat'] ?? null) && is_numeric($row['lng'] ?? null)) {
+            $in['lat'] = $row['lat'];
+            $in['lng'] = $row['lng'];
+        }
+
+        $bday = trim((string) ($row['bday'] ?? ''));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}/', $bday)) {
+            $in['bday'] = substr($bday, 0, 10);
+        }
+
+        return $in;
+    }
+
+    /** @return array{clientes:int,campos:array<string,int>,dejados:array<string,int>,telNota:array<int,string>,docRepetido:array<int,string>} */
+    private static function completadosVacios(): array
+    {
+        return ['clientes' => 0, 'campos' => [], 'dejados' => [], 'telNota' => [], 'docRepetido' => []];
+    }
+
+    /**
+     * Completa un cliente YA importado con lo que el legacy trae y en Punto
+     * está VACÍO (owner 2026-09-19, context/77 §17.19).
+     *
+     * Por qué existe: los 919 clientes de Don Ramón entraron con una versión
+     * vieja del migrador —sin teléfono, email, nota ni dirección— y relanzar
+     * los salteaba por idempotentes. Ahora relanzar los completa.
+     *
+     * La regla, campo por campo:
+     *   · vacío en Punto (NULL o '' tras trim) y con valor en el legacy → se completa;
+     *   · con valor en Punto → NO se toca, aunque difiera: puede ser una
+     *     corrección hecha en Punto. Se CUENTA para la bitácora;
+     *   · nunca se borra un valor.
+     *
+     * Excepciones deliberadas, las mismas reglas del alta (`crearContacto()`):
+     *   · teléfono inválido o que ya tiene otro cliente → no va al campo, va a
+     *     la nota. Es la ÚNICA escritura sobre un campo con valor, y es un
+     *     AGREGADO: la línea se busca antes, así una segunda corrida no la
+     *     duplica;
+     *   · documento personal que ya tiene OTRO contacto → no se completa
+     *     (unicidad del servicio) y se cuenta.
+     *
+     * Dirección: si el cliente no tiene NINGUNA dirección con texto, se
+     * completa la default —se crea si no existe, igual que en el alta—. Si ya
+     * tiene una, el bloque entero (texto, ciudad, barrio, coordenadas) no se
+     * toca. OJO, el caso real: el migrador viejo dejó una fila default con el
+     * texto VACÍO por cliente; `ContactService::update()` completa ESA fila
+     * (no crea una segunda default), y solo en las columnas vacías.
+     *
+     * Saldo a favor y puntos tienen default en la tabla (0.00 / 1), así que en
+     * la práctica nunca están vacíos y nunca se completan: es la regla, no un
+     * olvido — pisar un saldo es plata.
+     *
+     * Escribe por `ContactService::update()` (patch parcial: solo las claves
+     * presentes), dentro de una transacción por cliente para que contacto y
+     * dirección queden juntos. La unicidad se chequea ANTES de escribir, así
+     * que el reintento sin el campo en conflicto no deja nada a medias.
+     *
+     * @param array{clientes:int,campos:array<string,int>,dejados:array<string,int>,telNota:array<int,string>,docRepetido:array<int,string>} $fill
+     */
+    private function completarCliente(
+        \Punto\Api\Contacts\ContactService $svc,
+        string $contactId,
+        array $in,
+        array &$fill
+    ): void {
+        $actual = $svc->find($contactId, $this->companyId);
+        if ($actual === null) {
+            return;
+        }
+
+        $txt   = static fn (mixed $v): string => trim(strip_tags((string) ($v ?? '')));
+        $igual = static fn (string $a, string $b): bool
+            => mb_strtolower(preg_replace('/\s+/u', ' ', $a) ?? $a, 'UTF-8')
+            === mb_strtolower(preg_replace('/\s+/u', ' ', $b) ?? $b, 'UTF-8');
+        $digitos = static fn (string $v): string
+            => \Punto\Api\Contacts\ContactService::normalizePhoneDigits($v);
+
+        $patch   = [];
+        $campos  = [];
+        $dejados = [];
+
+        // ── Texto: clave pública => [columna, etiqueta, normalizador] ──────
+        // La razón social (`fiscalName` → `contactName`) no está a propósito:
+        // `ContactService::create()` la exige, así que un cliente importado
+        // nunca la tiene vacía — y con valor, la regla es no tocarla.
+        $textos = [
+            'name'    => ['contactSecondName', 'nombre', null],
+            'tin'     => ['contactTIN', 'RUC', null],
+            'ci'      => ['contactCI', 'documento', static fn (string $v): string
+                => \Punto\Api\Contacts\ContactService::normalizePersonalId($v)],
+            'email'   => ['contactEmail', 'email', null],
+            'country' => ['contactCountry', 'país', null],
+        ];
+        foreach ($textos as $k => [$col, $label, $norm]) {
+            $nuevo = $txt($in[$k] ?? '');
+            if ($nuevo === '') {
+                continue;
+            }
+            $viejo = $txt($actual[$col] ?? '');
+            if ($viejo === '') {
+                $patch[$k]      = $nuevo;
+                $campos[$label] = true;
+            } elseif ($norm !== null ? $norm($viejo) !== $norm($nuevo) : !$igual($viejo, $nuevo)) {
+                $dejados[] = $label;
+            }
+        }
+        // `mapToColumns()` escribe `contactName` con el `name` cuando no viene
+        // `fiscalName`: se manda el que YA tiene para que completar el nombre
+        // de la persona no pise la razón social.
+        if (isset($patch['name'])) {
+            $patch['fiscalName'] = $txt($actual['contactName'] ?? '') ?: $patch['name'];
+        }
+
+        // Fecha de nacimiento: se compara el día, no el texto.
+        if (isset($in['bday'])) {
+            $viejo = substr($txt($actual['contactBirthDay'] ?? ''), 0, 10);
+            if ($viejo === '') {
+                $patch['bday']                 = $in['bday'];
+                $campos['fecha de nacimiento'] = true;
+            } elseif ($viejo !== $in['bday']) {
+                $dejados[] = 'fecha de nacimiento';
+            }
+        }
+
+        // Tipo de documento (solo llega si es un código válido de Punto).
+        if (isset($in['idType'])) {
+            $viejo = $actual['contactIdType'] ?? null;
+            if ($viejo === null || $viejo === '') {
+                $patch['idType']             = $in['idType'];
+                $campos['tipo de documento'] = true;
+            } elseif ((int) $viejo !== (int) $in['idType']) {
+                $dejados[] = 'tipo de documento';
+            }
+        }
+
+        // Números. NULL = vacío; un 0 guardado es un valor.
+        $numeros = [
+            'creditLine'  => ['contactCreditLine', 'línea de crédito'],
+            'storeCredit' => ['contactStoreCredit', 'saldo a favor'],
+            'loyalty'     => ['contactLoyalty', 'puntos'],
+        ];
+        foreach ($numeros as $k => [$col, $label]) {
+            if (!isset($in[$k])) {
+                continue;
+            }
+            $viejo = $actual[$col] ?? null;
+            if ($viejo === null || trim((string) $viejo) === '') {
+                $patch[$k]      = $in[$k];
+                $campos[$label] = true;
+            } elseif (abs((float) $viejo - (float) $in[$k]) > 0.000001) {
+                $dejados[] = $label;
+            }
+        }
+        // `contactCreditable` es DERIVADO de la línea (así lo arma el alta):
+        // una línea NULL dice que nadie tocó el crédito en Punto, así que el
+        // flag se alinea con la línea que se completa.
+        if (isset($patch['creditLine'])) {
+            $patch['isCreditable'] = $in['isCreditable'];
+        }
+
+        // ── Dirección ────────────────────────────────────────────────────
+        $conTexto = false;
+        $default  = null;
+        foreach ($svc->addresses($contactId, $this->companyId) as $a) {
+            if ($txt($a['address'] ?? '') !== '') {
+                $conTexto = true;
+            }
+            if ($default === null && self::pgTruthy($a['default'] ?? null)) {
+                $default = $a;
+            }
+        }
+        $dirCampos = [
+            'address'  => ['contactAddress', 'dirección'],
+            'city'     => ['contactCity', 'ciudad'],
+            'location' => ['contactLocation', 'barrio'],
+        ];
+        foreach ($dirCampos as $k => [$col, $label]) {
+            $nuevo = $txt($in[$k] ?? '');
+            if ($nuevo === '') {
+                continue;
+            }
+            // Lo que el cliente MUESTRA: la fila default y, si no hay, el
+            // espejo en `contact.data` (mismo criterio que `presentRow()`).
+            $viejo = $txt($default !== null ? ($default[$k] ?? '') : ($actual[$col] ?? ''));
+            if ($conTexto) {
+                // Ya tiene dirección: el bloque no se toca. Cuenta como
+                // "dejado" solo si lo que difiere es un dato de verdad.
+                if ($viejo !== '' ? !$igual($viejo, $nuevo) : $k === 'address') {
+                    $dejados[] = $label;
+                }
+                continue;
+            }
+            if ($viejo === '') {
+                $patch[$k]      = $nuevo;
+                $campos[$label] = true;
+            } elseif (!$igual($viejo, $nuevo)) {
+                $dejados[] = $label;
+            }
+        }
+        if (!$conTexto && isset($in['lat'], $in['lng'])
+            && ($default === null || (($default['lat'] ?? null) === null && ($default['lng'] ?? null) === null))
+        ) {
+            $patch['lat']        = $in['lat'];
+            $patch['lng']        = $in['lng'];
+            $campos['ubicación'] = true;
+        }
+
+        // ── Teléfono ─────────────────────────────────────────────────────
+        $telLegacy = $txt($in['phone'] ?? '');
+        $telMotivo = null;
+        $paisApoyo = false;
+        if ($telLegacy !== '') {
+            $telActual = $txt($actual['contactPhone'] ?? '');
+            if ($telActual !== '') {
+                if ($digitos($telActual) !== $digitos($telLegacy)) {
+                    $dejados[] = 'teléfono';
+                }
+            } else {
+                // El país del CONTACTO decide cómo se parsea (el que ya tiene
+                // o el que se le completa), igual que en el alta.
+                $pais = (string) ($patch['country'] ?? $txt($actual['contactCountry'] ?? ''));
+                if (!$svc->phoneIsStorable($this->companyId, ['phone' => $telLegacy, 'country' => $pais])) {
+                    $telMotivo = 'el número no es válido';
+                } else {
+                    $patch['phone'] = $telLegacy;
+                    if ($pais !== '' && !isset($patch['country'])) {
+                        // El mismo valor que ya tiene: solo para que
+                        // `mapToColumns()` parsee con el país del contacto.
+                        $patch['country'] = $pais;
+                        $paisApoyo        = true;
+                    }
+                }
+            }
+        }
+
+        // ── Nota ─────────────────────────────────────────────────────────
+        $notaActual = $txt($actual['contactNote'] ?? '');
+        $notaLegacy = $txt($in['note'] ?? '');
+        $nota       = $notaActual;
+        if ($notaLegacy !== '') {
+            if ($notaActual === '') {
+                $nota           = $notaLegacy;
+                $campos['nota'] = true;
+            } elseif (!str_contains(mb_strtolower($notaActual, 'UTF-8'), mb_strtolower($notaLegacy, 'UTF-8'))) {
+                $dejados[] = 'nota';
+            }
+        }
+
+        // ── Escritura: se reintenta sin el campo que choca con otro contacto ─
+        global $db;
+        $nombre = $txt($actual['contactName'] ?? '') ?: $contactId;
+        for ($intento = 0; $intento < 3; $intento++) {
+            $notaFinal = $nota;
+            if ($telMotivo !== null
+                && !str_contains($notaFinal, 'Teléfono del sistema anterior: ' . $telLegacy)
+            ) {
+                $notaFinal = $this->sinTelefono(['phone' => $telLegacy, 'note' => $notaFinal], $telMotivo)['note'];
+            }
+
+            $escribir = $patch;
+            if ($notaFinal !== $notaActual) {
+                $escribir['note'] = $notaFinal;
+            }
+            // Lo que va de apoyo (razón social, flag derivado, país para
+            // parsear) no es un cambio: sin nada más, no se escribe.
+            $reales = array_diff_key($escribir, ['fiscalName' => 1, 'isCreditable' => 1]);
+            if ($paisApoyo) {
+                unset($reales['country']);
+            }
+            if ($reales === []) {
+                break;
+            }
+
+            $db->StartTrans();
+            try {
+                if (!$svc->update($contactId, $this->companyId, $escribir)) {
+                    throw new \RuntimeException('no se pudo actualizar el cliente');
+                }
+                $db->CompleteTrans();
+            } catch (\Punto\Api\Contacts\DuplicateContactException $e) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                if ($e->field === 'ci' && isset($patch['ci'])) {
+                    unset($patch['ci'], $campos['documento']);
+                    $fill['docRepetido'][] = $nombre . ' (' . $in['ci'] . ', ya lo tiene ' . $e->contactName . ')';
+                    continue;
+                }
+                if ($e->field === 'phone' && isset($patch['phone'])) {
+                    unset($patch['phone']);
+                    if ($paisApoyo) {
+                        unset($patch['country']);
+                        $paisApoyo = false;
+                    }
+                    $telMotivo = 'ya lo tiene otro cliente: ' . $e->contactName;
+                    continue;
+                }
+                throw $e;
+            } catch (\Throwable $e) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw $e;
+            }
+
+            if (isset($patch['phone'])) {
+                $campos['teléfono'] = true;
+            }
+            $telANota = $telMotivo !== null && $notaFinal !== $nota;
+            if ($telANota) {
+                $fill['telNota'][] = $nombre . ' (' . $telLegacy . ': ' . $telMotivo . ')';
+            }
+            if ($campos !== [] || $telANota) {
+                $fill['clientes']++;
+            }
+            foreach (array_keys($campos) as $label) {
+                $fill['campos'][$label] = ($fill['campos'][$label] ?? 0) + 1;
+            }
+            break;
+        }
+
+        foreach (array_unique($dejados) as $label) {
+            $fill['dejados'][$label] = ($fill['dejados'][$label] ?? 0) + 1;
+        }
+    }
+
+    /** Resumen de lo que se completó en clientes ya importados. */
+    private function avisarCompletados(array $fill): void
+    {
+        $conteo = static function (array $conteos, string $prefijo): string {
+            arsort($conteos);
+            $partes = [];
+            foreach ($conteos as $label => $n) {
+                $partes[] = $n . $prefijo . $label;
+            }
+            return implode(', ', $partes);
+        };
+        $ejemplos = static fn (array $lista): string
+            => implode('; ', array_slice($lista, 0, 10))
+            . (count($lista) > 10 ? ' … y ' . (count($lista) - 10) . ' más.' : '.');
+
+        if ($fill['clientes'] > 0) {
+            $this->note(
+                $fill['clientes'] . ' cliente(s) ya importados se completaron con datos que en Punto estaban vacíos'
+                . ($fill['campos'] !== [] ? ': ' . $conteo($fill['campos'], ' con ') : '') . '.'
+            );
+        }
+        if ($fill['dejados'] !== []) {
+            $this->note(
+                array_sum($fill['dejados']) . ' dato(s) de clientes ya importados NO se tocaron porque en Punto ya '
+                . 'tenían otro valor (puede ser una corrección hecha en Punto): '
+                . $conteo($fill['dejados'], ' ') . '.'
+            );
+        }
+        if ($fill['telNota'] !== []) {
+            $this->note(
+                count($fill['telNota']) . ' cliente(s) ya importados no recibieron el teléfono del sistema anterior '
+                . '(inválido o de otro cliente); el número quedó en su nota. Ejemplos: ' . $ejemplos($fill['telNota'])
+            );
+        }
+        if ($fill['docRepetido'] !== []) {
+            $this->note(
+                count($fill['docRepetido']) . ' cliente(s) ya importados no recibieron el documento del sistema '
+                . 'anterior porque ese número ya lo tiene otro cliente de Punto. Ejemplos: '
+                . $ejemplos($fill['docRepetido'])
+            );
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -2287,10 +2672,27 @@ final class EncomImportService
      * `$create` devuelve el id de Punto creado, o null si la fila no es
      * importable (sin nombre, por ejemplo). Lo que lance se cuenta como fallo de
      * ESA fila y no frena al resto.
+     *
+     * `$complete` (opcional) recibe las filas YA mapeadas junto con su id de
+     * Punto, para completar lo que haya quedado vacío en una corrida anterior
+     * (clientes: `completarCliente()`). Sin él, una fila mapeada se saltea como
+     * siempre. Se cuenta igual en `skipped` —la fila "ya estaba"—, y lo que
+     * haya completado lo cuenta y lo informa el propio dominio.
+     *
+     * ── Advertencia ≠ error ─────────────────────────────────────────────
+     * Una fila que el legacy manda sin identificador o sin nombre es un DATO
+     * del sistema anterior, no una falla del job: no se importa, se nombra en
+     * la bitácora y se cuenta en `omitted`. Ir a `errors` dejaba el job en
+     * `failed` por un "Primer Cliente" sin id que nadie puede arreglar
+     * relanzando, y un job siempre rojo entrena a no mirar el rojo. Lo que
+     * sigue en `errors` es lo que SÍ es una falla: un servicio que rechaza la
+     * fila, una excepción, un dominio que no pudo correr.
+     *
+     * @param ?callable(array,string):void $complete
      */
-    private function each(string $domain, array $rows, callable $create): void
+    private function each(string $domain, array $rows, callable $create, ?callable $complete = null): void
     {
-        $counts = ['total' => count($rows), 'imported' => 0, 'skipped' => 0, 'failed' => 0];
+        $counts = ['total' => count($rows), 'imported' => 0, 'skipped' => 0, 'failed' => 0, 'omitted' => 0];
 
         foreach ($rows as $row) {
             if (!is_array($row)) {
@@ -2305,30 +2707,41 @@ final class EncomImportService
                 // legacy que no tienen `contactUID` (el bootstrap del POS solo
                 // manda `customerId` si existe): ninguna venta puede
                 // referenciarlo, y sin id no hay forma idempotente de traerlo.
-                $counts['failed']++;
-                $this->fail(
-                    $domain,
-                    ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '": vino sin identificador del legacy '
-                    . '(en el sistema anterior no tiene id propio), así que no se puede importar sin riesgo de '
-                    . 'duplicarlo al relanzar. Si hace falta, cargalo a mano.'
+                $counts['omitted']++;
+                $this->note(
+                    ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '": no se importó porque vino sin '
+                    . 'identificador del legacy (en el sistema anterior no tiene id propio), y sin él relanzar lo '
+                    . 'duplicaría. Si hace falta, cargalo a mano.'
                 );
                 continue;
             }
 
-            if (EncomMigrationService::mapped($this->companyId, $domain, $legacyId) !== null) {
+            $puntoId = EncomMigrationService::mapped($this->companyId, $domain, $legacyId);
+            if ($puntoId !== null) {
                 $counts['skipped']++;
+                if ($complete !== null) {
+                    try {
+                        $complete($row, $puntoId);
+                    } catch (\Throwable $e) {
+                        $counts['failed']++;
+                        $this->fail(
+                            $domain,
+                            ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '" (ya importado): no se pudo '
+                            . 'completar: ' . $e->getMessage()
+                        );
+                    }
+                }
                 continue;
             }
 
             try {
                 $puntoId = $create($row);
                 if (!is_string($puntoId) || $puntoId === '') {
-                    // Toda falla deja mensaje: un contador que sube sin una
+                    // Toda omisión deja mensaje: un contador que sube sin una
                     // línea que lo explique es un número que nadie puede
                     // resolver.
-                    $counts['failed']++;
-                    $this->fail(
-                        $domain,
+                    $counts['omitted']++;
+                    $this->note(
                         ucfirst($domain) . ' "' . $this->nombreDeFila($row) . '" (' . $legacyId . '): no se importó '
                         . 'porque vino sin nombre en el legacy.'
                     );
