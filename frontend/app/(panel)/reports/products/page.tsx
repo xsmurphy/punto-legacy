@@ -34,7 +34,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useSearchParams } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import {
   AlertCircle,
@@ -89,7 +89,13 @@ import { BackLink } from "@/components/page/back-link"
 function ItemLink({ id, children }: { id: string; children: React.ReactNode }) {
   if (!id) return <>{children}</>
   return (
-    <Link href={`/items/${id}?tab=stock`} className="hover:underline">
+    <Link
+      href={`/items/${id}?tab=stock`}
+      className="hover:underline"
+      // En Detallado la fila entera abre el comprobante: el link al artículo
+      // no debe disparar también ese click.
+      onClick={(e) => e.stopPropagation()}
+    >
       {children}
     </Link>
   )
@@ -653,6 +659,7 @@ function RankingTab({
 /* ─────────────────────────── Detallado (view=detail) ─────────────────────────── */
 
 function DetailTab({ range }: { range: DateRangeValue }) {
+  const router = useRouter()
   const { data: bootstrap } = useBootstrap()
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: { view: "detail" } }),
@@ -827,6 +834,7 @@ function DetailTab({ range }: { range: DateRangeValue }) {
         data={rows}
         columns={columns}
         getRowId={(r) => r.itemSoldId}
+        onRowClick={(r) => r.transactionId && router.push(`/transactions/${r.transactionId}`)}
         isLoading={isLoading}
         searchPlaceholder="Buscar por artículo, cliente, comprobante…"
         exportFileName="productos_detallado"
