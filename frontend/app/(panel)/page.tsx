@@ -1474,13 +1474,12 @@ type Boot = ReturnType<typeof useBootstrap>["data"]
 function NowSection({ tiles, bootstrap }: { tiles: NowTile[]; bootstrap: Boot }) {
   if (tiles.length === 0) return null
   return (
-    <section className="flex flex-col gap-3">
-      <h2 className="text-xl font-semibold">Ahora</h2>
-      <div className="flex flex-col gap-3">
-        {tiles.map((t) => (
-          <NowTileCard key={t.key} tile={t} bootstrap={bootstrap} />
-        ))}
-      </div>
+    // Sin título "Ahora" (owner): cada card ya dice qué es, y la columna no
+    // necesita un rótulo que la separe del resto.
+    <section className="flex flex-col gap-4">
+      {tiles.map((t) => (
+        <NowTileCard key={t.key} tile={t} bootstrap={bootstrap} />
+      ))}
     </section>
   )
 }
