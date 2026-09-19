@@ -97,7 +97,7 @@ describe("información general", () => {
   })
 
   it("cajas abiertas ya no es fila de acá: se mudó a 'Ahora' (un número, una vez)", () => {
-    expect(visibleInfoRows(stats(5), info({ usesDrawers: true, openDrawersCount: 3 }))).toEqual(["ticket"])
+    expect(visibleInfoRows(stats(5), info({ usesDrawers: true, openDrawersCount: 3 }))).toEqual([])
   })
 
   it("gift cards solo con alguna vigente", () => {

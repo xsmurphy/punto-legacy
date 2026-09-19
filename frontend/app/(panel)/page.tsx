@@ -324,6 +324,21 @@ export default function DashboardPage() {
                   <KpiDelta delta={deltas.count} loading={stats.isLoading} />
                 </div>
               </div>
+              {/* Ticket promedio junto a los otros KPIs del período (owner).
+                  Sin ventas no promedia nada: no se muestra. */}
+              {(stats.isLoading || Number(stats.data?.count ?? 0) > 0) && (
+                <div className="flex flex-col items-center gap-1 border-t py-4">
+                  <span className="text-xs text-muted-foreground">Ticket promedio</span>
+                  {stats.isLoading ? (
+                    <Skeleton className="h-6 w-24" />
+                  ) : (
+                    <span className="text-xl font-bold tabular-nums">
+                      {formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
+                    </span>
+                  )}
+                  <KpiDelta delta={deltas.customerAverage} loading={stats.isLoading} />
+                </div>
+              )}
             </div>
           </section>
 
@@ -1123,10 +1138,6 @@ const INFO_ROW: Record<
     ) => React.ReactNode
   }
 > = {
-  ticket: {
-    label: "Ticket promedio",
-    value: (stats, _info, bootstrap) => formatMoney(stats?.customerAverage ?? 0, bootstrap),
-  },
   giftCards: {
     label: "Gift cards vigentes",
     href: "/reports/giftcards",
@@ -1171,12 +1182,7 @@ function InfoGeneralCard({
               ) : (
                 <span className="text-muted-foreground">{r.label}</span>
               )}
-              <span className="flex items-baseline gap-2">
-                {k === "ticket" && deltas.customerAverage && (
-                  <DeltaLine {...deltas.customerAverage} compact />
-                )}
-                <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
-              </span>
+              <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
             </div>
           )
         })}

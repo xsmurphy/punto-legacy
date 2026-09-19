@@ -274,13 +274,13 @@ export function showCustomers(data: CustomersWidget | undefined): boolean {
 
 // ── Información general ────────────────────────────────────────────────────
 
-export type InfoRowKey = "ticket" | "giftCards"
+export type InfoRowKey = "giftCards"
 
 /**
  * Filas de "Información general":
- *   - Ticket promedio: solo con ventas en el período (sin ventas es un cero
- *     que no promedia nada).
  *   - Gift cards vigentes: solo si hay alguna.
+ * El ticket promedio se mudó junto a Margen y Cant. ventas (owner): es un KPI
+ * del período, va con los otros KPIs del período.
  * Sin filas, la card no se pinta.
  *
  * "Cajas abiertas" ya no vive acá: es un dato del MOMENTO, no del período, y
@@ -292,7 +292,6 @@ export function visibleInfoRows(
   info: InfoWidget | undefined,
 ): InfoRowKey[] {
   const out: InfoRowKey[] = []
-  if (Number(stats?.count ?? 0) > 0) out.push("ticket")
   if (Number(info?.giftCardsCount ?? 0) > 0) out.push("giftCards")
   return out
 }
