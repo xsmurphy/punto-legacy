@@ -184,6 +184,7 @@ export default function DashboardPage() {
   const financeForecast = useFinanceForecast(forecastRange, { enabled: canManageFinance })
 
   const nowTiles = visibleNowTiles(now.data)
+  const drawersTile = nowTiles.find((t): t is NowDrawersTile => t.key === "drawers")
   const weeklyGoal = visibleWeeklyGoal(goal.data)
   const deltas = kpiDeltas(stats.data)
 
@@ -361,7 +362,7 @@ export default function DashboardPage() {
               alto. */}
           <DashboardGrid
             blocks={{
-              ...nowBlocks(nowTiles, bootstrap),
+              ...nowBlocks(nowTiles.filter((t) => t.key !== "drawers"), bootstrap),
               topItems: showTopItems(topItems.data) && (
                 <TopItemsCard data={topItems.data ?? []} bootstrap={bootstrap} />
               ),
@@ -438,6 +439,10 @@ export default function DashboardPage() {
               )}
             </TileRows>
           </TileCard>
+          {/* Cajas abiertas vuelve a la columna derecha (owner): la mayoría
+              de los comercios tiene UNA caja y una card ancha en la grilla
+              quedaba casi vacía. */}
+          {drawersTile && <NowDrawers tile={drawersTile} bootstrap={bootstrap} soft />}
           <AttentionCard data={attention.data} bootstrap={bootstrap} />
           {canManageFinance && (
             <FinanceCard summary={financeSummary} forecast={financeForecast} bootstrap={bootstrap} />
@@ -1358,16 +1363,17 @@ function NowTileCard({ tile, bootstrap }: { tile: NowTile; bootstrap: Boot }) {
 function NowCard({
   title,
   href,
+  soft,
   children,
 }: {
   title: string
   href?: string
+  /** En la columna derecha lleva su piel gris; en la grilla principal, blanca. */
+  soft?: boolean
   children: React.ReactNode
 }) {
   return (
-    // Misma piel que el resto de la grilla principal (blanca), no el gris
-    // de la columna derecha.
-    <TileCard title={title} href={href} variant="default">
+    <TileCard title={title} href={href} variant={soft ? "soft" : "default"}>
       {children}
     </TileCard>
   )
@@ -1436,11 +1442,11 @@ function NowSpaces({ tile, bootstrap }: { tile: NowSpacesTile; bootstrap: Boot }
   )
 }
 
-function NowDrawers({ tile, bootstrap }: { tile: NowDrawersTile; bootstrap: Boot }) {
+function NowDrawers({ tile, bootstrap, soft }: { tile: NowDrawersTile; bootstrap: Boot; soft?: boolean }) {
   // La sucursal solo suma cuando las cajas abiertas son de más de una.
   const manyOutlets = new Set(tile.rows.map((r) => r.outletName)).size > 1
   return (
-    <NowCard title="Cajas abiertas" href={tile.href}>
+    <NowCard title="Cajas abiertas" href={tile.href} soft={soft}>
       <TileRows>
         {tile.rows.map((r) => (
           <TileRow
