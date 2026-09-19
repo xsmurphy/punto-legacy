@@ -19,9 +19,13 @@
  * pestaña: no es otra vista de los datos, es la misma recortada, y como pedido
  * ("mostrame lo que tengo que mirar") se hace sobre la pestaña en la que ya
  * estás.
+ *
+ * `?review=1` entra con el filtro prendido y en Marcaciones: es el destino de
+ * la fila "Marcaciones para revisar" del dashboard, que viene a revisar.
  */
 
 import * as React from "react"
+import { useSearchParams } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -35,8 +39,18 @@ import { BackLink } from "@/components/page/back-link"
 import { AttendanceMarksTab } from "@/components/domain/reports/attendance/attendance-marks-tab"
 
 export default function AttendanceReportPage() {
+  // useSearchParams() requiere Suspense boundary durante el prerender.
+  return (
+    <React.Suspense fallback={null}>
+      <AttendanceReportInner />
+    </React.Suspense>
+  )
+}
+
+function AttendanceReportInner() {
+  const fromReview = useSearchParams().get("review") === "1"
   const { range, setRange } = useDateRange()
-  const [onlyReview, setOnlyReview] = React.useState(false)
+  const [onlyReview, setOnlyReview] = React.useState(fromReview)
 
   const filters = React.useMemo(() => {
     const { from, to } = rangeToBackend(range)
@@ -67,7 +81,7 @@ export default function AttendanceReportPage() {
         </div>
       </header>
 
-      <Tabs defaultValue="resumen" className="flex flex-col gap-4">
+      <Tabs defaultValue={fromReview ? "marcaciones" : "resumen"} className="flex flex-col gap-4">
         <TabsList>
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="marcaciones">Marcaciones</TabsTrigger>

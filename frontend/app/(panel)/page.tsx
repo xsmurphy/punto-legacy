@@ -75,6 +75,20 @@ import {
   type TopItemRow,
   type TopTaxonomyRow,
 } from "@/hooks/use-dashboard-widget"
+import {
+  packGrid,
+  showCustomers,
+  showSplitDonut,
+  showTopCategories,
+  showTopHours,
+  showTopItems,
+  visibleAttentionRows,
+  visibleInfoRows,
+  type AttentionKey,
+  type AttentionRow,
+  type AttentionWidget,
+  type InfoRowKey,
+} from "@/lib/dashboard/visibility"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
@@ -115,6 +129,10 @@ export default function DashboardPage() {
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", ventas)
   // NPS oculto (ver comentario en <aside>) — fetch de "satisfaction" removido:
   // quedaría huérfano sin SatisfactionCard montado.
+  // "Requiere atención": sin `enabled` a propósito — no es de ventas; el
+  // backend gatea FILA por fila con el permiso de la pantalla a la que linkea
+  // cada una, así que un usuario sin reportes igual ve lo que sí le compete.
+  const attention = useDashboardWidget<AttentionWidget>("attention", opts)
 
   // "Negocio sin actividad" = NUNCA vendió (lifetime, info.hasSales).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -277,61 +295,54 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          {/* Tipos de ventas + Cuentas por cobrar — donuts lado a lado */}
-          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <PaymentSplitCard
-              title="Tipos de venta"
-              data={paymentStatus.data}
-              isLoading={paymentStatus.isLoading}
-              bootstrap={bootstrap}
-              mode="sale-type"
-            />
-            <PaymentSplitCard
-              title="Cuentas por cobrar"
-              data={paymentStatus.data}
-              isLoading={paymentStatus.isLoading}
-              bootstrap={bootstrap}
-              mode="receivables"
-            />
-          </section>
-
-          {/* Top 5 Artículos (Clientes se movió a la sidebar) */}
-          <section>
-            <TopItemsCard
-              data={topItems.data ?? []}
-              isLoading={topItems.isLoading}
-              bootstrap={bootstrap}
-            />
-          </section>
-
-          {/* Horarios Pico + Top 10 Categorías */}
-          <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <TopHoursCard data={topHours.data} isLoading={topHours.isLoading} />
-            <TopCategoriesCard
-              data={topCategories.data ?? []}
-              isLoading={topCategories.isLoading}
-            />
-          </section>
+          {/* Bloques del período en una grilla de 2 columnas. Cada uno se
+              pinta SOLO si tiene algo que decir (lib/dashboard/visibility.ts:
+              un donut de una porción, un ranking vacío o una sola categoría
+              no informan), y `packGrid` los acomoda para que ocultar uno no
+              deje un hueco. */}
+          <PeriodBlocksGrid
+            blocks={{
+              saleType: showSplitDonut(paymentStatus.data, "sale-type") && (
+                <PaymentSplitCard
+                  title="Tipos de venta"
+                  data={paymentStatus.data}
+                  bootstrap={bootstrap}
+                  mode="sale-type"
+                />
+              ),
+              receivables: showSplitDonut(paymentStatus.data, "receivables") && (
+                <PaymentSplitCard
+                  title="Cuentas por cobrar"
+                  data={paymentStatus.data}
+                  bootstrap={bootstrap}
+                  mode="receivables"
+                />
+              ),
+              topItems: showTopItems(topItems.data) && (
+                <TopItemsCard data={topItems.data ?? []} bootstrap={bootstrap} />
+              ),
+              topHours: showTopHours(topHours.data) && <TopHoursCard data={topHours.data!} />,
+              topCategories: showTopCategories(topCategories.data) && (
+                <TopCategoriesCard data={topCategories.data ?? []} />
+              ),
+            }}
+          />
         </div>
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
+          <AttentionCard data={attention.data} bootstrap={bootstrap} />
           <FinanceCard />
           {/* NPS oculto a pedido del owner — el módulo de satisfacción de
               clientes todavía no está desarrollado. Componente y helpers
               (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
               vuelve más adelante. */}
-          <CustomersCard
-            data={customers.data}
-            rates={customersRates.data}
-            isLoading={customers.isLoading}
-          />
-          <InfoGeneralCard
-            stats={stats.data}
-            info={info.data}
-            loading={stats.isLoading || info.isLoading}
-            bootstrap={bootstrap}
-          />
+          {showCustomers(customers.data) && (
+            <CustomersCard data={customers.data} rates={customersRates.data} isLoading={false} />
+          )}
+          {!stats.isLoading && !info.isLoading && (
+            <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} />
+          )}
         </aside>
       </div>
     </div>
@@ -495,14 +506,12 @@ function IncomeOutcomeChart({
       </div>
       <div>
         {!hasData ? (
-          <div className="flex h-[240px] items-center justify-center">
-            <EmptyState
-              icon={TrendingUp}
-              title="Sin movimientos en este período"
-              showMarquee={false}
-              className="border-0 p-0"
-            />
-          </div>
+          // Bloque central: se queda aunque el período no tenga movimientos
+          // (el rango lo eligió el usuario y "no hubo nada" es la respuesta),
+          // pero como línea compacta de sub-sección, no EmptyState (context/84 T7).
+          <p className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">
+            Sin movimientos en este período.
+          </p>
         ) : (
           <ChartContainer config={incomeChartConfig} className="h-[240px] w-full">
             <ComposedChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
@@ -704,7 +713,7 @@ function FinanceCard() {
 /**
  * Helper: el endpoint devuelve `[]` (PHP array vacío) cuando el módulo está
  * apagado para el tenant. React Query lo recibe como array. Detectamos eso
- * para mostrar el ModuleOffCard.
+ * para no montar el bloque.
  */
 function isModuleOff<T>(data: T | undefined): boolean {
   if (data === undefined || data === null) return true
@@ -719,7 +728,9 @@ function SatisfactionCard({
   data: SatisfactionWidget | undefined
   isLoading: boolean
 }) {
-  if (!isLoading && isModuleOff(data)) return <ModuleOffCard title="Satisfacción (NPS)" />
+  // Módulo apagado = el bloque no existe (regla del dashboard: nunca un
+  // bloque que diga "no aplica").
+  if (!isLoading && isModuleOff(data)) return null
   const det = data?.detractors.percent ?? 0
   const pas = data?.passives.percent ?? 0
   const pro = data?.promoters.percent ?? 0
@@ -796,16 +807,18 @@ const donutChartConfig = {
   porcobrar: { label: "Por cobrar", color: "var(--chart-3)" },
 } satisfies ChartConfig
 
+/**
+ * Donut de dos porciones. Solo se monta con las DOS porciones en > 0
+ * (`showSplitDonut`): con una sola no informa y el bloque no existe.
+ */
 function PaymentSplitCard({
   title,
   data,
-  isLoading,
   bootstrap,
   mode,
 }: {
   title: string
   data: PaymentStatusWidget | undefined
-  isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
   mode: "sale-type" | "receivables"
 }) {
@@ -816,18 +829,12 @@ function PaymentSplitCard({
   const rightCount = isSaleType ? data?.creditoCount : data?.porcobrarCount
   const leftLabel = isSaleType ? "Al contado" : "Cobrado"
   const rightLabel = isSaleType ? "A crédito" : "Por cobrar"
-  const total = left + right
   const totalCount = (leftCount ?? 0) + (rightCount ?? 0)
 
-  // Donut data — recharts ignora segments con value=0. Para mostrar un donut
-  // incluso cuando todo es 0 usamos un placeholder gris (var(--muted)).
-  const pieData =
-    total > 0
-      ? [
-          { name: leftLabel, value: left, color: "var(--chart-1)" },
-          { name: rightLabel, value: right, color: "var(--chart-3)" },
-        ]
-      : [{ name: "Sin datos", value: 1, color: "var(--muted)" }]
+  const pieData = [
+    { name: leftLabel, value: left, color: "var(--chart-1)" },
+    { name: rightLabel, value: right, color: "var(--chart-3)" },
+  ]
 
   return (
     <Card>
@@ -836,68 +843,58 @@ function PaymentSplitCard({
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
         <div className="relative h-[200px] w-[200px] shrink-0">
-          {isLoading ? (
-            <Skeleton className="size-full rounded-full" />
-          ) : (
-            <>
-              <ChartContainer config={donutChartConfig} className="size-full aspect-square">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={90}
-                    outerRadius={100}
-                    paddingAngle={total > 0 ? 2 : 0}
-                    strokeWidth={0}
-                  >
-                    {pieData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  {total > 0 && (
-                    <ChartTooltip
-                      content={
-                        <ChartTooltipContent
-                          hideLabel
-                          formatter={(value, _name, item) => (
-                            <div className="flex w-full items-center justify-between gap-3">
-                              <span className="text-muted-foreground">
-                                {(item?.payload as { name?: string } | undefined)?.name}
-                              </span>
-                              <span className="font-medium tabular-nums">
-                                {formatMoney(Number(value) || 0, bootstrap)}
-                              </span>
-                            </div>
-                          )}
-                        />
-                      }
-                    />
-                  )}
-                </PieChart>
-              </ChartContainer>
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-xl font-bold tabular-nums">{totalCount}</span>
-                <span className="text-xs text-muted-foreground">
-                  ventas
-                </span>
-              </div>
-            </>
-          )}
+          <ChartContainer config={donutChartConfig} className="size-full aspect-square">
+            <PieChart>
+              <Pie
+                data={pieData}
+                dataKey="value"
+                cx="50%"
+                cy="50%"
+                innerRadius={90}
+                outerRadius={100}
+                paddingAngle={2}
+                strokeWidth={0}
+              >
+                {pieData.map((entry, i) => (
+                  <Cell key={i} fill={entry.color} />
+                ))}
+              </Pie>
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    hideLabel
+                    formatter={(value, _name, item) => (
+                      <div className="flex w-full items-center justify-between gap-3">
+                        <span className="text-muted-foreground">
+                          {(item?.payload as { name?: string } | undefined)?.name}
+                        </span>
+                        <span className="font-medium tabular-nums">
+                          {formatMoney(Number(value) || 0, bootstrap)}
+                        </span>
+                      </div>
+                    )}
+                  />
+                }
+              />
+            </PieChart>
+          </ChartContainer>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-xl font-bold tabular-nums">{totalCount}</span>
+            <span className="text-xs text-muted-foreground">ventas</span>
+          </div>
         </div>
         <div className="grid w-full grid-cols-2 gap-3">
           <SplitRow
             dotColor="var(--chart-1)"
             label={leftLabel}
-            amount={isLoading ? null : formatMoney(left, bootstrap)}
-            count={isLoading ? null : formatInt(leftCount, bootstrap)}
+            amount={formatMoney(left, bootstrap)}
+            count={formatInt(leftCount, bootstrap)}
           />
           <SplitRow
             dotColor="var(--chart-3)"
             label={rightLabel}
-            amount={isLoading ? null : formatMoney(right, bootstrap)}
-            count={isLoading ? null : formatInt(rightCount, bootstrap)}
+            amount={formatMoney(right, bootstrap)}
+            count={formatInt(rightCount, bootstrap)}
           />
         </div>
       </CardContent>
@@ -1063,70 +1060,182 @@ function RateRow({
   )
 }
 
-// ── Info general (Ticket promedio + cajas) ────────────────────────────────
+// ── Info general (Ticket promedio + cajas + gift cards) ───────────────────
+
+const INFO_ROW: Record<
+  InfoRowKey,
+  {
+    label: string
+    href?: string
+    value: (
+      stats: IncomeOutcomeStatsWidget | undefined,
+      info: InfoWidget | undefined,
+      bootstrap: ReturnType<typeof useBootstrap>["data"],
+    ) => React.ReactNode
+  }
+> = {
+  ticket: {
+    label: "Ticket promedio",
+    value: (stats, _info, bootstrap) => formatMoney(stats?.customerAverage ?? 0, bootstrap),
+  },
+  drawers: {
+    label: "Cajas abiertas",
+    href: "/reports/drawers",
+    value: (_stats, info, bootstrap) => formatInt(info?.openDrawersCount, bootstrap),
+  },
+  giftCards: {
+    label: "Gift cards vigentes",
+    href: "/reports/giftcards",
+    value: (_stats, info, bootstrap) => formatInt(info?.giftCardsCount, bootstrap),
+  },
+}
 
 /**
- * Tabla compacta para la sidebar (espejo del panel "Información general"
- * del legacy): 4 rows con label + valor, sin charts ni KPIs grandes.
- * Cada row tiene su propio link al reporte correspondiente.
+ * Filas label/valor de la sidebar. Cada fila existe solo si aplica al
+ * comercio (`visibleInfoRows`); sin filas, la card no se monta.
  */
 function InfoGeneralCard({
   stats,
   info,
-  loading,
   bootstrap,
 }: {
   stats: IncomeOutcomeStatsWidget | undefined
   info: InfoWidget | undefined
-  loading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
-  const rows: { label: string; value: React.ReactNode; href?: string }[] = [
-    {
-      label: "Ticket promedio",
-      value: loading ? null : fmtMoney(stats?.customerAverage, bootstrap, false),
-    },
-    {
-      label: "Cajas abiertas",
-      value: loading ? null : formatInt(info?.openDrawersCount, bootstrap),
-      href: "/reports",
-    },
-    {
-      label: "Gift cards vigentes",
-      value: loading ? null : formatInt(info?.giftCardsCount, bootstrap),
-      href: "/reports",
-    },
-  ]
+  const keys = visibleInfoRows(stats, info)
+  if (keys.length === 0) return null
   return (
     <Card variant="soft">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm font-medium">Información general</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-border">
+        {keys.map((k) => {
+          const r = INFO_ROW[k]
+          return (
+            <div
+              key={k}
+              className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+            >
+              {r.href ? (
+                <Link href={r.href} className="text-muted-foreground hover:text-foreground">
+                  {r.label}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">{r.label}</span>
+              )}
+              <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
+            </div>
+          )
+        })}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── Requiere atención ─────────────────────────────────────────────────────
+
+const ATTENTION_LABEL: Record<AttentionKey, string> = {
+  einvoice: "Facturas electrónicas con problemas",
+  stock: "Artículos agotados o bajo el mínimo",
+  margin: "Artículos bajo el margen objetivo",
+  receivables: "Deuda de clientes vencida",
+  attendance: "Marcaciones para revisar",
+}
+
+/**
+ * Pendientes del comercio, cada uno con un link a donde se resuelve. El
+ * backend (`AttentionService`) manda solo las filas con algo y solo las que el
+ * usuario puede abrir; sin filas la card NO se monta — silencio, no "todo en
+ * orden". Tampoco hay skeleton: una card que aparece para desaparecer es
+ * justo el ruido que la regla evita.
+ */
+function AttentionCard({
+  data,
+  bootstrap,
+}: {
+  data: AttentionWidget | undefined
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  const rows = visibleAttentionRows(data)
+  if (rows.length === 0) return null
+  return (
+    <Card variant="soft">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-medium">Requiere atención</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col divide-y divide-border">
         {rows.map((r) => (
-          <div
-            key={r.label}
-            className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
-          >
-            {r.href ? (
-              <Link href={r.href} className="text-muted-foreground hover:text-foreground">
-                {r.label}
-              </Link>
-            ) : (
-              <span className="text-muted-foreground">{r.label}</span>
-            )}
-            {r.value === null ? (
-              <Skeleton className="h-4 w-12" />
-            ) : (
-              <span className="font-semibold tabular-nums">{r.value}</span>
-            )}
-          </div>
+          <AttentionRowLink key={r.key} row={r} bootstrap={bootstrap} />
         ))}
       </CardContent>
     </Card>
   )
 }
 
+function AttentionRowLink({
+  row,
+  bootstrap,
+}: {
+  row: AttentionRow
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  const isDebt = row.key === "receivables"
+  return (
+    <Link
+      href={row.href}
+      className="group flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
+    >
+      <span className="flex min-w-0 flex-col">
+        <span className="text-muted-foreground group-hover:text-foreground">
+          {ATTENTION_LABEL[row.key]}
+        </span>
+        {isDebt && (
+          <span className="text-xs text-muted-foreground">
+            {formatInt(row.count, bootstrap)} {row.count === 1 ? "cliente" : "clientes"}
+          </span>
+        )}
+      </span>
+      <span className="flex shrink-0 items-center gap-1 font-semibold tabular-nums">
+        {isDebt ? formatMoney(row.amount ?? 0, bootstrap) : formatInt(row.count, bootstrap)}
+        <ChevronRight className="size-3.5 text-muted-foreground" />
+      </span>
+    </Link>
+  )
+}
+
+// ── Grilla de bloques del período ─────────────────────────────────────────
+
+type PeriodBlockKey = "saleType" | "receivables" | "topItems" | "topHours" | "topCategories"
+
+/** Orden de pantalla y ancho natural de cada bloque (la tabla va a fila entera). */
+const PERIOD_BLOCKS: { key: PeriodBlockKey; full: boolean }[] = [
+  { key: "saleType", full: false },
+  { key: "receivables", full: false },
+  { key: "topItems", full: true },
+  { key: "topHours", full: false },
+  { key: "topCategories", full: false },
+]
+
+/**
+ * Grilla de 2 columnas con los bloques que tienen algo que mostrar. Un bloque
+ * en `false` no existe; `packGrid` reacomoda el resto para que no quede un
+ * hueco (una media fila sola sube a la próxima media fila o se estira).
+ */
+function PeriodBlocksGrid({ blocks }: { blocks: Record<PeriodBlockKey, React.ReactNode | false> }) {
+  const visible = PERIOD_BLOCKS.filter((b) => blocks[b.key])
+  if (visible.length === 0) return null
+  return (
+    <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {packGrid(visible).map((b) => (
+        <div key={b.key} className={cn("min-w-0 [&>*]:h-full", b.full && "md:col-span-2")}>
+          {blocks[b.key]}
+        </div>
+      ))}
+    </section>
+  )
+}
 
 // ── Horarios Pico ────────────────────────────────────────────────────────
 
@@ -1134,13 +1243,8 @@ const topHoursChartConfig = {
   total: { label: "Ventas", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
-function TopHoursCard({
-  data,
-  isLoading,
-}: {
-  data: TopHoursWidget | undefined
-  isLoading: boolean
-}) {
+/** Solo se monta con ventas en el período (`showTopHours`). */
+function TopHoursCard({ data }: { data: TopHoursWidget }) {
   const points = React.useMemo(() => {
     if (!data?.hour?.length) return []
     return data.hour.map((h, i) => ({
@@ -1155,18 +1259,6 @@ function TopHoursCard({
         <CardTitle className="text-sm font-medium">Horarios pico</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-[200px] w-full" />
-        ) : points.length === 0 ? (
-          <div className="flex h-[200px] items-center justify-center">
-            <EmptyState
-              icon={TrendingUp}
-              title="Sin ventas en este período"
-              showMarquee={false}
-              className="border-0 p-0"
-            />
-          </div>
-        ) : (
           <ChartContainer config={topHoursChartConfig} className="h-[200px] w-full">
             <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -1190,7 +1282,6 @@ function TopHoursCard({
               <Bar dataKey="total" fill="var(--color-total)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ChartContainer>
-        )}
       </CardContent>
     </Card>
   )
@@ -1198,13 +1289,12 @@ function TopHoursCard({
 
 // ── Top 5 artículos ───────────────────────────────────────────────────────
 
+/** Solo se monta con ventas en el período (`showTopItems`). */
 function TopItemsCard({
   data,
-  isLoading,
   bootstrap,
 }: {
   data: TopItemRow[]
-  isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
@@ -1213,20 +1303,6 @@ function TopItemsCard({
         <CardTitle className="text-sm font-medium">Top 5 Artículos</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="flex flex-col gap-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-8 w-full" />
-            ))}
-          </div>
-        ) : data.length === 0 ? (
-          <EmptyState
-            icon={TrendingUp}
-            title="Sin ventas en este período"
-            showMarquee={false}
-            className="border-0 py-6"
-          />
-        ) : (
           <Table>
             <TableHeader>
               <TableRow>
@@ -1247,7 +1323,6 @@ function TopItemsCard({
               ))}
             </TableBody>
           </Table>
-        )}
       </CardContent>
     </Card>
   )
@@ -1259,13 +1334,8 @@ const topCategoriesChartConfig = {
   total: { label: "Ventas", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
-function TopCategoriesCard({
-  data,
-  isLoading,
-}: {
-  data: TopTaxonomyRow[]
-  isLoading: boolean
-}) {
+/** Solo se monta con 2+ categorías (`showTopCategories`). */
+function TopCategoriesCard({ data }: { data: TopTaxonomyRow[] }) {
   // BarChart horizontal: eje Y = title, eje X = total. La altura se calcula
   // según cantidad de filas para que no se aplasten (28px por bar mínimo).
   const chartHeight = Math.max(200, data.length * 28)
@@ -1276,20 +1346,6 @@ function TopCategoriesCard({
         <CardTitle className="text-sm font-medium">Top 10 Categorías</CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading ? (
-          <div className="flex flex-col gap-2">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-5 w-full" />
-            ))}
-          </div>
-        ) : data.length === 0 ? (
-          <EmptyState
-            icon={TrendingUp}
-            title="Sin ventas en este período"
-            showMarquee={false}
-            className="border-0 py-6"
-          />
-        ) : (
           <ChartContainer
             config={topCategoriesChartConfig}
             className="w-full"
@@ -1324,7 +1380,6 @@ function TopCategoriesCard({
               <Bar dataKey="total" fill="var(--color-total)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ChartContainer>
-        )}
       </CardContent>
     </Card>
   )
@@ -1332,21 +1387,6 @@ function TopCategoriesCard({
 
 // ── Pequeños helpers ─────────────────────────────────────────────────────
 
-
-function ModuleOffCard({ title }: { title: string }) {
-  return (
-    <Card className="opacity-60">
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-xs text-muted-foreground">
-          Módulo no activado para tu plan.
-        </p>
-      </CardContent>
-    </Card>
-  )
-}
 
 function fmtMoney(
   v: number | undefined,

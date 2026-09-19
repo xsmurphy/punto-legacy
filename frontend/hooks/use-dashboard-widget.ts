@@ -48,6 +48,12 @@ export interface InfoWidget {
    * undefined como "no sé", no como "nunca vendió".
    */
   hasSales?: boolean
+  /**
+   * true si el comercio abrió alguna vez una caja (en el alcance). Decide si
+   * "Cajas abiertas" aplica: en 0 es un dato para quien trabaja con caja y
+   * ruido para quien no. Optional por deploy desfasado — undefined = no.
+   */
+  usesDrawers?: boolean
 }
 
 export interface IncomeOutcomeStatsWidget {
