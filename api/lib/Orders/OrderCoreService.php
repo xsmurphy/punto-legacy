@@ -28,6 +28,21 @@ require_once __DIR__ . '/OrderNotFoundException.php';
 final class OrderCoreService
 {
     /**
+     * Estados en los que una orden sigue VIVA — espejo de
+     * `ACTIVE_ORDER_STATUSES` del front (`frontend/hooks/use-orders.ts`).
+     * `delivered` entra a propósito: una orden entregada y no cobrada (el
+     * delivery que se paga al volver el repartidor) sigue siendo trabajo
+     * pendiente. Lo leen los contadores del dashboard.
+     */
+    public const ACTIVE_STATUSES = ['open', 'sent', 'in_progress', 'ready', 'out_for_delivery', 'delivered'];
+
+    /**
+     * Estados en los que la orden está EN COCINA: enviada y todavía no lista.
+     * Es la cola que muestra el KDS.
+     */
+    public const KITCHEN_STATUSES = ['sent', 'in_progress'];
+
+    /**
      * Transiciones válidas de pos_order_item.status.
      *
      * El ciclo es BIDIRECCIONAL hasta 'ready' (KDS recall + deshacer, 2026-07-27):

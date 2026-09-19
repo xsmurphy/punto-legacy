@@ -23,7 +23,7 @@ $widgets = [
     'info', 'incomeOutcomeStats', 'paymentStatus', 'customers', 'customersRates', 'customersSeries',
     'topItems', 'topHours', 'topCategories', 'topBrands', 'topPayments', 'satisfaction',
     'orders', 'tables', 'schedule', 'notifications', 'notificationsCount', 'getReminders',
-    'attention',
+    'attention', 'now', 'salesByOutlet',
 ];
 $widget = (string) (validateHttp('widget') ?: '');
 if (!in_array($widget, $widgets, true)) {
@@ -70,9 +70,14 @@ if (!in_array($widget, $widgets, true)) {
  * de las cinco filas. El gate va fila por fila, con la MISMA resolución de
  * permiso que el resto (`OperatorContext::allows()`), dentro de
  * `AttentionService`.
+ *
+ * `now` ("Ahora", `NowService`) tampoco, por la misma razón: órdenes, espacios,
+ * cajas, personal, agenda y vencimientos son seis pantallas distintas, y cada
+ * fila exige el módulo y/o la clave de la suya.
  */
 const WIDGET_PERMISO = [
     'incomeOutcomeStats' => 'reports.sales.view',
+    'salesByOutlet'      => 'reports.sales.view',
     'paymentStatus'      => 'reports.sales.view',
     'customers'          => 'reports.sales.view',
     'customersRates'     => 'reports.sales.view',

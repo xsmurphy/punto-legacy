@@ -60,6 +60,68 @@ final class DrawersService
         return $this->toleranceFor($companyId);
     }
 
+    /**
+     * Qué es una caja ABIERTA: sin fecha de cierre (o con la fecha centinela
+     * vieja del legacy, que escribía `0000-00-00`/fechas pre-2000 en lugar de
+     * NULL). Misma definición que `Services\DrawerService::isOpen()`.
+     */
+    public const OPEN_SQL = "(drawerCloseDate IS NULL OR drawerCloseDate < '2000-01-01 01:00:00')";
+
+    /**
+     * Las cajas abiertas AHORA en el alcance: cuál, en qué sucursal, quién la
+     * abrió y desde cuándo. Es la fila "Cajas abiertas" del bloque "Ahora" del
+     * dashboard, que linkea a este reporte.
+     *
+     * Sin rango de fechas a propósito: una caja que quedó abierta desde ayer
+     * sigue abierta, y es justamente la que hay que ver. La tabla `drawer` no
+     * está particionada y el conjunto abierto es chico (una por caja).
+     *
+     * @param list<string> $outletIds `[]` = todas.
+     * @return array{count:int, rows:list<array{drawerId:string,registerName:string,outletName:string,operator:string,openedAt:string}>}
+     */
+    public function openNow(string $companyId, array $outletIds, int $limit = 6): array
+    {
+        $scope = \Punto\Api\Outlets\OutletScope::sqlFilter('d.outletId', $outletIds);
+        $count = ncmExecute(
+            'SELECT COUNT(*) AS n FROM drawer d WHERE d.companyId = ? AND ' . self::OPEN_SQL . $scope,
+            [$companyId]
+        );
+        $n = $count ? (int) ($count['n'] ?? 0) : 0;
+        if ($n === 0) {
+            return ['count' => 0, 'rows' => []];
+        }
+
+        $rs = ncmExecute(
+            'SELECT d.drawerId AS "drawerId", d.drawerOpenDate AS "openedAt",
+                    r.registerName AS "registerName", o.outletName AS "outletName",
+                    c.contactName AS "operator"
+               FROM drawer d
+          LEFT JOIN register r ON r.registerId = d.registerId AND r.companyId = d.companyId
+          LEFT JOIN outlet   o ON o.outletId   = d.outletId   AND o.companyId = d.companyId
+          LEFT JOIN contact  c ON c.contactId  = d.drawerUserOpen AND c.companyId = d.companyId
+              WHERE d.companyId = ? AND ' . self::OPEN_SQL . $scope . '
+              ORDER BY d.drawerOpenDate ASC
+              LIMIT ' . max(1, $limit),
+            [$companyId], false, true
+        );
+        $rows = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $rows[] = [
+                    'drawerId'     => (string) ($f['drawerId'] ?? ''),
+                    'registerName' => (string) ($f['registerName'] ?? ''),
+                    'outletName'   => (string) ($f['outletName'] ?? ''),
+                    'operator'     => (string) ($f['operator'] ?? ''),
+                    'openedAt'     => (string) ($f['openedAt'] ?? ''),
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return ['count' => $n, 'rows' => $rows];
+    }
+
     /** @return array filas de cajas con componentes crudos. */
     public function listMovements($from, $to, string $roc, string $companyId): array
     {

@@ -20,6 +20,49 @@ namespace Punto\Api\Finance;
 final class ObligationsService
 {
     /**
+     * Cheque EMITIDO que todavía es una obligación: pendiente o depositado por
+     * el tenedor, con vencimiento cargado. Una sola definición para la
+     * previsión (`list()`) y para "Vencimientos de la semana" del dashboard
+     * (`issuedChecksDue()`).
+     */
+    private const ISSUED_CHECK_WHERE =
+        "companyid = ? AND direction = 'issued' AND status IN ('pending', 'deposited') AND duedate IS NOT NULL";
+
+    /**
+     * Cheques emitidos que vencen de HOY a `$days` días, y cuántos ya vencieron
+     * sin cambiar de estado. Es la mitad "cheques" de "Vencimientos de la
+     * semana" del dashboard, que linkea a Finanzas → Cheques.
+     *
+     * Sin alcance por sucursal: `fin_check` no tiene sucursal, Finanzas es de
+     * la empresa (igual que la previsión y el saldo de `FinanceCard`).
+     *
+     * `$today` es la fecha del comercio (`TenantClock::now()`), no la del
+     * servidor: con el servidor en UTC, a la noche el "hoy" de acá ya sería
+     * mañana y un cheque que vence hoy se contaría como vencido.
+     *
+     * @return array{count:int, amount:float, overdue:int, next:?string}
+     */
+    public function issuedChecksDue(string $companyId, string $today, int $days = 7): array
+    {
+        $row = ncmExecute(
+            "SELECT COUNT(*) FILTER (WHERE duedate::date >= ?::date)                    AS n,
+                    COALESCE(SUM(amount) FILTER (WHERE duedate::date >= ?::date), 0)   AS amount,
+                    COUNT(*) FILTER (WHERE duedate::date < ?::date)                     AS overdue,
+                    MIN(duedate::date) FILTER (WHERE duedate::date >= ?::date)          AS next
+               FROM fin_check
+              WHERE " . self::ISSUED_CHECK_WHERE . "
+                AND duedate::date <= (?::date + ?::int)",
+            [$today, $today, $today, $today, $companyId, $today, $days]
+        );
+        return [
+            'count'   => $row ? (int) ($row['n'] ?? 0) : 0,
+            'amount'  => $row ? (float) ($row['amount'] ?? 0) : 0.0,
+            'overdue' => $row ? (int) ($row['overdue'] ?? 0) : 0,
+            'next'    => ($row && !empty($row['next'])) ? (string) $row['next'] : null,
+        ];
+    }
+
+    /**
      * @return array<int, array{id:string,type:string,label:string,party:?string,dueDate:string,amount:float,link:string}>
      */
     public function list(string $companyId, ?string $from, string $to): array
@@ -28,7 +71,7 @@ final class ObligationsService
 
         // ── Cheques emitidos (egreso) ────────────────────────────────────
         [$where, $params] = $this->dueWhere(
-            "companyid = ? AND direction = 'issued' AND status IN ('pending', 'deposited') AND duedate IS NOT NULL",
+            self::ISSUED_CHECK_WHERE,
             [$companyId],
             $from,
             $to

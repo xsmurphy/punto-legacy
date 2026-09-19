@@ -422,6 +422,49 @@ final class SpaceService
         return $out;
     }
 
+    /**
+     * Cuántos espacios hay en cada estado, sumando las sucursales del alcance
+     * (`[]` = todas las de la empresa). Es el conteo del bloque "Ahora" del
+     * dashboard.
+     *
+     * Mismo estado derivado que `listWithState()` —nunca persistido—: sesión
+     * `bill_requested` gana sobre `open`, sin sesión activa es libre. Quedan
+     * afuera los deshabilitados (`status = 0`) y los bloques decorativos
+     * (`DECOR_SHAPES`): no se ocupan nunca, contarlos como "libres" inflaría la
+     * disponibilidad del salón.
+     *
+     * Reservas no hay: el estado `reserved` llega con la F4 del módulo. Cuando
+     * exista, se suma acá y en `listWithState()` a la vez.
+     *
+     * @param list<string> $outletIds
+     * @return array{total:int, free:int, occupied:int, billRequested:int}
+     */
+    public function stateSummary(string $companyId, array $outletIds): array
+    {
+        $decor = "'" . implode("','", self::DECOR_SHAPES) . "'";
+        $rs = $this->db->Execute(
+            "SELECT COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE ts.status IS NULL)              AS free,
+                    COUNT(*) FILTER (WHERE ts.status = 'open')             AS occupied,
+                    COUNT(*) FILTER (WHERE ts.status = 'bill_requested')   AS billrequested
+               FROM space t
+          LEFT JOIN space_session ts
+                 ON ts.tableid = t.tableid
+                AND ts.companyid = t.companyid
+                AND ts.status IN ('open','bill_requested')
+              WHERE t.companyid = ? AND t.status <> 0 AND t.shape NOT IN ($decor)"
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('t.outletid', $outletIds),
+            [$companyId]
+        );
+        $row = ($rs !== false && !$rs->EOF) ? $rs->fields : [];
+        return [
+            'total'         => (int) ($row['total'] ?? 0),
+            'free'          => (int) ($row['free'] ?? 0),
+            'occupied'      => (int) ($row['occupied'] ?? 0),
+            'billRequested' => (int) ($row['billrequested'] ?? 0),
+        ];
+    }
+
     // ------------------------------------------------------------------
     // Internals
     // ------------------------------------------------------------------

@@ -201,6 +201,47 @@ final class OpenInvoicesService
     }
 
     /**
+     * Compras a crédito con saldo que vencen de HOY a `$days` días, y cuántas
+     * ya vencieron. Es la mitad "compras a pagar" de "Vencimientos de la
+     * semana" del dashboard, que linkea a Cuentas por pagar.
+     *
+     * Sale de `openBalances()` —la misma lista, el mismo saldo y la misma
+     * fecha de corte que el reporte de cuentas por pagar— para que el número
+     * del dashboard y el de la pantalla a la que lleva no puedan divergir. Una
+     * compra sin vencimiento cargado se mide desde la emisión, igual que allá.
+     *
+     * @param list<string> $outletIds
+     * @return array{count:int, amount:float, overdue:int, next:?string}
+     */
+    public function payablesDue(string $companyId, array $outletIds = [], int $days = 7): array
+    {
+        $today = new \DateTimeImmutable(
+            substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10),
+            new \DateTimeZone('UTC')
+        );
+
+        $count = 0; $amount = 0.0; $overdue = 0; $next = null;
+        foreach ($this->openBalances($companyId, false, $outletIds, $today) as $b) {
+            // daysOverdue: positivo = vencida hace N días; 0 = vence hoy.
+            if ($b['daysOverdue'] > 0) {
+                $overdue++;
+                continue;
+            }
+            if (-$b['daysOverdue'] > $days) {
+                continue;
+            }
+            $count++;
+            $amount += $b['open'];
+            $due = $b['effectiveDue']->format('Y-m-d');
+            if ($next === null || $due < $next) {
+                $next = $due;
+            }
+        }
+
+        return ['count' => $count, 'amount' => $amount, 'overdue' => $overdue, 'next' => $next];
+    }
+
+    /**
      * Las facturas ABIERTAS de una punta, ya con su saldo y su fecha de corte
      * resuelta. Es el insumo único de los tres bloques del dashboard
      * (antigüedad, ranking por contacto y proyección) — que los tres lean la
