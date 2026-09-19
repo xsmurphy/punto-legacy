@@ -331,52 +331,13 @@ export default function DashboardPage() {
 
           {/* Chart Ingresos vs Egresos + Margen — con sidebar de KPIs derivados
               (Ganancia / Margen% / Cant. Ventas) a la derecha en lg+. */}
-          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
+          <section>
             <IncomeOutcomeChart
               data={incomeChart.data}
               isLoading={chartPending}
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
-            {/* KPIs del período: la Ganancia manda (número grande + pill),
-                el resto va como lista dentro de una caja gris — un solo foco
-                visual, nada compite con el monto (owner). */}
-            <Card className="gap-4 self-start">
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-sm text-muted-foreground">Ganancia</span>
-                  {statsPending ? (
-                    <Skeleton className="h-8 w-40" />
-                  ) : (
-                    <span className="text-2xl font-bold tracking-tight tabular-nums">
-                      {formatMoney(stats.data?.revenue, bootstrap)}
-                    </span>
-                  )}
-                  <KpiDelta delta={deltas.revenue} loading={statsPending} />
-                </div>
-                <div className="flex flex-col rounded-lg bg-muted/50 px-3 py-1 text-sm">
-                  <KpiRow
-                    label="Margen"
-                    value={statsPending ? null : `${stats.data?.margin ?? 0}%`}
-                    delta={deltas.margin}
-                  />
-                  <KpiRow
-                    label="Ventas"
-                    value={statsPending ? null : formatInt(stats.data?.count, bootstrap)}
-                    delta={deltas.count}
-                  />
-                  {/* Sin ventas no hay ticket que promediar: la fila no va. */}
-                  {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
-                    <KpiRow
-                      label="Ticket promedio"
-                      value={statsPending ? null : formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
-                      delta={deltas.customerAverage}
-                      emphasis
-                    />
-                  )}
-                </div>
-              </CardContent>
-            </Card>
           </section>
 
           {/* Bloques del período en una grilla de 2 columnas. Cada uno se
@@ -420,6 +381,45 @@ export default function DashboardPage() {
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
+        {/* KPIs del período encabezan la columna derecha (owner): la
+            Ganancia manda (número grande + pill) y el resto va como lista
+            en una caja blanca sobre la card gris — un solo foco visual. */}
+        <Card variant="soft" className="gap-4">
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col items-start gap-2">
+                <span className="text-sm text-muted-foreground">Ganancia</span>
+                {statsPending ? (
+                  <Skeleton className="h-8 w-40" />
+                ) : (
+                  <span className="text-2xl font-bold tracking-tight tabular-nums">
+                    {formatMoney(stats.data?.revenue, bootstrap)}
+                  </span>
+                )}
+                <KpiDelta delta={deltas.revenue} loading={statsPending} />
+              </div>
+              <div className="flex flex-col rounded-lg bg-background px-3 py-1 text-sm">
+                <KpiRow
+                  label="Margen"
+                  value={statsPending ? null : `${stats.data?.margin ?? 0}%`}
+                  delta={deltas.margin}
+                />
+                <KpiRow
+                  label="Ventas"
+                  value={statsPending ? null : formatInt(stats.data?.count, bootstrap)}
+                  delta={deltas.count}
+                />
+                {/* Sin ventas no hay ticket que promediar: la fila no va. */}
+                {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
+                  <KpiRow
+                    label="Ticket promedio"
+                    value={statsPending ? null : formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
+                    delta={deltas.customerAverage}
+                    emphasis
+                  />
+                )}
+              </div>
+            </CardContent>
+          </Card>
           {/* "Ahora" encabeza la columna derecha (owner) y NO sigue al rango
               del selector: es lo que está pasando en este momento. Sin filas
               con dato, no existe. */}

@@ -46,26 +46,11 @@ export function DashboardSkeleton() {
             <BigMetricSkeleton label="Egresos" />
           </section>
 
-          <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
+          <section>
             <div className="flex flex-col gap-2">
               <Skeleton className="h-4 w-48 self-end" />
               <Skeleton className="h-[240px] w-full" />
             </div>
-            {/* Misma forma que la card de KPIs real: Ganancia grande + lista gris. */}
-            <Card className="gap-4 self-start">
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex flex-col items-start gap-2">
-                  <span className="text-sm text-muted-foreground">Ganancia</span>
-                  <Skeleton className="h-8 w-40" />
-                  <Skeleton className="h-4 w-14 rounded-full" />
-                </div>
-                <div className="flex flex-col rounded-lg bg-muted/50 px-3 py-1 text-sm">
-                  <KpiSkeleton label="Margen" width="w-12" />
-                  <KpiSkeleton label="Ventas" width="w-10" />
-                  <KpiSkeleton label="Ticket promedio" width="w-24" emphasis />
-                </div>
-              </CardContent>
-            </Card>
           </section>
 
           <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -77,6 +62,21 @@ export function DashboardSkeleton() {
 
         {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
+          {/* Misma forma que la card de KPIs real: Ganancia grande + lista gris. */}
+          <Card variant="soft" className="gap-4">
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex flex-col items-start gap-2">
+                <span className="text-sm text-muted-foreground">Ganancia</span>
+                <Skeleton className="h-8 w-40" />
+                <Skeleton className="h-4 w-14 rounded-full" />
+              </div>
+              <div className="flex flex-col rounded-lg bg-background px-3 py-1 text-sm">
+                <KpiSkeleton label="Margen" width="w-12" />
+                <KpiSkeleton label="Ventas" width="w-10" />
+                <KpiSkeleton label="Ticket promedio" width="w-24" emphasis />
+              </div>
+            </CardContent>
+          </Card>
           <section className="flex flex-col gap-3">
             <Skeleton className="h-7 w-20" />
             {Array.from({ length: 2 }, (_, i) => (
