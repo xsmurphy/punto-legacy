@@ -42,3 +42,37 @@ export function formatInt(
     maximumFractionDigits: 0,
   }).format(v)
 }
+
+/**
+ * Monto abreviado para espacios chicos (rankings, tiles): `Gs 1,5 M`,
+ * `Gs 820 k`. Sufijos fijos `k`/`M` (los mismos de los ejes de los gráficos)
+ * y el separador decimal del tenant — NO la notación compacta de `Intl`: el
+ * locale de `resolveNumberLocale` es solo de separadores (`de-DE`/`en-US`) y
+ * abreviaría en alemán ("19 Mio."). Por debajo de mil, el monto completo.
+ */
+export function formatMoneyCompact(
+  amount: number | null | undefined,
+  bootstrap: TenantLocaleConfig | null | undefined,
+): string {
+  const n = typeof amount === "number" && isFinite(amount) ? amount : 0
+  if (Math.abs(n) < 1000) return formatMoney(n, bootstrap)
+  return `${resolveCurrencyLabel(bootstrap)} ${formatCompact(n, bootstrap)}`
+}
+
+/** Cantidad abreviada (`13,4 k`); por debajo de mil, el entero completo. */
+export function formatIntCompact(
+  n: number | null | undefined,
+  bootstrap: TenantLocaleConfig | null | undefined,
+): string {
+  const v = typeof n === "number" && isFinite(n) ? n : 0
+  if (Math.abs(v) < 1000) return formatInt(v, bootstrap)
+  return formatCompact(v, bootstrap)
+}
+
+function formatCompact(v: number, bootstrap: TenantLocaleConfig | null | undefined): string {
+  const [div, suffix] = Math.abs(v) >= 1_000_000 ? [1_000_000, "M"] : [1_000, "k"]
+  const num = new Intl.NumberFormat(resolveNumberLocale(bootstrap), {
+    maximumFractionDigits: 1,
+  }).format(v / div)
+  return `${num} ${suffix}`
+}

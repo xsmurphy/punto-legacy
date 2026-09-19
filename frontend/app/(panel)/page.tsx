@@ -99,9 +99,8 @@ import {
   type NowStaffTile,
   type NowTile,
 } from "@/lib/dashboard/visibility"
-import { formatInt, formatMoney } from "@/lib/format"
+import { formatInt, formatIntCompact, formatMoney, formatMoneyCompact } from "@/lib/format"
 import { formatDate, formatDateTime, formatTime } from "@/lib/format-date"
-import { formatQty } from "@/lib/format-qty"
 import { resolveNumberLocale } from "@/lib/tenant-locale"
 import {
   averageLabel,
@@ -217,7 +216,7 @@ export default function DashboardPage() {
     return (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
+          <h1 className="text-2xl font-semibold">Resumen general</h1>
         </header>
         <NowSection tiles={nowTiles} bootstrap={bootstrap} />
         {nowTiles.length === 0 && (
@@ -239,7 +238,12 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Resumen general</h1>
+          <p className="text-sm text-muted-foreground">
+            Cómo va tu negocio en el período y lo que está pasando ahora.
+          </p>
+        </div>
         <DateRangePicker value={range} onChange={setRange} />
       </header>
 
@@ -1380,8 +1384,8 @@ function TopItemsCard({
             key: `${row.name}-${i}`,
             label: row.name || "(sin nombre)",
             value: Number(row.count) || 0,
-            display: formatMoney(row.total, bootstrap),
-            meta: `${formatQty(row.count, bootstrap)} vendidos`,
+            display: formatMoneyCompact(row.total, bootstrap),
+            meta: `${formatIntCompact(row.count, bootstrap)} u.`,
           }))}
         />
       </CardContent>
@@ -1413,7 +1417,7 @@ function TopCategoriesCard({
             key: `${row.title}-${i}`,
             label: row.title,
             value: Number(row.total) || 0,
-            display: `${formatQty(row.total, bootstrap)} vendidos`,
+            display: formatIntCompact(row.total, bootstrap),
           }))}
         />
       </CardContent>
