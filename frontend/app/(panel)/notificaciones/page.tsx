@@ -103,7 +103,7 @@ export default function NotificacionesPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             {filtered.length} notificaci{filtered.length === 1 ? "ón" : "ones"}
           </CardTitle>
         </CardHeader>

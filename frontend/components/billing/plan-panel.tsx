@@ -2,7 +2,6 @@
 
 import * as React from "react"
 import {
-  Wallet,
   Sparkles,
   Receipt,
   Clock,
@@ -106,7 +105,7 @@ function FacturasCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold">Facturas</CardTitle>
+        <CardTitle>Facturas</CardTitle>
         <CardDescription>
           Tus pagos de suscripción y compras de créditos.
         </CardDescription>
@@ -162,7 +161,7 @@ function PackCard({ pack }: { pack: BillingPack }) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">{pack.name}</CardTitle>
+        <CardTitle>{pack.name}</CardTitle>
         <CardDescription>
           {nf.format(pack.credits)} créditos · válido {pack.validityDays} días
         </CardDescription>
@@ -278,11 +277,8 @@ export function PlanPanel() {
       {/* ── Balance + Plan actual ───────────────────────────────────────────── */}
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Balance disponible
-            </CardTitle>
-            <Wallet className="size-4 text-muted-foreground" />
+          <CardHeader>
+            <CardTitle>Balance disponible</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
             <div className="flex items-baseline gap-2">
@@ -309,11 +305,8 @@ export function PlanPanel() {
         </Card>
 
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Plan actual
-            </CardTitle>
-            <Sparkles className="size-4 text-muted-foreground" />
+          <CardHeader>
+            <CardTitle>Plan actual</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <div className="flex items-center gap-2">

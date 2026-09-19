@@ -94,7 +94,7 @@ export function AgentChart({ input }: { input: unknown }) {
     return (
       <Card variant="soft" size="sm" className="w-full max-w-[95%] min-w-0 overflow-hidden">
         <CardHeader>
-          <CardTitle className="text-sm font-medium">{spec.title}</CardTitle>
+          <CardTitle>{spec.title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex h-[220px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
@@ -124,7 +124,7 @@ export function AgentChart({ input }: { input: unknown }) {
   return (
     <Card variant="soft" size="sm" className="w-full max-w-[95%] min-w-0 overflow-hidden">
       <CardHeader>
-        <CardTitle className="text-sm font-medium">{spec.title}</CardTitle>
+        <CardTitle>{spec.title}</CardTitle>
       </CardHeader>
       <CardContent className="min-w-0 overflow-hidden">
         <ChartContainer config={chartConfig} className="h-[220px] w-full">

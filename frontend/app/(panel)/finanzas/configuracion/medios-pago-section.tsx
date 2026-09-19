@@ -105,7 +105,7 @@ export function MediosPagoSection() {
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             ¿A qué cuenta va cada medio de pago?
           </CardTitle>
           <CardDescription>
@@ -167,7 +167,7 @@ export function MediosPagoSection() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Importar histórico
           </CardTitle>
           <CardDescription>

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CheckCircle2, XCircle, ListChecks } from "lucide-react"
+import { CheckCircle2, XCircle } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import type { WRITE_ACTIONS } from "@/lib/agent/confirm-api"
@@ -121,10 +121,7 @@ export function RegisterActionCard({
   return (
     <Card size="sm" className="w-full max-w-[95%]">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <ListChecks className="size-4 text-muted-foreground" />
-          {summary || "Confirmar acción"}
-        </CardTitle>
+        <CardTitle>{summary || "Confirmar acción"}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         {actions.length > 0 && (

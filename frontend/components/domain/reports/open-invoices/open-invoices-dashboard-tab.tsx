@@ -185,7 +185,7 @@ export function OpenInvoicesDashboardTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Antigüedad de la deuda
           </CardTitle>
           <CardDescription className="text-xs">
@@ -246,7 +246,7 @@ export function OpenInvoicesDashboardTab() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Qué vence en las próximas 8 semanas
           </CardTitle>
           <CardDescription className="text-xs">
@@ -338,7 +338,7 @@ function TopContactsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
       <CardContent>

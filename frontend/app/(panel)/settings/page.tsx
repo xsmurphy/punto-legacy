@@ -1412,7 +1412,7 @@ function MonedasTab() {
       <CardHeader>
         <div className="flex items-end justify-between gap-3">
           <div>
-            <CardTitle className="text-base font-semibold tracking-tight">Cotizaciones por moneda</CardTitle>
+            <CardTitle>Cotizaciones por moneda</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
               Si vendés a clientes que pagan en moneda extranjera, ingresá la tasa de
               cambio actual respecto a tu moneda local. Cero = la moneda no se ofrece.

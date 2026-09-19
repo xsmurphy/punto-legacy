@@ -123,7 +123,7 @@ export default function CashflowReportPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">
+                <CardTitle>
                   Entradas por categoría
                 </CardTitle>
               </CardHeader>
@@ -134,7 +134,7 @@ export default function CashflowReportPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">
+                <CardTitle>
                   Salidas por categoría
                 </CardTitle>
               </CardHeader>
@@ -146,7 +146,7 @@ export default function CashflowReportPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-semibold tracking-tight">
+              <CardTitle>
                 Movimiento por cuenta
               </CardTitle>
             </CardHeader>

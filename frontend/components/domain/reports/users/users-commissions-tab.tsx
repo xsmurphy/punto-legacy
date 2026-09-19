@@ -180,7 +180,7 @@ export function UsersCommissionsTab({ range }: { range: DateRangeValue }) {
       {sellers.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">
+            <CardTitle>
               Subtotal por vendedor
             </CardTitle>
             <CardDescription className="text-xs">
