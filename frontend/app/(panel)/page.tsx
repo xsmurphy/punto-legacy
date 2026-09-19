@@ -16,8 +16,12 @@ import {
   Area,
   AreaChart,
   Bar,
+  Cell,
   ComposedChart,
+  Label,
   Line,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   XAxis,
   YAxis,
@@ -117,7 +121,6 @@ import {
   TileBar,
   TileCard,
   TileFigure,
-  TileMeter,
   TileNote,
   TileRow,
   TileRows,
@@ -924,38 +927,89 @@ function CustomersCard({
   const t = data?.totales
   const tasas = data?.tasas
 
-  const counts: { label: string; value: number | undefined }[] = [
-    { label: "Total", value: t?.activos },
-    { label: "Nuevos", value: t?.nuevos },
-    { label: "Recurrentes", value: t?.recurrentes },
+  const nuevos = Number(t?.nuevos ?? 0)
+  const recurrentes = Number(t?.recurrentes ?? 0)
+  const total = Number(t?.activos ?? nuevos + recurrentes)
+  const slices = [
+    { key: "Nuevos", value: nuevos, fill: "var(--chart-1)" },
+    { key: "Recurrentes", value: recurrentes, fill: "var(--chart-3)" },
   ]
-  const rates: { label: string; percent: number | null | undefined; barColor: string }[] = [
-    { label: "Tasa de retorno", percent: tasas?.retorno, barColor: "var(--chart-1)" },
-    { label: "Retención", percent: tasas?.retencion, barColor: "var(--chart-1)" },
-    { label: "Crecimiento", percent: tasas?.crecimiento, barColor: "var(--chart-1)" },
-    { label: "Pérdida (churn)", percent: tasas?.perdida, barColor: "var(--destructive)" },
-  ]
+  // Tasas como grilla 2×2 de cifras chicas, sin barras (owner: el tablero ya
+  // tiene demasiadas barras horizontales). Una tasa null no se muestra.
+  const rates = [
+    { label: "Retorno", percent: toPct(tasas?.retorno), bad: false },
+    { label: "Retención", percent: toPct(tasas?.retencion), bad: false },
+    { label: "Crecimiento", percent: toPct(tasas?.crecimiento), bad: false },
+    { label: "Pérdida", percent: toPct(tasas?.perdida), bad: true },
+  ].filter((r) => r.percent !== null)
+
   return (
     <TileCard title="Clientes" variant="default">
-      <TileRows>
-        {counts.map((c) => (
-          <TileRow key={c.label} label={c.label} value={formatInt(c.value, bootstrap)} />
-        ))}
-      </TileRows>
-      <div className="flex flex-col gap-3">
-        {rates.map((r) => {
-          const percent = toPct(r.percent)
-          return percent === null ? null : (
-            <TileMeter
-              key={r.label}
-              label={r.label}
-              value={`${formatPercent(percent, bootstrap)}%`}
-              percent={percent}
-              barColor={r.barColor}
-            />
-          )
-        })}
+      {/* Donut nuevos/recurrentes con el total al centro, leyenda al lado. */}
+      <div className="flex items-center gap-4">
+        <ChartContainer
+          config={{
+            Nuevos: { label: "Nuevos", color: "var(--chart-1)" },
+            Recurrentes: { label: "Recurrentes", color: "var(--chart-3)" },
+          }}
+          className="aspect-square h-[120px] shrink-0"
+        >
+          <PieChart>
+            <ChartTooltip content={<ChartTooltipContent nameKey="key" hideLabel />} />
+            <Pie
+              data={slices.filter((d) => d.value > 0)}
+              dataKey="value"
+              nameKey="key"
+              innerRadius="68%"
+              outerRadius="100%"
+              paddingAngle={2}
+              strokeWidth={0}
+            >
+              {slices
+                .filter((d) => d.value > 0)
+                .map((d) => (
+                  <Cell key={d.key} fill={d.fill} />
+                ))}
+              <Label
+                content={({ viewBox }) => {
+                  if (!viewBox || !("cx" in viewBox)) return null
+                  return (
+                    <text x={viewBox.cx} y={viewBox.cy} textAnchor="middle" dominantBaseline="middle">
+                      <tspan x={viewBox.cx} dy="-0.35em" className="fill-foreground text-xl font-semibold tabular-nums">
+                        {formatInt(total, bootstrap)}
+                      </tspan>
+                      <tspan x={viewBox.cx} dy="1.5em" className="fill-muted-foreground text-xs">
+                        clientes
+                      </tspan>
+                    </text>
+                  )
+                }}
+              />
+            </Pie>
+          </PieChart>
+        </ChartContainer>
+        <ul className="flex min-w-0 flex-1 flex-col gap-2 text-sm">
+          {slices.map((d) => (
+            <li key={d.key} className="flex items-center gap-2">
+              <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: d.fill }} aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{d.key}</span>
+              <span className="font-medium tabular-nums">{formatInt(d.value, bootstrap)}</span>
+            </li>
+          ))}
+        </ul>
       </div>
+      {rates.length > 0 && (
+        <div className="grid grid-cols-2 gap-2">
+          {rates.map((r) => (
+            <div key={r.label} className="flex flex-col gap-0.5 rounded-lg bg-muted/50 px-3 py-2">
+              <span className="text-xs text-muted-foreground">{r.label}</span>
+              <span className={cn("text-sm font-semibold tabular-nums", r.bad && (r.percent ?? 0) > 0 && "text-destructive")}>
+                {formatPercent(r.percent ?? 0, bootstrap)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </TileCard>
   )
 }
