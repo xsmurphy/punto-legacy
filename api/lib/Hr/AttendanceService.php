@@ -493,6 +493,29 @@ final class AttendanceService
     }
 
     /**
+     * Marcaciones que esperan revisión, sin importar la fecha: una marcación
+     * flageada de hace dos semanas sigue pendiente. Es la fila "Marcaciones
+     * para revisar" del dashboard.
+     *
+     * Usa el índice parcial `idx_attendance_mark_review` (mig 230), que solo
+     * contiene las flageadas. Una marcación sin sucursal (dispositivo sin
+     * sucursal resuelta) entra en cualquier alcance: no es de nadie en
+     * particular y alguien la tiene que ver.
+     *
+     * @param list<string> $outletIds `[]` = todas.
+     */
+    public function pendingReviewCount(string $companyId, array $outletIds = []): int
+    {
+        $row = ncmExecute(
+            'SELECT COUNT(*) AS n FROM attendance_mark
+              WHERE companyid = ? AND needsreview = TRUE'
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('outletid', $outletIds, true),
+            [$companyId]
+        );
+        return $row ? (int) ($row['n'] ?? 0) : 0;
+    }
+
+    /**
      * El reporte del período: las marcaciones crudas y el resumen por empleado.
      *
      * ── Por qué las dos cosas en una respuesta ──

@@ -167,6 +167,30 @@ final class OperatorContext
      * @param array<string,mixed> $ctx   el array que devuelve apiAuthTenant()
      * @param list<string>        $perms cualquiera de estas habilita
      */
+    /**
+     * La MISMA pregunta que `requirePermission()` —"¿la persona que pide esto
+     * puede verlo?"—, contestada con un booleano en vez de cortar con 403.
+     *
+     * Existe para las respuestas COMPUESTAS, donde una parte se muestra y otra
+     * no según el permiso: el widget "Requiere atención" del dashboard arma
+     * una fila por pendiente y cada una va gateada por la clave del reporte al
+     * que linkea. Cortar la request entera por una fila sería el error
+     * contrario. La resolución es idéntica a `requireAnyPermission()` —
+     * panel/api contra la credencial, pos-app contra el operador del PIN y
+     * fail-closed sin él—, así que no hay un segundo camino de autorización.
+     *
+     * @param array<string,mixed> $ctx el array que devuelve apiAuthTenant()
+     */
+    public static function allows(array $ctx, string $perm): bool
+    {
+        if ((string) ($ctx['realm'] ?? '') !== 'pos-app') {
+            return \hasPermission($perm);
+        }
+        $operator = self::resolve($ctx);
+        return $operator['identified']
+            && self::can($operator, $perm, (string) ($ctx['companyId'] ?? ''));
+    }
+
     public static function requireAnyPermission(array $ctx, array $perms): void
     {
         $detalle = 'No tenés permiso para esta acción (requiere: ' . implode(' o ', $perms) . ')';

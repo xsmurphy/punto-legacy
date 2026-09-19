@@ -612,6 +612,50 @@ final class EInvoiceService
      * rechazado por SIFEN dice 'issued', porque el envío salió bien; lo que
      * falló es el veredicto FISCAL, que es el que vale.
      */
+    /**
+     * Documentos que esperan una acción del comercio. Es la fila "Facturas
+     * electrónicas con problemas" del dashboard. `null` = el comercio no tiene
+     * FE (sin `einvoice_account`): la fila no existe, no es un cero.
+     *
+     * Cuentan los ACTIVOS (`superseded_by IS NULL`, sin anular) que están:
+     *   - rechazados por SIFEN: outbox `issued` con el veredicto fiscal de
+     *     rechazo — MISMO criterio por contenido que la rama `rejected` de
+     *     `documents()` y que `sifenVerdict()`; o
+     *   - en `error` con los reintentos agotados: el drainer ya no los toma
+     *     (`attempts < MAX_RETRY_ATTEMPTS`). Un `error` que todavía se va a
+     *     reintentar solo no pide nada de nadie.
+     *
+     * El documento no guarda sucursal: el alcance sale de la venta. El JOIN
+     * con `transaction` es por id y sobre un puñado de filas (las con
+     * problema), así que no recorre la tabla particionada.
+     *
+     * @param list<string> $outletIds
+     */
+    public function actionPendingCount(string $companyId, array $outletIds = []): ?int
+    {
+        $acc = ncmExecute('SELECT 1 AS ok FROM einvoice_account WHERE companyid = ? LIMIT 1', [$companyId]);
+        if (!$acc) {
+            return null;
+        }
+
+        $row = ncmExecute(
+            "SELECT COUNT(*) AS n
+               FROM einvoice_document d
+               JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+              WHERE d.companyid = ?
+                AND d.superseded_by IS NULL
+                AND d.cancelled_at IS NULL
+                AND (
+                      (d.status = 'issued' AND (d.sifen_status ILIKE '%rechaz%' OR d.sifen_status ILIKE '%error%'))
+                   OR (d.status = 'error' AND d.attempts >= " . self::MAX_RETRY_ATTEMPTS . ")
+                )"
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('t.outletId', $outletIds),
+            [$companyId]
+        );
+
+        return $row ? (int) ($row['n'] ?? 0) : 0;
+    }
+
     public function documents(string $companyId, array $filters): array
     {
         $page     = max(1, (int) ($filters['page'] ?? 1));

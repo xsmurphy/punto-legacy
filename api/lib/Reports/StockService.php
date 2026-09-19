@@ -162,6 +162,64 @@ final class StockService
     }
 
     /**
+     * Artículos agotados o en/bajo su mínimo — la fila "Artículos agotados o
+     * bajo el mínimo" del dashboard. `null` = el comercio no controla stock de
+     * ningún artículo: la fila no existe, no es un cero.
+     *
+     * El criterio es el del semáforo del listado de artículos
+     * (`frontend/lib/stock-status.ts`): saldo ≤ 0 es quiebre; con mínimo
+     * cargado, saldo ≤ mínimo es bajo; sin mínimo (`NULL`) solo cuenta el
+     * quiebre — `0` en el mínimo SÍ es un umbral. Mismo universo que el
+     * reporte de niveles (`levels()`): activos, que controlan stock.
+     *
+     * Solo entran los artículos con MOVIMIENTOS en el alcance. Uno que controla
+     * stock y nunca tuvo un ingreso no está "agotado": nunca se trabajó ahí (el
+     * catálogo de ejemplo del alta es exactamente eso). Mismo criterio de
+     * presencia que el alcance de un conteo físico (`InventoryCountScope`).
+     *
+     * El saldo es el del lector único (`Inventory::onHandBulk`), sumado en el
+     * alcance: con "Todas", agotado es agotado en el conjunto.
+     *
+     * @param list<string> $outletIds `[]` = todas.
+     * @return array{out:int,low:int}|null
+     */
+    public function alertCount(string $companyId, array $outletIds = []): ?array
+    {
+        $items = ncmExecute(
+            "SELECT itemId AS id, itemMinStock AS min
+               FROM item
+              WHERE itemTrackInventory = true AND itemStatus = 1
+                AND itemType IN ('product', 'compound') AND companyId = ?",
+            [$companyId], false, true
+        );
+        if (!$items || !is_object($items) || $items->EOF) {
+            return null;
+        }
+
+        $balances = Inventory::onHandBulk($companyId, $outletIds);
+
+        $out = 0;
+        $low = 0;
+        while (!$items->EOF) {
+            $f  = $items->fields;
+            $id = (string) $f['id'];
+            if (isset($balances[$id])) {
+                $qty = (float) $balances[$id]['onHand'];
+                $min = $f['min'] ?? null;
+                if ($qty <= 0) {
+                    $out++;
+                } elseif ($min !== null && $min !== '' && $qty <= (float) $min) {
+                    $low++;
+                }
+            }
+            $items->MoveNext();
+        }
+        $items->Close();
+
+        return ['out' => $out, 'low' => $low];
+    }
+
+    /**
      * Saldo por (ítem, depósito) de una sucursal, derivado del ledger.
      * Clave `''` = principal (`locationId IS NULL`; las claves de array de PHP
      * no pueden ser null).

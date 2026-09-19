@@ -26,7 +26,7 @@ use Punto\App\Helpers\Date;
  *  - `getAllPlans`, `getPaymentMethodName`, `curlContents`, `toUTF8` resuelven por
  *    fallback de namespace (en /app).
  *
- * 17 widgets (uno por llamada GET); el dashboard del panel compone llamando varios.
+ * 18 widgets (uno por llamada GET); el dashboard del panel compone llamando varios.
  * Read-only. Tenant: $roc por query; companyId bound en cada lookup.
  *
  * Fixes PG heredados del original: `FORCE INDEX` MySQL eliminado; `HOUR()` →
@@ -45,9 +45,16 @@ final class DashboardService
      *   NO se sirven de `$roc` — `schedule` (query propia) y los dos que pegan
      *   al gateway de notificaciones.
      */
-    public function widget(string $name, array $opts, string $roc, string $companyId, array $outletIds, string $userId): array
+    /**
+     * @param (callable(string):bool)|null $can ¿La persona tiene este permiso?
+     *   Solo lo usa `attention`, que gatea FILA por fila con la clave de la
+     *   pantalla a la que cada una linkea. Sin él, `attention` no devuelve
+     *   ninguna fila (fail-closed): no hay a quién medirle el permiso.
+     */
+    public function widget(string $name, array $opts, string $roc, string $companyId, array $outletIds, string $userId, ?callable $can = null): array
     {
         switch ($name) {
+            case 'attention':           return (new AttentionService())->rows($companyId, $outletIds, $can ?? static fn (): bool => false);
             case 'info':                return $this->info($roc, $companyId);
             case 'incomeOutcomeStats':  return $this->incomeOutcomeStats($opts, $roc);
             case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
@@ -87,6 +94,12 @@ final class DashboardService
         // cuentas con meses de ventas cada día 1 del mes (bug 2026-08-01).
         $everSold = ncmExecute("SELECT EXISTS(SELECT 1 FROM transaction WHERE companyId = ?) AS e", [$companyId]);
         $hasSalesRaw = is_array($everSold) || $everSold instanceof \ArrayAccess ? ($everSold['e'] ?? false) : false;
+        // ¿El comercio usa control de caja? (alguna vez abrió una, en el
+        // alcance). Decide si "Cajas abiertas" se muestra en el dashboard: en
+        // 0 es un dato operativo válido para quien trabaja con caja, y ruido
+        // para quien nunca abrió una. EXISTS barato, sin rango.
+        $everDrawer = ncmExecute("SELECT EXISTS(SELECT 1 FROM drawer WHERE 1=1" . $roc . ") AS e");
+        $usesDrawersRaw = is_array($everDrawer) || $everDrawer instanceof \ArrayAccess ? ($everDrawer['e'] ?? false) : false;
 
         $m = $this->companyMeta($companyId);
         $outlets = (int) $this->scalar("SELECT COUNT(*) as count FROM outlet WHERE companyId = ?", [$companyId]);
@@ -109,6 +122,7 @@ final class DashboardService
             'transactionsCount' => (int) ($trans['count'] ?? 0),
             // Lifetime — ver comentario arriba. PDO/PG puede devolver bool o 't'.
             'hasSales'          => ($hasSalesRaw === true || $hasSalesRaw === 't' || $hasSalesRaw === '1' || $hasSalesRaw === 1),
+            'usesDrawers'       => ($usesDrawersRaw === true || $usesDrawersRaw === 't' || $usesDrawersRaw === '1' || $usesDrawersRaw === 1),
         ];
     }
 

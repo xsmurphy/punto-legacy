@@ -128,6 +128,114 @@ final class MarginAlertService
     }
 
     /**
+     * Artículos del catálogo que HOY están por debajo del objetivo — la foto,
+     * no el evento. Es lo que cuenta la fila "Artículos bajo el margen
+     * objetivo" del dashboard.
+     *
+     * Misma aritmética que la alerta de compra (`MarginAlert::evaluate()`) y
+     * mismo costo (`ItemUnitCost`, el que congela la venta); lo único que
+     * cambia es que no hay un "antes": se pasa `costBefore = null`, que
+     * `evaluate()` ya trata como "el costo pasó a existir", así que el filtro
+     * de suba no descarta a nadie y queda solo el de margen.
+     *
+     * El costo es por sucursal, así que se evalúa en cada sucursal del alcance
+     * donde el artículo está dado de alta (`item_outlet`) y cuenta UNA vez si
+     * queda bajo en alguna. `[]` = todas las sucursales de la compañía.
+     *
+     * Barato por construcción: los de stock propio salen en una query por
+     * sucursal (`ItemUnitCost::resolveMany`); por receta solo pasan los que
+     * TIENEN receta — un servicio sin `item_compound` costaría 0 y `evaluate()`
+     * lo descartaría igual, así que costearlo sería trabajo tirado. Con el
+     * mismo tope que la alerta de compra.
+     *
+     * @param list<string> $outletIds
+     * @return array{target:float,count:int}|null null = alerta apagada (sin objetivo)
+     */
+    public function belowTarget(string $companyId, array $outletIds): ?array
+    {
+        $target = $this->target($companyId);
+        if ($target === null) {
+            return null;
+        }
+
+        $rs = ncmExecute(
+            "SELECT i.itemId AS id, i.itemName AS name, i.itemPrice AS price, io.outletid AS outlet,
+                    EXISTS (SELECT 1 FROM item_compound ic
+                             WHERE ic.parentItemId = i.itemId AND ic.companyId = i.companyId) AS hasrecipe
+               FROM item i
+               JOIN item_outlet io ON io.itemid = i.itemId AND io.companyid = i.companyId
+              WHERE i.companyId = ? AND COALESCE(i.itemStatus, 1) = 1 AND i.itemPrice > 0"
+            . \Punto\Api\Outlets\OutletScope::sqlFilter('io.outletid', $outletIds),
+            [$companyId],
+            false,
+            true
+        );
+
+        $info = [];     // itemId => [name, price, hasRecipe]
+        $byOutlet = []; // outletId => list<itemId>
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f  = $rs->fields;
+                $id = (string) $f['id'];
+                $hr = $f['hasrecipe'] ?? false;
+                $info[$id] = [
+                    'name'      => (string) ($f['name'] ?? ''),
+                    'price'     => (float) ($f['price'] ?? 0),
+                    'hasRecipe' => $hr === true || $hr === 't' || $hr === 1 || $hr === '1',
+                ];
+                $byOutlet[(string) $f['outlet']][] = $id;
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        if ($info === []) {
+            return ['target' => $target, 'count' => 0];
+        }
+
+        $usesRecipe = ItemUnitCost::usesRecipeMany(array_keys($info), $companyId);
+
+        $below        = [];
+        $recipeBudget = self::MAX_ITEMS;
+        $truncated    = false;
+        foreach ($byOutlet as $outletId => $ids) {
+            $evaluable = [];
+            foreach ($ids as $id) {
+                if (!($usesRecipe[$id] ?? false)) {
+                    $evaluable[] = $id;
+                } elseif ($info[$id]['hasRecipe'] && !isset($below[$id])) {
+                    if ($recipeBudget <= 0) {
+                        $truncated = true;
+                        continue;
+                    }
+                    $recipeBudget--;
+                    $evaluable[] = $id;
+                }
+            }
+            $costs = ItemUnitCost::resolveMany($evaluable, $companyId, (string) $outletId, $usesRecipe);
+
+            $rows = [];
+            foreach ($evaluable as $id) {
+                $rows[] = [
+                    'itemId'     => $id,
+                    'name'       => $info[$id]['name'],
+                    'price'      => $info[$id]['price'],
+                    'costBefore' => null,
+                    'costAfter'  => $costs[$id] ?? null,
+                ];
+            }
+            foreach (MarginAlert::evaluate($target, $rows, false) as $hit) {
+                $below[$hit['itemId']] = true;
+            }
+        }
+        if ($truncated) {
+            error_log('MarginAlertService::belowTarget: tope de ' . self::MAX_ITEMS
+                . ' artículos por receta alcanzado para ' . $companyId . ' — el conteo puede quedar corto');
+        }
+
+        return ['target' => $target, 'count' => count($below)];
+    }
+
+    /**
      * @param list<string> $childIds
      * @return list<string>
      */
