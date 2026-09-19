@@ -2,6 +2,7 @@ import * as React from "react"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { TileRow, TileRows } from "@/components/domain/dashboard/tile"
 
 /**
  * Encabezado del dashboard (`app/(panel)/page.tsx`). Lo comparten la página y
@@ -62,54 +63,44 @@ export function DashboardSkeleton() {
 
         {/* ── SIDEBAR ─────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
-          {/* Misma forma que la card de KPIs real: Ganancia grande + lista gris. */}
-          <Card variant="soft" className="gap-4">
+          {/* Misma forma que la card de Ganancia real: cifra + pill y las
+              filas directo sobre el gris, sin caja interna. */}
+          <Card variant="soft">
+            <CardHeader>
+              <CardTitle>Ganancia</CardTitle>
+            </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col items-start gap-2">
-                <span className="text-sm text-muted-foreground">Ganancia</span>
-                <Skeleton className="h-8 w-40" />
-                <Skeleton className="h-4 w-14 rounded-full" />
-              </div>
-              <div className="flex flex-col rounded-lg bg-background px-3 py-1 text-sm">
-                <KpiSkeleton label="Margen" width="w-12" />
-                <KpiSkeleton label="Ventas" width="w-10" />
-                <KpiSkeleton label="Ticket promedio" width="w-24" emphasis />
-              </div>
+              <FigureSkeleton pill />
+              <TileRows>
+                <TileRow label="Margen" value={null} />
+                <TileRow label="Ventas" value={null} />
+                <TileRow label="Ticket promedio" value={null} emphasis />
+              </TileRows>
             </CardContent>
           </Card>
-          <section className="flex flex-col gap-3">
-            <Skeleton className="h-7 w-20" />
-            {Array.from({ length: 2 }, (_, i) => (
-              <Card key={i} size="sm">
-                <CardHeader>
-                  <Skeleton className="h-4 w-24" />
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  <Skeleton className="h-7 w-16" />
-                  <Skeleton className="h-4 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </section>
+
+          {/* "Ahora": sin títulos fijos, pueden no montarse. */}
+          {Array.from({ length: 2 }, (_, i) => (
+            <Card key={i} variant="soft">
+              <CardHeader>
+                <TitleSkeleton />
+              </CardHeader>
+              <CardContent className="flex flex-col gap-4">
+                <FigureSkeleton />
+                <RowsSkeleton rows={2} />
+              </CardContent>
+            </Card>
+          ))}
 
           <SidebarCardSkeleton rows={3} />
 
           <Card variant="soft">
             <CardHeader>
-              <CardTitle>
-                <Skeleton className="h-4 w-20" />
-              </CardTitle>
+              <TitleSkeleton />
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col gap-1">
-                <Skeleton className="h-3 w-24" />
-                <Skeleton className="h-7 w-28" />
-              </div>
-              <div className="flex flex-col gap-1.5 border-t pt-3">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-              </div>
+              <FigureSkeleton label />
+              <RowsSkeleton rows={3} />
             </CardContent>
           </Card>
 
@@ -124,7 +115,7 @@ function BigMetricSkeleton({ label }: { label: string }) {
   return (
     <Card className="relative overflow-hidden">
       <CardContent className="flex flex-col gap-3">
-        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="text-sm text-muted-foreground">{label}</span>
         <Skeleton className="h-10 w-40" />
         <Skeleton className="mt-1 h-12 w-full" />
       </CardContent>
@@ -132,23 +123,46 @@ function BigMetricSkeleton({ label }: { label: string }) {
   )
 }
 
-function KpiSkeleton({ label, width, emphasis }: { label: string; width: string; emphasis?: boolean }) {
+/** Título de card que puede no montarse: skeleton del alto de `CardTitle`. */
+function TitleSkeleton() {
   return (
-    <div className={`flex items-center justify-between gap-3 py-2.5 ${emphasis ? "mt-0.5 border-t border-border/60" : ""}`}>
-      <span className="text-muted-foreground">{label}</span>
-      <Skeleton className={`h-5 ${width}`} />
+    <CardTitle>
+      <Skeleton className="h-5 w-28" />
+    </CardTitle>
+  )
+}
+
+/** Forma de `TileFigure`: label opcional, cifra destacada y pill opcional. */
+function FigureSkeleton({ label, pill }: { label?: boolean; pill?: boolean }) {
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      {label && <Skeleton className="h-4 w-24" />}
+      <Skeleton className="h-8 w-36" />
+      {pill && <Skeleton className="h-4 w-14 rounded-full" />}
     </div>
   )
 }
 
-/** Card de un bloque del período (ranking / donut): título + lista. */
+/** Forma de `TileRows`: filas label / valor con el mismo ritmo y divisores. */
+function RowsSkeleton({ rows }: { rows: number }) {
+  return (
+    <TileRows>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center justify-between gap-3 py-2 first:pt-0 last:pb-0">
+          <Skeleton className="h-5 w-24" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+      ))}
+    </TileRows>
+  )
+}
+
+/** Card de un bloque del período (ranking / barra partida): título + lista. */
 function BlockSkeleton() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          <Skeleton className="h-5 w-32" />
-        </CardTitle>
+        <TitleSkeleton />
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         {Array.from({ length: 5 }, (_, i) => (
@@ -163,26 +177,17 @@ function BlockSkeleton() {
 function SidebarCardSkeleton({ rows, bars = 0 }: { rows: number; bars?: number }) {
   return (
     <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle>
-          <Skeleton className="h-4 w-28" />
-        </CardTitle>
+      <CardHeader>
+        <TitleSkeleton />
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3">
-          {Array.from({ length: rows }, (_, i) => (
-            <div key={i} className="flex items-center justify-between gap-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-12" />
-            </div>
-          ))}
-        </div>
+        <RowsSkeleton rows={rows} />
         {bars > 0 && (
           <div className="flex flex-col gap-3">
             {Array.from({ length: bars }, (_, i) => (
               <div key={i} className="flex flex-col gap-1.5">
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="h-2 w-full rounded-full" />
+                <Skeleton className="h-5 w-28" />
+                <Skeleton className="h-1 w-full rounded-full" />
               </div>
             ))}
           </div>

@@ -100,6 +100,7 @@ function DeltaLine({
     pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}${kind === "points" ? " pts" : "%"}`
   const pill = (
     <span
+      data-slot="delta-pill"
       className={cn(
         "inline-flex items-center whitespace-nowrap rounded-full bg-muted px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums",
         tone,
