@@ -472,6 +472,11 @@ export function DataTable<T>({
     }
   }
   const hasFooterSum = visibleLeafColumns.some((c) => c.columnDef.meta?.footerSum)
+  // El pie también se pinta si alguna columna trae su valor YA calculado
+  // (`meta.footer`): métricas que no se suman fila a fila (margen, ticket,
+  // un distinct) y que el servidor devuelve como fila total.
+  const hasFooter =
+    hasFooterSum || visibleLeafColumns.some((c) => c.columnDef.meta?.footer !== undefined)
   const footerSums = React.useMemo(() => {
     if (!hasFooterSum) return {}
     const filteredRows = table.getFilteredRowModel().rows
@@ -713,11 +718,22 @@ export function DataTable<T>({
                 </TableRow>
               ))}
           </TableBody>
-          {hasFooterSum && (
+          {hasFooter && (
             <TableFooter>
               <TableRow className="hover:bg-transparent">
                 {visibleLeafColumns.map((col, i) => {
                   const meta = col.columnDef.meta
+                  if (meta?.footer !== undefined) {
+                    return (
+                      <TableCell
+                        key={col.id}
+                        className={cn(meta.className, stickyCols(i, "foot").className)}
+                        style={stickyCols(i, "foot").style}
+                      >
+                        {meta.footer}
+                      </TableCell>
+                    )
+                  }
                   if (meta?.footerSum) {
                     const sum = footerSums[col.id] ?? 0
                     return (
@@ -905,6 +921,13 @@ declare module "@tanstack/react-table" {
     footerSum?: boolean
     /** Formatea la suma del footer. Si se omite, usa formatInt con el separador del tenant. */
     footerFormat?: (sum: number) => React.ReactNode
+    /**
+     * Valor del pie YA calculado (lo pinta tal cual, sin sumar). Para métricas
+     * que no son aditivas —margen, ticket promedio, un conteo distinct— y que
+     * el servidor devuelve como fila total. A diferencia de `footerSum`, NO
+     * sigue a la búsqueda: es el total del reporte, no de las filas filtradas.
+     */
+    footer?: React.ReactNode
   }
 }
 

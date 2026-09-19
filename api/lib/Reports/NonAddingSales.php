@@ -84,7 +84,41 @@ final class NonAddingSales
      */
     public static function salesByPayment(string $from, string $to, string $roc, int $cache = 0, HourBand $hours = new HourBand()): array
     {
-        if ($from === '') { return []; }
+        $group = [];
+        self::eachPaidSale($from, $to, $roc, $cache, $hours, static function (array $methods) use (&$group): void {
+            $group = groupByPaymentMethod($methods, $group);
+        });
+        return $group;
+    }
+
+    /**
+     * Lo mismo que `salesByPayment()`, repartido por sucursal:
+     * `[outletId => grupo de medios]`, con el mismo shape de grupo. Misma
+     * lectura y misma regla (`eachPaidSale()`), así que la suma de las
+     * sucursales da el total del reporte de medios de pago y del dashboard.
+     *
+     * @return array<string, array<int|string, array<string,mixed>>>
+     */
+    public static function salesByPaymentByOutlet(string $from, string $to, string $roc): array
+    {
+        $byOutlet = [];
+        self::eachPaidSale($from, $to, $roc, 0, new HourBand(), static function (array $methods, string $outletId) use (&$byOutlet): void {
+            $byOutlet[$outletId] = groupByPaymentMethod($methods, $byOutlet[$outletId] ?? []);
+        });
+        return $byOutlet;
+    }
+
+    /**
+     * Recorre los cobros del período (ventas de contado tipo 0 y pagos de
+     * crédito tipo 5, no anulados) y le pasa a `$each` los medios de pago de
+     * cada uno que NO sea una venta interna (ni el pago de una). Única lectura
+     * de las dos agregaciones de arriba.
+     *
+     * @param callable(array<int,array<string,mixed>>, string):void $each  ($methods, $outletId)
+     */
+    private static function eachPaidSale(string $from, string $to, string $roc, int $cache, HourBand $hours, callable $each): void
+    {
+        if ($from === '') { return; }
 
         if ($to !== '') {
             $where = "transactionDate >= ? AND transactionDate <= ?";
@@ -99,14 +133,15 @@ final class NonAddingSales
         // misma cantidad de extremos.
         [$hourSql, $hourParams] = $hours->on('transactionDate');
 
-        $sql = "SELECT transactionId, transactionPaymentType, transactionType, meta->>'tags' AS tags
+        $sql = "SELECT transactionId, transactionPaymentType, transactionType, meta->>'tags' AS tags,
+                       outletId AS \"outletId\"
                 FROM transaction
                 WHERE " . $where . " AND transactionType IN (0,5)
                 AND " . SaleFilters::notVoidedSql() . $roc . $hourSql;
 
         $result = ncmExecute($sql, array_merge($args, $hourParams), $cache, true);
         if (!$result) {
-            return [];
+            return;
         }
 
         $rows = [];
@@ -130,7 +165,6 @@ final class NonAddingSales
             ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $paymentIds, 'credit_payment')
             : [];
 
-        $group = [];
         foreach ($rows as $f) {
             $methods = json_decode((string) ($f['transactionPaymentType'] ?? ''), true);
 
@@ -143,10 +177,9 @@ final class NonAddingSales
             }
 
             if (is_array($methods) && $methods && !$ignore) {
-                $group = groupByPaymentMethod($methods, $group);
+                $each($methods, (string) ($f['outletId'] ?? $f['outletid'] ?? ''));
             }
         }
-        return $group;
     }
 
     /**
@@ -214,6 +247,31 @@ final class NonAddingSales
     }
 
     /**
+     * Ventas internas por sucursal Y por bucket de tiempo:
+     * `[outletId => [bucket => total interno]]`. Es lo que permite que la
+     * serie por sucursal del reporte de Sucursales reste las internas igual
+     * que el KPI, y que la suma de sus puntos cierre con la fila de la tabla.
+     *
+     * @return array<string, array<string, float>>
+     */
+    public static function internalTotalsByOutletAndBucket(string $roc, string $from, string $to, \Punto\Api\Support\TimeBuckets $tb): array
+    {
+        global $_fullSettings;
+
+        if (empty($_fullSettings['ignoreInternal']) || !$_fullSettings['ignoreInternal']) {
+            return [];
+        }
+
+        $out = [];
+        self::eachInternalSale($roc, $from, $to, false, new HourBand(), static function (array $f) use (&$out, $tb): void {
+            $oid = (string) ($f['outletId'] ?? '');
+            $key = $tb->keyFor((string) ($f['transactionDate'] ?? ''));
+            $out[$oid][$key] = ($out[$oid][$key] ?? 0.0) + (float) $f['transactionTotal'] - (float) $f['transactionDiscount'];
+        });
+        return $out;
+    }
+
+    /**
      * Recorre las ventas INTERNAS del período (tag interno, `isInternalSale`) y
      * le pasa cada una a `$each`. Única lectura de las dos agregaciones de
      * arriba.
@@ -233,7 +291,7 @@ final class NonAddingSales
 
         $result = ncmExecute(
             "SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax,
-                    outletId AS \"outletId\"
+                    outletId AS \"outletId\", transactionDate AS \"transactionDate\"
              FROM transaction
              WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")
              AND " . SaleFilters::notVoidedSql() . $roc . $hourSql . " LIMIT 5000",
@@ -251,6 +309,7 @@ final class NonAddingSales
                         'transactionTax'       => $f['transactionTax'],
                         'transactionUnitsSold' => $f['transactionUnitsSold'],
                         'outletId'             => $f['outletId'] ?? $f['outletid'] ?? '',
+                        'transactionDate'      => $f['transactionDate'] ?? $f['transactiondate'] ?? '',
                     ]);
                 }
                 $result->MoveNext();

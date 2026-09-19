@@ -99,6 +99,11 @@ export interface RouteEntry {
   requiresAny?: string[]
   /** Módulo del tenant que debe estar activo (`/v1/modules`). */
   requiresModule?: string
+  /**
+   * Solo si el alcance del usuario tiene 2 o más sucursales activas (el
+   * reporte de Sucursales: con una sola no hay nada que comparar).
+   */
+  requiresMultiOutlet?: boolean
   /** Oculta el item en mobile. Solo aplica a `surface: "sidebar"`. */
   hideOnMobile?: boolean
   /** Badge dinámico: la clave que resuelve el builder (ej. "parkedSales"). */

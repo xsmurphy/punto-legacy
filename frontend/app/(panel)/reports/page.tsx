@@ -49,6 +49,7 @@ import {
   Scale,
   ShieldCheck,
   ShoppingCart,
+  Store,
   UserCheck,
   UserSearch,
   Users,
@@ -59,6 +60,8 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { useHasMultipleOutlets } from "@/hooks/use-outlets"
+import { usePermissions } from "@/hooks/use-permissions"
 
 interface ReportItem {
   title: string
@@ -66,6 +69,13 @@ interface ReportItem {
   to: string
   icon: LucideIcon
   implemented: boolean
+  /**
+   * Solo con 2+ sucursales activas en el alcance del usuario, y con el
+   * permiso del endpoint — la misma condición que su entrada en
+   * `lib/navigation/routes.ts`. Un reporte que no puede decir nada (una
+   * sola sucursal) o que devolvería 403 no se ofrece.
+   */
+  requiresMultiOutlet?: { permission: string }
 }
 
 interface ReportGroup {
@@ -109,6 +119,14 @@ const GROUPS: ReportGroup[] = [
         to: "/reports/orders",
         icon: ClipboardList,
         implemented: true,
+      },
+      {
+        title: "Sucursales",
+        description: "Cómo rinde cada sucursal frente a las otras: ventas, ganancia y operación.",
+        to: "/reports/outlets",
+        icon: Store,
+        implemented: true,
+        requiresMultiOutlet: { permission: "reports.sales.view" },
       },
       {
         title: "Análisis de clientes",
@@ -286,6 +304,17 @@ const GROUPS: ReportGroup[] = [
 ]
 
 export default function ReportsLandingPage() {
+  const multiOutlet = useHasMultipleOutlets()
+  const permissions = usePermissions()
+  const groups = GROUPS.map((g) => ({
+    ...g,
+    items: g.items.filter(
+      (it) =>
+        !it.requiresMultiOutlet ||
+        (multiOutlet && permissions.includes(it.requiresMultiOutlet.permission)),
+    ),
+  }))
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -296,7 +325,7 @@ export default function ReportsLandingPage() {
         </p>
       </header>
 
-      {GROUPS.map((g) => (
+      {groups.map((g) => (
         <ReportGroupSection key={g.title} group={g} />
       ))}
     </div>

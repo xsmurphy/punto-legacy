@@ -361,6 +361,7 @@ $CASOS = [
     ['reports.sales.view',       'reports customers GET',       'v1/reports/customers.php',       'GET', '',                          []],
     ['reports.sales.view',       'reports orders GET',          'v1/reports/orders.php',          'GET', '',                          []],
     ['reports.sales.view',       'reports summary_year GET',    'v1/reports/summary_year.php',    'GET', '',                          []],
+    ['reports.sales.view',       'reports outlets GET',         'v1/reports/outlets.php',         'GET', 'dataset=summary',           []],
     // `vpayments` NO entra a la matriz aunque SÍ quedó gateado. Su lectura es un
     // proxy al gateway ePOS externo (Bancard/Dinelco) y en el arnés ese host no
     // existe: `VPaymentsService` le pasa a json_decode() el `false` que devuelve

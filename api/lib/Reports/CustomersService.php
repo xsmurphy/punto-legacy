@@ -267,6 +267,49 @@ final class CustomersService
     }
 
     /**
+     * Clientes ACTIVOS del período por sucursal — "activo" con la definición
+     * de `kpis()` (compró al menos una vez en el período: venta tipo 0/3 no
+     * anulada, con cliente). Lo usa el reporte de Sucursales.
+     *
+     * `total` NO es la suma de `byOutlet`: un cliente que compró en dos
+     * sucursales es activo en las dos y UNO en el total. Sale de la misma
+     * query con `GROUPING SETS`, así que es exactamente
+     * `kpis()['totales']['activos']` del mismo alcance.
+     *
+     * @param list<string> $outletIds
+     * @return array{byOutlet: array<string,int>, total: int}
+     */
+    public function activeByOutlet(string $from, string $to, string $companyId, array $outletIds): array
+    {
+        $rocT = Roc::scoped($companyId, $outletIds, 't');
+        $nvT  = SaleFilters::notVoidedSql('t');
+        $tipo = self::VENTA_TYPES_SQL;
+
+        $rows = $this->fetchAll(
+            "SELECT t.outletId AS oid, GROUPING(t.outletId) AS is_total,
+                    COUNT(DISTINCT t.customerId) AS n
+               FROM transaction t
+              WHERE t.transactionType IN $tipo
+                AND $nvT
+                AND t.transactionDate BETWEEN ? AND ?
+                AND t.customerId IS NOT NULL$rocT
+              GROUP BY GROUPING SETS ((t.outletId), ())",
+            [$from, $to]
+        );
+
+        $byOutlet = [];
+        $total    = 0;
+        foreach ($rows as $r) {
+            if ((int) $r['is_total'] === 1) {
+                $total = (int) $r['n'];
+            } else {
+                $byOutlet[(string) $r['oid']] = (int) $r['n'];
+            }
+        }
+        return ['byOutlet' => $byOutlet, 'total' => $total];
+    }
+
+    /**
      * Clientes NUEVOS por mes: cada cliente cuenta en el mes de su PRIMERA
      * venta histórica, si ese mes cae dentro del rango. Misma definición de
      * "nuevo" que `kpis()` (y mismo alcance), así que la suma de la serie da

@@ -44,6 +44,22 @@ export function formatInt(
 }
 
 /**
+ * Porcentaje con el separador decimal del tenant: `42,5 %`. `value` ya es el
+ * porcentaje (42.5), no la fracción.
+ */
+export function formatPercent(
+  value: number | null | undefined,
+  bootstrap: TenantLocaleConfig | null | undefined,
+  digits = 1,
+): string {
+  const v = typeof value === "number" && isFinite(value) ? value : 0
+  return `${new Intl.NumberFormat(resolveNumberLocale(bootstrap), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(v)} %`
+}
+
+/**
  * Monto abreviado para espacios chicos (rankings, tiles): `Gs 1,5 M`,
  * `Gs 820 k`. Sufijos fijos `k`/`M` (los mismos de los ejes de los gráficos)
  * y el separador decimal del tenant — NO la notación compacta de `Intl`: el

@@ -23,3 +23,34 @@ export function partialBarCells(
     <Cell key={`partial-${i}`} fillOpacity={bucketOpacity(point, baseOpacity)} />
   ))
 }
+
+/**
+ * El equivalente para una `<Line>`: el `dot` de cada punto, atenuado cuando
+ * el período está incompleto. Misma regla (`bucketOpacity`) que las barras,
+ * así que un gráfico de líneas y uno de barras del mismo rango marcan igual
+ * la primera/última semana o mes recortados.
+ *
+ *     <Line dataKey="s0" stroke="var(--color-s0)" dot={partialLineDot("var(--color-s0)")} />
+ */
+export function partialLineDot(color: string, radius = 3) {
+  function PartialLineDot(props: {
+    cx?: number
+    cy?: number
+    index?: number
+    payload?: { partial?: boolean }
+  }) {
+    if (props.cx === undefined || props.cy === undefined) return <g key={`dot-${props.index}`} />
+    return (
+      <circle
+        key={`dot-${props.index}`}
+        cx={props.cx}
+        cy={props.cy}
+        r={radius}
+        fill={color}
+        fillOpacity={bucketOpacity(props.payload)}
+        stroke="none"
+      />
+    )
+  }
+  return PartialLineDot
+}
