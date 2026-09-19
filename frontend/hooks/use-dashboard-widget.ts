@@ -1,6 +1,6 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 import type { CustomersKpis } from "@/hooks/use-reports"
 
@@ -10,10 +10,16 @@ import type { CustomersKpis } from "@/hooks/use-reports"
  *
  * Defaults: rango = últimos 7 días (matchea lo que hace el dashboard legacy).
  * Custom rangos se pasan en `opts.from` / `opts.to` (formato 'YYYY-MM-DD HH:mm:ss').
+ *
+ * `keepPrevious`: al cambiar de rango la query nueva arranca con los datos del
+ * rango anterior como placeholder (`isPlaceholderData`) en vez de volver a
+ * "sin datos". Lo usa el dashboard para que un cambio de rango no desarme la
+ * página (sus reglas de visibilidad leen los datos): los skeletons locales
+ * miran `isPlaceholderData`. Opt-in para no cambiar a los otros consumidores.
  */
 export function useDashboardWidget<T>(
   widget: string,
-  opts?: { from?: string; to?: string; enabled?: boolean },
+  opts?: { from?: string; to?: string; enabled?: boolean; keepPrevious?: boolean },
 ) {
   const params = new URLSearchParams({ widget })
   if (opts?.from) params.set("from", opts.from)
@@ -24,6 +30,7 @@ export function useDashboardWidget<T>(
     queryFn: () => api.get<T>(`/v1/reports/dashboard?${params.toString()}`),
     staleTime: 60 * 1000, // 1 min — datos transaccionales cambian frecuente
     enabled: opts?.enabled ?? true,
+    placeholderData: opts?.keepPrevious ? keepPreviousData : undefined,
     retry: false,
   })
 }
@@ -187,7 +194,8 @@ export function useIncomeChart(
   // `/v1/reports/sales?dataset=series`, que desde el 2026-09-02 exige
   // `reports.sales.view`. Sin poder apagarlo, el dashboard le disparaba un 403
   // seguro a todo el que no tenga la clave.
-  extra?: { enabled?: boolean },
+  // `keepPrevious`: mismo contrato que en `useDashboardWidget`.
+  extra?: { enabled?: boolean; keepPrevious?: boolean },
 ) {
   // El scope va en el queryKey para que React Query refetchee al cambiar de
   // sucursal. El header `X-Outlet-Id` NO se manda a mano: lo pone el api-client.
@@ -211,6 +219,7 @@ export function useIncomeChart(
     staleTime: 60 * 1000,
     retry: false,
     enabled: extra?.enabled ?? true,
+    placeholderData: extra?.keepPrevious ? keepPreviousData : undefined,
   })
 }
 

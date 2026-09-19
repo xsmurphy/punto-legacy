@@ -109,6 +109,8 @@ import {
 } from "@/lib/charts/granularity"
 import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import { cn } from "@/lib/utils"
+import { isDashboardFirstLoad, isSettled } from "@/lib/dashboard/first-load"
+import { DashboardHeader, DashboardSkeleton } from "@/components/domain/dashboard/dashboard-skeleton"
 
 /**
  * Dashboard — espejo del panel legacy con widgets agrupados.
@@ -116,7 +118,7 @@ import { cn } from "@/lib/utils"
  * api/lib/Reports/DashboardService.php.
  */
 export default function DashboardPage() {
-  const { data: bootstrap } = useBootstrap()
+  const { data: bootstrap, error: bootstrapError } = useBootstrap()
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
@@ -133,12 +135,18 @@ export default function DashboardPage() {
    * ni dispara nada sin `finance.manage`.
    */
   const canViewSales = usePermission("reports.sales.view")
-  const ventas = React.useMemo(() => ({ ...opts, enabled: canViewSales }), [opts, canViewSales])
+  // `keepPrevious`: un cambio de rango no vuelve a "sin datos" — la página
+  // sigue armada con el rango anterior hasta que llega el nuevo.
+  const periodo = React.useMemo(() => ({ ...opts, keepPrevious: true }), [opts])
+  const ventas = React.useMemo(
+    () => ({ ...periodo, enabled: canViewSales }),
+    [periodo, canViewSales],
+  )
 
   const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", ventas)
   const salesByOutlet = useDashboardWidget<SalesByOutletWidget>("salesByOutlet", ventas)
-  const info = useDashboardWidget<InfoWidget>("info", opts)
-  const incomeChart = useIncomeChart(opts, { enabled: canViewSales })
+  const info = useDashboardWidget<InfoWidget>("info", periodo)
+  const incomeChart = useIncomeChart(opts, { enabled: canViewSales, keepPrevious: true })
   const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", ventas)
   const customers = useDashboardWidget<CustomersWidget>("customers", ventas)
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", ventas)
@@ -149,13 +157,57 @@ export default function DashboardPage() {
   // "Requiere atención": sin `enabled` a propósito — no es de ventas; el
   // backend gatea FILA por fila con el permiso de la pantalla a la que linkea
   // cada una, así que un usuario sin reportes igual ve lo que sí le compete.
-  const attention = useDashboardWidget<AttentionWidget>("attention", opts)
+  const attention = useDashboardWidget<AttentionWidget>("attention", periodo)
   // "Ahora": el estado del momento, INDEPENDIENTE del rango elegido. Sin
   // `enabled` por la misma razón que "Requiere atención": el backend gatea
   // fila por fila (módulo y/o permiso de la pantalla a la que lleva cada una).
   const now = useDashboardNow()
+  // Finanzas: sus queries viven acá (y no dentro de la card) para que la
+  // primera carga las espere también. Sin `finance.manage` no se disparan.
+  const canManageFinance = usePermission("finance.manage")
+  const forecastRange = React.useMemo(() => ({ to: addDaysISO(new Date(), 7) }), [])
+  const financeSummary = useFinanceSummary(undefined, { enabled: canManageFinance })
+  const financeForecast = useFinanceForecast(forecastRange, { enabled: canManageFinance })
+
   const nowTiles = visibleNowTiles(now.data)
   const deltas = kpiDeltas(stats.data)
+
+  /**
+   * Primera carga = skeleton de la página completa (`DashboardSkeleton`).
+   * Sin esto, las queries de ventas arrancan APAGADAS (`usePermission` es
+   * false hasta que llega el bootstrap) y una query apagada tiene
+   * `isLoading=false` sin datos: la página pintaba los bloques reales vacíos,
+   * después skeletons sueltos y recién después el contenido. Las reglas de
+   * visibilidad (`lib/dashboard/visibility.ts`) se evalúan solo con datos
+   * resueltos. Un error del bootstrap cuenta como resuelto (sin permisos):
+   * nunca skeleton infinito.
+   */
+  const permisosResueltos =
+    bootstrap?.user?.permissions !== undefined || Boolean(bootstrapError)
+  const firstLoad = isDashboardFirstLoad({
+    permissionsResolved: permisosResueltos,
+    queries: [
+      { query: info, enabled: true },
+      { query: attention, enabled: true },
+      { query: now, enabled: true },
+      { query: stats, enabled: canViewSales },
+      { query: incomeChart, enabled: canViewSales },
+      { query: salesByOutlet, enabled: canViewSales },
+      { query: paymentStatus, enabled: canViewSales },
+      { query: customers, enabled: canViewSales },
+      { query: topItems, enabled: canViewSales },
+      { query: topCategories, enabled: canViewSales },
+      { query: topHours, enabled: canViewSales },
+      { query: financeSummary, enabled: canManageFinance },
+      { query: financeForecast, enabled: canManageFinance },
+    ],
+  })
+
+  // Después de la primera carga, un cambio de rango muestra los datos del rango
+  // anterior como placeholder: los skeletons locales (los que ya existían) se
+  // pintan mientras tanto sobre los números, sin desarmar la página.
+  const statsPending = stats.isLoading || stats.isPlaceholderData
+  const chartPending = incomeChart.isLoading || incomeChart.isPlaceholderData
 
   // "Negocio sin actividad" = NUNCA vendió (lifetime, info.hasSales).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -165,7 +217,7 @@ export default function DashboardPage() {
   // ventas (bug 2026-08-01). Fallback al gate mensual solo si hasSales no
   // vino (backend sin deployar) — undefined nunca fuerza el hero solo.
   const isEmptyState =
-    !info.isLoading &&
+    isSettled(info) &&
     !info.error &&
     (info.data?.hasSales !== undefined
       ? info.data.hasSales === false
@@ -196,6 +248,9 @@ export default function DashboardPage() {
     )
   }
 
+  // Sin permisos todavía no se sabe qué layout va: skeleton del caso típico.
+  if (!permisosResueltos) return <DashboardSkeleton />
+
   /**
    * Esta pantalla ES el reporte de ventas del comercio con otra tipografía:
    * facturación del período, margen, cobranza pendiente, ranking de artículos.
@@ -206,8 +261,7 @@ export default function DashboardPage() {
    * mientras carga (safe default), y sin esta guarda la pantalla parpadearía el
    * vacío en cada entrada, hasta para el dueño.
    */
-  const permisosResueltos = bootstrap?.user?.permissions !== undefined
-  if (permisosResueltos && !canViewSales) {
+  if (!canViewSales) {
     // Sin ventas, "Ahora" igual aplica: órdenes, espacios o la agenda son de
     // quien atiende, no del reporte de ventas. El vacío de página solo va si
     // tampoco hay nada del momento que mostrarle.
@@ -217,7 +271,8 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold">Resumen general</h1>
         </header>
         <NowSection tiles={nowTiles} bootstrap={bootstrap} />
-        {nowTiles.length === 0 && (
+        {/* "Sin acceso" solo con "Ahora" resuelto: mientras carga no se sabe. */}
+        {isSettled(now) && nowTiles.length === 0 && (
           <EmptyState
             icon={TrendingUp}
             title="No tenés acceso al resumen de ventas"
@@ -233,17 +288,11 @@ export default function DashboardPage() {
     )
   }
 
+  if (firstLoad) return <DashboardSkeleton />
+
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Resumen general</h1>
-          <p className="text-sm text-muted-foreground">
-            Cómo va tu negocio en el período y lo que está pasando ahora.
-          </p>
-        </div>
-        <DateRangePicker value={range} onChange={setRange} />
-      </header>
+      <DashboardHeader actions={<DateRangePicker value={range} onChange={setRange} />} />
 
       {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
           sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
@@ -256,8 +305,8 @@ export default function DashboardPage() {
             <BigMetricCard
               label="Ingresos"
               href="/reports/sales?tab=dashboard"
-              value={fmtMoney(stats.data?.total, bootstrap, stats.isLoading)}
-              isLoading={stats.isLoading}
+              value={fmtMoney(stats.data?.total, bootstrap, statsPending)}
+              isLoading={statsPending}
               sparkline={incomeChart.data?.data.map((p) => p.ingresos)}
               sparklineColor="var(--chart-1)"
               trend="up"
@@ -266,8 +315,8 @@ export default function DashboardPage() {
             <BigMetricCard
               label="Egresos"
               href="/purchase"
-              value={fmtMoney(stats.data?.expenses, bootstrap, stats.isLoading)}
-              isLoading={stats.isLoading}
+              value={fmtMoney(stats.data?.expenses, bootstrap, statsPending)}
+              isLoading={statsPending}
               sparkline={incomeChart.data?.data.map((p) => p.egresos)}
               sparklineColor="var(--muted-foreground)"
               trend="down"
@@ -280,7 +329,7 @@ export default function DashboardPage() {
           <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_15rem]">
             <IncomeOutcomeChart
               data={incomeChart.data}
-              isLoading={incomeChart.isLoading}
+              isLoading={chartPending}
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
@@ -288,9 +337,9 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center gap-1 py-6">
                 <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs font-medium text-muted-foreground">
                   Ganancia
-                  <KpiDelta delta={deltas.revenue} loading={stats.isLoading} />
+                  <KpiDelta delta={deltas.revenue} loading={statsPending} />
                 </span>
-                {stats.isLoading ? (
+                {statsPending ? (
                   <Skeleton className="h-8 w-32" />
                 ) : (
                   <span className="text-2xl font-bold tabular-nums text-[var(--chart-1)]">
@@ -302,9 +351,9 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center gap-1">
                   <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
                     Margen
-                    <KpiDelta delta={deltas.margin} loading={stats.isLoading} />
+                    <KpiDelta delta={deltas.margin} loading={statsPending} />
                   </span>
-                  {stats.isLoading ? (
+                  {statsPending ? (
                     <Skeleton className="h-6 w-12" />
                   ) : (
                     <span className="text-xl font-bold tabular-nums">
@@ -315,9 +364,9 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center gap-1">
                   <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
                     Cant. Ventas
-                    <KpiDelta delta={deltas.count} loading={stats.isLoading} />
+                    <KpiDelta delta={deltas.count} loading={statsPending} />
                   </span>
-                  {stats.isLoading ? (
+                  {statsPending ? (
                     <Skeleton className="h-6 w-12" />
                   ) : (
                     <span className="text-xl font-bold tabular-nums">
@@ -328,13 +377,13 @@ export default function DashboardPage() {
               </div>
               {/* Ticket promedio junto a los otros KPIs del período (owner).
                   Sin ventas no promedia nada: no se muestra. */}
-              {(stats.isLoading || Number(stats.data?.count ?? 0) > 0) && (
+              {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
                 <div className="flex flex-col items-center gap-1 border-t py-4">
                   <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
                     Ticket promedio
-                    <KpiDelta delta={deltas.customerAverage} loading={stats.isLoading} />
+                    <KpiDelta delta={deltas.customerAverage} loading={statsPending} />
                   </span>
-                  {stats.isLoading ? (
+                  {statsPending ? (
                     <Skeleton className="h-6 w-24" />
                   ) : (
                     <span className="text-xl font-bold tabular-nums">
@@ -390,7 +439,9 @@ export default function DashboardPage() {
               con dato, no existe. */}
           <NowSection tiles={nowTiles} bootstrap={bootstrap} />
           <AttentionCard data={attention.data} bootstrap={bootstrap} />
-          <FinanceCard />
+          {canManageFinance && (
+            <FinanceCard summary={financeSummary} forecast={financeForecast} bootstrap={bootstrap} />
+          )}
           {/* NPS oculto a pedido del owner — el módulo de satisfacción de
               clientes todavía no está desarrollado. Componente y helpers
               (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
@@ -398,9 +449,7 @@ export default function DashboardPage() {
           {showCustomers(customers.data) && (
             <CustomersCard data={customers.data} />
           )}
-          {!stats.isLoading && !info.isLoading && (
-            <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
-          )}
+          <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
         </aside>
       </div>
     </div>
@@ -683,18 +732,18 @@ function addDaysISO(base: Date, days: number): string {
 /**
  * Card de Finanzas en el dashboard — mismo gate que el link "Finanzas" del
  * sidebar nav (permiso `finance.manage`). Sin placeholder: si el usuario no
- * tiene el permiso, la card no se monta (ni dispara sus fetches).
+ * tiene el permiso, la card no se monta y la página no dispara sus fetches
+ * (las queries viven en la página para entrar en la primera carga).
  */
-function FinanceCard() {
-  const canManageFinance = usePermission("finance.manage")
-  const { data: bootstrap } = useBootstrap()
-
-  const forecastRange = React.useMemo(() => ({ to: addDaysISO(new Date(), 7) }), [])
-
-  const summary = useFinanceSummary(undefined, { enabled: canManageFinance })
-  const forecast = useFinanceForecast(forecastRange, { enabled: canManageFinance })
-
-  if (!canManageFinance) return null
+function FinanceCard({
+  summary,
+  forecast,
+  bootstrap,
+}: {
+  summary: ReturnType<typeof useFinanceSummary>
+  forecast: ReturnType<typeof useFinanceForecast>
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
 
   const obligations = [...(forecast.data?.obligations ?? [])].sort((a, b) => {
     const overdueA = isForecastOverdue(a.dueDate)
