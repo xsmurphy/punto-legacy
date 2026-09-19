@@ -333,7 +333,8 @@ export default function DashboardPage() {
               error={incomeChart.error}
               bootstrap={bootstrap}
             />
-            <div className="flex flex-col self-start">
+            {/* KPIs del período en su propia card (owner): ordena el bloque. */}
+            <Card className="gap-0 self-start py-0">
               <div className="flex flex-col items-center gap-1 py-6">
                 <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs font-medium text-muted-foreground">
                   Ganancia
@@ -363,7 +364,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="flex flex-wrap items-center justify-center gap-x-1.5 text-xs text-muted-foreground">
-                    Cant. Ventas
+                    Ventas
                     <KpiDelta delta={deltas.count} loading={statsPending} />
                   </span>
                   {statsPending ? (
@@ -392,7 +393,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
-            </div>
+            </Card>
           </section>
 
           {/* Bloques del período en una grilla de 2 columnas. Cada uno se
@@ -447,7 +448,7 @@ export default function DashboardPage() {
               (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
               vuelve más adelante. */}
           {showCustomers(customers.data) && (
-            <CustomersCard data={customers.data} />
+            <CustomersCard data={customers.data} bootstrap={bootstrap} />
           )}
           <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
         </aside>
@@ -494,7 +495,7 @@ function BigMetricCard({
   return (
     <Card className="relative overflow-hidden">
       <CardContent className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
             {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
             <span className="truncate">{label}</span>
@@ -1058,7 +1059,13 @@ function SplitRow({
 
 // ── Clientes ──────────────────────────────────────────────────────────────
 
-function CustomersCard({ data }: { data: CustomersWidget | undefined }) {
+function CustomersCard({
+  data,
+  bootstrap,
+}: {
+  data: CustomersWidget | undefined
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
   // Mismos números que el reporte de clientes al que linkea (el backend delega
   // en el mismo servicio). "Total" = clientes ACTIVOS del período, no el padrón.
   // Una tasa `null` es "sin base de comparación" (el período anterior no tuvo
@@ -1110,6 +1117,7 @@ function CustomersCard({ data }: { data: CustomersWidget | undefined }) {
                 percent={percent}
                 isLoading={false}
                 barColor={r.barColor}
+                bootstrap={bootstrap}
               />
             )
           })}
@@ -1117,6 +1125,12 @@ function CustomersCard({ data }: { data: CustomersWidget | undefined }) {
       </CardContent>
     </Card>
   )
+}
+
+/** Porcentaje legible: sin decimales desde 10, uno por debajo (58,3 → 58). */
+function formatPercent(n: number, bootstrap: ReturnType<typeof useBootstrap>["data"]): string {
+  const digits = Math.abs(n) >= 10 ? 0 : 1
+  return new Intl.NumberFormat(resolveNumberLocale(bootstrap), { maximumFractionDigits: digits }).format(n)
 }
 
 function toPct(v: unknown): number | null {
@@ -1131,11 +1145,13 @@ function RateRow({
   percent,
   isLoading,
   barColor,
+  bootstrap,
 }: {
   label: string
   percent: number | null
   isLoading: boolean
   barColor: string
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   const clamped = Math.max(0, Math.min(100, percent ?? 0))
   return (
@@ -1143,7 +1159,7 @@ function RateRow({
       <div className="flex items-center justify-between text-xs">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-medium tabular-nums">
-          {isLoading ? "…" : `${percent ?? 0}%`}
+          {isLoading ? "…" : `${formatPercent(percent ?? 0, bootstrap)}%`}
         </span>
       </div>
       <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
@@ -1553,8 +1569,8 @@ function NowCard({
   children: React.ReactNode
 }) {
   return (
-    <Card size="sm">
-      <CardHeader>
+    <Card variant="soft">
+      <CardHeader className="pb-2">
         <CardTitle>{title}</CardTitle>
         {href && (
           <CardAction>
