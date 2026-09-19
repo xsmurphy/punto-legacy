@@ -1410,6 +1410,54 @@ export interface PurchasesReportResponse {
   rows: PurchaseReportRow[]
 }
 
+/**
+ * Evolución de costos por proveedor — `/v1/reports/purchases?view=costs`
+ * (`Reports/PurchaseCostsService`). Costo unitario = lo pagado por la línea
+ * sobre las unidades reales (el bulto ya viene desarmado). La variación es
+ * contra la compra anterior del MISMO proveedor; `null` si es la primera.
+ */
+export interface PurchaseCostRow {
+  itemId: string
+  supplierId: string | null
+  supplierName?: string
+  transactionId: string
+  date: string
+  units: number
+  unitCost: number
+  previousCost: number | null
+  variationPct: number | null
+}
+
+export interface PurchaseCostSupplier {
+  supplierId: string | null
+  supplierName: string
+  lastCost: number
+  lastDate: string
+  purchases: number
+  cheapest: boolean
+}
+
+export interface PurchaseCostItemRow {
+  itemId: string
+  itemName: string
+  supplierId: string | null
+  supplierName: string
+  lastCost: number
+  lastDate: string
+  previousCost: number | null
+  variationPct: number | null
+  transactionId: string
+}
+
+export type PurchaseCostsResponse =
+  | { mode: "items"; items: PurchaseCostItemRow[] }
+  | {
+      mode: "item"
+      item: { itemId: string; itemName: string } | null
+      rows: PurchaseCostRow[]
+      suppliers: PurchaseCostSupplier[]
+    }
+
 /** Estado del ciclo de vida de una cotización — lo deriva el backend
  *  (`TransactionsService::quoteStatus`), no es el entero de `transactionStatus`. */
 export type QuoteStatus = "pendiente" | "facturada" | "vencida" | "anulada"

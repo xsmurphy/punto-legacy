@@ -244,6 +244,9 @@ export default function ItemEditPage() {
 function ItemEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
+  // El histórico de costos por proveedor vive en Reportes › Compras; la ficha
+  // solo lo abre filtrado por este artículo (no lo duplica).
+  const canViewPurchases = usePermission("reports.purchases.view")
   const isNew = id === "new"
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -608,6 +611,13 @@ function ItemEditPageInner() {
           actions={
             !isNew && (
               <>
+                {canViewPurchases && (
+                  <Button variant="outline" asChild>
+                    <Link href={`/reports/purchases?tab=costos&itemId=${id}`}>
+                      Evolución de costos
+                    </Link>
+                  </Button>
+                )}
                 {persistedKind === "produccion_previa" && (
                   <Button variant="outline" asChild>
                     <Link href={`/produccion?newItemId=${id}`}>Producir</Link>

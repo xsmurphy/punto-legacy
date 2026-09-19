@@ -2,12 +2,13 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Plus, Receipt } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
@@ -24,6 +25,20 @@ import { formatMoney } from "@/lib/format"
 import { SaleType } from "@/lib/domain/sale-type"
 import { EmptyState } from "@/components/empty-state"
 import { BackLink } from "@/components/page/back-link"
+import { CostEvolutionTab } from "@/components/domain/reports/purchases/cost-evolution-tab"
+import {
+  CostItemFilter,
+  CostSupplierFilter,
+} from "@/components/domain/reports/purchases/cost-evolution-filters"
+
+const TABS = ["compras", "costos"] as const
+type TabKey = (typeof TABS)[number]
+
+function isTab(v: string | null): v is TabKey {
+  return v !== null && (TABS as readonly string[]).includes(v)
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Reporte de compras y gastos — espejo del listado de `panel/a_purchase.php`,
@@ -41,17 +56,80 @@ import { BackLink } from "@/components/page/back-link"
  * Filtros activos: rango de fechas (DateRangePicker, server-side).
  * Click en fila → `/purchase/[id]` para ver el detalle completo (mismo id:
  * `transactionId` — el CRUD busca por transactionId, ver PurchasesService::find).
+ *
+ * Dos pestañas sobre el mismo período (`?tab=`):
+ *   Compras              → el listado de siempre.
+ *   Evolución de costos  → `CostEvolutionTab`, con artículo y proveedor como
+ *                          filtros propios en la URL (`?itemId=&supplierId=`),
+ *                          así la ficha del artículo abre el reporte ya filtrado.
+ * El período va en el encabezado y se pasa hacia abajo (un solo `useDateRange`).
  */
 export default function PurchasesReportPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que items/[id]/page.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <PurchasesReportPageInner />
+    </React.Suspense>
+  )
+}
+
+function PurchasesReportPageInner() {
   const router = useRouter()
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const requested = searchParams.get("tab")
+  const tab: TabKey = isTab(requested) ? requested : "compras"
+  const rawItem = searchParams.get("itemId") ?? ""
+  const rawSupplier = searchParams.get("supplierId") ?? ""
+  const itemId = UUID_RE.test(rawItem) ? rawItem : ""
+  const supplierId = UUID_RE.test(rawSupplier) ? rawSupplier : ""
+
+  // Nombres de los filtros: los pone el picker al elegir, o el reporte cuando
+  // se entra con el id ya en la URL.
+  const [itemName, setItemName] = React.useState("")
+  const [supplierName, setSupplierName] = React.useState("")
+  const onNames = React.useCallback((n: { item?: string; supplier?: string }) => {
+    if (n.item) setItemName(n.item)
+    if (n.supplier) setSupplierName(n.supplier)
+  }, [])
+
+  const setParams = React.useCallback(
+    (patch: Record<string, string>) => {
+      const params = new URLSearchParams(searchParams.toString())
+      for (const [k, v] of Object.entries(patch)) {
+        if (v) params.set(k, v)
+        else params.delete(k)
+      }
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false })
+    },
+    [pathname, router, searchParams],
+  )
+  const setTab = React.useCallback((v: string) => setParams({ tab: v }), [setParams])
+  const setItem = React.useCallback(
+    (id: string, name: string) => {
+      setItemName(name)
+      setParams({ tab: "costos", itemId: id })
+    },
+    [setParams],
+  )
+  const setSupplier = React.useCallback(
+    (id: string, name: string) => {
+      setSupplierName(name)
+      setParams({ supplierId: id })
+    },
+    [setParams],
+  )
+
   const purchases = useReport<PurchasesReportResponse>("purchases", {
     from: opts.from,
     to: opts.to,
     params: { view: "general" },
+    enabled: tab === "compras",
   })
 
   const columns = React.useMemo<ColumnDef<PurchaseReportRow>[]>(
@@ -195,8 +273,8 @@ export default function PurchasesReportPage() {
   )
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink href="/reports" label="Volver a reportes" />
           <h1 className="text-2xl font-semibold">Compras y gastos</h1>
@@ -204,45 +282,78 @@ export default function PurchasesReportPage() {
             Historial de facturas de compra a proveedores
           </p>
         </div>
-        <Button asChild>
-          <Link href="/purchase">
-            <Plus className="mr-1.5 size-4" />
-            Nueva compra
-          </Link>
-        </Button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          {tab === "costos" && (
+            <>
+              <CostItemFilter value={itemId} displayName={itemName} onChange={setItem} />
+              <CostSupplierFilter
+                value={supplierId}
+                displayName={supplierName}
+                onChange={setSupplier}
+              />
+            </>
+          )}
+          <DateRangePicker value={range} onChange={setRange} />
+          {tab === "compras" && (
+            <Button asChild>
+              <Link href="/purchase">
+                <Plus className="mr-1.5 size-4" />
+                Nueva compra
+              </Link>
+            </Button>
+          )}
+        </div>
       </header>
 
-      <DataTable<PurchaseReportRow>
-        tableId="purchases-report"
-        data={purchases.data?.rows ?? []}
-        columns={columns}
-        getRowId={(r) => r.transactionId}
-        isLoading={purchases.isLoading}
-        onRowClick={(r) => router.push(`/purchase/${r.transactionId}`)}
-        toolbarSlot={
-          <DateRangePicker value={range} onChange={setRange} />
-        }
-        emptyMessage={
-          <EmptyState
-            icon={Receipt}
-            title="Sin compras registradas en este período"
-            description="Ajustá el rango de fechas o registrá una compra nueva."
-            actions={
-              <Button asChild size="sm" variant="outline">
-                <Link href="/purchase">
-                  <Plus className="mr-1.5 size-4" />
-                  Registrar primera compra
-                </Link>
-              </Button>
+      <Tabs value={tab} onValueChange={setTab} className="flex flex-col gap-4">
+        <TabsList>
+          <TabsTrigger value="compras">Compras</TabsTrigger>
+          <TabsTrigger value="costos">Evolución de costos</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="compras" className="m-0">
+          <DataTable<PurchaseReportRow>
+            tableId="purchases-report"
+            data={purchases.data?.rows ?? []}
+            columns={columns}
+            getRowId={(r) => r.transactionId}
+            isLoading={purchases.isLoading}
+            onRowClick={(r) => router.push(`/purchase/${r.transactionId}`)}
+            emptyMessage={
+              <EmptyState
+                icon={Receipt}
+                title="Sin compras registradas en este período"
+                description="Ajustá el rango de fechas o registrá una compra nueva."
+                actions={
+                  <Button asChild size="sm" variant="outline">
+                    <Link href="/purchase">
+                      <Plus className="mr-1.5 size-4" />
+                      Registrar primera compra
+                    </Link>
+                  </Button>
+                }
+              />
             }
+            exportFileName="compras"
           />
-        }
-        exportFileName="compras"
-      />
+        </TabsContent>
+
+        <TabsContent value="costos" className="m-0">
+          <CostEvolutionTab
+            from={opts.from}
+            to={opts.to}
+            itemId={itemId}
+            supplierId={supplierId}
+            enabled={tab === "costos"}
+            bootstrap={bootstrap}
+            onSelectItem={setItem}
+            onNames={onNames}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
-
 
 function formatDate(s: string): string {
   try {
