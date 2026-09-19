@@ -1,14 +1,16 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { streamText, convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
+import { convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
 import type { UIMessage } from "ai"
 import { buildPosAgentTools } from "@/lib/pos/agent-tools"
 import { buildBusinessContextBlock } from "@/lib/agent/business-context"
-import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
 import { fetchAiModelConfig } from "@/lib/ai/model-config"
-import { truncationMetadata } from "@/lib/agent/truncation"
+import { runAgentTurn } from "@/lib/agent/agent-turn"
+import { POS_TURN_TIMEOUT_MS } from "@/lib/agent/turn-guard"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// Sin `maxDuration`: `next start` no la lee. El tope real es POS_TURN_TIMEOUT_MS
+// en `lib/agent/agent-turn.ts`.
 
 /**
  * BFF del asistente de la CAJA (context/59 F2).
@@ -195,8 +197,9 @@ export async function POST(req: Request) {
   // Gate de créditos ANTES de llamar al modelo — MISMO wrapper compartido que
   // el panel y el OCR (`lib/ai/billing-gate.ts`). Fail-closed.
   const requestId = crypto.randomUUID()
+  let companyId: string | null = null
   try {
-    await assertAiCredits({ apiUrl, authHeader, logPrefix: "[pos-agent]" })
+    ;({ companyId } = await assertAiCredits({ apiUrl, authHeader, logPrefix: "[pos-agent]" }))
   } catch (e) {
     if (e instanceof AiCreditsError) {
       return Response.json({ error: e.message }, { status: e.status })
@@ -299,7 +302,19 @@ export async function POST(req: Request) {
     ignoreIncompleteToolCalls: true,
   })
 
-  const result = streamText({
+  const turnController = new AbortController()
+
+  return runAgentTurn({
+    surface: "pos",
+    logPrefix: "[pos-agent]",
+    requestId,
+    companyId,
+    modelId,
+    apiUrl,
+    authHeader,
+    requestSignal: req.signal,
+    turnTimeoutMs: POS_TURN_TIMEOUT_MS,
+    turnController,
     model,
     system,
     messages: modelMessages,
@@ -318,40 +333,13 @@ export async function POST(req: Request) {
     // este NO lo sigue, se calibra contra la respuesta de caja.
     maxOutputTokens: 700,
     temperature: 0.3,
-    onFinish: async ({ usage }) => {
-      const tokensIn = Number(usage.inputTokens ?? 0)
-      const tokensOut = Number(usage.outputTokens ?? 0)
-      await debitAiUsage({
-        apiUrl,
-        authHeader,
-        tokensIn,
-        tokensOut,
-        capability: "chat",
-        model: modelId,
-        requestId,
-        logPrefix: "[pos-agent]",
-      })
-    },
     // Lecturas recortadas a las de mostrador + las dos escrituras del panel,
     // que solo se arman si hay operador identificado. El porqué de cada tool
     // —y del recorte— está en `lib/pos/agent-tools.ts`.
     tools: buildPosAgentTools(
-      { apiUrl, dataHeaders, authHeader },
+      { apiUrl, dataHeaders, authHeader, signal: turnController.signal },
       operatorToken,
       operatorPermissions,
     ),
-  })
-
-  return result.toUIMessageStreamResponse({
-    // Mismo cableado que el panel, y por la misma razón: un tope más bajo hace
-    // que el corte sea MÁS probable acá, no menos. Una respuesta de mostrador
-    // truncada en silencio le da al cajero medio dato con cara de dato entero.
-    // La UI del aviso es una sola (`AgentChatContent` es compartido), así que
-    // sin esta línea la caja sería la única superficie que se lo pierde.
-    messageMetadata: truncationMetadata,
-    onError: (error) => {
-      console.error("[pos-agent] error en el stream del modelo", error)
-      return error instanceof Error ? error.message : "Error al conectar con el asistente"
-    },
   })
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useTurnGuard, useTurnWatchdog } from "@/lib/agent/use-turn-guard"
 import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import { getDeviceToken } from "@/lib/auth/device-token"
@@ -151,12 +152,19 @@ export function usePosAgentChat({
     [companyName, currency, country, timezone, businessContext, operatorPermissions],
   )
 
+  // Mismo guardia que el panel (lib/agent/use-turn-guard.ts): la caja tampoco
+  // puede quedar esperando una respuesta que no va a llegar.
+  const guard = useTurnGuard()
   const chat = useChat({
     transport,
+    onData: guard.onData,
+    onFinish: guard.onFinish,
     onError: (err) => {
+      guard.onError(err)
       console.error("[pos-agent] useChat error", err)
     },
   })
+  useTurnWatchdog(chat, guard)
 
   // Dueño del historial: la persona que desbloqueó con su PIN. Con la caja
   // bloqueada es "" y el store ignora tanto el guardado como la hidratación.

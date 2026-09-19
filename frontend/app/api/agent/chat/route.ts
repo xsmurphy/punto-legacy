@@ -1,5 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { streamText, tool, convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
+import { tool, convertToModelMessages, stepCountIs, hasToolCall, smoothStream } from "ai"
 import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
@@ -7,13 +7,16 @@ import { buildBusinessContextBlock } from "@/lib/agent/business-context"
 import { buildReadTools } from "@/lib/agent/read-tools"
 import { buildEinvoiceSetupTool } from "@/lib/agent/einvoice-setup"
 import { buildSetupStatusTool } from "@/lib/agent/setup-status"
-import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
 import { fetchAiModelConfig } from "@/lib/ai/model-config"
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
-import { truncationMetadata } from "@/lib/agent/truncation"
+import { runAgentTurn } from "@/lib/agent/agent-turn"
+import { INFRA_FETCH_TIMEOUT_MS, PANEL_TURN_TIMEOUT_MS } from "@/lib/agent/turn-guard"
 
 export const runtime = "nodejs"
-export const maxDuration = 60
+// `maxDuration` era 60 y no hacía nada: es una directiva de Vercel que `next
+// start` (nuestro deploy) no lee. El tope real del turno vive en
+// `lib/agent/agent-turn.ts` (PANEL_TURN_TIMEOUT_MS).
 
 /**
  * Personalidad del asistente — matiz de TONO configurable por empresa
@@ -101,8 +104,9 @@ export async function POST(req: Request) {
   // /api/ocr-invoice (lib/ai/billing-gate.ts). FAIL-CLOSED: si no se puede
   // verificar el balance, no procede (antes era fail-open).
   const requestId = crypto.randomUUID()
+  let companyId: string | null = null
   try {
-    await assertAiCredits({ apiUrl, authHeader, logPrefix: "[agent]" })
+    ;({ companyId } = await assertAiCredits({ apiUrl, authHeader, logPrefix: "[agent]" }))
   } catch (e) {
     if (e instanceof AiCreditsError) {
       return Response.json({ error: e.message }, { status: e.status })
@@ -125,7 +129,10 @@ export async function POST(req: Request) {
   // round-trip. Se guarda crudo y se envuelve al final del prompt, nunca acá.
   let businessContext = ""
   try {
-    const setRes = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
+    const setRes = await fetch(`${apiUrl}/v1/settings`, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(INFRA_FETCH_TIMEOUT_MS),
+    })
     if (setRes.ok) {
       const sj = (await setRes.json()) as { data?: Record<string, unknown> } & Record<string, unknown>
       const s = (sj.data ?? sj) as Record<string, unknown>
@@ -253,7 +260,22 @@ export async function POST(req: Request) {
     ignoreIncompleteToolCalls: true,
   })
 
-  const result = streamText({
+  // El turno se aborta al vencer su tope o si el navegador se va; su señal baja
+  // a los fetch de las tools para que no queden colgados en segundo plano.
+  const turnController = new AbortController()
+  const toolCtx = { apiUrl, dataHeaders, authHeader, signal: turnController.signal }
+
+  return runAgentTurn({
+    surface: "panel",
+    logPrefix: "[agent]",
+    requestId,
+    companyId,
+    modelId,
+    apiUrl,
+    authHeader,
+    requestSignal: req.signal,
+    turnTimeoutMs: PANEL_TURN_TIMEOUT_MS,
+    turnController,
     model,
     system,
     messages: modelMessages,
@@ -292,60 +314,27 @@ export async function POST(req: Request) {
     maxOutputTokens: 4000,
     // Baja la temperatura para reducir la repetición degenerada.
     temperature: 0.3,
-    onFinish: async ({ usage }) => {
-      const tokensIn  = Number(usage.inputTokens  ?? 0)
-      const tokensOut = Number(usage.outputTokens ?? 0)
-      await debitAiUsage({
-        apiUrl,
-        authHeader,
-        tokensIn,
-        tokensOut,
-        capability: "chat",
-        model: modelId,
-        requestId,
-        logPrefix: "[agent]",
-      })
-    },
     // Las tools de LECTURA salen del catálogo compartido (lib/agent/read-tools.ts):
     // el MCP server va a servir EXACTAMENTE las mismas definiciones, así que no
     // pueden vivir inline acá o las dos superficies divergen (context/58 D11).
     // El `tool()` del AI SDK es el transporte y se aplica en el borde — el
     // catálogo no lo conoce.
     tools: {
-      ...buildReadTools({ apiUrl, dataHeaders, authHeader }),
+      ...buildReadTools(toolCtx),
       // `get_setup_status` (context/66 F4) se registra ACÁ y no en el catálogo
       // compartido a propósito: es una lectura de ONBOARDING —la hace el dueño
       // mientras configura su cuenta— y no un dato del negocio. El MCP sirve el
       // catálogo a clientes externos que consultan ventas o stock; ofrecerles
       // además el estado de configuración de la cuenta no les sirve para nada y
       // ensancharía la superficie de esa key sin motivo.
-      ...buildSetupStatusTool({ apiUrl, dataHeaders, authHeader }),
+      ...buildSetupStatusTool(toolCtx),
       // `get_einvoice_setup` (M7 de context/58 + context/66 §FE) sí va TAMBIÉN
       // en el MCP, a diferencia de la de arriba: el caso de uso que M7 vino a
       // habilitar es configurar la facturación electrónica POR MCP, y ahí el
       // modelo del cliente necesita leer en qué punto está antes de registrar
       // `set_fiscal_data` o `provision_einvoice`. Ver el docblock del archivo.
-      ...buildEinvoiceSetupTool({ apiUrl, dataHeaders, authHeader }),
+      ...buildEinvoiceSetupTool(toolCtx),
       ...makeActionTools(authHeader, apiUrl),
-    },
-  })
-
-  // Por default el AI SDK oculta cualquier error del stream (fallo del
-  // modelo, timeout, error del provider, etc.) detrás de un genérico "An
-  // error occurred." — SIN loguear nada server-side. Esto es lo que hacía
-  // que "creame un producto" no mostrara nada: el modelo fallaba a mitad de
-  // stream, el cliente recibía ese genérico y la UI ni siquiera lo
-  // renderizaba. Logueamos la causa real acá y la devolvemos al cliente
-  // (accionable) en vez de dejarla muda.
-  return result.toUIMessageStreamResponse({
-    // Un corte por `maxOutputTokens` NO es un error del stream: el SDK lo
-    // entrega como una respuesta normal y `onError` ni se entera. Sin esto, la
-    // mitad de un balance se ve igual que un balance entero. El porqué y el
-    // recorrido de la señal, en `lib/agent/truncation.ts`.
-    messageMetadata: truncationMetadata,
-    onError: (error) => {
-      console.error("[agent] error en el stream del modelo", error)
-      return error instanceof Error ? error.message : "Error al conectar con el asistente"
     },
   })
 }
