@@ -59,7 +59,6 @@ import {
   useDashboardNow,
   useDashboardWidget,
   useIncomeChart,
-  type CustomersRatesWidget,
   type CustomersWidget,
   type IncomeChartData,
   type IncomeOutcomeStatsWidget,
@@ -143,7 +142,6 @@ export default function DashboardPage() {
   const incomeChart = useIncomeChart(opts, { enabled: canViewSales })
   const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", ventas)
   const customers = useDashboardWidget<CustomersWidget>("customers", ventas)
-  const customersRates = useDashboardWidget<CustomersRatesWidget>("customersRates", ventas)
   const topItems = useDashboardWidget<TopItemRow[]>("topItems", ventas)
   const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", ventas)
   const topHours = useDashboardWidget<TopHoursWidget>("topHours", ventas)
@@ -392,7 +390,7 @@ export default function DashboardPage() {
               (SatisfactionCard, NpsTooltipRow) quedan dormidos: la feature
               vuelve más adelante. */}
           {showCustomers(customers.data) && (
-            <CustomersCard data={customers.data} rates={customersRates.data} isLoading={false} />
+            <CustomersCard data={customers.data} />
           )}
           {!stats.isLoading && !info.isLoading && (
             <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
@@ -1002,30 +1000,28 @@ function SplitRow({
 
 // ── Clientes ──────────────────────────────────────────────────────────────
 
-function CustomersCard({
-  data,
-  rates,
-  isLoading,
-}: {
-  data: CustomersWidget | undefined
-  rates: CustomersRatesWidget | undefined
-  isLoading: boolean
-}) {
-  // El widget customersRates puede devolver retention/growth/churn como
-  // strings o numbers según el backend. Normalizamos para mostrarlos como
-  // porcentajes con barra de progreso fina.
-  const retention = toPct(rates?.retention)
-  const growth = toPct(rates?.growth)
-  const churn = toPct(rates?.churn)
+function CustomersCard({ data }: { data: CustomersWidget | undefined }) {
+  // Mismos números que el reporte de clientes al que linkea (el backend delega
+  // en el mismo servicio). "Total" = clientes ACTIVOS del período, no el padrón.
+  // Una tasa `null` es "sin base de comparación" (el período anterior no tuvo
+  // clientes): la fila no se muestra — un 0% ahí diría otra cosa.
+  const t = data?.totales
+  const tasas = data?.tasas
 
   // Misma piel que las demás cards de la columna (Finanzas, Información
   // general, Plan): `soft` + filas label/valor. Los StatTile de tres columnas
   // la hacían la única card distinta de la columna — y en el ancho de la
   // sidebar truncaban "Recurrentes".
   const counts: { label: string; value: number | undefined }[] = [
-    { label: "Total", value: data?.total },
-    { label: "Nuevos", value: data?.new },
-    { label: "Recurrentes", value: data?.old },
+    { label: "Total", value: t?.activos },
+    { label: "Nuevos", value: t?.nuevos },
+    { label: "Recurrentes", value: t?.recurrentes },
+  ]
+  const rates: { label: string; percent: number | null | undefined; barColor: string }[] = [
+    { label: "Tasa de retorno", percent: tasas?.retorno, barColor: "var(--chart-1)" },
+    { label: "Retención", percent: tasas?.retencion, barColor: "var(--chart-1)" },
+    { label: "Crecimiento", percent: tasas?.crecimiento, barColor: "var(--chart-1)" },
+    { label: "Pérdida (churn)", percent: tasas?.perdida, barColor: "var(--destructive)" },
   ]
   return (
     <Card variant="soft">
@@ -1040,47 +1036,25 @@ function CustomersCard({
               className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
             >
               <span className="text-muted-foreground">{c.label}</span>
-              {isLoading ? (
-                <Skeleton className="h-4 w-12" />
-              ) : (
-                <span className="font-semibold tabular-nums">
-                  {formatInt(c.value, undefined)}
-                </span>
-              )}
+              <span className="font-semibold tabular-nums">
+                {formatInt(c.value, undefined)}
+              </span>
             </div>
           ))}
         </div>
         <div className="flex flex-col gap-2">
-          <RateRow
-            label="Tasa de retorno"
-            percent={data?.returnRate ?? null}
-            isLoading={isLoading}
-            barColor="var(--chart-1)"
-          />
-          {retention !== null && (
-            <RateRow
-              label="Retención"
-              percent={retention}
-              isLoading={isLoading}
-              barColor="var(--chart-1)"
-            />
-          )}
-          {growth !== null && (
-            <RateRow
-              label="Crecimiento"
-              percent={growth}
-              isLoading={isLoading}
-              barColor="var(--chart-1)"
-            />
-          )}
-          {churn !== null && (
-            <RateRow
-              label="Pérdida (churn)"
-              percent={churn}
-              isLoading={isLoading}
-              barColor="var(--destructive)"
-            />
-          )}
+          {rates.map((r) => {
+            const percent = toPct(r.percent)
+            return percent === null ? null : (
+              <RateRow
+                key={r.label}
+                label={r.label}
+                percent={percent}
+                isLoading={false}
+                barColor={r.barColor}
+              />
+            )
+          })}
         </div>
       </CardContent>
     </Card>
