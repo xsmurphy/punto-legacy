@@ -209,9 +209,12 @@ if ((string)$ctx['userId'] !== '') {
           LIMIT 1",
         [(string)$ctx['userId'], (string)COMPANY_ID]
     );
-    if ($uRs && !$uRs->EOF) {
-        $userName     = (string)($uRs->fields['name'] ?? '');
-        $userRoleName = (string)($uRs->fields['rolename'] ?? '');
+    // Sin `forceObj`, ncmExecute devuelve la FILA como array, no un
+    // recordset: leer `->EOF`/`->fields` daba siempre vacío y el menú del
+    // usuario mostraba el nombre del comercio en vez del de la persona.
+    if (is_array($uRs) || $uRs instanceof \ArrayAccess) {
+        $userName     = (string)($uRs['name'] ?? '');
+        $userRoleName = (string)($uRs['rolename'] ?? '');
     }
 }
 
