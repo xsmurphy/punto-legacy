@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { isFileUIPart, isTextUIPart, isToolOrDynamicToolUIPart, type UIMessage } from "ai"
-import { ArrowDown, MessageCircle, TriangleAlert, Upload, X } from "lucide-react"
+import { ArrowDown, MessageCircle, Upload, X } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { toast } from "sonner"
@@ -20,8 +20,8 @@ import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import type { AttachmentDraft } from "@/lib/agent/attachment-types"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
-import { isTruncated } from "@/lib/agent/truncation"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { isInterrupted } from "@/lib/agent/interruption"
+import { MessageStatusNotice } from "@/components/agent/message-status-notice"
 import { cn } from "@/lib/utils"
 
 /**
@@ -198,8 +198,13 @@ export function AgentChatContent({
   // un error HTTP (402/500 tempranos) llega como JSON `{"error":"..."}`; si es
   // un error de stream (ver onError en route.ts) llega como texto simple. En
   // ambos casos queremos el mensaje accionable, nunca "algo salió mal".
+  const lastMessage = messages[messages.length - 1]
   const genericErrorMessage = React.useMemo(() => {
     if (!error || is402) return null
+    // Si el turno quedó marcado como interrumpido, el aviso ya está en el hilo,
+    // pegado a la respuesta y con "Reintentar": repetirlo acá sería ruido, y el
+    // texto crudo del error puede ser técnico.
+    if (lastMessage && isInterrupted(lastMessage)) return null
     try {
       const parsed = JSON.parse(error.message) as { error?: string }
       if (parsed?.error) return parsed.error
@@ -207,7 +212,7 @@ export function AgentChatContent({
       // no era JSON — el texto plano del error ya es el mensaje a mostrar
     }
     return error.message || "No se pudo completar el pedido. Probá de nuevo."
-  }, [error, is402])
+  }, [error, is402, lastMessage])
 
   // Auto-scroll SOLO si el usuario ya estaba abajo. Si subió a releer algo,
   // una respuesta nueva no debe arrastrarlo — para eso está el botón de bajar.
@@ -491,44 +496,17 @@ export function AgentChatContent({
                 return null
               })}
 
-              {/* Corte por longitud. Va al PIE del mensaje y no arriba del
-                  input, porque lo que quedó incompleto es ESTE mensaje y no la
-                  conversación: pegado al texto truncado, el aviso se lee junto
-                  a lo que califica, y sobrevive con él en el historial (la
-                  señal viaja en `message.metadata`, ver lib/agent/truncation.ts).
-                  Sin esto, media respuesta se ve igual que una entera — así se
-                  entregó un balance con los activos completos y ni pasivos ni
-                  patrimonio.
-
-                  El botón de continuar solo aparece en el ÚLTIMO mensaje y con
-                  el stream quieto: pedir la continuación de un mensaje viejo
-                  arrastraría al modelo a retomar algo que la conversación ya
-                  dejó atrás. En los truncados anteriores queda el aviso solo,
-                  que es lo que importa. Mismo criterio de `isLatest` que usa
-                  RegisterActionCard más arriba. */}
-              {!isUser && isTruncated(message) && (
-                <Alert className="mt-1 w-full max-w-[95%]">
-                  <TriangleAlert />
-                  <AlertDescription>
-                    La respuesta se cortó porque llegó al largo máximo: está incompleta.
-                  </AlertDescription>
-                  {message.id === lastMessageId && !isStreaming && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="mt-2 w-fit"
-                      onClick={() =>
-                        sendMessage({
-                          text: "Continuá la respuesta anterior desde donde se cortó, sin repetir lo que ya escribiste.",
-                        })
-                      }
-                    >
-                      Continuar la respuesta
-                    </Button>
-                  )}
-                </Alert>
-              )}
+              {/* Aviso de respuesta incompleta (cortada por largo o
+                  interrumpida) con su acción. Un solo componente para esta
+                  pantalla y /chat: ver message-status-notice.tsx. */}
+              <MessageStatusNotice
+                message={message}
+                messages={messages}
+                isLatest={message.id === lastMessageId}
+                isStreaming={isStreaming}
+                sendMessage={sendMessage}
+                className={isUser ? "mt-1 w-full max-w-[95%] self-start" : undefined}
+              />
             </div>
           )
         })}

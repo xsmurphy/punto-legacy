@@ -98,6 +98,13 @@ export interface ToolContext {
    * acá queda en el tipo, que es donde el próximo consumidor la va a ver.
    */
   authHeader: string
+  /**
+   * Corta los fetch del catálogo cuando el turno que los pidió terminó o venció
+   * (`lib/agent/turn-guard.ts`). Sin esto, una lectura que el timeout por tool
+   * ya dio por perdida seguía colgada en segundo plano hasta que el runtime la
+   * soltara, minutos después. Opcional: el MCP no tiene turno que cortar.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -442,7 +449,7 @@ function planComparison(args: {
   }
 }
 
-export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext) {
+export function buildReadTools({ apiUrl, dataHeaders, authHeader, signal }: ToolContext) {
   /**
    * Moneda del tenant, resuelta UNA sola vez por instancia del catálogo (o sea,
    * por request en los dos consumidores) y solo si alguna lectura devuelve
@@ -476,7 +483,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
   function tenantCurrency(): Promise<string | null> {
     currencyPromise ??= (async () => {
       try {
-        const res = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
+        const res = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader }, signal })
         if (!res.ok) return null
         const json = (await res.json()) as { data?: unknown }
         const s = ((json?.data ?? json) ?? {}) as Record<string, unknown>
@@ -567,7 +574,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
 
   async function fetchAndNormalize(path: string, opts: ReadOptions): Promise<ReadOutcome> {
     try {
-      const res = await fetch(`${apiUrl}${path}`, { headers: opts.headers ?? dataHeaders })
+      const res = await fetch(`${apiUrl}${path}`, { headers: opts.headers ?? dataHeaders, signal })
       if (!res.ok) {
         return { ok: false, error: { error: await describeFailure(res, opts) } }
       }

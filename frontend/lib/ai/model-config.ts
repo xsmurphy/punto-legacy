@@ -1,3 +1,4 @@
+import { INFRA_FETCH_TIMEOUT_MS } from "@/lib/agent/turn-guard"
 /**
  * Lectura del catálogo de modelos IA (`/v1/ai/config`) — fuente ÚNICA.
  *
@@ -35,6 +36,9 @@ export async function fetchAiModelConfig(
   try {
     const res = await fetch(`${apiUrl}/v1/ai/config`, {
       headers: { Authorization: authHeader },
+      // Sin tope, un backend que no contesta dejaba la request del chat colgada
+      // antes de empezar el stream (ver lib/agent/turn-guard.ts).
+      signal: AbortSignal.timeout(INFRA_FETCH_TIMEOUT_MS),
     })
     if (!res.ok) {
       console.error(`${logPrefix} ai/config respondió ${res.status}, usando defaults`)

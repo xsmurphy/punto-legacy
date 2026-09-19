@@ -27,6 +27,7 @@ import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
 import { AgentSettingsLink } from "@/components/agent/agent-settings-link"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
+import { MessageStatusNotice } from "@/components/agent/message-status-notice"
 import { collectReadyFiles } from "@/lib/agent/collect-files"
 import { useFileDrop, FileDropOverlay } from "@/components/agent/file-drop"
 import { toast } from "sonner"
@@ -396,6 +397,17 @@ export default function ChatPage() {
 
                       return null
                     })}
+                    {/* Antes esta pantalla no mostraba NINGÚN aviso: ni el corte
+                        por largo ni un error del stream. Una respuesta cortada
+                        se veía entera. Mismo componente que el Sheet. */}
+                    <MessageStatusNotice
+                      message={message}
+                      messages={messages}
+                      isLatest={message.id === messages[messages.length - 1]?.id}
+                      isStreaming={isStreaming}
+                      sendMessage={(m) => void sendMessage(m)}
+                      className={isUser ? "mt-1 w-full max-w-[90%] self-start" : "mt-1 w-full max-w-[90%]"}
+                    />
                   </div>
                 )
               })}

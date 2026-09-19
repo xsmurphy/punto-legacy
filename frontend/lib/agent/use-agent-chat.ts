@@ -14,6 +14,7 @@ import { parseTabularToCsv } from "./parse-tabular"
 import { uploadTabular, generateImageThumbnail } from "./upload-attachment"
 
 import { useAgentPageSnapshotStore } from "./page-snapshot-store"
+import { useTurnGuard, useTurnWatchdog } from "./use-turn-guard"
 import { getPanelToken } from "@/lib/auth/panel-token"
 
 /**
@@ -117,6 +118,9 @@ export function useAgentChat({
   const pathname = usePathname()
   const snapshot = useAgentPageSnapshotStore((s) => s.snapshot)
 
+  // Ningún turno queda colgado ni mudo: ver lib/agent/use-turn-guard.ts.
+  const guard = useTurnGuard()
+
   const chat = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
@@ -134,7 +138,10 @@ export function useAgentChat({
       },
       body: { companyName, viewOutletId, viewOutletName, pathname, snapshot: snapshot ?? undefined },
     }),
-    onFinish: ({ message, messages }) => {
+    onData: guard.onData,
+    onFinish: (event) => {
+      guard.onFinish(event)
+      const { message, messages } = event
       // Recolectar (confirmToken → actions[]) de TODOS los registers previos del
       // thread. El register recibe `actions:[{action,payload},...]` y devuelve
       // `confirmToken` en su output; el execute posterior pasa solo ese token
@@ -189,9 +196,11 @@ export function useAgentChat({
     // del modelo quedaban sin rastro alguno en el cliente (ver
     // agent-chat-content.tsx para dónde se renderiza `error`).
     onError: (err) => {
+      guard.onError(err)
       console.error("[agent] useChat error", err)
     },
   })
+  useTurnWatchdog(chat, guard)
 
   // Hidratar el chat con el historial guardado APENAS persist termine de
   // leer localStorage. El primer render puede pasar antes de la hidratación

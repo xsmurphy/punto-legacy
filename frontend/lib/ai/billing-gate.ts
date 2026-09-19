@@ -1,3 +1,4 @@
+import { INFRA_FETCH_TIMEOUT_MS } from "@/lib/agent/turn-guard"
 /**
  * Gate de créditos IA — compartido entre los BFF que llaman OpenRouter
  * (`app/api/agent/chat/route.ts`, `app/api/ocr-invoice/route.ts`).
@@ -38,14 +39,24 @@ export class AiCreditsError extends Error {
  * (503), para que el caller pueda mostrar un mensaje distinto ("reintentá")
  * en vez del banner de "Sin créditos disponibles".
  *
- * Lanza `AiCreditsError` si el gate no pasa; no retorna nada si pasa.
+ * Lanza `AiCreditsError` si el gate no pasa. Si pasa, devuelve el `companyId`
+ * que el backend resolvió de la credencial (`null` si una versión vieja del
+ * backend no lo manda): es la identidad AUTORITATIVA del tenant para el log
+ * del turno, sin sumar un round-trip — el cliente no la manda y no se le cree.
  */
-export async function assertAiCredits(params: { apiUrl: string; authHeader: string; logPrefix: string }): Promise<void> {
+export async function assertAiCredits(params: {
+  apiUrl: string
+  authHeader: string
+  logPrefix: string
+}): Promise<{ companyId: string | null }> {
   const { apiUrl, authHeader, logPrefix } = params
 
   let balRes: Response
   try {
-    balRes = await fetch(`${apiUrl}/v1/ai/balance`, { headers: { Authorization: authHeader } })
+    balRes = await fetch(`${apiUrl}/v1/ai/balance`, {
+      headers: { Authorization: authHeader },
+      signal: AbortSignal.timeout(INFRA_FETCH_TIMEOUT_MS),
+    })
   } catch (e) {
     console.error(`${logPrefix} fallo de red al verificar balance, fail-closed (no procede)`, e)
     throw new AiCreditsError("No se pudo verificar el saldo de créditos, reintentá", 503)
@@ -56,9 +67,10 @@ export async function assertAiCredits(params: { apiUrl: string; authHeader: stri
     throw new AiCreditsError("No se pudo verificar el saldo de créditos, reintentá", 503)
   }
 
-  let balData: { data?: { balance: number }; balance?: number }
+  type BalanceBody = { balance?: number; companyId?: string }
+  let balData: { data?: BalanceBody } & BalanceBody
   try {
-    balData = (await balRes.json()) as { data?: { balance: number }; balance?: number }
+    balData = (await balRes.json()) as { data?: BalanceBody } & BalanceBody
   } catch (e) {
     console.error(`${logPrefix} respuesta de ai/balance no es JSON válido, fail-closed (no procede)`, e)
     throw new AiCreditsError("No se pudo verificar el saldo de créditos, reintentá", 503)
@@ -68,6 +80,8 @@ export async function assertAiCredits(params: { apiUrl: string; authHeader: stri
   if (balance <= 0) {
     throw new AiCreditsError("Sin créditos", 402)
   }
+  const companyId = balData?.data?.companyId ?? balData?.companyId
+  return { companyId: typeof companyId === "string" && companyId !== "" ? companyId : null }
 }
 
 /**
@@ -97,6 +111,7 @@ export async function debitAiUsage(params: {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: authHeader },
       body: JSON.stringify({ tokensIn, tokensOut, capability, model, requestId }),
+      signal: AbortSignal.timeout(INFRA_FETCH_TIMEOUT_MS),
     })
     if (!res.ok) {
       console.error(`${logPrefix} debit falló (status ${res.status}) — ${reconcileHint}`)
