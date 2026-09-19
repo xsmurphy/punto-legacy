@@ -583,36 +583,6 @@ final class EInvoiceService
     // ── F2 — operación de los documentos ya emitidos ────────────────────
 
     /**
-     * Listado paginado de `einvoice_document` para el panel — filtros de
-     * rango de fechas (sobre `created_at`), estado, y búsqueda libre por
-     * CDC/nombre de cliente. Scopeado SIEMPRE por `$companyId` del contexto
-     * (nunca un id del request — aislamiento multi-tenant).
-     *
-     * El nombre/total del cliente NO vive en `einvoice_document` (solo
-     * `transactionid`) — se hace JOIN contra `transaction`/`contact` para
-     * poder mostrarlo y para que la búsqueda por nombre de cliente funcione
-     * sin tener que desnormalizarlo en el outbox.
-     *
-     * `$filters` acepta: `from`/`to` (fecha 'Y-m-d', inclusive), `status`
-     * (uno de los valores del CHECK de mig 92, o 'stuck' — ver abajo),
-     * `search` (CDC parcial o nombre de cliente), `page`/`pageSize`.
-     *
-     * Documentos trabados en `sending`: si el proceso muere entre que el
-     * drainer reclama la fila y persiste el resultado, queda en `sending`
-     * para siempre sin que nadie los reintente automáticamente (NO es
-     * seguro reintentar solo — la emisión ya pudo haber salido).
-     * `status: 'stuck'` es un filtro SINTÉTICO del panel (no
-     * existe en la BD): `sending` con `updated_at` de más de 15 minutos —
-     * umbral arbitrario pero generoso (la emisión real tarda segundos, no
-     * minutos) para no marcar como trabado un documento que el drainer
-     * está procesando en este instante.
-     *
-     * `status: 'rejected'` es el otro filtro sintético: `sifen_status =
-     * 'Rechazado'`. No es un valor de `status` — el outbox de un documento
-     * rechazado por SIFEN dice 'issued', porque el envío salió bien; lo que
-     * falló es el veredicto FISCAL, que es el que vale.
-     */
-    /**
      * Documentos que esperan una acción del comercio. Es la fila "Facturas
      * electrónicas con problemas" del dashboard. `null` = el comercio no tiene
      * FE (sin `einvoice_account`): la fila no existe, no es un cero.
@@ -656,6 +626,36 @@ final class EInvoiceService
         return $row ? (int) ($row['n'] ?? 0) : 0;
     }
 
+    /**
+     * Listado paginado de `einvoice_document` para el panel — filtros de
+     * rango de fechas (sobre `created_at`), estado, y búsqueda libre por
+     * CDC/nombre de cliente. Scopeado SIEMPRE por `$companyId` del contexto
+     * (nunca un id del request — aislamiento multi-tenant).
+     *
+     * El nombre/total del cliente NO vive en `einvoice_document` (solo
+     * `transactionid`) — se hace JOIN contra `transaction`/`contact` para
+     * poder mostrarlo y para que la búsqueda por nombre de cliente funcione
+     * sin tener que desnormalizarlo en el outbox.
+     *
+     * `$filters` acepta: `from`/`to` (fecha 'Y-m-d', inclusive), `status`
+     * (uno de los valores del CHECK de mig 92, o 'stuck' — ver abajo),
+     * `search` (CDC parcial o nombre de cliente), `page`/`pageSize`.
+     *
+     * Documentos trabados en `sending`: si el proceso muere entre que el
+     * drainer reclama la fila y persiste el resultado, queda en `sending`
+     * para siempre sin que nadie los reintente automáticamente (NO es
+     * seguro reintentar solo — la emisión ya pudo haber salido).
+     * `status: 'stuck'` es un filtro SINTÉTICO del panel (no
+     * existe en la BD): `sending` con `updated_at` de más de 15 minutos —
+     * umbral arbitrario pero generoso (la emisión real tarda segundos, no
+     * minutos) para no marcar como trabado un documento que el drainer
+     * está procesando en este instante.
+     *
+     * `status: 'rejected'` es el otro filtro sintético: `sifen_status =
+     * 'Rechazado'`. No es un valor de `status` — el outbox de un documento
+     * rechazado por SIFEN dice 'issued', porque el envío salió bien; lo que
+     * falló es el veredicto FISCAL, que es el que vale.
+     */
     public function documents(string $companyId, array $filters): array
     {
         $page     = max(1, (int) ($filters['page'] ?? 1));

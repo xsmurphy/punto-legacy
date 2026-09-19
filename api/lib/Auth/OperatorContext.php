@@ -150,24 +150,6 @@ final class OperatorContext
     }
 
     /**
-     * Igual que `requirePermission()`, pero alcanza con UNA de las claves.
-     *
-     * No es un aflojamiento del gate: existe porque hay recursos a los que se
-     * llega legítimamente por más de una capacidad. El caso que lo motivó es el
-     * DETALLE de una transacción: verlo es parte del reporte de ventas
-     * (`reports.sales.view`), pero también de cobrarle a un cliente
-     * (`pos.sale.creditPayment`) o de anular un recibo (`pos.sale.void`), y un
-     * cajero que puede hacer lo segundo necesita abrir el documento sobre el
-     * que va a operar. Exigir la clave del reporte para eso sería pedir el
-     * permiso equivocado y romper el cobro en el panel.
-     *
-     * La regla sigue siendo la misma: quien pide tiene que poder ver eso por
-     * ALGUNA vía que ya tenga concedida. Una lista vacía no autoriza a nadie.
-     *
-     * @param array<string,mixed> $ctx   el array que devuelve apiAuthTenant()
-     * @param list<string>        $perms cualquiera de estas habilita
-     */
-    /**
      * La MISMA pregunta que `requirePermission()` —"¿la persona que pide esto
      * puede verlo?"—, contestada con un booleano en vez de cortar con 403.
      *
@@ -191,6 +173,24 @@ final class OperatorContext
             && self::can($operator, $perm, (string) ($ctx['companyId'] ?? ''));
     }
 
+    /**
+     * Igual que `requirePermission()`, pero alcanza con UNA de las claves.
+     *
+     * No es un aflojamiento del gate: existe porque hay recursos a los que se
+     * llega legítimamente por más de una capacidad. El caso que lo motivó es el
+     * DETALLE de una transacción: verlo es parte del reporte de ventas
+     * (`reports.sales.view`), pero también de cobrarle a un cliente
+     * (`pos.sale.creditPayment`) o de anular un recibo (`pos.sale.void`), y un
+     * cajero que puede hacer lo segundo necesita abrir el documento sobre el
+     * que va a operar. Exigir la clave del reporte para eso sería pedir el
+     * permiso equivocado y romper el cobro en el panel.
+     *
+     * La regla sigue siendo la misma: quien pide tiene que poder ver eso por
+     * ALGUNA vía que ya tenga concedida. Una lista vacía no autoriza a nadie.
+     *
+     * @param array<string,mixed> $ctx   el array que devuelve apiAuthTenant()
+     * @param list<string>        $perms cualquiera de estas habilita
+     */
     public static function requireAnyPermission(array $ctx, array $perms): void
     {
         $detalle = 'No tenés permiso para esta acción (requiere: ' . implode(' o ', $perms) . ')';
