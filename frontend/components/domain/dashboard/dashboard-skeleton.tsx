@@ -50,7 +50,13 @@ export function DashboardSkeleton() {
 
           <section>
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-48 self-end" />
+              <div className="flex items-end justify-between">
+                <div className="flex flex-col gap-1">
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-4 w-56" />
+                </div>
+                <Skeleton className="h-4 w-40" />
+              </div>
               <Skeleton className="h-[240px] w-full" />
             </div>
           </section>

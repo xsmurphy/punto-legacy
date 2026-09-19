@@ -61,6 +61,12 @@ export function averageLabel(g: Granularity): string {
   return `Promedio por ${granularityUnit(g)}`
 }
 
+/** Título de ritmo según el grano: "Día a día", "Semana a semana", "Mes a mes". */
+export function rhythmTitle(g: Granularity): string {
+  const u = granularityUnit(g)
+  return `${u.charAt(0).toUpperCase()}${u.slice(1)} a ${u}`
+}
+
 /** Título de un gráfico según el grano: `perUnit("Ventas", "week")` → "Ventas por semana". */
 export function perUnit(subject: string, g: Granularity): string {
   return `${subject} por ${granularityUnit(g)}`

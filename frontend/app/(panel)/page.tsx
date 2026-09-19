@@ -65,6 +65,7 @@ import {
   useIncomeChart,
   type CustomersWidget,
   type IncomeChartData,
+  type IncomeChartPoint,
   type IncomeOutcomeStatsWidget,
   type InfoWidget,
   type PaymentStatusWidget,
@@ -108,7 +109,10 @@ import { resolveNumberLocale } from "@/lib/tenant-locale"
 import {
   averageLabel,
   bucketTooltipLabel,
+  formatBucketLabel,
   formatBucketTick,
+  granularityUnit,
+  rhythmTitle,
   tooltipPoint,
 } from "@/lib/charts/granularity"
 import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
@@ -609,12 +613,30 @@ function IncomeOutcomeChart({
   }
 
   const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
+  // Mejor período por ingresos; con un solo punto no hay "mejor" que decir.
+  const best =
+    data.data.length > 1
+      ? data.data.reduce<IncomeChartPoint | null>(
+          (acc, p) => (p.ingresos > 0 && (!acc || p.ingresos > acc.ingresos) ? p : acc),
+          null,
+        )
+      : null
   return (
-    // Sin título, sin eje de montos ni leyenda (owner): la portada es un
-    // vistazo estético; las series se identifican en el tooltip y los números
-    // exactos viven en los reportes. El nombre queda para lectores de pantalla.
-    <div className="flex flex-col gap-2" role="figure" aria-label="Margen, ingresos y egresos">
-      <div className="flex items-baseline justify-end gap-3">
+    // Sin eje de montos ni leyenda (owner): la portada es un vistazo. El título
+    // no repite las series ("Margen, ingresos y egresos"): dice el RITMO del
+    // gráfico ("Día a día") y el dato que más se busca, el mejor período.
+    <div className="flex flex-col gap-3" role="figure" aria-label="Margen, ingresos y egresos">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-1">
+        <div className="flex flex-col gap-1">
+          <h2 className="text-xl font-semibold">{rhythmTitle(data.granularity)}</h2>
+          {best && (
+            <p className="text-sm text-muted-foreground">
+              Tu mejor {granularityUnit(data.granularity)}:{" "}
+              {formatBucketLabel(best.bucket, data.granularity, best.end)} ·{" "}
+              {formatMoneyCompact(best.ingresos, bootstrap)}
+            </p>
+          )}
+        </div>
         <span className="text-xs text-muted-foreground">
           {averageLabel(data.granularity)}: {formatMoney(data.totals.average, bootstrap)}
         </span>

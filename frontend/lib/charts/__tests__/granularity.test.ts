@@ -136,3 +136,12 @@ describe("períodos incompletos", () => {
     expect(averagePerBucket([], () => 1)).toBe(0)
   })
 })
+
+describe("rhythmTitle", () => {
+  it("nombra el ritmo del gráfico según el grano", async () => {
+    const { rhythmTitle } = await import("@/lib/charts/granularity")
+    expect(rhythmTitle("day")).toBe("Día a día")
+    expect(rhythmTitle("week")).toBe("Semana a semana")
+    expect(rhythmTitle("month")).toBe("Mes a mes")
+  })
+})
