@@ -332,7 +332,9 @@ un prefijo que no cumpla `^\d{3}-\d{3}$` (el legacy lo guarda con guión final,
 `migration_map(companyid, domain, legacyid) → puntoid`. Antes de crear
 cualquier entidad se pregunta si ese id del legacy ya tiene id de Punto.
 Re-correr da los mismos conteos con todo en `skipped`, y **no vuelve a mover la
-numeración fiscal**.
+numeración fiscal**. **Excepción deliberada (2026-09-19): `customer`** — un
+cliente ya mapeado no se saltea a ciegas, se COMPLETA lo que en Punto está
+vacío (§17.19). Sigue contando en `skipped` ("ya estaban").
 
 Dominios del mapa: `category`, `brand`, `tag`, `item`, **`compound`**,
 `customer`, `outlet`, `register`, `user`, `payment`. Más **`outlet_reused`**
@@ -1516,3 +1518,64 @@ dos tenants tiene períodos cerrados.
 **Qué hacer con los tenants ya migrados.** Deployado esto, relanzar
 `sales_history` con el mismo rango: las ventas se saltean (idempotentes) y
 se completan con su cliente.
+
+### 17.19 Relanzar COMPLETA los clientes ya importados (2026-09-19)
+
+**Pedido del owner, cerrado.** Don Ramón (`01a081dd`) tiene sus clientes (1.016 contactos
+tipo cliente) migrados el 2026-09-11 con una versión vieja del migrador. Medido en prod
+(solo lectura): los 1.016 sin teléfono, email ni nota, y **1.014 filas default
+de `customeraddress` activas con el texto VACÍO** (la versión vieja mandaba
+`address=''` y el alta creaba la fila igual). Relanzar los salteaba por
+idempotentes. En Sushi Rox la dirección sí entró (fila default con texto): ese
+es el resultado a replicar.
+
+**La regla** (`EncomImportService::completarCliente()`, llamada por `each()`
+para las filas ya mapeadas):
+
+- Vacío en Punto (NULL o `''` tras trim) y con valor en el legacy → **se
+  completa**. Con valor en Punto → **no se toca aunque difiera** (puede ser
+  una corrección hecha en Punto) y se CUENTA. Nunca se borra un valor.
+- Campos: nombre de la persona, RUC, documento, tipo de documento, email,
+  país, fecha de nacimiento, nota, línea de crédito (+ `contactCreditable`,
+  que es derivado de la línea: una línea NULL dice que nadie tocó el crédito),
+  teléfono y dirección. Saldo a favor y puntos tienen default en la tabla
+  (0.00 / 1), así que nunca están vacíos y nunca se completan — pisar un saldo
+  es plata. La lista de precios no se migra (el mapper nunca la tuvo).
+- **Dirección**: si el cliente no tiene NINGUNA dirección activa con texto, se
+  completa la default por `ContactService::update()` → `syncDefaultAddress()`,
+  que ACTUALIZA la fila default existente (la vacía de Don Ramón) o la crea si
+  no hay — nunca una segunda default. Solo se mandan las columnas vacías
+  (texto, ciudad, barrio, coordenadas). Si ya tiene una dirección con texto, el
+  bloque entero no se toca.
+- **Teléfono** inválido o que ya tiene otro cliente → a la nota, con la misma
+  línea que el alta ("Teléfono del sistema anterior: …"). Es la única
+  escritura sobre un campo con valor y es un AGREGADO: se busca la línea antes,
+  así la segunda corrida no la duplica.
+- **Documento** que ya tiene OTRO contacto → no se completa (unicidad de
+  `ContactService`), se cuenta y se nombra. La unicidad se chequea ANTES de
+  escribir, así que se reintenta sin ese campo y el resto del cliente se
+  completa igual.
+- Por el servicio real (`ContactService::update()`, patch parcial), una
+  transacción por cliente (contacto + dirección juntos). Sin nada que
+  completar no hay UPDATE: el arnés lo verifica con `xmin`.
+- Bitácora: "N cliente(s) ya importados se completaron …: X con dirección, Y
+  con teléfono…", "M dato(s) … NO se tocaron porque en Punto ya tenían otro
+  valor: …", y los casos de teléfono a la nota y documento repetido con
+  ejemplos.
+
+**Advertencia ≠ error (mismo cambio).** Una fila sin identificador del legacy
+(el "Primer Cliente") o sin nombre ya no va a `errors`: va a la bitácora
+nombrada y se cuenta en `progress.<dominio>.omitted`. Iba a `errors` y dejaba
+el job `failed` por un dato que nadie arregla relanzando. Idem la composición
+de un artículo sin id (el artículo ya quedó avisado). Lo que SIGUE siendo
+error: un servicio que rechaza la fila, una excepción, un dominio que no
+corre, una receta incompleta (congelarla descontaría de menos en cada venta)
+y los documentos del histórico que no se asentaron — relanzar sí los
+resuelve, y un job verde con documentos faltantes escondería plata.
+`omitted` no tiene columna en el detalle de `/admin` (la tabla muestra
+Encontrados/Importados/Ya estaban/Con error); la bitácora los nombra.
+
+**Qué hacer con Don Ramón.** Deployado esto, relanzar `customers`: completa
+los 1.016 sin duplicar ni pisar; una segunda corrida no escribe nada.
+
+Arnés: casos CV1-CV10 y K5 de `api/tests/encom_migration_test.php`.
