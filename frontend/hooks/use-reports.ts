@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api, type HttpClient } from "@/lib/api-client"
 import type { OrderStatus } from "@/hooks/use-orders"
+import type { Granularity, TimeBucket } from "@/lib/charts/granularity"
 
 /**
  * Hook genérico para reports: fetcher GET con date range + extra params.
@@ -547,12 +548,20 @@ export interface CustomersDashboard {
     /** Sobre cuántos clientes se calculó el intervalo. */
     intervaloBase: number
   }
-  serie: Array<{
-    date: string
-    nuevos: number
-    recurrentes: number
-    total: number
-  }>
+  /** Grano de la serie: día / semana / mes según el largo del rango (servidor). */
+  granularity: Granularity
+  /**
+   * Calendario completo del rango (los períodos sin ventas van en cero). Un
+   * cliente es nuevo en el período de su primera compra y recurrente en los
+   * siguientes; cuenta una vez por período.
+   */
+  serie: Array<
+    TimeBucket & {
+      nuevos: number
+      recurrentes: number
+      total: number
+    }
+  >
 }
 
 /** Una localidad o ciudad del análisis geográfico. */
@@ -663,11 +672,23 @@ export interface UserRankingRow {
 }
 
 /** Un día y un vendedor. El backend NO devuelve los días sin ventas. */
-export interface UserDailyPoint {
-  /** "YYYY-MM-DD" en la zona del tenant. */
-  date: string
+/** Lo vendido por UNA persona en UN período de la serie. */
+export interface UserSeriesPoint {
+  /** Inicio del período, "YYYY-MM-DD" en la zona del tenant. */
+  bucket: string
   userId: string
   total: number
+}
+
+/**
+ * Serie del equipo: grano día / semana / mes según el largo del rango
+ * (servidor), el calendario completo en `buckets` y los puntos
+ * `(período, vendedor)` solo donde hubo ventas.
+ */
+export interface UsersSeries {
+  granularity: Granularity
+  buckets: TimeBucket[]
+  points: UserSeriesPoint[]
 }
 
 /** Respuesta de /v1/reports/users?view=summary. */
@@ -683,7 +704,7 @@ export interface UsersSummaryResponse {
     sellers: number
   }
   ranking: UserRankingRow[]
-  daily: UserDailyPoint[]
+  series: UsersSeries
 }
 
 /** Una venta dentro de la liquidación de un vendedor. */
@@ -1087,6 +1108,34 @@ export interface SatisfactionRow {
 
 export type SatisfactionReportResponse = SatisfactionRow[]
 
+// ── Sales series (`dataset=series`) ─────────────────────────────────────────
+
+/** Fila de un bucket de `/v1/reports/sales?dataset=series` (solo donde hubo movimiento). */
+export interface SalesSeriesRow {
+  /** Clave del bucket: inicio del período 'YYYY-MM-DD' o la hora 0-23. */
+  bucket: string | number
+  count: number
+  units: number
+  discount: number
+  tax: number
+  total: number
+}
+
+/**
+ * Serie de UN período: por hora si es un solo día; si no, por día / semana /
+ * mes según el largo del rango (`api/lib/Support/TimeBuckets.php`). `buckets`
+ * es el calendario completo, con los vacíos y los bordes `partial`.
+ */
+export interface SalesSeriesResponse {
+  isDay: boolean
+  granularity: Granularity
+  buckets: TimeBucket[]
+  /** Ventas (tipos 0, 3, 6). */
+  sales: SalesSeriesRow[]
+  /** Egresos (tipos 1, 4). */
+  expenses: SalesSeriesRow[]
+}
+
 // ── Sales summary (Resumen) — el más complejo del set ───────────────────────
 
 export interface SalesSummaryResponse {
@@ -1456,7 +1505,19 @@ export type PurchaseCostsResponse =
       item: { itemId: string; itemName: string } | null
       rows: PurchaseCostRow[]
       suppliers: PurchaseCostSupplier[]
+      series: PurchaseCostSeries
     }
+
+/**
+ * Costo unitario por período y proveedor para el gráfico: grano día / semana /
+ * mes según el largo del rango (servidor, `TimeBuckets`). Dentro de un período
+ * es el promedio PONDERADO por unidades; un período sin compra no trae punto.
+ */
+export interface PurchaseCostSeries {
+  granularity: Granularity
+  buckets: TimeBucket[]
+  points: Array<{ bucket: string; supplierId: string | null; unitCost: number; purchases: number }>
+}
 
 /** Estado del ciclo de vida de una cotización — lo deriva el backend
  *  (`TransactionsService::quoteStatus`), no es el entero de `transactionStatus`. */

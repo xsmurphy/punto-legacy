@@ -165,7 +165,7 @@ if ($host === '') {
         '2026-03-01 00:00:00',
         '2025-12-31 23:30:00',
     ];
-    foreach (['America/Asuncion', 'Asia/Tokyo'] as $tz) {
+    foreach (['America/Santiago', 'Asia/Tokyo'] as $tz) {
         $pdo->exec("SET TIME ZONE '$tz'");
         foreach ([$wk, $mo, $dy] as $tb) {
             foreach ($stamps as $s) {

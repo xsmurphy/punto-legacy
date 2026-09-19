@@ -118,6 +118,7 @@ import {
 import type { TenantLocaleConfig } from "@/lib/tenant-locale"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
+import { formatBucketLabel, formatBucketTick } from "@/lib/charts/granularity"
 import { cn } from "@/lib/utils"
 import { AddressMapParser } from "@/components/geo/address-map-parser"
 import { AddressAutocompleteInput } from "@/components/geo/address-autocomplete-input"
@@ -1536,10 +1537,11 @@ function SummaryTab({
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={monthSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
+                  <XAxis dataKey="month" tickFormatter={(v: string) => formatBucketTick(`${v}-01`, "month")} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickLine={false} axisLine={false} width={36} tickFormatter={(v: number) => compactNum(v)} />
                   <Tooltip cursor={{ stroke: "var(--accent)", strokeWidth: 1 }}
                     contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    labelFormatter={(v) => formatBucketLabel(`${v}-01`, "month")}
                     formatter={(v) => formatMoney(Number(v), bootstrap)} />
                   <Line type="monotone" dataKey="total" stroke="var(--chart-1)" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                 </LineChart>

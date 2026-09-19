@@ -53,12 +53,35 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 import { formatInt, formatMoney } from "@/lib/format"
-import { formatDate, formatDateTime } from "@/lib/format-date"
+import { formatDate } from "@/lib/format-date"
+import {
+  bucketTooltipLabel,
+  formatBucketTick,
+  tooltipPoint,
+  type Granularity,
+} from "@/lib/charts/granularity"
+import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import type { CustomerRow, CustomersDashboard } from "@/hooks/use-reports"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
 /** Cuántos clientes entran al gráfico de ranking — más no se leen de un vistazo. */
 const RANKING_TOP = 10
+
+/**
+ * Cómo se lee la serie, en el grano que eligió el servidor: el cliente es
+ * nuevo en el período de su primera compra, recurrente en los siguientes, y
+ * cuenta una sola vez por período (`CustomersService::dashboard()`).
+ */
+function composicionDescription(g: Granularity): string {
+  switch (g) {
+    case "week":
+      return "Un cliente cuenta como nuevo la semana de su primera compra y como recurrente en cualquier otra semana que compre. Cuenta una sola vez por semana."
+    case "month":
+      return "Un cliente cuenta como nuevo el mes de su primera compra y como recurrente en cualquier otro mes que compre. Cuenta una sola vez por mes."
+    default:
+      return "Un cliente cuenta como nuevo el día de su primera compra y como recurrente en cualquier otro día que compre."
+  }
+}
 
 const composicionChartConfig = {
   nuevos: { label: "Nuevos", color: "var(--chart-1)" },
@@ -174,6 +197,7 @@ export function CustomersDashboardTab({
   bootstrap: Bootstrap | undefined
 }) {
   const serie = dashboard?.serie ?? []
+  const granularity = dashboard?.granularity ?? "day"
   const totales = dashboard?.totales
   const tasas = dashboard?.tasas
   const comp = dashboard?.comportamiento
@@ -218,7 +242,9 @@ export function CustomersDashboardTab({
     ? `Sin clientes entre el ${formatDate(periodo.prevFrom)} y el ${formatDate(periodo.prevTo)}`
     : "Sin período anterior con datos"
 
-  const serieVacia = !isLoading && serie.length === 0
+  // El servidor manda el calendario completo (los períodos sin ventas en
+  // cero), así que "vacía" es que ningún período tenga clientes.
+  const serieVacia = !isLoading && serie.every((p) => p.nuevos === 0 && p.recurrentes === 0)
   const carteraVacia = !isLoading && activos === 0
 
   return (
@@ -349,8 +375,7 @@ export function CustomersDashboardTab({
           <CardHeader className="pb-2">
             <CardTitle>Nuevos vs recurrentes</CardTitle>
             <p className="text-sm text-muted-foreground">
-              Un cliente cuenta como nuevo el día de su primera compra; en
-              cualquier otro día que compre cuenta como recurrente.
+              {composicionDescription(granularity)}
             </p>
           </CardHeader>
           <CardContent>
@@ -381,8 +406,8 @@ export function CustomersDashboardTab({
                     vertical={false}
                   />
                   <XAxis
-                    dataKey="date"
-                    tickFormatter={(v: string) => formatDateTime(v, "d MMM")}
+                    dataKey="bucket"
+                    tickFormatter={(v: string) => formatBucketTick(String(v), granularity)}
                     fontSize={10}
                     stroke="var(--muted-foreground)"
                     tickLine={false}
@@ -399,7 +424,10 @@ export function CustomersDashboardTab({
                     cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                     content={
                       <ChartTooltipContent
-                        labelFormatter={(label) => formatDate(String(label))}
+                        labelFormatter={(label, payload) =>
+                          bucketTooltipLabel(tooltipPoint(payload), granularity) ||
+                          formatBucketTick(String(label), granularity)
+                        }
                       />
                     }
                   />
@@ -409,14 +437,18 @@ export function CustomersDashboardTab({
                     stackId="clientes"
                     fill="var(--color-nuevos)"
                     maxBarSize={32}
-                  />
+                  >
+                    {partialBarCells(serie)}
+                  </Bar>
                   <Bar
                     dataKey="recurrentes"
                     stackId="clientes"
                     fill="var(--color-recurrentes)"
                     radius={[4, 4, 0, 0]}
                     maxBarSize={32}
-                  />
+                  >
+                    {partialBarCells(serie)}
+                  </Bar>
                 </BarChart>
               </ChartContainer>
             )}

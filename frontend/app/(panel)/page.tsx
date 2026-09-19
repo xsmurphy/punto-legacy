@@ -91,6 +91,13 @@ import {
 } from "@/lib/dashboard/visibility"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
+import {
+  averageLabel,
+  bucketTooltipLabel,
+  formatBucketTick,
+  tooltipPoint,
+} from "@/lib/charts/granularity"
+import { partialBarCells } from "@/components/domain/reports/partial-bar-cells"
 import { cn } from "@/lib/utils"
 
 /**
@@ -501,7 +508,7 @@ function IncomeOutcomeChart({
       <div className="flex items-center justify-between text-sm font-medium">
         <span>Margen, Ingresos y Egresos</span>
         <span className="text-xs font-normal text-muted-foreground">
-          Promedio: {formatMoney(data.totals.average, bootstrap)}
+          {averageLabel(data.granularity)}: {formatMoney(data.totals.average, bootstrap)}
         </span>
       </div>
       <div>
@@ -518,7 +525,7 @@ function IncomeOutcomeChart({
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
               <XAxis
                 dataKey="bucket"
-                tickFormatter={(v: string) => formatBucketLabel(v, data.isDay)}
+                tickFormatter={(v: string) => formatBucketTick(String(v), data.granularity)}
                 fontSize={10}
                 stroke="var(--muted-foreground)"
                 tickLine={false}
@@ -535,7 +542,10 @@ function IncomeOutcomeChart({
                 cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                 content={
                   <ChartTooltipContent
-                    labelFormatter={(label) => formatBucketLabel(String(label), data.isDay)}
+                    labelFormatter={(label, payload) =>
+                      bucketTooltipLabel(tooltipPoint(payload), data.granularity) ||
+                      formatBucketTick(String(label), data.granularity)
+                    }
                     formatter={(value, name) => (
                       <div className="flex w-full items-center justify-between gap-3">
                         <span className="text-muted-foreground">
@@ -555,13 +565,17 @@ function IncomeOutcomeChart({
                 fill="var(--color-ingresos)"
                 radius={[4, 4, 0, 0]}
                 maxBarSize={32}
-              />
+              >
+                {partialBarCells(data.data)}
+              </Bar>
               <Bar
                 dataKey="egresos"
                 fill="var(--color-egresos)"
                 radius={[4, 4, 0, 0]}
                 maxBarSize={32}
-              />
+              >
+                {partialBarCells(data.data)}
+              </Bar>
               <Line
                 type="monotone"
                 dataKey="margen"
@@ -575,17 +589,6 @@ function IncomeOutcomeChart({
       </div>
     </div>
   )
-}
-
-function formatBucketLabel(b: string, isDay: boolean): string {
-  if (isDay) {
-    return String(b).padStart(2, "0") + "h"
-  }
-  // 'YYYY-MM-DD' → 'DD/MM'
-  if (/^\d{4}-\d{2}-\d{2}$/.test(b)) {
-    return b.slice(8) + "/" + b.slice(5, 7)
-  }
-  return b
 }
 
 function compactNumber(v: number): string {

@@ -39,12 +39,18 @@ import { EmptyState } from "@/components/empty-state"
 import {
   useReport,
   type PurchaseCostItemRow,
+  type PurchaseCostSeries,
   type PurchaseCostRow,
   type PurchaseCostSupplier,
   type PurchaseCostsResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
+import {
+  bucketTooltipLabel,
+  formatBucketTick,
+  tooltipPoint,
+} from "@/lib/charts/granularity"
 import { resolveNumberLocale } from "@/lib/tenant-locale"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
@@ -128,10 +134,11 @@ export function CostEvolutionTab({
 
   const rows = data?.mode === "item" ? data.rows : []
   const suppliers = data?.mode === "item" ? data.suppliers : []
+  const series = data?.mode === "item" ? data.series : undefined
 
   return (
     <div className="flex flex-col gap-4">
-      {rows.length > 0 && <CostChart rows={rows} bootstrap={bootstrap} />}
+      {rows.length > 0 && series && <CostChart rows={rows} series={series} bootstrap={bootstrap} />}
       {suppliers.length > 0 && (
         <SupplierComparison suppliers={suppliers} bootstrap={bootstrap} />
       )}
@@ -254,11 +261,14 @@ function supplierKey(id: string | null): string {
 
 function CostChart({
   rows,
+  series: costSeries,
   bootstrap,
 }: {
   rows: PurchaseCostRow[]
+  series: PurchaseCostSeries
   bootstrap: Bootstrap | undefined
 }) {
+  const granularity = costSeries.granularity
   // Una serie por proveedor. Las claves del chart son `s0…sN` (un uuid no es
   // un nombre de variable CSS válido para `--color-…`).
   const { config, data, series } = React.useMemo(() => {
@@ -276,21 +286,24 @@ function CostChart({
     order.forEach((k, i) => {
       cfg[`s${i}`] = { label: names.get(k) ?? "", color: `var(--chart-${(i % 5) + 1})` }
     })
-    // Un punto por día: si el mismo proveedor vendió dos veces el mismo día,
-    // queda la última compra (las filas vienen en orden cronológico).
-    const byDay = new Map<string, Record<string, string | number>>()
-    for (const r of rows) {
-      const day = r.date.slice(0, 10)
-      const point = byDay.get(day) ?? { day, label: formatDate(r.date) }
-      point[keyOf.get(supplierKey(r.supplierId)) as string] = r.unitCost
-      byDay.set(day, point)
+    // Una fila por período del calendario que arma el servidor (el eje
+    // respeta el tiempo); cada proveedor tiene valor solo en los períodos en
+    // que se le compró — el costo promedio ponderado del período. Sin compra
+    // no hay punto: la línea se une con `connectNulls`, nunca cae a cero.
+    const byBucket = new Map<string, Record<string, string | number | boolean>>(
+      costSeries.buckets.map((b) => [b.bucket, { bucket: b.bucket, end: b.end, partial: b.partial }]),
+    )
+    for (const p of costSeries.points) {
+      const row = byBucket.get(p.bucket)
+      const key = keyOf.get(supplierKey(p.supplierId))
+      if (row && key) row[key] = p.unitCost
     }
     return {
       config: cfg,
-      data: [...byDay.values()],
+      data: [...byBucket.values()],
       series: order.map((_, i) => `s${i}`),
     }
-  }, [rows])
+  }, [rows, costSeries])
 
   return (
     <Card>
@@ -302,7 +315,8 @@ function CostChart({
           <LineChart data={data} margin={{ top: 10, right: 12, left: 12, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
             <XAxis
-              dataKey="label"
+              dataKey="bucket"
+              tickFormatter={(v: string) => formatBucketTick(String(v), granularity)}
               fontSize={10}
               stroke="var(--muted-foreground)"
               tickLine={false}
@@ -319,6 +333,10 @@ function CostChart({
             <ChartTooltip
               content={
                 <ChartTooltipContent
+                  labelFormatter={(label, payload) =>
+                    bucketTooltipLabel(tooltipPoint(payload), granularity) ||
+                    formatBucketTick(String(label), granularity)
+                  }
                   formatter={(value, name) => (
                     <div className="flex w-full items-center justify-between gap-3">
                       <span className="text-muted-foreground">

@@ -14,6 +14,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api-client"
+import type { Granularity, TimeBucket } from "@/lib/charts/granularity"
 
 /** Motivos por los que una marcación quedó para revisar. Espejo del backend. */
 export type AttendanceReviewReason =
@@ -84,6 +85,15 @@ export interface AttendanceReport {
     workedMinutes: number
     lateCount: number
     needsReview: number
+  }
+  /**
+   * Minutos trabajados por período del rango, para el gráfico: grano día /
+   * semana / mes según el largo del rango (servidor, `TimeBuckets`), con el
+   * calendario completo. Cada par suma en el período de la salida que lo cierra.
+   */
+  series: {
+    granularity: Granularity
+    points: Array<TimeBucket & { workedMinutes: number }>
   }
 }
 
