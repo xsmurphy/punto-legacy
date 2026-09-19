@@ -121,6 +121,7 @@ import { MultiSelect } from "@/components/ui/multi-select"
 import { BackLink } from "@/components/page/back-link"
 import { EntityShell, type EntityTab } from "@/components/page/entity-shell"
 import { FormSection, FormSectionColumns } from "@/components/forms/form-section"
+import { FormSubtabs } from "@/components/forms/form-subtabs"
 import { StatsRow, StatTile } from "@/components/stat-tile"
 import { useReport, type ProductRow, type ProductsReportResponse } from "@/hooks/use-reports"
 import { useItemStockMovements } from "@/hooks/use-item-stock"
@@ -216,6 +217,44 @@ const itemSchema = z.object({
  * reporte de Artículos para abrir el historial), `variantes` y `produccion`
  * siguen con su clave.
  */
+/**
+ * Campos de cada sub-pestaña de Datos (`FormSubtabs`): con uno inválido la
+ * sub-pestaña se marca y el Guardar salta a ella. Tiene que seguir a las
+ * secciones que renderiza cada una.
+ */
+const ITEM_SUBTAB_FIELDS = {
+  general: [
+    "status",
+    "name",
+    "sku",
+    "barcode",
+    "kind",
+    "packDurationDays",
+    "itemSessions",
+    "giftcardColor",
+    "description",
+    "categoryId",
+    "brandId",
+    "expenseCategoryId",
+    "outletIds",
+    "uom",
+  ],
+  precio: [
+    "price",
+    "cost",
+    "currencies",
+    "taxId",
+    "taxIncluded",
+    "discount",
+    "priceType",
+    "pricePercent",
+    "commission",
+    "commissionType",
+  ],
+  inventario: ["minStock", "maxStock", "replenishQty", "availability"],
+  avanzado: ["waste", "sort", "ecom", "featured", "procedure"],
+} as const satisfies Record<string, ReadonlyArray<keyof ItemFormValues>>
+
 const ITEM_TAB_ALIASES: Record<string, string> = {
   perfil: "datos",
   imagenes: "datos",
@@ -666,45 +705,95 @@ function ItemEditPageInner() {
           }
           summary={isNew ? null : <ItemSummaryTab itemId={id} />}
           data={
-            <FormSectionColumns>
-              <PerfilSections
-                form={form}
-                visibility={visibility}
-                kind={kind}
-                itemId={isNew ? "" : id}
-                images={(data?.images as ItemImage[] | undefined) ?? []}
-                isNew={isNew}
-                hasVariants={hasVariants}
-                onHasVariantsChange={setHasVariants}
-                savedVariantCount={savedVariantCount}
-              />
-              <FormSection title="Imágenes">
-                {isNew ? (
-                  <p className="text-sm text-muted-foreground">
-                    Las imágenes se cargan después de crear el artículo.
-                  </p>
-                ) : (
-                  <ItemGallery
-                    itemId={id}
-                    images={(data?.images as ItemImage[] | undefined) ?? []}
-                  />
-                )}
-              </FormSection>
-              <ConfigSections
-                form={form}
-                visibility={visibility}
-                kind={kind}
-                selectedCategories={selectedCategories}
-                onCategoriesChange={setSelectedCategories}
-                selectedBrands={selectedBrands}
-                onBrandsChange={setSelectedBrands}
-                selectedTags={selectedTags}
-                onTagsChange={setSelectedTags}
-              />
-              <StockThresholdsSection form={form} />
-              <DisponibilidadSection form={form} />
-              {isProductionKind && <ProcedureSection form={form} />}
-            </FormSectionColumns>
+            <FormSubtabs
+              tabs={[
+                {
+                  id: "general",
+                  label: "General",
+                  fields: ITEM_SUBTAB_FIELDS.general,
+                  content: (
+                    <FormSectionColumns>
+                      <DatosBasicosSection
+                        form={form}
+                        visibility={visibility}
+                        kind={kind}
+                        itemId={isNew ? "" : id}
+                        images={(data?.images as ItemImage[] | undefined) ?? []}
+                        isNew={isNew}
+                        hasVariants={hasVariants}
+                        onHasVariantsChange={setHasVariants}
+                        savedVariantCount={savedVariantCount}
+                      />
+                      <FormSection title="Imágenes">
+                        {isNew ? (
+                          <p className="text-sm text-muted-foreground">
+                            Las imágenes se cargan después de crear el artículo.
+                          </p>
+                        ) : (
+                          <ItemGallery
+                            itemId={id}
+                            images={(data?.images as ItemImage[] | undefined) ?? []}
+                          />
+                        )}
+                      </FormSection>
+                      <CategorizacionSection
+                        form={form}
+                        visibility={visibility}
+                        kind={kind}
+                        selectedCategories={selectedCategories}
+                        onCategoriesChange={setSelectedCategories}
+                        selectedBrands={selectedBrands}
+                        onBrandsChange={setSelectedBrands}
+                        selectedTags={selectedTags}
+                        onTagsChange={setSelectedTags}
+                      />
+                    </FormSectionColumns>
+                  ),
+                },
+                {
+                  id: "precio",
+                  label: "Precio",
+                  fields: ITEM_SUBTAB_FIELDS.precio,
+                  // Mismas condiciones que sus tres secciones: sin ninguna
+                  // visible para el tipo, la sub-pestaña no se muestra.
+                  hidden: !(
+                    visibility.showPrice ||
+                    visibility.showCost ||
+                    visibility.showTax ||
+                    visibility.showDiscount
+                  ),
+                  content: (
+                    <FormSectionColumns>
+                      <PrecioCostoSection form={form} visibility={visibility} />
+                      <ImpuestosSection form={form} visibility={visibility} />
+                      <ComportamientoPrecioSection form={form} visibility={visibility} />
+                    </FormSectionColumns>
+                  ),
+                },
+                {
+                  id: "inventario",
+                  label: "Inventario",
+                  fields: ITEM_SUBTAB_FIELDS.inventario,
+                  content: (
+                    <FormSectionColumns>
+                      <StockThresholdsSection form={form} />
+                      <DisponibilidadSection form={form} />
+                    </FormSectionColumns>
+                  ),
+                },
+                {
+                  id: "avanzado",
+                  label: "Avanzado",
+                  fields: ITEM_SUBTAB_FIELDS.avanzado,
+                  content: (
+                    <FormSectionColumns>
+                      <OtrosAjustesSection form={form} visibility={visibility} />
+                      {isProductionKind && <ProcedureSection form={form} />}
+                    </FormSectionColumns>
+                  ),
+                },
+              ]}
+            />
           }
           extraTabs={extraTabs}
           tabAliases={ITEM_TAB_ALIASES}
@@ -717,7 +806,7 @@ function ItemEditPageInner() {
 
 // ── DATOS: identidad y precio ───────────────────────────────────────────────
 
-function PerfilSections({
+function DatosBasicosSection({
   form,
   visibility,
   kind,
@@ -738,17 +827,7 @@ function PerfilSections({
   onHasVariantsChange: (v: boolean) => void
   savedVariantCount: number
 }) {
-  const { data: bootstrap } = useBootstrap()
-  const price = form.watch("price") ?? 0
-  const cost = form.watch("cost") ?? 0
-  // Cálculos de markup / margen / ganancia.
-  const ganancia = price - cost
-  const markup = cost > 0 ? ((price - cost) / cost) * 100 : 0
-  const margen = price > 0 ? ((price - cost) / price) * 100 : 0
 
-  // Secciones de la pestaña Datos: van dentro del `FormSectionColumns` de la
-  // página, que las reparte en dos columnas sin huecos (context/20
-  // 2026-09-09). Por eso devuelve un fragmento y no un contenedor.
   return (
     <>
       <FormSection title="Datos básicos">
@@ -1050,7 +1129,30 @@ function PerfilSections({
             </>
           )}
       </FormSection>
+    </>
+  )
+}
 
+// Add-ons (context/41) NO van en Datos: son composición del artículo y viven
+// en la pestaña Componentes con la receta/componentes, para todo tipo
+// vendible (decisión del owner 2026-08-09, ver ProduccionTab).
+function PrecioCostoSection({
+  form,
+  visibility,
+}: {
+  form: UseFormReturn<ItemFormValues>
+  visibility: KindFieldVisibility
+}) {
+  const { data: bootstrap } = useBootstrap()
+  const price = form.watch("price") ?? 0
+  const cost = form.watch("cost") ?? 0
+  // Cálculos de markup / margen / ganancia.
+  const ganancia = price - cost
+  const markup = cost > 0 ? ((price - cost) / cost) * 100 : 0
+  const margen = price > 0 ? ((price - cost) / price) * 100 : 0
+
+  return (
+    <>
       {(visibility.showPrice || visibility.showCost) && (
         <FormSection title="Precio y costo">
             {visibility.showPrice && (
@@ -1131,17 +1233,13 @@ function PerfilSections({
             )}
         </FormSection>
       )}
-
-      {/* Add-ons (context/41) NO van acá: son composición del artículo y viven
-          en la pestaña Componentes con la receta/componentes, para todo tipo
-          vendible (decisión del owner 2026-08-09, ver ProduccionTab). */}
     </>
   )
 }
 
 // ── DATOS: configuración ────────────────────────────────────────────────────
 
-function ConfigSections({
+function CategorizacionSection({
   form,
   visibility,
   kind,
@@ -1164,13 +1262,6 @@ function ConfigSections({
 }) {
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
-  // Para la etiqueta de moneda del selector de tipo de comisión.
-  const { data: bootstrap } = useBootstrap()
-  // Migrado a useTaxes (F0 impuestos multi-país, context/38) — `tax` es la
-  // fuente única. El shape difiere (rate/kind numéricos en vez de solo
-  // name) pero el render solo usa id/name, sin cambios en el JSX.
-  const { data: taxesData } = useTaxes()
-  const taxes = taxesData?.taxes ?? []
   const { data: outlets } = useOutlets()
   const { data: tagsData } = useTags()
   const tags = tagsData?.tags ?? []
@@ -1287,7 +1378,24 @@ function ConfigSections({
             )}
           </FormSection>
       )}
+    </>
+  )
+}
 
+function ImpuestosSection({
+  form,
+  visibility,
+}: {
+  form: UseFormReturn<ItemFormValues>
+  visibility: KindFieldVisibility
+}) {
+  // Migrado a useTaxes (F0 impuestos multi-país, context/38) — `tax` es la
+  // fuente única. El render solo usa id/name/kind.
+  const { data: taxesData } = useTaxes()
+  const taxes = taxesData?.taxes ?? []
+
+  return (
+    <>
       {/* Impuestos y descuentos */}
       {(visibility.showTax || visibility.showDiscount) && (
         <FormSection title="Impuestos y descuentos">
@@ -1364,7 +1472,22 @@ function ConfigSections({
             )}
           </FormSection>
       )}
+    </>
+  )
+}
 
+function ComportamientoPrecioSection({
+  form,
+  visibility,
+}: {
+  form: UseFormReturn<ItemFormValues>
+  visibility: KindFieldVisibility
+}) {
+  // Para la etiqueta de moneda del selector de tipo de comisión.
+  const { data: bootstrap } = useBootstrap()
+
+  return (
+    <>
       {/* Comportamiento del precio (avanzado) */}
       {visibility.showPrice && (
         <FormSection title="Comportamiento del precio">
@@ -1466,7 +1589,19 @@ function ConfigSections({
             </div>
           </FormSection>
       )}
+    </>
+  )
+}
 
+function OtrosAjustesSection({
+  form,
+  visibility,
+}: {
+  form: UseFormReturn<ItemFormValues>
+  visibility: KindFieldVisibility
+}) {
+  return (
+    <>
       {/* Inventario y orden */}
       <FormSection title="Otros ajustes">
           {visibility.showInventoryInfo && (

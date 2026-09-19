@@ -189,6 +189,20 @@ Pestañas (ancho completo):  Resumen → Datos → pestañas propias…
   (`FormSection` + `FormSectionColumns`), no pestañas con su propio Guardar.
   Hoy `employees/[id]` muestra Guardar en Horario y Rostro (`FORM_TABS`,
   línea 75).
+- **Sub-pestañas de Datos** — [OWNER] 2026-09-19: cuando Datos junta muchas
+  secciones (primer caso: `items/[id]`, ~10) se agrupan con `FormSubtabs`
+  (`components/forms/form-subtabs.tsx`). Solo ordenan la vista: sigue siendo
+  UN formulario con UN Guardar, y todas las sub-pestañas quedan montadas
+  (`forceMount` + oculto) para no perder valores ni validaciones. Cada
+  sub-pestaña declara sus `fields`: la que tiene un campo inválido lleva una
+  marca `destructive`, y al guardar con errores se salta a la primera y se
+  enfoca el campo. La activa va en `?sub=` junto al `?tab=` del armazón.
+  Estilo `line`, subordinado a las pestañas de la ficha; una sub-pestaña sin
+  secciones aplicables al tipo se oculta (`hidden`). Con pocas secciones, no
+  se usa: `FormSectionColumns` alcanza. Artículos: General (Datos básicos,
+  Imágenes, Categorización) · Precio (Precio y costo, Impuestos y descuentos,
+  Comportamiento del precio) · Inventario (Umbrales de stock, Disponibilidad)
+  · Avanzado (Otros ajustes, Procedimiento).
 - **Acciones del encabezado**: primero las neutras (imprimir, duplicar),
   después las de estado; las destructivas van al final y siempre con
   `AlertDialog` (`context/20` §6 "Confirmación destructiva").
@@ -203,6 +217,7 @@ Pestañas (ancho completo):  Resumen → Datos → pestañas propias…
 | Volver | `BackLink` en `components/page/back-link.tsx` | **a crear** (forma: `transactions/[id]/page.tsx:930`) |
 | KPIs del Resumen | `StatsRow`/`StatTile` — `components/stat-tile.tsx` | existe |
 | Secciones de Datos | `FormSection`/`FormSectionColumns` — `components/forms/form-section.tsx` | existe |
+| Sub-pestañas de Datos (muchas secciones) | `FormSubtabs` — `components/forms/form-subtabs.tsx` (lógica de errores en `lib/forms/subtab-errors.ts`) | existe |
 
 La API es el enforcement: sin `summary` y `data` no compila, y las pestañas
 propias solo entran por `extraTabs`, así que el orden y los nombres de Resumen
