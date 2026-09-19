@@ -329,11 +329,9 @@ export default function DashboardPage() {
           <InfoGeneralCard
             stats={stats.data}
             info={info.data}
-            customers={customers.data}
             loading={stats.isLoading || info.isLoading}
             bootstrap={bootstrap}
           />
-          <PlanSidebarCard info={info.data} loading={info.isLoading} bootstrap={bootstrap} />
         </aside>
       </div>
     </div>
@@ -1075,13 +1073,11 @@ function RateRow({
 function InfoGeneralCard({
   stats,
   info,
-  customers,
   loading,
   bootstrap,
 }: {
   stats: IncomeOutcomeStatsWidget | undefined
   info: InfoWidget | undefined
-  customers: CustomersWidget | undefined
   loading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
@@ -1089,11 +1085,6 @@ function InfoGeneralCard({
     {
       label: "Ticket promedio",
       value: loading ? null : fmtMoney(stats?.customerAverage, bootstrap, false),
-    },
-    {
-      label: "Clientes en total",
-      value: loading ? null : formatInt(customers?.total, bootstrap),
-      href: "/contacts",
     },
     {
       label: "Cajas abiertas",
@@ -1136,83 +1127,6 @@ function InfoGeneralCard({
   )
 }
 
-/**
- * Card del Plan en la sidebar (legacy: panelAccountInfo). Tabla con
- * Productos / Usuarios / Transacciones / Sucursales — los topes del plan
- * van como sufijo "X / max" cuando aplica.
- */
-function PlanSidebarCard({
-  info,
-  loading,
-  bootstrap,
-}: {
-  info: InfoWidget | undefined
-  loading: boolean
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-}) {
-  const rows: { label: string; value: React.ReactNode }[] = [
-    {
-      label: "Productos y servicios",
-      value: loading
-        ? null
-        : planValue(info?.itemsCount, info?.itemsMax, bootstrap),
-    },
-    {
-      label: "Usuarios",
-      value: loading
-        ? null
-        : planValue(info?.usersCount, info?.usersMax, bootstrap),
-    },
-    {
-      label: "Transacciones (mes)",
-      value: loading ? null : formatInt(info?.transactionsCount, bootstrap),
-    },
-    {
-      label: "Sucursales",
-      value: loading ? null : formatInt(info?.outletsCount, bootstrap),
-    },
-  ]
-  return (
-    <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm font-medium">
-          <span>Plan {info?.plan || ""}</span>
-          <Link
-            href="/settings"
-            className="flex items-center gap-1 text-xs font-normal text-muted-foreground hover:text-foreground"
-          >
-            Cambiar <ChevronRight className="size-3.5" />
-          </Link>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col divide-y divide-border">
-        {rows.map((r) => (
-          <div
-            key={r.label}
-            className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
-          >
-            <span className="text-muted-foreground">{r.label}</span>
-            {r.value === null ? (
-              <Skeleton className="h-4 w-14" />
-            ) : (
-              <span className="font-semibold tabular-nums">{r.value}</span>
-            )}
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
-function planValue(
-  current: number | undefined,
-  max: number | undefined,
-  bootstrap: ReturnType<typeof useBootstrap>["data"],
-): string {
-  const cur = formatInt(current, bootstrap)
-  if (!max || max <= 0) return cur
-  return `${cur} / ${formatInt(max, bootstrap)}`
-}
 
 // ── Horarios Pico ────────────────────────────────────────────────────────
 

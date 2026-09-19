@@ -141,7 +141,7 @@ describe("interrupción — nunca una respuesta a medias sin aviso", () => {
   })
 
   it("marca la última respuesta y Reintentar reenvía la pregunta que la originó", () => {
-    const msgs = [
+    const msgs: { id: string; role: string; metadata?: unknown; parts: { type: string; text: string }[] }[] = [
       { id: "u1", role: "user", parts: [{ type: "text", text: "¿más vendidos los sábados?" }] },
       { id: "a1", role: "assistant", parts: [{ type: "text", text: "Los más vend" }] },
     ]
