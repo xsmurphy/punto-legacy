@@ -24,6 +24,7 @@ import type {
 } from "@/hooks/use-dashboard-widget"
 import type { StatDelta } from "@/components/stat-tile"
 import { pctDelta } from "@/lib/reports/previous-range"
+import { hourBars, peakHour } from "@/lib/dashboard/top-hours"
 
 // ── Ahora ──────────────────────────────────────────────────────────────────
 
@@ -226,14 +227,14 @@ export function visibleAttentionRows(data: AttentionWidget | undefined): Attenti
   )
 }
 
-// ── Donuts de tipo de venta / cobranza ─────────────────────────────────────
+// ── Barras partidas de tipo de venta / cobranza ───────────────────────────
 
 /**
- * Un donut informa solo con DOS porciones. Contado vs crédito en un comercio
- * que no vende a crédito es un anillo entero de "al contado"; cobrado vs por
- * cobrar sin ventas a crédito son dos ceros.
+ * Una barra partida informa solo con DOS partes. Contado vs crédito en un
+ * comercio que no vende a crédito es una barra entera de "al contado"; cobrado
+ * vs por cobrar sin ventas a crédito son dos ceros.
  */
-export function showSplitDonut(
+export function showSplitBar(
   data: PaymentStatusWidget | undefined,
   mode: "sale-type" | "receivables",
 ): boolean {
@@ -248,8 +249,9 @@ export function showTopItems(rows: TopItemRow[] | undefined): boolean {
   return Array.isArray(rows) && rows.length > 0
 }
 
+/** Hace falta una hora con ventas: sin pico, el bloque no dice nada. */
 export function showTopHours(data: TopHoursWidget | undefined): boolean {
-  return Array.isArray(data?.hour) && data.hour.length > 0
+  return peakHour(hourBars(data)) !== null
 }
 
 /**
@@ -302,15 +304,22 @@ export interface GridBlock<K extends string = string> {
   key: K
   /** `true` = ocupa la fila entera; `false` = media fila. */
   full: boolean
+  /**
+   * `true` = bloque COMPACTO (media altura: horas pico, barras partidas). Las
+   * dos celdas de una fila se estiran a la misma altura, así que un compacto
+   * al lado de uno alto quedaría vacío hasta abajo: solo se aparea con otro
+   * compacto.
+   */
+  short?: boolean
 }
 
 /**
  * Acomoda los bloques visibles de una grilla de 2 columnas sin dejar huecos
  * (`context/20` changelog 2026-09-09: no dejar huecos sin sentido).
  *
- * Respeta el orden, salvo cuando un bloque de media fila quedaría SOLO (el que
- * sigue es de fila entera, o no hay más): ahí sube el próximo de media fila
- * para acompañarlo, y si no hay ninguno se estira a la fila entera.
+ * Respeta el orden, salvo cuando un bloque de media fila quedaría SOLO o al
+ * lado de uno de otra altura: ahí sube el próximo de media fila de SU MISMA
+ * altura para acompañarlo, y si no hay ninguno se estira a la fila entera.
  */
 export function packGrid<K extends string>(blocks: GridBlock<K>[]): GridBlock<K>[] {
   const queue = [...blocks]
@@ -321,11 +330,7 @@ export function packGrid<K extends string>(blocks: GridBlock<K>[]): GridBlock<K>
       out.push(b)
       continue
     }
-    if (queue[0] && !queue[0].full) {
-      out.push(b, queue.shift()!)
-      continue
-    }
-    const partner = queue.findIndex((q) => !q.full)
+    const partner = queue.findIndex((q) => !q.full && !!q.short === !!b.short)
     if (partner >= 0) {
       out.push(b, queue.splice(partner, 1)[0])
     } else {
