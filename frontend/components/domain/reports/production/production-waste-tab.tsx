@@ -110,7 +110,7 @@ export function ProductionWasteTab({ range }: { range: DateRangeValue }) {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">Por motivo</CardTitle>
+                <CardTitle>Por motivo</CardTitle>
                 <CardDescription className="text-xs">Qué porción del costo de merma se lleva cada motivo.</CardDescription>
               </CardHeader>
               <CardContent>
@@ -123,7 +123,7 @@ export function ProductionWasteTab({ range }: { range: DateRangeValue }) {
             </Card>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">Por artículo</CardTitle>
+                <CardTitle>Por artículo</CardTitle>
                 <CardDescription className="text-xs">Los artículos cuya merma más cuesta.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-2">

@@ -361,7 +361,7 @@ function ComparativeChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle>Margen, Ingresos y Egresos</CardTitle>
         </CardHeader>
         <CardContent>
           <Skeleton className="h-[280px] w-full" />
@@ -374,7 +374,7 @@ function ComparativeChart({
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium">Margen, Ingresos y Egresos</CardTitle>
+          <CardTitle>Margen, Ingresos y Egresos</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex h-[280px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
@@ -388,7 +388,7 @@ function ComparativeChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="flex items-center justify-between text-sm font-medium">
+        <CardTitle className="flex items-center justify-between">
           <span>Margen, Ingresos y Egresos</span>
           <span className="text-xs font-normal text-muted-foreground">
             {averageLabel(granularity)}: {formatMoney(average, bootstrap)}
@@ -502,7 +502,7 @@ function WeekdayChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Día de la semana</CardTitle>
+        <CardTitle>Día de la semana</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -560,7 +560,7 @@ function HoursChart({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Ventas por Hora</CardTitle>
+        <CardTitle>Ventas por Hora</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (

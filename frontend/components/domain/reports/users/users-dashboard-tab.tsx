@@ -188,7 +188,7 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Quién vendió más</CardTitle>
+            <CardTitle>Quién vendió más</CardTitle>
             <CardDescription className="text-xs">
               Total vendido en el período, con la comisión resaltada dentro de la barra.
             </CardDescription>
@@ -210,7 +210,7 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Participación</CardTitle>
+            <CardTitle>Participación</CardTitle>
             <CardDescription className="text-xs">
               Qué porción de lo vendido se lleva cada persona.
             </CardDescription>
@@ -228,7 +228,7 @@ export function UsersDashboardTab({ range }: { range: DateRangeValue }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">{evolutionTitle(granularity)}</CardTitle>
+          <CardTitle>{evolutionTitle(granularity)}</CardTitle>
           <CardDescription className="text-xs">
             {perUnit("Ventas", granularity)}, apiladas por vendedor.
           </CardDescription>

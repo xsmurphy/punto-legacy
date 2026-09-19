@@ -87,7 +87,7 @@ export default function BalanceReportPage() {
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">Activo</CardTitle>
+                <CardTitle>Activo</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col">
                 {data.assets.cashByAccount.map((a) => (
@@ -101,7 +101,7 @@ export default function BalanceReportPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-base font-semibold tracking-tight">Pasivo</CardTitle>
+                <CardTitle>Pasivo</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col">
                 <Line label="Cuentas por pagar" value={data.liabilities.payables} />

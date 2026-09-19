@@ -622,7 +622,7 @@ function TransactionDetailView({
       {detail.items.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Líneas</CardTitle>
+            <CardTitle>Líneas</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -694,7 +694,7 @@ function TransactionDetailView({
       {tx.transactionPaymentType.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Pagos</CardTitle>
+            <CardTitle>Pagos</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-border">
@@ -712,7 +712,7 @@ function TransactionDetailView({
       {hasRelated && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Documentos relacionados</CardTitle>
+            <CardTitle>Documentos relacionados</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-4 pt-0">
             {(detail.quotesOrigin?.length ?? 0) > 0 && (

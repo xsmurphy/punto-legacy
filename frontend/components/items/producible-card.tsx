@@ -61,7 +61,7 @@ export function ProducibleCard({ itemId }: { itemId: string }) {
         <CardHeader>
           {/* Título de sección dentro de página (§14 regla #1), igual que los
               Cards vecinos de la ficha ("Insumos / Receta", "Procedimiento"). */}
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Producibles ahora
           </CardTitle>
         </CardHeader>
@@ -82,7 +82,7 @@ export function ProducibleCard({ itemId }: { itemId: string }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">
+        <CardTitle>
           Producibles ahora
         </CardTitle>
         <CardDescription>

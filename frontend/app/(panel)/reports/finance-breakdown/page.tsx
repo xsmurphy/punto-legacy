@@ -280,7 +280,7 @@ function FinanceDashboard({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Egresos por categoría</CardTitle>
+            <CardTitle>Egresos por categoría</CardTitle>
             <CardDescription className="text-xs">En qué se va la plata del período.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -293,7 +293,7 @@ function FinanceDashboard({
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Egresos por centro de costo</CardTitle>
+            <CardTitle>Egresos por centro de costo</CardTitle>
             <CardDescription className="text-xs">Qué área del negocio gasta más.</CardDescription>
           </CardHeader>
           <CardContent>

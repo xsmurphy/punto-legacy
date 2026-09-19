@@ -264,7 +264,7 @@ function CategoryColumn({
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <Button size="sm" onClick={openCreate}>
           <Plus className="size-4" />
           Nueva categoría

@@ -410,7 +410,7 @@ function ChartCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
         <CardDescription className="text-xs">{description}</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">

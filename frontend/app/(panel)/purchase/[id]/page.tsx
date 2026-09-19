@@ -219,7 +219,7 @@ export default function PurchaseDetailPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Líneas</CardTitle>
+          <CardTitle>Líneas</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -273,7 +273,7 @@ export default function PurchaseDetailPage() {
       {purchase.creditNotes.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">Notas de crédito</CardTitle>
+            <CardTitle>Notas de crédito</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>

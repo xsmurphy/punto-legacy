@@ -218,7 +218,7 @@ export function VariantsTab({
     <div className="flex flex-col gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
+          <CardTitle>
             Atributos de variacion
           </CardTitle>
         </CardHeader>
@@ -280,7 +280,7 @@ export function VariantsTab({
       {matrix.length > 0 && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base font-semibold tracking-tight">
+            <CardTitle>
               Variantes{" "}
               <Badge variant="secondary" className="ml-1">
                 {matrix.length}

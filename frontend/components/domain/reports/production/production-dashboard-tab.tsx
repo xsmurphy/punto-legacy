@@ -86,7 +86,7 @@ export function ProductionDashboardTab({ range }: { range: DateRangeValue }) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Más producido</CardTitle>
+            <CardTitle>Más producido</CardTitle>
             <CardDescription className="text-xs">Unidades producidas en el período.</CardDescription>
           </CardHeader>
           <CardContent>
@@ -100,7 +100,7 @@ export function ProductionDashboardTab({ range }: { range: DateRangeValue }) {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base font-semibold tracking-tight">Merma por motivo</CardTitle>
+            <CardTitle>Merma por motivo</CardTitle>
             <CardDescription className="text-xs">
               No se suma al costo de producción: el de las unidades falladas ya está incluido ahí.
             </CardDescription>

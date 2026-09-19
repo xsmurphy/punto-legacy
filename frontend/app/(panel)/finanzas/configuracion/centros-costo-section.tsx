@@ -138,7 +138,7 @@ export function CentrosCostoSection() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-semibold tracking-tight">Centros de costo</CardTitle>
+        <CardTitle>Centros de costo</CardTitle>
         <Button size="sm" onClick={openCreate}>
           <Plus className="size-4" />
           Nuevo centro de costo

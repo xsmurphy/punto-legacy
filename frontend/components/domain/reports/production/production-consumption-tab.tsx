@@ -103,7 +103,7 @@ export function ProductionConsumptionTab({ range }: { range: DateRangeValue }) {
           </StatsRow>
           <Card>
             <CardHeader>
-              <CardTitle className="text-base font-semibold tracking-tight">Insumos de mayor costo</CardTitle>
+              <CardTitle>Insumos de mayor costo</CardTitle>
               <CardDescription className="text-xs">Dónde se va la plata de la producción.</CardDescription>
             </CardHeader>
             <CardContent>

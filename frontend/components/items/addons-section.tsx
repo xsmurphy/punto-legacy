@@ -347,7 +347,7 @@ export function AddonsSection({
     return (
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Add-ons</CardTitle>
+          <CardTitle>Add-ons</CardTitle>
         </CardHeader>
         <CardContent className="flex h-20 items-center justify-center text-sm text-muted-foreground">
           <Loader2 className="mr-2 size-4 animate-spin" />
@@ -360,7 +360,7 @@ export function AddonsSection({
   return (
     <Card className="lg:col-span-2">
       <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">Add-ons</CardTitle>
+        <CardTitle>Add-ons</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {groups.length === 0 ? (
