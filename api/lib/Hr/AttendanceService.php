@@ -516,6 +516,73 @@ final class AttendanceService
     }
 
     /**
+     * Quién está trabajando AHORA: personal vigente cuya ÚLTIMA marcación de
+     * hoy es una entrada. Es la fila "Personal presente" del bloque "Ahora"
+     * del dashboard.
+     *
+     * Es la misma lectura que decide qué le toca marcar a cada uno en el
+     * quiosco (`rosterForOutlet()`: la última marcación por persona, por
+     * LATERAL sobre `idx_attendance_mark_employee`) y la misma alternancia que
+     * aparea el reporte (`summarize()`): una entrada queda abierta hasta la
+     * próxima salida. No hay una tercera regla de "presente".
+     *
+     * Acotado a HOY (día del comercio: la sesión de Postgres ya está en su
+     * zona, `TenantClock::apply()`). Sin ese corte, una salida que alguien se
+     * olvidó de marcar ayer lo dejaría "presente" para siempre. La contracara,
+     * aceptada: un turno nocturno que entró antes de medianoche no figura
+     * después de las 00:00 hasta su próxima marcación.
+     *
+     * Alcance por sucursal: la de la marcación, y las marcaciones sin sucursal
+     * entran en cualquier alcance (mismo criterio que `pendingReviewCount()`).
+     *
+     * @param list<string> $outletIds `[]` = todas.
+     * @return array{count:int, people:list<array{employeeId:string,name:string,since:string}>}
+     */
+    public function presentNow(string $companyId, array $outletIds = [], int $limit = 6): array
+    {
+        $scope = \Punto\Api\Outlets\OutletScope::sqlFilter('lm.outletid', $outletIds, true);
+        $rs = ncmExecute(
+            "SELECT e.contactid, c.contactname, lm.markedat
+               FROM employee e
+               JOIN contact c ON c.contactid = e.contactid
+               JOIN LATERAL (
+                     SELECT m.kind, m.markedat, m.outletid
+                       FROM attendance_mark m
+                      WHERE m.contactid = e.contactid
+                        AND m.companyid = e.companyid
+                        AND m.markedat >= date_trunc('day', now())
+                      ORDER BY m.markedat DESC
+                      LIMIT 1
+               ) lm ON TRUE
+              WHERE e.companyid = ? AND e.status = 1 AND e.enddate IS NULL
+                AND lm.kind = 'in'" . $scope . "
+              ORDER BY lm.markedat ASC",
+            [$companyId],
+            false,
+            true
+        );
+
+        $people = [];
+        $count  = 0;
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $count++;
+                if (count($people) < max(1, $limit)) {
+                    $people[] = [
+                        'employeeId' => (string) $f['contactid'],
+                        'name'       => (string) $f['contactname'],
+                        'since'      => (string) $f['markedat'],
+                    ];
+                }
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return ['count' => $count, 'people' => $people];
+    }
+
+    /**
      * El reporte del período: las marcaciones crudas y el resumen por empleado.
      *
      * ── Por qué las dos cosas en una respuesta ──

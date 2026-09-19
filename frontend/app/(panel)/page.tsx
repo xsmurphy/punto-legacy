@@ -29,16 +29,10 @@ import {
 } from "recharts"
 
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { BarList } from "@/components/charts/bar-list"
+import { DeltaLine, type StatDelta } from "@/components/stat-tile"
 import {
   ChartContainer,
   ChartLegend,
@@ -62,6 +56,7 @@ import {
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import {
+  useDashboardNow,
   useDashboardWidget,
   useIncomeChart,
   type CustomersRatesWidget,
@@ -70,27 +65,44 @@ import {
   type IncomeOutcomeStatsWidget,
   type InfoWidget,
   type PaymentStatusWidget,
+  type SalesByOutletWidget,
   type SatisfactionWidget,
   type TopHoursWidget,
   type TopItemRow,
   type TopTaxonomyRow,
 } from "@/hooks/use-dashboard-widget"
 import {
+  kpiDeltas,
+  outletDelta,
   packGrid,
   showCustomers,
+  showSalesByOutlet,
   showSplitDonut,
   showTopCategories,
   showTopHours,
   showTopItems,
   visibleAttentionRows,
+  visibleDuePart,
   visibleInfoRows,
+  visibleNowTiles,
   type AttentionKey,
   type AttentionRow,
   type AttentionWidget,
   type InfoRowKey,
+  type KpiKey,
+  type NowAgendaTile,
+  type NowDrawersTile,
+  type NowDuePart,
+  type NowDuesTile,
+  type NowOrdersTile,
+  type NowSpacesTile,
+  type NowStaffTile,
+  type NowTile,
 } from "@/lib/dashboard/visibility"
 import { formatInt, formatMoney } from "@/lib/format"
-import { formatDate } from "@/lib/format-date"
+import { formatDate, formatDateTime, formatTime } from "@/lib/format-date"
+import { formatQty } from "@/lib/format-qty"
+import { resolveNumberLocale } from "@/lib/tenant-locale"
 import {
   averageLabel,
   bucketTooltipLabel,
@@ -126,6 +138,7 @@ export default function DashboardPage() {
   const ventas = React.useMemo(() => ({ ...opts, enabled: canViewSales }), [opts, canViewSales])
 
   const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", ventas)
+  const salesByOutlet = useDashboardWidget<SalesByOutletWidget>("salesByOutlet", ventas)
   const info = useDashboardWidget<InfoWidget>("info", opts)
   const incomeChart = useIncomeChart(opts, { enabled: canViewSales })
   const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", ventas)
@@ -140,6 +153,12 @@ export default function DashboardPage() {
   // backend gatea FILA por fila con el permiso de la pantalla a la que linkea
   // cada una, así que un usuario sin reportes igual ve lo que sí le compete.
   const attention = useDashboardWidget<AttentionWidget>("attention", opts)
+  // "Ahora": el estado del momento, INDEPENDIENTE del rango elegido. Sin
+  // `enabled` por la misma razón que "Requiere atención": el backend gatea
+  // fila por fila (módulo y/o permiso de la pantalla a la que lleva cada una).
+  const now = useDashboardNow()
+  const nowTiles = visibleNowTiles(now.data)
+  const deltas = kpiDeltas(stats.data)
 
   // "Negocio sin actividad" = NUNCA vendió (lifetime, info.hasSales).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
@@ -192,21 +211,27 @@ export default function DashboardPage() {
    */
   const permisosResueltos = bootstrap?.user?.permissions !== undefined
   if (permisosResueltos && !canViewSales) {
+    // Sin ventas, "Ahora" igual aplica: órdenes, espacios o la agenda son de
+    // quien atiende, no del reporte de ventas. El vacío de página solo va si
+    // tampoco hay nada del momento que mostrarle.
     return (
       <div className="flex flex-col gap-6">
         <header className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
         </header>
-        <EmptyState
-          icon={TrendingUp}
-          title="No tenés acceso al resumen de ventas"
-          description="Este panel muestra la facturación y los indicadores del negocio. Tu usuario no tiene ese permiso; pedíselo a un administrador si lo necesitás."
-          actions={
-            <Button asChild>
-              <Link href="/pos">Ir a la caja</Link>
-            </Button>
-          }
-        />
+        <NowSection tiles={nowTiles} bootstrap={bootstrap} />
+        {nowTiles.length === 0 && (
+          <EmptyState
+            icon={TrendingUp}
+            title="No tenés acceso al resumen de ventas"
+            description="Este panel muestra la facturación y los indicadores del negocio. Tu usuario no tiene ese permiso; pedíselo a un administrador si lo necesitás."
+            actions={
+              <Button asChild>
+                <Link href="/pos">Ir a la caja</Link>
+              </Button>
+            }
+          />
+        )}
       </div>
     )
   }
@@ -214,14 +239,13 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
-          <p className="text-sm text-muted-foreground">
-            Datos del período seleccionado
-          </p>
-        </div>
+        <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
         <DateRangePicker value={range} onChange={setRange} />
       </header>
+
+      {/* "Ahora" va arriba de todo y NO sigue al rango del selector: es lo que
+          está pasando en este momento. Sin filas con dato, no existe. */}
+      <NowSection tiles={nowTiles} bootstrap={bootstrap} />
 
       {/* Layout 2-col espejo del legacy (8/4): main col con widgets de negocio,
           sidebar derecho con resumen/módulos opcionales/plan. Stack en <lg. */}
@@ -239,6 +263,7 @@ export default function DashboardPage() {
               sparkline={incomeChart.data?.data.map((p) => p.ingresos)}
               sparklineColor="var(--chart-1)"
               trend="up"
+              delta={deltas.total}
             />
             <BigMetricCard
               label="Egresos"
@@ -248,6 +273,7 @@ export default function DashboardPage() {
               sparkline={incomeChart.data?.data.map((p) => p.egresos)}
               sparklineColor="var(--muted-foreground)"
               trend="down"
+              delta={deltas.expenses}
             />
           </section>
 
@@ -272,6 +298,7 @@ export default function DashboardPage() {
                     {formatMoney(stats.data?.revenue, bootstrap)}
                   </span>
                 )}
+                <KpiDelta delta={deltas.revenue} loading={stats.isLoading} />
               </div>
               <div className="grid grid-cols-2 divide-x divide-border border-t py-4">
                 <div className="flex flex-col items-center gap-1">
@@ -285,6 +312,7 @@ export default function DashboardPage() {
                       {stats.data?.margin ?? 0}%
                     </span>
                   )}
+                  <KpiDelta delta={deltas.margin} loading={stats.isLoading} />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs text-muted-foreground">
@@ -297,6 +325,7 @@ export default function DashboardPage() {
                       {formatInt(stats.data?.count, bootstrap)}
                     </span>
                   )}
+                  <KpiDelta delta={deltas.count} loading={stats.isLoading} />
                 </div>
               </div>
             </div>
@@ -309,6 +338,9 @@ export default function DashboardPage() {
               deje un hueco. */}
           <PeriodBlocksGrid
             blocks={{
+              salesByOutlet: showSalesByOutlet(salesByOutlet.data?.rows) && (
+                <SalesByOutletCard rows={salesByOutlet.data!.rows} bootstrap={bootstrap} />
+              ),
               saleType: showSplitDonut(paymentStatus.data, "sale-type") && (
                 <PaymentSplitCard
                   title="Tipos de venta"
@@ -330,7 +362,7 @@ export default function DashboardPage() {
               ),
               topHours: showTopHours(topHours.data) && <TopHoursCard data={topHours.data!} />,
               topCategories: showTopCategories(topCategories.data) && (
-                <TopCategoriesCard data={topCategories.data ?? []} />
+                <TopCategoriesCard data={topCategories.data ?? []} bootstrap={bootstrap} />
               ),
             }}
           />
@@ -348,7 +380,7 @@ export default function DashboardPage() {
             <CustomersCard data={customers.data} rates={customersRates.data} isLoading={false} />
           )}
           {!stats.isLoading && !info.isLoading && (
-            <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} />
+            <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
           )}
         </aside>
       </div>
@@ -371,6 +403,7 @@ function BigMetricCard({
   sparkline,
   sparklineColor,
   trend,
+  delta,
 }: {
   label: string
   href?: string
@@ -379,6 +412,8 @@ function BigMetricCard({
   sparkline?: number[]
   sparklineColor?: string
   trend?: "up" | "down"
+  /** Comparativa contra el período anterior; `undefined` = sin base, no se pinta. */
+  delta?: StatDelta
 }) {
   const TrendIcon = trend === "up" ? ArrowUpRight : trend === "down" ? ArrowDownRight : null
   const trendColor =
@@ -412,6 +447,7 @@ function BigMetricCard({
         ) : (
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-bold tracking-tight tabular-nums">{value}</span>
+            {delta && <DeltaLine {...delta} compact />}
           </div>
         )}
 
@@ -459,6 +495,16 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
   )
 }
 
+/**
+ * Delta compacto debajo de un KPI del período. Sin base (`undefined`) no se
+ * pinta nada: el dashboard no dice "sin base para comparar" (regla del owner,
+ * nada de ceros ni avisos muertos).
+ */
+function KpiDelta({ delta, loading }: { delta?: StatDelta; loading: boolean }) {
+  if (loading || !delta) return null
+  return <DeltaLine {...delta} compact />
+}
+
 // ── Income chart (ComposedChart Bars + Line vía shadcn) ───────────────────
 
 const incomeChartConfig = {
@@ -481,9 +527,7 @@ function IncomeOutcomeChart({
   if (isLoading) {
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-base font-semibold tracking-tight">
-          Margen, Ingresos y Egresos
-        </h3>
+        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
         <Skeleton className="h-[240px] w-full" />
       </div>
     )
@@ -492,9 +536,7 @@ function IncomeOutcomeChart({
   if (error || !data) {
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-base font-semibold tracking-tight">
-          Margen, Ingresos y Egresos
-        </h3>
+        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
         <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
           {error?.message || "No se pudieron cargar los datos del chart."}
         </div>
@@ -505,9 +547,9 @@ function IncomeOutcomeChart({
   const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between text-sm font-medium">
-        <span>Margen, Ingresos y Egresos</span>
-        <span className="text-xs font-normal text-muted-foreground">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
+        <span className="text-xs text-muted-foreground">
           {averageLabel(data.granularity)}: {formatMoney(data.totals.average, bootstrap)}
         </span>
       </div>
@@ -644,7 +686,7 @@ function FinanceCard() {
   return (
     <Card variant="soft">
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Finanzas</CardTitle>
+        <CardTitle>Finanzas</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
@@ -741,8 +783,11 @@ function SatisfactionCard({
   const pasCount = data?.passives.count ?? 0
   const proCount = data?.promoters.count ?? 0
   return (
-    <div className="flex flex-col gap-2 px-1">
-      <h3 className="text-sm font-medium">Satisfacción de clientes (NPS)</h3>
+    <Card>
+      <CardHeader>
+        <CardTitle>Satisfacción de clientes (NPS)</CardTitle>
+      </CardHeader>
+      <CardContent>
       {isLoading ? (
         <Skeleton className="h-3 w-full rounded-full" />
       ) : (
@@ -776,7 +821,8 @@ function SatisfactionCard({
           </TooltipContent>
         </Tooltip>
       )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -842,7 +888,7 @@ function PaymentSplitCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col items-center gap-4">
         <div className="relative h-[200px] w-[200px] shrink-0">
@@ -969,7 +1015,7 @@ function CustomersCard({
   return (
     <Card variant="soft">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Clientes</CardTitle>
+        <CardTitle>Clientes</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col divide-y divide-border">
@@ -1081,11 +1127,6 @@ const INFO_ROW: Record<
     label: "Ticket promedio",
     value: (stats, _info, bootstrap) => formatMoney(stats?.customerAverage ?? 0, bootstrap),
   },
-  drawers: {
-    label: "Cajas abiertas",
-    href: "/reports/drawers",
-    value: (_stats, info, bootstrap) => formatInt(info?.openDrawersCount, bootstrap),
-  },
   giftCards: {
     label: "Gift cards vigentes",
     href: "/reports/giftcards",
@@ -1101,17 +1142,19 @@ function InfoGeneralCard({
   stats,
   info,
   bootstrap,
+  deltas,
 }: {
   stats: IncomeOutcomeStatsWidget | undefined
   info: InfoWidget | undefined
   bootstrap: ReturnType<typeof useBootstrap>["data"]
+  deltas: Partial<Record<KpiKey, StatDelta>>
 }) {
   const keys = visibleInfoRows(stats, info)
   if (keys.length === 0) return null
   return (
     <Card variant="soft">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Información general</CardTitle>
+        <CardTitle>Información general</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-border">
         {keys.map((k) => {
@@ -1128,7 +1171,12 @@ function InfoGeneralCard({
               ) : (
                 <span className="text-muted-foreground">{r.label}</span>
               )}
-              <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
+              <span className="flex items-baseline gap-2">
+                {k === "ticket" && deltas.customerAverage && (
+                  <DeltaLine {...deltas.customerAverage} compact />
+                )}
+                <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
+              </span>
             </div>
           )
         })}
@@ -1166,7 +1214,7 @@ function AttentionCard({
   return (
     <Card variant="soft">
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium">Requiere atención</CardTitle>
+        <CardTitle>Requiere atención</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col divide-y divide-border">
         {rows.map((r) => (
@@ -1210,15 +1258,26 @@ function AttentionRowLink({
 
 // ── Grilla de bloques del período ─────────────────────────────────────────
 
-type PeriodBlockKey = "saleType" | "receivables" | "topItems" | "topHours" | "topCategories"
+type PeriodBlockKey =
+  | "salesByOutlet"
+  | "saleType"
+  | "receivables"
+  | "topItems"
+  | "topCategories"
+  | "topHours"
 
-/** Orden de pantalla y ancho natural de cada bloque (la tabla va a fila entera). */
+/**
+ * Orden de pantalla y ancho natural de cada bloque. Los rankings son listas
+ * con barras (`BarList`) y entran en media fila; `packGrid` estira el que
+ * quede solo.
+ */
 const PERIOD_BLOCKS: { key: PeriodBlockKey; full: boolean }[] = [
+  { key: "salesByOutlet", full: false },
   { key: "saleType", full: false },
   { key: "receivables", full: false },
-  { key: "topItems", full: true },
-  { key: "topHours", full: false },
+  { key: "topItems", full: false },
   { key: "topCategories", full: false },
+  { key: "topHours", full: false },
 ]
 
 /**
@@ -1259,7 +1318,7 @@ function TopHoursCard({ data }: { data: TopHoursWidget }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Horarios pico</CardTitle>
+        <CardTitle>Horarios pico</CardTitle>
       </CardHeader>
       <CardContent>
           <ChartContainer config={topHoursChartConfig} className="h-[200px] w-full">
@@ -1290,7 +1349,7 @@ function TopHoursCard({ data }: { data: TopHoursWidget }) {
   )
 }
 
-// ── Top 5 artículos ───────────────────────────────────────────────────────
+// ── Rankings (lista con barras) ──────────────────────────────────────────
 
 /** Solo se monta con ventas en el período (`showTopItems`). */
 function TopItemsCard({
@@ -1303,88 +1362,353 @@ function TopItemsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Top 5 Artículos</CardTitle>
+        <CardTitle>Top 5 artículos</CardTitle>
       </CardHeader>
       <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="text-xs">Artículo</TableHead>
-                <TableHead className="w-20 text-right text-xs">Cantidad</TableHead>
-                <TableHead className="w-28 text-right text-xs">Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {data.map((row, i) => (
-                <TableRow key={`${row.name}-${i}`}>
-                  <TableCell className="font-medium">{row.name || "(sin nombre)"}</TableCell>
-                  <TableCell className="text-right tabular-nums">{row.count}</TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatMoney(row.total, bootstrap)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+        <BarList
+          items={data.map((row, i) => ({
+            key: `${row.name}-${i}`,
+            label: row.name || "(sin nombre)",
+            value: Number(row.total) || 0,
+            display: formatMoney(row.total, bootstrap),
+            meta: `${formatQty(row.count, bootstrap)} vendidos`,
+          }))}
+        />
       </CardContent>
     </Card>
   )
 }
 
-// ── Top 10 Categorías — BarChart horizontal ──────────────────────────────
-
-const topCategoriesChartConfig = {
-  total: { label: "Ventas", color: "var(--chart-1)" },
-} satisfies ChartConfig
-
-/** Solo se monta con 2+ categorías (`showTopCategories`). */
-function TopCategoriesCard({ data }: { data: TopTaxonomyRow[] }) {
-  // BarChart horizontal: eje Y = title, eje X = total. La altura se calcula
-  // según cantidad de filas para que no se aplasten (28px por bar mínimo).
-  const chartHeight = Math.max(200, data.length * 28)
-
+/**
+ * Solo se monta con 2+ categorías (`showTopCategories`). El backend rankea por
+ * UNIDADES vendidas (`topTaxonomy`), así que eso es lo que se lee y lo que mide
+ * la barra.
+ */
+function TopCategoriesCard({
+  data,
+  bootstrap,
+}: {
+  data: TopTaxonomyRow[]
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium">Top 10 Categorías</CardTitle>
+        <CardTitle>Top 10 categorías</CardTitle>
       </CardHeader>
       <CardContent>
-          <ChartContainer
-            config={topCategoriesChartConfig}
-            className="w-full"
-            style={{ height: `${chartHeight}px` }}
-          >
-            <BarChart
-              data={data}
-              layout="vertical"
-              margin={{ top: 4, right: 12, left: 0, bottom: 0 }}
-            >
-              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
-              <XAxis
-                type="number"
-                tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => compactNumber(v)}
-              />
-              <YAxis
-                type="category"
-                dataKey="title"
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickLine={false}
-                axisLine={false}
-                width={100}
-                interval={0}
-              />
-              <ChartTooltip
-                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
-                content={<ChartTooltipContent />}
-              />
-              <Bar dataKey="total" fill="var(--color-total)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ChartContainer>
+        <BarList
+          items={data.map((row, i) => ({
+            key: `${row.title}-${i}`,
+            label: row.title,
+            value: Number(row.total) || 0,
+            display: `${formatQty(row.total, bootstrap)} vendidos`,
+          }))}
+        />
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Ventas del período por sucursal: total, % del total y variación contra su
+ * propio período anterior. Solo con 2+ sucursales vendiendo en el alcance del
+ * usuario (`showSalesByOutlet`).
+ */
+function SalesByOutletCard({
+  rows,
+  bootstrap,
+}: {
+  rows: SalesByOutletWidget["rows"]
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Ventas por sucursal</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <BarList
+          items={rows.map((row) => {
+            const delta = outletDelta(row)
+            return {
+              key: row.outletId,
+              label: row.name,
+              value: Number(row.total) || 0,
+              display: formatMoney(row.total, bootstrap),
+              meta: (
+                <span className="flex items-baseline gap-2">
+                  {delta && <DeltaLine {...delta} compact />}
+                  <span>{formatShare(row.share, bootstrap)}</span>
+                </span>
+              ),
+            }
+          })}
+        />
+      </CardContent>
+    </Card>
+  )
+}
+
+/** "33,3%" con el separador del tenant; el backend ya redondeó a un decimal. */
+function formatShare(share: number, bootstrap: ReturnType<typeof useBootstrap>["data"]): string {
+  return `${new Intl.NumberFormat(resolveNumberLocale(bootstrap), { maximumFractionDigits: 1 }).format(share)}%`
+}
+
+// ── Ahora ────────────────────────────────────────────────────────────────
+
+type Boot = ReturnType<typeof useBootstrap>["data"]
+
+/**
+ * El estado del momento, arriba de todo e independiente del rango. Cada tile
+ * es una card con el link a donde eso se opera; el backend (`NowService`) ya
+ * mandó solo las que tienen dato y que la persona puede abrir. Sin tiles, la
+ * sección no existe.
+ *
+ * `auto-fit` y no columnas fijas: con dos tiles se reparten la fila, con seis
+ * bajan a la siguiente — nunca queda un hueco al ocultarse uno.
+ */
+function NowSection({ tiles, bootstrap }: { tiles: NowTile[]; bootstrap: Boot }) {
+  if (tiles.length === 0) return null
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-xl font-semibold">Ahora</h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(15rem,1fr))]">
+        {tiles.map((t) => (
+          <NowTileCard key={t.key} tile={t} bootstrap={bootstrap} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function NowTileCard({ tile, bootstrap }: { tile: NowTile; bootstrap: Boot }) {
+  switch (tile.key) {
+    case "orders":
+      return <NowOrders tile={tile} bootstrap={bootstrap} />
+    case "spaces":
+      return <NowSpaces tile={tile} bootstrap={bootstrap} />
+    case "drawers":
+      return <NowDrawers tile={tile} bootstrap={bootstrap} />
+    case "staff":
+      return <NowStaff tile={tile} bootstrap={bootstrap} />
+    case "agenda":
+      return <NowAgenda tile={tile} bootstrap={bootstrap} />
+    case "dues":
+      return <NowDues tile={tile} bootstrap={bootstrap} />
+  }
+}
+
+/** Card de un tile: título canónico y el acceso a la pantalla donde se opera. */
+function NowCard({
+  title,
+  href,
+  children,
+}: {
+  title: string
+  href?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {href && (
+          <CardAction>
+            <Link
+              href={href}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+              aria-label={`Ir a ${title}`}
+            >
+              <ChevronRight className="size-4" />
+            </Link>
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent className="flex flex-col gap-2">{children}</CardContent>
+    </Card>
+  )
+}
+
+/** El número grande del tile con su unidad al lado. */
+function NowFigure({ value, unit }: { value: string; unit: string }) {
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-2xl font-semibold tabular-nums">{value}</span>
+      <span className="text-sm text-muted-foreground">{unit}</span>
+    </div>
+  )
+}
+
+/** "y 3 más" cuando la lista del tile viene recortada. */
+function MoreLine({ shown, total, bootstrap }: { shown: number; total: number; bootstrap: Boot }) {
+  if (total <= shown) return null
+  return (
+    <span className="text-xs text-muted-foreground">
+      y {formatInt(total - shown, bootstrap)} más
+    </span>
+  )
+}
+
+/**
+ * Hora de una marca del momento: solo la hora si es de hoy, con la fecha si
+ * no (una caja que quedó abierta desde ayer tiene que decirlo).
+ */
+function sinceLabel(iso: string): string {
+  const d = new Date()
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  return iso.slice(0, 10) === today ? formatTime(iso) : formatDateTime(iso)
+}
+
+function NowOrders({ tile, bootstrap }: { tile: NowOrdersTile; bootstrap: Boot }) {
+  return (
+    <NowCard title="Órdenes" href={tile.href}>
+      <NowFigure value={formatInt(tile.active, bootstrap)} unit={tile.active === 1 ? "activa" : "activas"} />
+      {tile.late > 0 && (
+        <span className="text-sm font-medium text-destructive">
+          {formatInt(tile.late, bootstrap)} con más de {tile.lateMinutes} min en cocina
+        </span>
+      )}
+    </NowCard>
+  )
+}
+
+function NowSpaces({ tile, bootstrap }: { tile: NowSpacesTile; bootstrap: Boot }) {
+  const busy = tile.occupied + tile.billRequested
+  const details = [
+    busy > 0 && tile.free > 0 ? `${formatInt(tile.free, bootstrap)} ${tile.free === 1 ? "libre" : "libres"}` : null,
+    tile.billRequested > 0
+      ? `${formatInt(tile.billRequested, bootstrap)} ${tile.billRequested === 1 ? "pidió" : "pidieron"} la cuenta`
+      : null,
+  ].filter(Boolean)
+  return (
+    <NowCard title="Espacios" href={tile.href}>
+      {busy > 0 ? (
+        <NowFigure
+          value={`${formatInt(busy, bootstrap)} de ${formatInt(tile.total, bootstrap)}`}
+          unit={busy === 1 ? "ocupado" : "ocupados"}
+        />
+      ) : (
+        <NowFigure value={formatInt(tile.free, bootstrap)} unit={tile.free === 1 ? "libre" : "libres"} />
+      )}
+      {details.length > 0 && <span className="text-sm text-muted-foreground">{details.join(" · ")}</span>}
+    </NowCard>
+  )
+}
+
+function NowDrawers({ tile, bootstrap }: { tile: NowDrawersTile; bootstrap: Boot }) {
+  // La sucursal solo suma cuando las cajas abiertas son de más de una.
+  const manyOutlets = new Set(tile.rows.map((r) => r.outletName)).size > 1
+  return (
+    <NowCard title="Cajas abiertas" href={tile.href}>
+      <ul className="flex flex-col divide-y divide-border">
+        {tile.rows.map((r) => (
+          <li
+            key={r.drawerId}
+            className="flex items-baseline justify-between gap-2 py-1.5 text-sm first:pt-0 last:pb-0"
+          >
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">
+                {r.registerName}
+                {manyOutlets && r.outletName ? ` · ${r.outletName}` : ""}
+              </span>
+              {r.operator && <span className="truncate text-xs text-muted-foreground">{r.operator}</span>}
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              desde {sinceLabel(r.openedAt)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <MoreLine shown={tile.rows.length} total={tile.count} bootstrap={bootstrap} />
+    </NowCard>
+  )
+}
+
+function NowStaff({ tile, bootstrap }: { tile: NowStaffTile; bootstrap: Boot }) {
+  return (
+    <NowCard title="Personal presente" href={tile.href}>
+      <NowFigure
+        value={formatInt(tile.count, bootstrap)}
+        unit={tile.count === 1 ? "persona" : "personas"}
+      />
+      <ul className="flex flex-col gap-1">
+        {tile.people.map((p) => (
+          <li key={p.employeeId} className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="min-w-0 truncate">{p.name}</span>
+            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+              desde {formatTime(p.since)}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <MoreLine shown={tile.people.length} total={tile.count} bootstrap={bootstrap} />
+    </NowCard>
+  )
+}
+
+function NowAgenda({ tile, bootstrap }: { tile: NowAgendaTile; bootstrap: Boot }) {
+  return (
+    <NowCard title="Agenda de hoy" href={tile.href}>
+      <NowFigure
+        value={formatInt(tile.count, bootstrap)}
+        unit={tile.count === 1 ? "cita pendiente" : "citas pendientes"}
+      />
+      <ul className="flex flex-col gap-1">
+        {tile.next.map((a) => (
+          <li key={a.id} className="flex items-baseline gap-2 text-sm">
+            <span className="shrink-0 tabular-nums text-muted-foreground">{formatTime(a.from)}</span>
+            {a.customer && <span className="min-w-0 truncate">{a.customer}</span>}
+          </li>
+        ))}
+      </ul>
+      <MoreLine shown={tile.next.length} total={tile.count} bootstrap={bootstrap} />
+    </NowCard>
+  )
+}
+
+/**
+ * Lo que VENCE en la semana, por tipo, cada uno con su pantalla. No repite el
+ * total "a pagar" de la card de Finanzas: acá va cuántos, cuándo el próximo y
+ * cuánto por tipo, y lo ya vencido aparte.
+ */
+function NowDues({ tile, bootstrap }: { tile: NowDuesTile; bootstrap: Boot }) {
+  const parts: { label: string; part: NowDuePart; overdue: [string, string] }[] = []
+  const checks = visibleDuePart(tile.checks)
+  const payables = visibleDuePart(tile.payables)
+  if (checks) parts.push({ label: "Cheques emitidos", part: checks, overdue: ["vencido", "vencidos"] })
+  if (payables) parts.push({ label: "Compras a pagar", part: payables, overdue: ["vencida", "vencidas"] })
+  return (
+    <NowCard title="Vencimientos de la semana">
+      <ul className="flex flex-col divide-y divide-border">
+        {parts.map(({ label, part, overdue }) => (
+          <li key={label} className="py-1.5 first:pt-0 last:pb-0">
+            <Link href={part.href} className="group flex items-baseline justify-between gap-2 text-sm">
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate group-hover:underline">{label}</span>
+                <span className="text-xs text-muted-foreground">
+                  {part.count > 0 && (
+                    <>
+                      {formatInt(part.count, bootstrap)} esta semana
+                      {part.next && ` · el próximo ${formatDate(part.next)}`}
+                    </>
+                  )}
+                  {part.count > 0 && part.overdue > 0 && " · "}
+                  {part.overdue > 0 && (
+                    <span className="font-medium text-destructive">
+                      {formatInt(part.overdue, bootstrap)} {part.overdue === 1 ? overdue[0] : overdue[1]}
+                    </span>
+                  )}
+                </span>
+              </span>
+              {part.count > 0 && (
+                <span className="shrink-0 font-semibold tabular-nums">{formatMoney(part.amount, bootstrap)}</span>
+              )}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </NowCard>
   )
 }
 

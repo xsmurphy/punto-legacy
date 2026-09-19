@@ -56,13 +56,38 @@ export interface InfoWidget {
   usesDrawers?: boolean
 }
 
-export interface IncomeOutcomeStatsWidget {
+export interface PeriodStats {
   total: number // ingresos del período (ya descontados)
   expenses: number
   revenue: number
   margin: number
   count: number // tickets
   customerAverage: number // ticket promedio
+}
+
+export interface IncomeOutcomeStatsWidget extends PeriodStats {
+  /**
+   * Los mismos KPIs del período inmediatamente anterior, del mismo largo
+   * (`Date::previousRange()` del backend). `null` = el anterior no tuvo ni
+   * ventas ni egresos: no hay contra qué comparar. Optional por deploy
+   * desfasado (backend viejo no lo manda) — se trata igual que `null`.
+   */
+  previous?: PeriodStats | null
+}
+
+/** Ventas del período por sucursal (widget `salesByOutlet`). */
+export interface SalesByOutletRow {
+  outletId: string
+  name: string
+  total: number
+  /** % del total de las filas, ya redondeado a un decimal. */
+  share: number
+  /** Total de esa sucursal en el período anterior; `null` = no vendió. */
+  previous: number | null
+}
+
+export interface SalesByOutletWidget {
+  rows: SalesByOutletRow[]
 }
 
 export interface PaymentStatusWidget {
@@ -162,6 +187,7 @@ export interface IncomeChartData {
 import { useQuery as useQ } from "@tanstack/react-query"
 import type { Granularity, TimeBucket } from "@/lib/charts/granularity"
 import { readViewScope } from "@/hooks/use-view-scope"
+import type { NowWidget } from "@/lib/dashboard/visibility"
 
 export function useIncomeChart(
   opts: { from: string; to: string },
@@ -193,5 +219,28 @@ export function useIncomeChart(
     staleTime: 60 * 1000,
     retry: false,
     enabled: extra?.enabled ?? true,
+  })
+}
+
+// ── "Ahora" ───────────────────────────────────────────────────────────────
+
+/**
+ * Estado operativo del momento (widget `now`, `NowService`). NO depende del
+ * rango del dashboard: no lleva `from`/`to` y su clave no los incluye.
+ *
+ * Se mantiene al día por dos caminos: la invalidación por eventos de sync del
+ * tenant (`["dashboard-now"]` en `use-realtime-sync.ts`, para órdenes,
+ * espacios, cajas, marcaciones, citas, compras y finanzas) y un refetch de
+ * respaldo cada 60 s — la demora de una orden avanza sola con el reloj, sin
+ * que ningún evento la dispare.
+ */
+export function useDashboardNow() {
+  const scope = readViewScope()
+  return useQ<NowWidget>({
+    queryKey: ["dashboard-now", scope],
+    queryFn: () => api.get<NowWidget>(`/v1/reports/dashboard?widget=now`),
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: false,
   })
 }

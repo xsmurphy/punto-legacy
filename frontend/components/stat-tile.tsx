@@ -52,12 +52,32 @@ function StatsRow({
 export interface StatDelta {
   pct: number | null
   higherIsBetter?: boolean
+  /**
+   * `percent` (default): variación relativa, "+12.3%". `points`: diferencia
+   * en puntos de algo que YA es un porcentaje (el margen), "+4.0 pts" — un
+   * margen que pasa de 40% a 44% subió 4 puntos, no 10%.
+   */
+  kind?: "percent" | "points"
 }
 
-function DeltaLine({ pct, higherIsBetter = true }: StatDelta) {
+/**
+ * La línea de comparativa. Exportada para las pantallas que muestran un KPI
+ * con su propia card (el dashboard mantiene las suyas) y necesitan el MISMO
+ * texto y la misma regla de color que el tile, no una copia.
+ *
+ * `compact` deja solo la cifra —sin "vs período anterior"— para ir al lado
+ * del monto; el contexto queda en el `title` (hover).
+ */
+function DeltaLine({
+  pct,
+  higherIsBetter = true,
+  kind = "percent",
+  compact = false,
+  className,
+}: StatDelta & { compact?: boolean; className?: string }) {
   if (pct === null) {
     return (
-      <span className="text-xs text-muted-foreground">
+      <span className={cn("text-xs text-muted-foreground", className)}>
         Sin base para comparar
       </span>
     )
@@ -72,9 +92,14 @@ function DeltaLine({ pct, higherIsBetter = true }: StatDelta) {
         ? "text-emerald-600"
         : "text-destructive"
   const sign = pct > 0 ? "+" : ""
+  const figure =
+    pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}${kind === "points" ? " pts" : "%"}`
   return (
-    <span className={cn("text-xs tabular-nums", color)}>
-      {pct === 0 ? "Sin cambios" : `${sign}${pct.toFixed(1)}%`} vs período anterior
+    <span
+      className={cn("text-xs tabular-nums", color, className)}
+      title={compact ? "vs período anterior" : undefined}
+    >
+      {compact ? figure : `${figure} vs período anterior`}
     </span>
   )
 }
@@ -134,11 +159,11 @@ function StatTile({
           (isLoading ? (
             <Skeleton className="h-3 w-28" />
           ) : (
-            <DeltaLine pct={delta.pct} higherIsBetter={delta.higherIsBetter} />
+            <DeltaLine pct={delta.pct} higherIsBetter={delta.higherIsBetter} kind={delta.kind} />
           ))}
       </CardContent>
     </Card>
   )
 }
 
-export { StatsRow, StatTile }
+export { DeltaLine, StatsRow, StatTile }

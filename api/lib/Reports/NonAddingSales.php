@@ -173,6 +173,55 @@ final class NonAddingSales
             return ['total' => 0, 'discount' => 0, 'tax' => 0, 'qty' => 0, 'count' => 0];
         }
 
+        $total = $discount = $tax = $qty = 0.0;
+        $count = 0;
+        self::eachInternalSale($roc, $from, $to, $tTypes, $hours, static function (array $f) use (&$total, &$discount, &$tax, &$qty, &$count): void {
+            $total    += (float) $f['transactionTotal'] - (float) $f['transactionDiscount'];
+            $discount += (float) $f['transactionDiscount'];
+            $tax      += (float) $f['transactionTax'];
+            $qty      += (float) $f['transactionUnitsSold'];
+            $count++;
+        });
+
+        return ['total' => $total, 'discount' => $discount, 'tax' => $tax, 'qty' => $qty, 'count' => (float) $count];
+    }
+
+    /**
+     * Lo mismo que `lessInternalTotals()['total']`, repartido por sucursal:
+     * `[outletId => total interno]`. Es lo que permite que "Ventas por
+     * sucursal" del dashboard reste las ventas internas igual que el KPI de
+     * Ingresos, y que la suma de las sucursales cierre con ese KPI.
+     *
+     * Misma consulta y misma regla que el total (`eachInternalSale()`), no una
+     * segunda copia del criterio de "interna".
+     *
+     * @return array<string, float>
+     */
+    public static function internalTotalsByOutlet(string $roc, string $from, string $to): array
+    {
+        global $_fullSettings;
+
+        if (empty($_fullSettings['ignoreInternal']) || !$_fullSettings['ignoreInternal']) {
+            return [];
+        }
+
+        $out = [];
+        self::eachInternalSale($roc, $from, $to, false, new HourBand(), static function (array $f) use (&$out): void {
+            $oid        = (string) ($f['outletId'] ?? '');
+            $out[$oid]  = ($out[$oid] ?? 0.0) + (float) $f['transactionTotal'] - (float) $f['transactionDiscount'];
+        });
+        return $out;
+    }
+
+    /**
+     * Recorre las ventas INTERNAS del período (tag interno, `isInternalSale`) y
+     * le pasa cada una a `$each`. Única lectura de las dos agregaciones de
+     * arriba.
+     *
+     * @param callable(array<string,mixed>):void $each
+     */
+    private static function eachInternalSale(string $roc, string $from, string $to, $tTypes, HourBand $hours, callable $each): void
+    {
         $parts = array_filter(array_map('trim', explode(',', (string) $tTypes)), fn($v) => $v !== '');
         $types = $parts ? array_map('intval', $parts) : [0, 3];
         $ph    = implode(',', array_fill(0, count($types), '?'));
@@ -183,47 +232,43 @@ final class NonAddingSales
         [$hourSql, $hourParams] = $hours->on('transactionDate');
 
         $result = ncmExecute(
-            "SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax
+            "SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax,
+                    outletId AS \"outletId\"
              FROM transaction
              WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")
              AND " . SaleFilters::notVoidedSql() . $roc . $hourSql . " LIMIT 5000",
             array_merge([$from, $to], $types, $hourParams), 1200, true
         );
 
-        $total = $discount = $tax = $qty = 0.0;
-        $count = 0;
         if ($result) {
             while (!$result->EOF) {
                 $f    = $result->fields;
                 $tags = json_decode((string) ($f['tags'] ?? ''), true);
                 if (isInternalSale($tags)) {
-                    $total    += (float) $f['transactionTotal'] - (float) $f['transactionDiscount'];
-                    $discount += (float) $f['transactionDiscount'];
-                    $tax      += (float) $f['transactionTax'];
-                    $qty      += (float) $f['transactionUnitsSold'];
-                    $count++;
+                    $each([
+                        'transactionTotal'     => $f['transactionTotal'],
+                        'transactionDiscount'  => $f['transactionDiscount'],
+                        'transactionTax'       => $f['transactionTax'],
+                        'transactionUnitsSold' => $f['transactionUnitsSold'],
+                        'outletId'             => $f['outletId'] ?? $f['outletid'] ?? '',
+                    ]);
                 }
                 $result->MoveNext();
             }
             $result->Close();
         }
-
-        return ['total' => $total, 'discount' => $discount, 'tax' => $tax, 'qty' => $qty, 'count' => (float) $count];
     }
 
     /**
-     * Port fiel de getPreviousPeriod del panel: mismo intervalo desplazado hacia atrás.
+     * Mismo intervalo desplazado hacia atrás. Delega en
+     * `Date::previousRange()`, la definición única del período anterior: el
+     * port del legacy formateaba con `H:i:00` y dejaba afuera el último minuto
+     * del período (ver el docblock de ese helper).
      *
      * Público porque también lo usa ProductsService::general (batch 14).
      */
     public static function previousPeriod(string $start, string $end): array
     {
-        $startF    = strtotime($start);
-        $endF      = strtotime($end);
-        $diference = ($endF - $startF) + 1;
-        return [
-            date('Y-m-d H:i:00', $startF - $diference),
-            date('Y-m-d H:i:00', $endF   - $diference),
-        ];
+        return \Punto\App\Helpers\Date::previousRange($start, $end);
     }
 }

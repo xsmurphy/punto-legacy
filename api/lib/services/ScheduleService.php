@@ -21,6 +21,14 @@ require_once __DIR__ . '/../meta_transaction.php';
 
 final class ScheduleService
 {
+    /**
+     * Estados de una cita (`transactionType = 13`) que todavía van a ocurrir o
+     * están ocurriendo: 0 nueva, 1 confirmada, 2 en espera, 3 en curso. Quedan
+     * afuera 4 cancelada, 5 no vino, 6 atendida y 7, que no es una cita sino un
+     * bloqueo de agenda (ver el `iconMap` de `calendarEvents()`).
+     */
+    public const PENDING_STATUSES = [0, 1, 2, 3];
+
     public function __construct(
         public readonly TenantContext $ctx,
     ) {}

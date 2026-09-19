@@ -47,9 +47,9 @@ final class DashboardService
      */
     /**
      * @param (callable(string):bool)|null $can ¿La persona tiene este permiso?
-     *   Solo lo usa `attention`, que gatea FILA por fila con la clave de la
-     *   pantalla a la que cada una linkea. Sin él, `attention` no devuelve
-     *   ninguna fila (fail-closed): no hay a quién medirle el permiso.
+     *   Lo usan `attention` y `now`, que gatean FILA por fila con la clave de
+     *   la pantalla a la que cada una linkea. Sin él no devuelven ninguna fila
+     *   (fail-closed): no hay a quién medirle el permiso.
      */
     public function widget(string $name, array $opts, string $roc, string $companyId, array $outletIds, string $userId, ?callable $can = null): array
     {
@@ -57,6 +57,17 @@ final class DashboardService
             case 'attention':           return (new AttentionService())->rows($companyId, $outletIds, $can ?? static fn (): bool => false);
             case 'info':                return $this->info($roc, $companyId);
             case 'incomeOutcomeStats':  return $this->incomeOutcomeStats($opts, $roc);
+            case 'salesByOutlet':       return $this->salesByOutlet($opts, $roc, $companyId);
+            case 'now':                 return (new NowService())->tiles(
+                $companyId,
+                $outletIds,
+                $can ?? static fn (): bool => false,
+                // El lector CANÓNICO del estado de un módulo (incluye el
+                // kill-switch de plataforma), no el `moduleOn()` legacy de
+                // esta clase: "Ahora" linkea a pantallas del POS que se
+                // esconden con esa misma regla.
+                static fn (string $module): bool => (new \Punto\Api\Modules\ModulesService())->isEnabled($companyId, $module)
+            );
             case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
             case 'customers':           return $this->customers($opts, $roc, $companyId);
             case 'customersRates':      return $this->customersRates($opts, $roc, $companyId);
@@ -84,7 +95,7 @@ final class DashboardService
         $gift  = ncmExecute("SELECT COUNT(*) as count FROM giftCardSold WHERE transactionId IS NOT NULL AND giftCardSoldValue > 0" . $roc);
         $users = ncmExecute("SELECT COUNT(*) as count FROM contact WHERE type = 0 AND companyId = ?", [$companyId]);
         $items = ncmExecute("SELECT COUNT(*) as count FROM item WHERE companyId = ?", [$companyId]);
-        $draw  = ncmExecute("SELECT COUNT(*) as count FROM drawer WHERE (drawerCloseDate IS NULL OR drawerCloseDate < '2010-01-01 00:00:00')" . $roc . " LIMIT 10");
+        $draw  = ncmExecute("SELECT COUNT(*) as count FROM drawer WHERE " . DrawersService::OPEN_SQL . $roc);
         $startD = date('Y-m-01 00:00:00');
         $endD   = date('Y-m-t ') . Date::END_OF_DAY;
         $trans = ncmExecute("SELECT COUNT(*) as count FROM transaction WHERE companyId = ? AND transactionDate BETWEEN ? AND ?", [$companyId, $startD, $endD]);
@@ -126,10 +137,33 @@ final class DashboardService
         ];
     }
 
+    /**
+     * KPIs del período + los MISMOS KPIs del período inmediatamente anterior
+     * (`previous`), para la comparativa del dashboard. Van en la misma
+     * respuesta a propósito: el front no arma un segundo rango ni dispara una
+     * segunda request, y las dos mitades salen de la misma fórmula
+     * (`periodStats()`), así que no pueden compararse cosas distintas.
+     *
+     * `previous` es `null` cuando el período anterior no tiene NINGÚN dato (ni
+     * ventas ni egresos): no hay contra qué comparar y el dashboard no muestra
+     * delta. El largo y la forma del período anterior los decide
+     * `Date::previousRange()`.
+     */
     private function incomeOutcomeStats(array $opts, string $roc): array
     {
         [$from, $to] = $this->range($opts);
+        [$pFrom, $pTo] = Date::previousRange($from, $to);
 
+        $current  = $this->periodStats($from, $to, $roc);
+        $previous = $this->periodStats($pFrom, $pTo, $roc);
+        $hasPrev  = $previous['count'] > 0 || $previous['expenses'] > 0;
+
+        return $current + ['previous' => $hasPrev ? $previous : null];
+    }
+
+    /** @return array{total:float,expenses:float,revenue:float,margin:float,count:int,customerAverage:float} */
+    private function periodStats(string $from, string $to, string $roc): array
+    {
         $sales = ncmExecute(
             "SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount,
                     SUM(transactionUnitsSold) as units, COUNT(transactionId) as count
@@ -161,6 +195,101 @@ final class DashboardService
             'count'           => $count,
             'customerAverage' => $customerAverage,
         ];
+    }
+
+    /**
+     * Ventas del período por sucursal, con su total del período anterior.
+     *
+     * Misma definición de venta que el KPI de Ingresos (`periodStats()`):
+     * tipos 0/3/6 no anulados, `total - descuento`, menos las ventas internas
+     * de esa sucursal (`NonAddingSales::internalTotalsByOutlet()`). Así la suma
+     * de las filas cierra con el KPI.
+     *
+     * El alcance lo da `$roc` (empresa + sucursales del usuario): una sucursal
+     * fuera del alcance no aparece ni en la lista ni en el total del que sale
+     * el porcentaje.
+     *
+     * Devuelve SOLO las sucursales que vendieron en el período. `previous` es
+     * `null` cuando esa sucursal no vendió en el período anterior — sin base,
+     * sin delta. Si quedan menos de dos filas el dashboard no pinta el bloque
+     * (con una sola sucursal "por sucursal" es el mismo número que Ingresos).
+     *
+     * @return array{rows: list<array{outletId:string,name:string,total:float,share:float,previous:?float}>}
+     */
+    private function salesByOutlet(array $opts, string $roc, string $companyId): array
+    {
+        [$from, $to]   = $this->range($opts);
+        [$pFrom, $pTo] = Date::previousRange($from, $to);
+
+        $current  = $this->salesPerOutlet($from, $to, $roc);
+        $previous = $this->salesPerOutlet($pFrom, $pTo, $roc);
+
+        $current = array_filter($current, static fn (array $r): bool => $r['count'] > 0 && $r['total'] > 0);
+        if ($current === []) {
+            return ['rows' => []];
+        }
+
+        $names = [];
+        $ids   = array_keys($current);
+        $ph    = implode(',', array_fill(0, count($ids), '?'));
+        $rs    = ncmExecute(
+            "SELECT outletId AS \"outletId\", outletName AS \"outletName\" FROM outlet WHERE companyId = ? AND outletId IN ($ph)",
+            array_merge([$companyId], $ids), false, true
+        );
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $names[(string) ($f['outletId'] ?? $f['outletid'])] = (string) ($f['outletName'] ?? $f['outletname'] ?? '');
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        $sum  = array_sum(array_column($current, 'total'));
+        $rows = [];
+        foreach ($current as $oid => $r) {
+            $prev   = $previous[$oid] ?? null;
+            $rows[] = [
+                'outletId' => (string) $oid,
+                'name'     => $names[$oid] ?? '',
+                'total'    => $r['total'],
+                'share'    => $sum > 0 ? round($r['total'] * 100 / $sum, 1) : 0.0,
+                'previous' => ($prev !== null && $prev['count'] > 0) ? $prev['total'] : null,
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => $b['total'] <=> $a['total']);
+
+        return ['rows' => $rows];
+    }
+
+    /** @return array<string, array{total:float,count:int}> */
+    private function salesPerOutlet(string $from, string $to, string $roc): array
+    {
+        $rs = ncmExecute(
+            "SELECT outletId AS \"outletId\", SUM(transactionTotal) AS total, SUM(transactionDiscount) AS discount,
+                    COUNT(transactionId) AS count
+             FROM transaction WHERE transactionType IN (0,3,6)
+             AND " . SaleFilters::notVoidedSql() . "
+             AND transactionDate >= ? AND transactionDate <= ?" . $roc . "
+             GROUP BY outletId",
+            [$from, $to], false, true
+        );
+        $internals = NonAddingSales::internalTotalsByOutlet($roc, $from, $to);
+
+        $out = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f   = $rs->fields;
+                $oid = (string) ($f['outletId'] ?? $f['outletid'] ?? '');
+                $out[$oid] = [
+                    'total' => (float) $f['total'] - (float) $f['discount'] - (float) ($internals[$oid] ?? 0),
+                    'count' => (int) $f['count'],
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $out;
     }
 
     private function paymentStatus(array $opts, string $roc, string $companyId): array
@@ -379,9 +508,9 @@ final class DashboardService
         }
         // Órdenes reales (pos_order, mig 79/24), no transaction type=12 legacy
         // (mismo defecto que OrdersService::listOrders, ver T5). "Activa" =
-        // mismos estados que el POS considera activos — ACTIVE_ORDER_STATUSES
-        // en frontend/hooks/use-orders.ts (closed/cancelled quedan afuera).
-        $activeStatuses = "'open','sent','in_progress','ready','out_for_delivery','delivered'";
+        // `OrderCoreService::ACTIVE_STATUSES`, espejo de ACTIVE_ORDER_STATUSES
+        // del POS (closed/cancelled quedan afuera).
+        $activeStatuses = "'" . implode("','", \Punto\Api\Orders\OrderCoreService::ACTIVE_STATUSES) . "'";
         // onlineCount: origen ecommerce. El enum de `source` (mig 79) incluye
         // 'ecommerce', pero hoy no hay integración que lo produzca — la query
         // queda lista para cuando exista, mientras tanto cuenta 0 en prod.

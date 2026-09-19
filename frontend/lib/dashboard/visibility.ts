@@ -16,10 +16,185 @@ import type {
   IncomeOutcomeStatsWidget,
   InfoWidget,
   PaymentStatusWidget,
+  PeriodStats,
+  SalesByOutletRow,
   TopHoursWidget,
   TopItemRow,
   TopTaxonomyRow,
 } from "@/hooks/use-dashboard-widget"
+import type { StatDelta } from "@/components/stat-tile"
+import { pctDelta } from "@/lib/reports/previous-range"
+
+// ── Ahora ──────────────────────────────────────────────────────────────────
+
+/** Orden de pantalla. Espejo de `NowService::TILES`. */
+export const NOW_KEYS = ["orders", "spaces", "drawers", "staff", "agenda", "dues"] as const
+export type NowKey = (typeof NOW_KEYS)[number]
+
+export interface NowOrdersTile {
+  key: "orders"
+  href: string
+  active: number
+  /** Enviadas a cocina hace más de `lateMinutes` y todavía no listas. */
+  late: number
+  lateMinutes: number
+}
+export interface NowSpacesTile {
+  key: "spaces"
+  href: string
+  total: number
+  free: number
+  occupied: number
+  billRequested: number
+}
+export interface NowDrawersTile {
+  key: "drawers"
+  href: string
+  count: number
+  rows: { drawerId: string; registerName: string; outletName: string; operator: string; openedAt: string }[]
+}
+export interface NowStaffTile {
+  key: "staff"
+  href: string
+  count: number
+  people: { employeeId: string; name: string; since: string }[]
+}
+export interface NowAgendaTile {
+  key: "agenda"
+  href: string
+  count: number
+  next: { id: string; from: string; to: string; customer: string }[]
+}
+export interface NowDuePart {
+  /** Vencen de hoy a 7 días. */
+  count: number
+  amount: number
+  /** Ya vencidos (antes de hoy). */
+  overdue: number
+  /** Próximo vencimiento dentro de la semana, `YYYY-MM-DD`. */
+  next: string | null
+  href: string
+}
+export interface NowDuesTile {
+  key: "dues"
+  checks: NowDuePart | null
+  payables: NowDuePart | null
+}
+export type NowTile =
+  | NowOrdersTile
+  | NowSpacesTile
+  | NowDrawersTile
+  | NowStaffTile
+  | NowAgendaTile
+  | NowDuesTile
+
+export interface NowWidget {
+  tiles: NowTile[]
+}
+
+const hasDue = (p: NowDuePart | null | undefined): boolean =>
+  !!p && (Number(p.count) > 0 || Number(p.overdue) > 0)
+
+/**
+ * Parte de vencimientos a pintar: `null` si no hay nada que vencer ni vencido.
+ * Red por si el backend manda una parte en cero.
+ */
+export function visibleDuePart(p: NowDuePart | null | undefined): NowDuePart | null {
+  return hasDue(p) ? p! : null
+}
+
+/**
+ * Filas de "Ahora" a pintar. El backend (`NowService`) ya manda solo las que
+ * tienen algo y solo las que la persona puede abrir; esto es la red por si no:
+ * clave desconocida (backend más nuevo que el front) o una fila en cero no se
+ * pintan. Sin filas, el bloque entero no existe.
+ */
+export function visibleNowTiles(data: NowWidget | undefined): NowTile[] {
+  const tiles = Array.isArray(data?.tiles) ? data.tiles : []
+  return tiles.filter((t) => {
+    switch (t?.key) {
+      case "orders":
+        return Number(t.active) > 0
+      case "spaces":
+        return Number(t.total) > 0
+      case "drawers":
+        return Number(t.count) > 0 && Array.isArray(t.rows) && t.rows.length > 0
+      case "staff":
+        return Number(t.count) > 0
+      case "agenda":
+        return Number(t.count) > 0
+      case "dues":
+        return hasDue(t.checks) || hasDue(t.payables)
+      default:
+        return false
+    }
+  })
+}
+
+// ── Comparativa con el período anterior ────────────────────────────────────
+
+export type KpiKey = "total" | "expenses" | "revenue" | "margin" | "count" | "customerAverage"
+
+/**
+ * El delta de cada KPI del período contra el anterior (`stats.previous`), o
+ * `undefined` cuando NO se muestra. La regla del dashboard es no pintar un
+ * delta sin base — más estricta que el `StatTile` de los reportes, que dice
+ * "Sin base para comparar":
+ *
+ *   - Sin período anterior con datos (`previous` null/ausente) → ningún delta.
+ *   - Anterior en cero para ESA cifra → sin delta (el porcentaje sería infinito).
+ *   - Ticket promedio: hace falta haber vendido en los DOS períodos; si no, el
+ *     promedio de uno de ellos es un cero que no promedia nada.
+ *   - Margen: en PUNTOS y solo con ingresos y egresos en los dos períodos — sin
+ *     egresos el backend informa 100%, que no es un margen medido.
+ *   - Egresos: subir es malo (`higherIsBetter: false`).
+ */
+export function kpiDeltas(
+  stats: IncomeOutcomeStatsWidget | undefined,
+): Partial<Record<KpiKey, StatDelta>> {
+  const prev: PeriodStats | null | undefined = stats?.previous
+  if (!stats || !prev) return {}
+  const out: Partial<Record<KpiKey, StatDelta>> = {}
+
+  const rel = (key: KpiKey, higherIsBetter = true) => {
+    const curr = Number(stats[key] ?? 0)
+    const before = Number(prev[key] ?? 0)
+    if (before === 0) return
+    const pct = pctDelta(curr, before)
+    if (pct !== null) out[key] = { pct, higherIsBetter }
+  }
+
+  rel("total")
+  rel("expenses", false)
+  rel("revenue")
+  rel("count")
+  if (Number(stats.count) > 0 && Number(prev.count) > 0) rel("customerAverage")
+
+  const measured = (p: PeriodStats) => Number(p.total) > 0 && Number(p.expenses) > 0
+  if (measured(stats) && measured(prev)) {
+    out.margin = { pct: Number(stats.margin) - Number(prev.margin), kind: "points" }
+  }
+  return out
+}
+
+// ── Ventas por sucursal ────────────────────────────────────────────────────
+
+/**
+ * Con una sola sucursal vendiendo, "por sucursal" es el mismo número que
+ * Ingresos: el bloque solo existe con DOS o más sucursales con ventas en el
+ * período, dentro del alcance del usuario (el backend ya filtra el alcance y
+ * manda solo las que vendieron).
+ */
+export function showSalesByOutlet(rows: SalesByOutletRow[] | undefined): boolean {
+  return Array.isArray(rows) && rows.filter((r) => Number(r.total) > 0).length >= 2
+}
+
+/** Delta de una sucursal contra su período anterior; `undefined` sin base. */
+export function outletDelta(row: SalesByOutletRow): StatDelta | undefined {
+  if (row.previous === null || row.previous === undefined || Number(row.previous) === 0) return undefined
+  const pct = pctDelta(Number(row.total), Number(row.previous))
+  return pct === null ? undefined : { pct }
+}
 
 // ── Requiere atención ──────────────────────────────────────────────────────
 
@@ -99,17 +274,18 @@ export function showCustomers(data: CustomersWidget | undefined): boolean {
 
 // ── Información general ────────────────────────────────────────────────────
 
-export type InfoRowKey = "ticket" | "drawers" | "giftCards"
+export type InfoRowKey = "ticket" | "giftCards"
 
 /**
  * Filas de "Información general":
  *   - Ticket promedio: solo con ventas en el período (sin ventas es un cero
  *     que no promedia nada).
- *   - Cajas abiertas: si el comercio usa control de caja. En 0 SÍ se muestra
- *     —"no hay ninguna abierta" es un dato operativo para quien trabaja con
- *     caja—; para quien nunca abrió una, la fila no existe.
  *   - Gift cards vigentes: solo si hay alguna.
  * Sin filas, la card no se pinta.
+ *
+ * "Cajas abiertas" ya no vive acá: es un dato del MOMENTO, no del período, y
+ * se mudó al bloque "Ahora" (con cuál caja, quién y desde cuándo). Un número,
+ * una vez.
  */
 export function visibleInfoRows(
   stats: IncomeOutcomeStatsWidget | undefined,
@@ -117,7 +293,6 @@ export function visibleInfoRows(
 ): InfoRowKey[] {
   const out: InfoRowKey[] = []
   if (Number(stats?.count ?? 0) > 0) out.push("ticket")
-  if (info?.usesDrawers === true) out.push("drawers")
   if (Number(info?.giftCardsCount ?? 0) > 0) out.push("giftCards")
   return out
 }

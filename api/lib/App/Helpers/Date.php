@@ -265,6 +265,52 @@ final class Date
     }
 
     /**
+     * El período INMEDIATAMENTE anterior, del mismo largo, pegado antes de
+     * `$from`. Es la base de toda comparativa "vs período anterior" del backend
+     * (dashboard, productos, clientes): una sola definición para que dos
+     * pantallas no comparen contra ventanas distintas.
+     *
+     * Dos casos:
+     *
+     *   - Rango de DÍAS ENTEROS (`from` a las 00:00:00, `to` a las 23:59:59…):
+     *     se cuenta en días de calendario. Del 1 al 19 (19 días) → del 13 al 31
+     *     del mes anterior, `00:00:00` → `23:59:59.999999`. Es la misma regla
+     *     que `shiftRangeBackwards()` del front (`lib/reports/previous-range.ts`).
+     *   - Rango CON HORAS (una franja dentro del día): mismo largo exacto en
+     *     segundos, terminando un segundo antes de `from`.
+     *
+     * Por qué no restar la duración a secas, que era lo que hacía
+     * `NonAddingSales::previousPeriod()`: el rango llega con fracción de segundo
+     * (`23:59:59.999999`) y ese helper además formateaba con `H:i:00`, así que
+     * el período anterior terminaba a las 23:59:00 y perdía el último minuto de
+     * ventas del día.
+     *
+     * No toca zonas horarias: igual que `reportRange()`, trabaja en hora de
+     * pared del comercio, que es la que `TenantClock::apply()` dejó seteada.
+     *
+     * @return array{0: string, 1: string} [from, to] del período anterior.
+     */
+    public static function previousRange(string $from, string $to): array
+    {
+        $f = new \DateTimeImmutable($from);
+        $t = new \DateTimeImmutable($to);
+
+        if ($f->format('H:i:s') === '00:00:00' && $t->format('H:i:s') === '23:59:59') {
+            $days = (int) $f->setTime(0, 0)->diff($t->setTime(0, 0))->days + 1;
+            return [
+                $f->modify("-{$days} days")->format('Y-m-d 00:00:00'),
+                $f->modify('-1 day')->format('Y-m-d ') . self::END_OF_DAY,
+            ];
+        }
+
+        $len = max(0, $t->getTimestamp() - $f->getTimestamp());
+        return [
+            $f->modify('-' . ($len + 1) . ' seconds')->format('Y-m-d H:i:s'),
+            $f->modify('-1 second')->format('Y-m-d H:i:s'),
+        ];
+    }
+
+    /**
      * Completa la hora faltante de un extremo de rango.
      *
      * No valida: `reportRange()`/`isRangeBound()` ya filtraron. Un valor que

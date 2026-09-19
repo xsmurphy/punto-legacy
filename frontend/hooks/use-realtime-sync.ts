@@ -125,12 +125,14 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // `["sale-void-options"]` — el `canVoid` cacheado (motivo y ventana de 48h)
   // también envejece: sin invalidarlo, un segundo operador ve "se puede
   // anular" sobre una venta que ya no lo permite.
-  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"]],
+  // `["dashboard-now"]`: las citas de la agenda son transacciones tipo 13 y
+  // un cobro a crédito de una compra la saca de "Vencimientos de la semana".
+  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["transaction-detail"], ["sale-void-options"], ["dashboard"], ["dashboard-widget"], ["dashboard-now"]],
   // `["drawer"]` es el key del POS (use-drawer.ts:213) y estaba FUERA: el mapa
   // solo invalidaba el reporte del panel. Con dos cajas en el mismo turno, la
   // apertura/cierre/movimiento hecho en una no llegaba a la otra y las dos
   // cerraban con cifras distintas (auditoría 2026-09-08).
-  drawer:            [["drawer"], ["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
+  drawer:            [["drawer"], ["reports", "drawers"], ["dashboard"], ["dashboard-widget"], ["dashboard-now"]],
   // register-lease: en el POS lo intercepta el handler de tenencia de más
   // abajo y no llega hasta acá; este mapeo es para el PANEL, que muestra la
   // tenencia en dos pantallas —Sucursales → Cajas y Ajustes → Dispositivos—.
@@ -169,7 +171,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // el próximo bootstrap manual (mismo hallazgo que category/brand/tax/etc,
   // audit 2026-08-16).
   "document-template": [["document-templates"], ["pos-bootstrap"]],
-  purchase:          [["purchases"]],
+  purchase:          [["purchases"], ["dashboard-now"]],
   // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
   // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno
   // (el servidor ya escribió antes del emit, no hay race).
@@ -182,7 +184,9 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // scope O2), ese lo consumen pantallas de cocina/mozos dedicadas.
   // order_items.php (line items de una orden) se alias-ea acá también
   // (bootstrap.php override) — mismas queryKeys, no hace falta entity aparte.
-  order:             [["orders"]],
+  // `["dashboard-now"]`: órdenes activas y demoradas del bloque "Ahora" del
+  // dashboard (`useDashboardNow`, hooks/use-dashboard-widget.ts).
+  order:             [["orders"], ["dashboard-now"]],
   // Módulo de Espacios (F2, context/15-espacios-module-plan.md). Invalida tanto
   // el plano operativo del POS (use-pos-spaces.ts) como la config del panel
   // (use-spaces.ts/use-space-sectors.ts, /settings/espacios) — ambos
@@ -193,7 +197,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // space-sectors.php se alias-ea acá también (bootstrap.php override) —
   // sin eso derivaría 'space-sector' (string distinto, huérfano); YA
   // resuelto, no repetir el override en el front.
-  space:             [["pos-spaces"], ["pos-space-sectors"], ["spaces"], ["space-sectors"], ["space-settlement"]],
+  space:             [["pos-spaces"], ["pos-space-sectors"], ["spaces"], ["space-sectors"], ["space-settlement"], ["dashboard-now"]],
   // Entities que se publicaban pero el front descartaba en silencio por no
   // tener queryKey (context/15, hallazgo F) — sumadas 2026-08-15.
   "payment-method":  [["payment-methods"], ["finance", "config"], ["pos-bootstrap"]],
@@ -206,7 +210,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   pack:              [["pack-components"], ["items"], ["pos-bootstrap"], ["sold-packs"]],
   // schedule (agenda/citas) todavía no tiene hook propio — vive dentro de
   // useReport("schedule", ...), que ya cae bajo el prefix "reports".
-  schedule:          [["reports"]],
+  schedule:          [["reports"], ["dashboard-now"]],
   // printer_binding.php (bindings de impresora por caja) — la entity real
   // es 'printer_binding' (nombre de archivo, ver comentario de
   // inventory_count/stock_transfer arriba). La key vieja "printJob" nunca
@@ -254,7 +258,7 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // elegir bien la clave. Es lo que hace que habilitar un registro desde el
   // panel encienda el modo de captura en la caja sin que nadie la toque, y que
   // un egreso le saque el rostro cacheado en el momento.
-  employee:          [["employees"]],
+  employee:          [["employees"], ["dashboard-now"]],
   // wallet (wallet.php, context/74). Un solo prefijo: bolsillos, saldos y
   // movimientos cuelgan de `["wallet"]` (`use-wallet.ts`). Un débito en una
   // caja (F2) mueve el saldo que el panel está mostrando en la ficha.
@@ -268,7 +272,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // muestra el estado de cada persona. El evento lo publica cada marcación del
   // quiosco, incluidas las que llegan de la cola offline horas después — que es
   // justamente cuando nadie está mirando la pantalla para refrescarla a mano.
-  attendance:        [["attendance"], ["employees"]],
+  attendance:        [["attendance"], ["employees"], ["dashboard-now"]],
+  // finance: todo `/v1/finance/*` deriva la entity `finance` (primer segmento
+  // del path, `deriveEntityFromPath`) y no tenía entrada: el evento se
+  // descartaba. Cambiar el estado de un cheque mueve "Vencimientos de la
+  // semana" del dashboard, y cualquier movimiento, las pantallas de Finanzas
+  // (todas cuelgan de `["finance", …]`).
+  finance:           [["finance"], ["dashboard-now"]],
   // voucher (vouchers.php, context/36 — plan cerrado, "sin implementar" en
   // el front más allá del canje inline del carrito): no hay listado
   // cacheado con react-query — issue/validate/consume son llamadas directas
