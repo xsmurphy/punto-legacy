@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { TileRow, TileRows } from "@/components/domain/dashboard/tile"
 
@@ -89,14 +89,17 @@ export function DashboardSkeleton() {
             </CardContent>
           </Card>
 
-          {/* Misma forma que la card de Ganancia real: cifra + pill y las
-              filas directo sobre el gris, sin caja interna. */}
+          {/* Misma forma que la card de Ganancia real: comparativa en la
+              línea del título, la cifra y filas de una línea sobre el gris. */}
           <Card variant="soft">
             <CardHeader>
               <CardTitle>Ganancia</CardTitle>
+              <CardAction>
+                <Skeleton className="h-4 w-12" />
+              </CardAction>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <FigureSkeleton pill />
+              <FigureSkeleton />
               <TileRows>
                 <TileRow label="Margen" value={null} />
                 <TileRow label="Ventas" value={null} />
@@ -144,13 +147,12 @@ function TitleSkeleton() {
   )
 }
 
-/** Forma de `TileFigure`: label opcional, cifra destacada y pill opcional. */
-function FigureSkeleton({ label, pill }: { label?: boolean; pill?: boolean }) {
+/** Forma de `TileFigure`: label opcional y cifra destacada. */
+function FigureSkeleton({ label }: { label?: boolean }) {
   return (
     <div className="flex flex-col items-start gap-1.5">
       {label && <Skeleton className="h-4 w-24" />}
       <Skeleton className="h-8 w-36" />
-      {pill && <Skeleton className="h-4 w-14 rounded-full" />}
     </div>
   )
 }

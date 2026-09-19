@@ -28,7 +28,10 @@ import { cn } from "@/lib/utils"
  *                        Filas separadas por `TileRows` (`divide-y`).
  *  - Línea secundaria .. `TileNote`: `text-xs` (muted, o tono de estado).
  *                        Nunca más grande que el cuerpo.
- *  - Comparativa ....... `DeltaLine compact`, el pill compartido.
+ *  - Comparativa ....... en filas y en el header de la card: `DeltaLine
+ *                        compact variant="text"` (texto chico sin fondo, en
+ *                        la misma línea, antes del valor). Debajo de una
+ *                        cifra: `DeltaLine compact`, el pill compartido.
  *  - Barra ............. `TileBar` (`h-1`), con marca opcional de referencia;
  *                        `TileMeter` = fila label/valor + `TileBar`.
  *
@@ -52,6 +55,7 @@ export function TileCard({
   href,
   linkLabel,
   description,
+  delta,
   variant = "soft",
   contentClassName,
   children,
@@ -61,6 +65,11 @@ export function TileCard({
   /** Nombre accesible del acceso; por default "Ir a {title}". */
   linkLabel?: string
   description?: React.ReactNode
+  /**
+   * Comparativa de la cifra principal, como texto chico en la línea del
+   * título (a la derecha). Va acá y no debajo del monto (owner 2026-09-19).
+   */
+  delta?: StatDelta
   /**
    * `soft` (gris) = números; `default` (blanca) = rankings, gráficos y las
    * cards de la grilla principal; `inverse` (tema invertido) = la card
@@ -76,15 +85,18 @@ export function TileCard({
       <CardHeader>
         <CardTitle>{title}</CardTitle>
         {description && <CardDescription className="tabular-nums">{description}</CardDescription>}
-        {href && (
-          <CardAction>
-            <Link
-              href={href}
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              aria-label={linkLabel ?? `Ir a ${title}`}
-            >
-              <ChevronRight className="size-4" />
-            </Link>
+        {(href || delta) && (
+          <CardAction className="flex items-center gap-2">
+            {delta && <DeltaLine {...delta} compact variant="text" />}
+            {href && (
+              <Link
+                href={href}
+                className="text-muted-foreground transition-colors hover:text-foreground"
+                aria-label={linkLabel ?? `Ir a ${title}`}
+              >
+                <ChevronRight className="size-4" />
+              </Link>
+            )}
           </CardAction>
         )}
       </CardHeader>
@@ -165,6 +177,9 @@ export function TileRow({
         <span
           className={cn(
             "min-w-0 text-sm",
+            // Con comparativa la fila es UNA línea (owner 2026-09-19): si no
+            // entra se trunca el label, la comparativa nunca baja.
+            delta && "truncate",
             destructive ? "font-medium text-destructive" : "text-muted-foreground",
             href && !destructive && "transition-colors group-hover:text-foreground",
           )}
@@ -178,7 +193,10 @@ export function TileRow({
           (value === null ? (
             <Skeleton className="h-5 w-16" />
           ) : (
-            <span className="flex flex-col items-end gap-1">
+            // Una sola línea: la comparativa como texto chico ANTES del valor
+            // (owner 2026-09-19: nada de pill ni de valor y delta apilados).
+            <span className="flex items-baseline gap-2">
+              {delta && <DeltaLine {...delta} compact variant="text" />}
               <span
                 className={cn(
                   "whitespace-nowrap text-sm tabular-nums",
@@ -188,7 +206,6 @@ export function TileRow({
               >
                 {value}
               </span>
-              {delta && <DeltaLine {...delta} compact />}
             </span>
           ))}
         {href && <ChevronRight className="size-3.5 text-muted-foreground" />}

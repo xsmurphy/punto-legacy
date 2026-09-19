@@ -407,13 +407,13 @@ export default function DashboardPage() {
         <aside className="flex min-w-0 flex-col gap-4">
           {weeklyGoal && <WeeklyGoalCard goal={weeklyGoal} bootstrap={bootstrap} />}
           {/* KPIs del período, debajo del objetivo (owner): la
-            Ganancia manda (cifra destacada + pill) y el resto va como filas
-            directo sobre el gris de la card, separadas por divisores — sin
-            caja interna (owner 2026-09-19: la caja blanca "se ve muy mal"). */}
-          <TileCard title="Ganancia">
+            Ganancia manda (cifra destacada, su comparativa como texto en la
+            línea del título) y el resto va como filas de UNA línea
+            (comparativa en texto antes del valor) directo sobre el gris de la
+            card, sin pills ni caja interna (owner 2026-09-19). */}
+          <TileCard title="Ganancia" delta={statsPending ? undefined : deltas.revenue}>
             <TileFigure
               value={formatMoney(stats.data?.revenue, bootstrap)}
-              delta={deltas.revenue}
               loading={statsPending}
             />
             <TileRows>
