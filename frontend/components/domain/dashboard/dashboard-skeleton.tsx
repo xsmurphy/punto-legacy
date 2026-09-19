@@ -48,7 +48,7 @@ export function DashboardSkeleton() {
 
           <section className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
             <div className="flex flex-col gap-2">
-              <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
+              <Skeleton className="h-4 w-48 self-end" />
               <Skeleton className="h-[240px] w-full" />
             </div>
             {/* Misma forma que la card de KPIs real: Ganancia grande + lista gris. */}

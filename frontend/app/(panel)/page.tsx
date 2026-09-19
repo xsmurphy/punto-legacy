@@ -626,7 +626,7 @@ function IncomeOutcomeChart({
   if (isLoading) {
     return (
       <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
+        <Skeleton className="h-4 w-48 self-end" />
         <Skeleton className="h-[240px] w-full" />
       </div>
     )
@@ -635,7 +635,6 @@ function IncomeOutcomeChart({
   if (error || !data) {
     return (
       <div className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
         <div className="flex h-[240px] items-center justify-center rounded-md border border-dashed text-xs text-muted-foreground">
           {error?.message || "No se pudieron cargar los datos del chart."}
         </div>
@@ -645,9 +644,10 @@ function IncomeOutcomeChart({
 
   const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-xl font-semibold">Margen, ingresos y egresos</h2>
+    // Sin título (owner): la leyenda del gráfico ya dice qué series son. El
+    // nombre queda para lectores de pantalla.
+    <div className="flex flex-col gap-2" role="figure" aria-label="Margen, ingresos y egresos">
+      <div className="flex items-baseline justify-end gap-3">
         <span className="text-xs text-muted-foreground">
           {averageLabel(data.granularity)}: {formatMoney(data.totals.average, bootstrap)}
         </span>
