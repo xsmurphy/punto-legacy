@@ -167,7 +167,7 @@ $order($outlet2, 'sent', '45 minutes');                  // demorada en la otra 
 $r = tilesOf($companyId, []);
 check('(B1) activas: 5 (la cerrada y la de otro día no)', ($r['orders']['active'] ?? null) === 5, json_encode($r['orders'] ?? null), $failures, $checks);
 check('(B2) demoradas: 2 (la de 30 min y la de 45 min)', ($r['orders']['late'] ?? null) === 2, json_encode($r['orders'] ?? null), $failures, $checks);
-check('(B3) umbral y destino', ($r['orders']['lateMinutes'] ?? null) === 20 && ($r['orders']['href'] ?? '') === '/pos/ordenes', '', $failures, $checks);
+check('(B3) umbral y destino', ($r['orders']['lateMinutes'] ?? null) === 20 && ($r['orders']['href'] ?? '') === '/reports/orders', '', $failures, $checks);
 $r1 = tilesOf($companyId, [$outlet1]);
 check('(B4) sucursal 1: 4 activas, 1 demorada', ($r1['orders']['active'] ?? null) === 4 && ($r1['orders']['late'] ?? null) === 1, json_encode($r1['orders'] ?? null), $failures, $checks);
 $modules[$companyId]['ordersPanel'] = false;
@@ -341,7 +341,7 @@ echo "\n=== (H) permisos y fallas ===\n";
 $r = tilesOf($companyId, []);
 check('(H1) orden de pantalla', array_keys($r) === ['orders', 'spaces', 'drawers', 'staff', 'agenda', 'dues'], json_encode(array_keys($r)), $failures, $checks);
 $r = tilesOf($companyId, [], static fn (): bool => false);
-check('(H2) sin ningún permiso → solo las del POS sin clave (órdenes y espacios)', array_keys($r) === ['orders', 'spaces'], json_encode(array_keys($r)), $failures, $checks);
+check('(H2) sin ningún permiso → ninguna fila (órdenes y espacios piden el permiso de su tablero)', array_keys($r) === [], json_encode(array_keys($r)), $failures, $checks);
 $svc = new NowService([
     'orders' => static function (): array { throw new \RuntimeException('simulada'); },
     'spaces' => static fn (): array => ['total' => 2, 'free' => 2, 'occupied' => 0, 'billRequested' => 0],

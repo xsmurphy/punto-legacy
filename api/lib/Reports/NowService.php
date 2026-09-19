@@ -79,8 +79,11 @@ final class NowService
      * de pantalla. `dues` se gatea por PARTE (ver `DUE_PARTS`).
      */
     public const TILES = [
-        'orders'  => ['ordersPanel', null,                    '/pos/ordenes'],
-        'spaces'  => ['tables',      null,                    '/pos/espacios'],
+        // Órdenes y espacios llevan a su tablero del PANEL (Reportes › Órdenes),
+        // no a la caja: el dashboard es del que mira el negocio, no del que
+        // opera el mostrador. Mismo permiso que ese reporte.
+        'orders'  => ['ordersPanel', 'reports.sales.view',    '/reports/orders'],
+        'spaces'  => ['tables',      'reports.sales.view',    '/reports/orders?tab=espacios'],
         'drawers' => [null,          'reports.drawers.view',  '/reports/drawers'],
         'staff'   => [null,          'hr.attendance.view',    '/reports/attendance'],
         'agenda'  => ['calendar',    'reports.schedule.view', '/pos/calendario'],
