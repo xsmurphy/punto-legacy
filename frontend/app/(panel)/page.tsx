@@ -16,7 +16,6 @@ import {
   Area,
   AreaChart,
   Bar,
-  CartesianGrid,
   ComposedChart,
   Line,
   ResponsiveContainer,
@@ -41,8 +40,6 @@ import { SplitBar } from "@/components/charts/split-bar"
 import { DeltaLine, type StatDelta } from "@/components/stat-tile"
 import {
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -644,8 +641,9 @@ function IncomeOutcomeChart({
 
   const hasData = data.data.some((p) => p.ingresos > 0 || p.egresos > 0)
   return (
-    // Sin título (owner): la leyenda del gráfico ya dice qué series son. El
-    // nombre queda para lectores de pantalla.
+    // Sin título, sin eje de montos ni leyenda (owner): la portada es un
+    // vistazo estético; las series se identifican en el tooltip y los números
+    // exactos viven en los reportes. El nombre queda para lectores de pantalla.
     <div className="flex flex-col gap-2" role="figure" aria-label="Margen, ingresos y egresos">
       <div className="flex items-baseline justify-end gap-3">
         <span className="text-xs text-muted-foreground">
@@ -663,7 +661,8 @@ function IncomeOutcomeChart({
         ) : (
           <ChartContainer config={incomeChartConfig} className="h-[240px] w-full">
             <ComposedChart data={data.data} margin={{ top: 10, right: 12, left: -10, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              {/* Sin grilla ni eje de montos (owner): la portada es un vistazo,
+                  los números exactos viven en el tooltip y en los reportes. */}
               <XAxis
                 dataKey="bucket"
                 tickFormatter={(v: string) => formatBucketTick(String(v), data.granularity)}
@@ -672,13 +671,7 @@ function IncomeOutcomeChart({
                 tickLine={false}
                 axisLine={false}
               />
-              <YAxis
-                fontSize={10}
-                stroke="var(--muted-foreground)"
-                tickFormatter={(v: number) => compactNumber(v)}
-                tickLine={false}
-                axisLine={false}
-              />
+              <YAxis hide />
               <ChartTooltip
                 cursor={{ fill: "var(--accent)", opacity: 0.4 }}
                 content={
@@ -700,7 +693,6 @@ function IncomeOutcomeChart({
                   />
                 }
               />
-              <ChartLegend content={<ChartLegendContent />} />
               <Bar
                 dataKey="ingresos"
                 fill="var(--color-ingresos)"
@@ -732,11 +724,6 @@ function IncomeOutcomeChart({
   )
 }
 
-function compactNumber(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}k`
-  return String(Math.round(v))
-}
 
 // ── Finanzas ──────────────────────────────────────────────────────────────
 
