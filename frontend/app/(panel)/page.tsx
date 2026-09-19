@@ -26,10 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import {
   Card,
-  CardAction,
   CardContent,
-  CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
@@ -50,7 +47,6 @@ import { usePermission } from "@/hooks/use-permissions"
 import { useFinanceSummary } from "@/hooks/use-finance-summary"
 import {
   useFinanceForecast,
-  type ForecastRow,
   type ForecastRowType,
 } from "@/hooks/use-finance-forecast"
 import {
@@ -88,10 +84,8 @@ import {
   visibleInfoRows,
   visibleNowTiles,
   type AttentionKey,
-  type AttentionRow,
   type AttentionWidget,
   type InfoRowKey,
-  type KpiKey,
   type NowAgendaTile,
   type NowDrawersTile,
   type NowDuePart,
@@ -116,6 +110,14 @@ import { cn } from "@/lib/utils"
 import { isDashboardFirstLoad, isSettled } from "@/lib/dashboard/first-load"
 import { hourBars, hourRange, peakHour } from "@/lib/dashboard/top-hours"
 import { DashboardHeader, DashboardSkeleton } from "@/components/domain/dashboard/dashboard-skeleton"
+import {
+  TileCard,
+  TileFigure,
+  TileMeter,
+  TileNote,
+  TileRow,
+  TileRows,
+} from "@/components/domain/dashboard/tile"
 
 /**
  * Dashboard — espejo del panel legacy con widgets agrupados.
@@ -382,44 +384,37 @@ export default function DashboardPage() {
         {/* ── SIDEBAR ────────────────────────────────────────────────────── */}
         <aside className="flex min-w-0 flex-col gap-4">
         {/* KPIs del período encabezan la columna derecha (owner): la
-            Ganancia manda (número grande + pill) y el resto va como lista
-            en una caja blanca sobre la card gris — un solo foco visual. */}
-        <Card variant="soft" className="gap-4">
-            <CardContent className="flex flex-col gap-4">
-              <div className="flex flex-col items-start gap-2">
-                <span className="text-sm text-muted-foreground">Ganancia</span>
-                {statsPending ? (
-                  <Skeleton className="h-8 w-40" />
-                ) : (
-                  <span className="text-2xl font-bold tracking-tight tabular-nums">
-                    {formatMoney(stats.data?.revenue, bootstrap)}
-                  </span>
-                )}
-                <KpiDelta delta={deltas.revenue} loading={statsPending} />
-              </div>
-              <div className="flex flex-col rounded-lg bg-background px-3 py-1 text-sm">
-                <KpiRow
-                  label="Margen"
-                  value={statsPending ? null : `${stats.data?.margin ?? 0}%`}
-                  delta={deltas.margin}
+            Ganancia manda (cifra destacada + pill) y el resto va como filas
+            directo sobre el gris de la card, separadas por divisores — sin
+            caja interna (owner 2026-09-19: la caja blanca "se ve muy mal"). */}
+          <TileCard title="Ganancia">
+            <TileFigure
+              value={formatMoney(stats.data?.revenue, bootstrap)}
+              delta={deltas.revenue}
+              loading={statsPending}
+            />
+            <TileRows>
+              <TileRow
+                label="Margen"
+                value={statsPending ? null : `${stats.data?.margin ?? 0}%`}
+                delta={deltas.margin}
+              />
+              <TileRow
+                label="Ventas"
+                value={statsPending ? null : formatInt(stats.data?.count, bootstrap)}
+                delta={deltas.count}
+              />
+              {/* Sin ventas no hay ticket que promediar: la fila no va. */}
+              {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
+                <TileRow
+                  label="Ticket promedio"
+                  value={statsPending ? null : formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
+                  delta={deltas.customerAverage}
+                  emphasis
                 />
-                <KpiRow
-                  label="Ventas"
-                  value={statsPending ? null : formatInt(stats.data?.count, bootstrap)}
-                  delta={deltas.count}
-                />
-                {/* Sin ventas no hay ticket que promediar: la fila no va. */}
-                {(statsPending || Number(stats.data?.count ?? 0) > 0) && (
-                  <KpiRow
-                    label="Ticket promedio"
-                    value={statsPending ? null : formatMoney(stats.data?.customerAverage ?? 0, bootstrap)}
-                    delta={deltas.customerAverage}
-                    emphasis
-                  />
-                )}
-              </div>
-            </CardContent>
-          </Card>
+              )}
+            </TileRows>
+          </TileCard>
           {/* "Ahora" encabeza la columna derecha (owner) y NO sigue al rango
               del selector: es lo que está pasando en este momento. Sin filas
               con dato, no existe. */}
@@ -435,7 +430,7 @@ export default function DashboardPage() {
           {showCustomers(customers.data) && (
             <CustomersCard data={customers.data} bootstrap={bootstrap} />
           )}
-          <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} deltas={deltas} />
+          <InfoGeneralCard stats={stats.data} info={info.data} bootstrap={bootstrap} />
         </aside>
       </div>
     </div>
@@ -481,7 +476,7 @@ function BigMetricCard({
     <Card className="relative overflow-hidden">
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
             {TrendIcon && <TrendIcon className={cn("size-3.5 shrink-0", trendColor)} />}
             <span className="truncate">{label}</span>
           </div>
@@ -550,55 +545,6 @@ function Sparkline({ values, color }: { values: number[]; color: string }) {
       </ResponsiveContainer>
     </div>
   )
-}
-
-/**
- * Delta compacto debajo de un KPI del período. Sin base (`undefined`) no se
- * pinta nada: el dashboard no dice "sin base para comparar" (regla del owner,
- * nada de ceros ni avisos muertos).
- */
-/**
- * Fila label/valor de la lista de KPIs del período. La comparativa va debajo
- * del valor, a la derecha: en una columna angosta al lado del label rompía la
- * fila en tres renglones. La última fila (`emphasis`) se separa con una línea
- * y va en negrita, patrón "total" de las cards de referencia.
- */
-function KpiRow({
-  label,
-  value,
-  delta,
-  emphasis,
-}: {
-  label: string
-  value: React.ReactNode | null
-  delta?: StatDelta
-  emphasis?: boolean
-}) {
-  return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 py-2.5",
-        emphasis && "mt-0.5 border-t border-border/60",
-      )}
-    >
-      <span className="text-muted-foreground">{label}</span>
-      {value === null ? (
-        <Skeleton className="h-5 w-16" />
-      ) : (
-        <span className="flex flex-col items-end gap-1">
-          <span className={cn("whitespace-nowrap tabular-nums", emphasis ? "font-semibold" : "font-medium")}>
-            {value}
-          </span>
-          {delta && <DeltaLine {...delta} compact />}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function KpiDelta({ delta, loading }: { delta?: StatDelta; loading: boolean }) {
-  if (loading || !delta) return null
-  return <DeltaLine {...delta} compact />
 }
 
 // ── Income chart (ComposedChart Bars + Line vía shadcn) ───────────────────
@@ -759,7 +705,6 @@ function FinanceCard({
   forecast: ReturnType<typeof useFinanceForecast>
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
-
   const obligations = [...(forecast.data?.obligations ?? [])].sort((a, b) => {
     const overdueA = isForecastOverdue(a.dueDate)
     const overdueB = isForecastOverdue(b.dueDate)
@@ -770,72 +715,33 @@ function FinanceCard({
   const totalToPay = obligations.reduce((s, r) => s + r.amount, 0)
 
   return (
-    <Card variant="soft">
-      <CardHeader>
-        <CardTitle>Finanzas</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">
-            Saldo disponible
-          </span>
-          {summary.isLoading ? (
-            <Skeleton className="h-7 w-28" />
-          ) : (
-            <span className="text-xl font-semibold tabular-nums">
-              {formatMoney(summary.data?.totalBalance ?? 0, bootstrap)}
-            </span>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2 border-t pt-3">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Próximos 7 días</span>
-            {!forecast.isLoading && (
-              <span className="text-xs font-medium normal-case tabular-nums text-foreground">
-                {formatMoney(totalToPay, bootstrap)}
-              </span>
-            )}
-          </div>
-          {forecast.isLoading ? (
-            <div className="flex flex-col gap-1.5">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-            </div>
-          ) : top3.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Sin vencimientos próximos.</p>
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              {top3.map((row) => {
-                const overdue = isForecastOverdue(row.dueDate)
-                return (
-                  <div
-                    key={`${row.type}-${row.id}`}
-                    className="flex items-center justify-between gap-2 text-xs"
-                  >
-                    <span className={cn("truncate", overdue && "font-medium text-destructive")}>
-                      {FORECAST_TYPE_LABELS[row.type]} · {formatDate(row.dueDate)}
-                    </span>
-                    <span className={cn("shrink-0 tabular-nums", overdue && "font-medium text-destructive")}>
-                      {formatMoney(row.amount, bootstrap)}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </CardContent>
-      <CardFooter className="border-t">
-        <Link
-          href="/finanzas/prevision"
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          Ver previsión <ChevronRight className="size-3.5" />
-        </Link>
-      </CardFooter>
-    </Card>
+    <TileCard title="Finanzas" href="/finanzas/prevision" linkLabel="Ver previsión">
+      <TileFigure
+        label="Saldo disponible"
+        value={formatMoney(summary.data?.totalBalance ?? 0, bootstrap)}
+        loading={summary.isLoading}
+      />
+      <TileRows>
+        <TileRow
+          label="Próximos 7 días"
+          value={forecast.isLoading ? null : formatMoney(totalToPay, bootstrap)}
+          emphasis
+        />
+        {!forecast.isLoading &&
+          top3.map((row) => {
+            const overdue = isForecastOverdue(row.dueDate)
+            return (
+              <TileRow
+                key={`${row.type}-${row.id}`}
+                label={`${FORECAST_TYPE_LABELS[row.type]} · ${formatDate(row.dueDate)}`}
+                value={formatMoney(row.amount, bootstrap)}
+                tone={overdue ? "destructive" : undefined}
+              />
+            )
+          })}
+      </TileRows>
+      {!forecast.isLoading && top3.length === 0 && <TileNote>Sin vencimientos próximos.</TileNote>}
+    </TileCard>
   )
 }
 
@@ -959,30 +865,26 @@ function PaymentSplitCard({
   const totalCount = Number(leftCount ?? 0) + Number(rightCount ?? 0)
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {totalCount > 0 && (
-          <CardDescription className="tabular-nums">{formatInt(totalCount, bootstrap)} ventas</CardDescription>
-        )}
-      </CardHeader>
-      <CardContent>
-        <SplitBar
-          parts={[
-            {
-              label: isSaleType ? "Al contado" : "Cobrado",
-              value: left,
-              display: formatMoneyCompact(left, bootstrap),
-            },
-            {
-              label: isSaleType ? "A crédito" : "Por cobrar",
-              value: right,
-              display: formatMoneyCompact(right, bootstrap),
-            },
-          ]}
-        />
-      </CardContent>
-    </Card>
+    <TileCard
+      title={title}
+      variant="default"
+      description={totalCount > 0 ? `${formatInt(totalCount, bootstrap)} ventas` : undefined}
+    >
+      <SplitBar
+        parts={[
+          {
+            label: isSaleType ? "Al contado" : "Cobrado",
+            value: left,
+            display: formatMoneyCompact(left, bootstrap),
+          },
+          {
+            label: isSaleType ? "A crédito" : "Por cobrar",
+            value: right,
+            display: formatMoneyCompact(right, bootstrap),
+          },
+        ]}
+      />
+    </TileCard>
   )
 }
 
@@ -1002,10 +904,6 @@ function CustomersCard({
   const t = data?.totales
   const tasas = data?.tasas
 
-  // Misma piel que las demás cards de la columna (Finanzas, Información
-  // general, Plan): `soft` + filas label/valor. Los StatTile de tres columnas
-  // la hacían la única card distinta de la columna — y en el ancho de la
-  // sidebar truncaban "Recurrentes".
   const counts: { label: string; value: number | undefined }[] = [
     { label: "Total", value: t?.activos },
     { label: "Nuevos", value: t?.nuevos },
@@ -1018,41 +916,27 @@ function CustomersCard({
     { label: "Pérdida (churn)", percent: tasas?.perdida, barColor: "var(--destructive)" },
   ]
   return (
-    <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle>Clientes</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col divide-y divide-border">
-          {counts.map((c) => (
-            <div
-              key={c.label}
-              className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
-            >
-              <span className="text-muted-foreground">{c.label}</span>
-              <span className="font-semibold tabular-nums">
-                {formatInt(c.value, undefined)}
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="flex flex-col gap-2">
-          {rates.map((r) => {
-            const percent = toPct(r.percent)
-            return percent === null ? null : (
-              <RateRow
-                key={r.label}
-                label={r.label}
-                percent={percent}
-                isLoading={false}
-                barColor={r.barColor}
-                bootstrap={bootstrap}
-              />
-            )
-          })}
-        </div>
-      </CardContent>
-    </Card>
+    <TileCard title="Clientes">
+      <TileRows>
+        {counts.map((c) => (
+          <TileRow key={c.label} label={c.label} value={formatInt(c.value, bootstrap)} />
+        ))}
+      </TileRows>
+      <div className="flex flex-col gap-3">
+        {rates.map((r) => {
+          const percent = toPct(r.percent)
+          return percent === null ? null : (
+            <TileMeter
+              key={r.label}
+              label={r.label}
+              value={`${formatPercent(percent, bootstrap)}%`}
+              percent={percent}
+              barColor={r.barColor}
+            />
+          )
+        })}
+      </div>
+    </TileCard>
   )
 }
 
@@ -1069,37 +953,6 @@ function toPct(v: unknown): number | null {
   return n
 }
 
-function RateRow({
-  label,
-  percent,
-  isLoading,
-  barColor,
-  bootstrap,
-}: {
-  label: string
-  percent: number | null
-  isLoading: boolean
-  barColor: string
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-}) {
-  const clamped = Math.max(0, Math.min(100, percent ?? 0))
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium tabular-nums">
-          {isLoading ? "…" : `${formatPercent(percent ?? 0, bootstrap)}%`}
-        </span>
-      </div>
-      <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full transition-all"
-          style={{ width: `${clamped}%`, backgroundColor: barColor }}
-        />
-      </div>
-    </div>
-  )
-}
 
 // ── Info general (Ticket promedio + cajas + gift cards) ───────────────────
 
@@ -1130,41 +983,22 @@ function InfoGeneralCard({
   stats,
   info,
   bootstrap,
-  deltas,
 }: {
   stats: IncomeOutcomeStatsWidget | undefined
   info: InfoWidget | undefined
   bootstrap: ReturnType<typeof useBootstrap>["data"]
-  deltas: Partial<Record<KpiKey, StatDelta>>
 }) {
   const keys = visibleInfoRows(stats, info)
   if (keys.length === 0) return null
   return (
-    <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle>Información general</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col divide-y divide-border">
+    <TileCard title="Información general">
+      <TileRows>
         {keys.map((k) => {
           const r = INFO_ROW[k]
-          return (
-            <div
-              key={k}
-              className="flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
-            >
-              {r.href ? (
-                <Link href={r.href} className="text-muted-foreground hover:text-foreground">
-                  {r.label}
-                </Link>
-              ) : (
-                <span className="text-muted-foreground">{r.label}</span>
-              )}
-              <span className="font-semibold tabular-nums">{r.value(stats, info, bootstrap)}</span>
-            </div>
-          )
+          return <TileRow key={k} label={r.label} href={r.href} value={r.value(stats, info, bootstrap)} />
         })}
-      </CardContent>
-    </Card>
+      </TileRows>
+    </TileCard>
   )
 }
 
@@ -1195,49 +1029,31 @@ function AttentionCard({
   const rows = visibleAttentionRows(data)
   if (rows.length === 0) return null
   return (
-    <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle>Requiere atención</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col divide-y divide-border">
-        {rows.map((r) => (
-          <AttentionRowLink key={r.key} row={r} bootstrap={bootstrap} />
-        ))}
-      </CardContent>
-    </Card>
+    <TileCard title="Requiere atención">
+      <TileRows>
+        {rows.map((r) => {
+          const isDebt = r.key === "receivables"
+          return (
+            <TileRow
+              key={r.key}
+              href={r.href}
+              label={ATTENTION_LABEL[r.key]}
+              note={
+                isDebt ? (
+                  <TileNote>
+                    {formatInt(r.count, bootstrap)} {r.count === 1 ? "cliente" : "clientes"}
+                  </TileNote>
+                ) : undefined
+              }
+              value={isDebt ? formatMoney(r.amount ?? 0, bootstrap) : formatInt(r.count, bootstrap)}
+            />
+          )
+        })}
+      </TileRows>
+    </TileCard>
   )
 }
 
-function AttentionRowLink({
-  row,
-  bootstrap,
-}: {
-  row: AttentionRow
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-}) {
-  const isDebt = row.key === "receivables"
-  return (
-    <Link
-      href={row.href}
-      className="group flex items-center justify-between gap-2 py-2 text-sm first:pt-0 last:pb-0"
-    >
-      <span className="flex min-w-0 flex-col">
-        <span className="text-muted-foreground group-hover:text-foreground">
-          {ATTENTION_LABEL[row.key]}
-        </span>
-        {isDebt && (
-          <span className="text-xs text-muted-foreground">
-            {formatInt(row.count, bootstrap)} {row.count === 1 ? "cliente" : "clientes"}
-          </span>
-        )}
-      </span>
-      <span className="flex shrink-0 items-center gap-1 font-semibold tabular-nums">
-        {isDebt ? formatMoney(row.amount ?? 0, bootstrap) : formatInt(row.count, bootstrap)}
-        <ChevronRight className="size-3.5 text-muted-foreground" />
-      </span>
-    </Link>
-  )
-}
 
 // ── Grilla de bloques del período ─────────────────────────────────────────
 
@@ -1301,39 +1117,34 @@ function TopHoursCard({
   if (!peak) return null
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Horarios pico</CardTitle>
-      </CardHeader>
-      <CardContent className="flex items-end gap-6">
-        <div className="flex shrink-0 flex-col gap-0.5">
-          <span className="text-2xl font-bold tabular-nums">{hourRange(peak.hour)}</span>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {formatInt(peak.sales, bootstrap)} ventas
-          </span>
-        </div>
-        <MiniBars
-          className="min-w-0 flex-1"
-          items={bars.map((b) => {
-            const sales = `${formatInt(b.sales, bootstrap)} ventas`
-            const units = b.units === null ? null : `${formatIntCompact(b.units, bootstrap)} u.`
-            return {
-              key: String(b.hour),
-              label: String(b.hour),
-              value: b.sales,
-              highlight: b.hour === peak.hour,
-              ariaLabel: [hourRange(b.hour), sales, units].filter(Boolean).join(", "),
-              detail: (
-                <span className="flex flex-col gap-0.5 tabular-nums">
-                  <span className="font-medium">{hourRange(b.hour)}</span>
-                  <span>{units ? `${sales} · ${units}` : sales}</span>
-                </span>
-              ),
-            }
-          })}
+    <TileCard title="Horarios pico" variant="default" contentClassName="flex-row items-end gap-6">
+      <div className="shrink-0">
+        <TileFigure
+          value={hourRange(peak.hour)}
+          note={<TileNote>{formatInt(peak.sales, bootstrap)} ventas</TileNote>}
         />
-      </CardContent>
-    </Card>
+      </div>
+      <MiniBars
+        className="min-w-0 flex-1"
+        items={bars.map((b) => {
+          const sales = `${formatInt(b.sales, bootstrap)} ventas`
+          const units = b.units === null ? null : `${formatIntCompact(b.units, bootstrap)} u.`
+          return {
+            key: String(b.hour),
+            label: String(b.hour),
+            value: b.sales,
+            highlight: b.hour === peak.hour,
+            ariaLabel: [hourRange(b.hour), sales, units].filter(Boolean).join(", "),
+            detail: (
+              <span className="flex flex-col gap-0.5 tabular-nums">
+                <span className="font-medium">{hourRange(b.hour)}</span>
+                <span>{units ? `${sales} · ${units}` : sales}</span>
+              </span>
+            ),
+          }
+        })}
+      />
+    </TileCard>
   )
 }
 
@@ -1352,22 +1163,17 @@ function TopItemsCard({
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Top 5 artículos</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <BarList
-          items={data.map((row, i) => ({
-            key: `${row.name}-${i}`,
-            label: row.name || "(sin nombre)",
-            value: Number(row.count) || 0,
-            display: formatMoneyCompact(row.total, bootstrap),
-            meta: `${formatIntCompact(row.count, bootstrap)} u.`,
-          }))}
-        />
-      </CardContent>
-    </Card>
+    <TileCard title="Top 5 artículos" variant="default">
+      <BarList
+        items={data.map((row, i) => ({
+          key: `${row.name}-${i}`,
+          label: row.name || "(sin nombre)",
+          value: Number(row.count) || 0,
+          display: formatMoneyCompact(row.total, bootstrap),
+          meta: `${formatIntCompact(row.count, bootstrap)} u.`,
+        }))}
+      />
+    </TileCard>
   )
 }
 
@@ -1384,22 +1190,17 @@ function TopCategoriesCard({
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Top 5 categorías</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <BarList
-          // 5, parejo con Top artículos (misma fila del grid).
-          items={data.slice(0, 5).map((row, i) => ({
-            key: `${row.title}-${i}`,
-            label: row.title,
-            value: Number(row.total) || 0,
-            display: formatIntCompact(row.total, bootstrap),
-          }))}
-        />
-      </CardContent>
-    </Card>
+    <TileCard title="Top 5 categorías" variant="default">
+      <BarList
+        // 5, parejo con Top artículos (misma fila del grid).
+        items={data.slice(0, 5).map((row, i) => ({
+          key: `${row.title}-${i}`,
+          label: row.title,
+          value: Number(row.total) || 0,
+          display: formatIntCompact(row.total, bootstrap),
+        }))}
+      />
+    </TileCard>
   )
 }
 
@@ -1416,30 +1217,25 @@ function SalesByOutletCard({
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Ventas por sucursal</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <BarList
-          items={rows.map((row) => {
-            const delta = outletDelta(row)
-            return {
-              key: row.outletId,
-              label: row.name,
-              value: Number(row.total) || 0,
-              display: formatMoney(row.total, bootstrap),
-              meta: (
-                <span className="flex items-baseline gap-2">
-                  {delta && <DeltaLine {...delta} compact />}
-                  <span>{formatShare(row.share, bootstrap)}</span>
-                </span>
-              ),
-            }
-          })}
-        />
-      </CardContent>
-    </Card>
+    <TileCard title="Ventas por sucursal" variant="default">
+      <BarList
+        items={rows.map((row) => {
+          const delta = outletDelta(row)
+          return {
+            key: row.outletId,
+            label: row.name,
+            value: Number(row.total) || 0,
+            display: formatMoney(row.total, bootstrap),
+            meta: (
+              <span className="flex items-baseline gap-2">
+                {delta && <DeltaLine {...delta} compact />}
+                <span>{formatShare(row.share, bootstrap)}</span>
+              </span>
+            ),
+          }
+        })}
+      />
+    </TileCard>
   )
 }
 
@@ -1502,44 +1298,17 @@ function NowCard({
   children: React.ReactNode
 }) {
   return (
-    <Card variant="soft">
-      <CardHeader className="pb-2">
-        <CardTitle>{title}</CardTitle>
-        {href && (
-          <CardAction>
-            <Link
-              href={href}
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              aria-label={`Ir a ${title}`}
-            >
-              <ChevronRight className="size-4" />
-            </Link>
-          </CardAction>
-        )}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2">{children}</CardContent>
-    </Card>
+    <TileCard title={title} href={href}>
+      {children}
+    </TileCard>
   )
 }
 
-/** El número grande del tile con su unidad al lado. */
-function NowFigure({ value, unit }: { value: string; unit: string }) {
-  return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-2xl font-semibold tabular-nums">{value}</span>
-      <span className="text-sm text-muted-foreground">{unit}</span>
-    </div>
-  )
-}
 
 /** "y 3 más" cuando la lista del tile viene recortada. */
 function MoreLine({ shown, total, bootstrap }: { shown: number; total: number; bootstrap: Boot }) {
   if (total <= shown) return null
-  return (
-    <span className="text-xs text-muted-foreground">
-      y {formatInt(total - shown, bootstrap)} más
-    </span>
-  )
+  return <TileNote>y {formatInt(total - shown, bootstrap)} más</TileNote>
 }
 
 /**
@@ -1555,12 +1324,17 @@ function sinceLabel(iso: string): string {
 function NowOrders({ tile, bootstrap }: { tile: NowOrdersTile; bootstrap: Boot }) {
   return (
     <NowCard title="Órdenes" href={tile.href}>
-      <NowFigure value={formatInt(tile.active, bootstrap)} unit={tile.active === 1 ? "activa" : "activas"} />
-      {tile.late > 0 && (
-        <span className="text-sm font-medium text-destructive">
-          {formatInt(tile.late, bootstrap)} con más de {tile.lateMinutes} min en cocina
-        </span>
-      )}
+      <TileFigure
+        value={formatInt(tile.active, bootstrap)}
+        unit={tile.active === 1 ? "activa" : "activas"}
+        note={
+          tile.late > 0 ? (
+            <TileNote tone="destructive">
+              {formatInt(tile.late, bootstrap)} con más de {tile.lateMinutes} min en cocina
+            </TileNote>
+          ) : undefined
+        }
+      />
     </NowCard>
   )
 }
@@ -1573,17 +1347,22 @@ function NowSpaces({ tile, bootstrap }: { tile: NowSpacesTile; bootstrap: Boot }
       ? `${formatInt(tile.billRequested, bootstrap)} ${tile.billRequested === 1 ? "pidió" : "pidieron"} la cuenta`
       : null,
   ].filter(Boolean)
+  const note = details.length > 0 ? <TileNote>{details.join(" · ")}</TileNote> : undefined
   return (
     <NowCard title="Espacios" href={tile.href}>
       {busy > 0 ? (
-        <NowFigure
+        <TileFigure
           value={`${formatInt(busy, bootstrap)} de ${formatInt(tile.total, bootstrap)}`}
           unit={busy === 1 ? "ocupado" : "ocupados"}
+          note={note}
         />
       ) : (
-        <NowFigure value={formatInt(tile.free, bootstrap)} unit={tile.free === 1 ? "libre" : "libres"} />
+        <TileFigure
+          value={formatInt(tile.free, bootstrap)}
+          unit={tile.free === 1 ? "libre" : "libres"}
+          note={note}
+        />
       )}
-      {details.length > 0 && <span className="text-sm text-muted-foreground">{details.join(" · ")}</span>}
     </NowCard>
   )
 }
@@ -1593,25 +1372,16 @@ function NowDrawers({ tile, bootstrap }: { tile: NowDrawersTile; bootstrap: Boot
   const manyOutlets = new Set(tile.rows.map((r) => r.outletName)).size > 1
   return (
     <NowCard title="Cajas abiertas" href={tile.href}>
-      <ul className="flex flex-col divide-y divide-border">
+      <TileRows>
         {tile.rows.map((r) => (
-          <li
+          <TileRow
             key={r.drawerId}
-            className="flex items-baseline justify-between gap-2 py-1.5 text-sm first:pt-0 last:pb-0"
-          >
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate">
-                {r.registerName}
-                {manyOutlets && r.outletName ? ` · ${r.outletName}` : ""}
-              </span>
-              {r.operator && <span className="truncate text-xs text-muted-foreground">{r.operator}</span>}
-            </span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              desde {sinceLabel(r.openedAt)}
-            </span>
-          </li>
+            label={`${r.registerName}${manyOutlets && r.outletName ? ` · ${r.outletName}` : ""}`}
+            note={r.operator ? <TileNote>{r.operator}</TileNote> : undefined}
+            value={`desde ${sinceLabel(r.openedAt)}`}
+          />
         ))}
-      </ul>
+      </TileRows>
       <MoreLine shown={tile.rows.length} total={tile.count} bootstrap={bootstrap} />
     </NowCard>
   )
@@ -1620,20 +1390,15 @@ function NowDrawers({ tile, bootstrap }: { tile: NowDrawersTile; bootstrap: Boot
 function NowStaff({ tile, bootstrap }: { tile: NowStaffTile; bootstrap: Boot }) {
   return (
     <NowCard title="Personal presente" href={tile.href}>
-      <NowFigure
+      <TileFigure
         value={formatInt(tile.count, bootstrap)}
         unit={tile.count === 1 ? "persona" : "personas"}
       />
-      <ul className="flex flex-col gap-1">
+      <TileRows>
         {tile.people.map((p) => (
-          <li key={p.employeeId} className="flex items-baseline justify-between gap-2 text-sm">
-            <span className="min-w-0 truncate">{p.name}</span>
-            <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              desde {formatTime(p.since)}
-            </span>
-          </li>
+          <TileRow key={p.employeeId} label={p.name} value={`desde ${formatTime(p.since)}`} />
         ))}
-      </ul>
+      </TileRows>
       <MoreLine shown={tile.people.length} total={tile.count} bootstrap={bootstrap} />
     </NowCard>
   )
@@ -1642,18 +1407,15 @@ function NowStaff({ tile, bootstrap }: { tile: NowStaffTile; bootstrap: Boot }) 
 function NowAgenda({ tile, bootstrap }: { tile: NowAgendaTile; bootstrap: Boot }) {
   return (
     <NowCard title="Agenda de hoy" href={tile.href}>
-      <NowFigure
+      <TileFigure
         value={formatInt(tile.count, bootstrap)}
         unit={tile.count === 1 ? "cita pendiente" : "citas pendientes"}
       />
-      <ul className="flex flex-col gap-1">
+      <TileRows>
         {tile.next.map((a) => (
-          <li key={a.id} className="flex items-baseline gap-2 text-sm">
-            <span className="shrink-0 tabular-nums text-muted-foreground">{formatTime(a.from)}</span>
-            {a.customer && <span className="min-w-0 truncate">{a.customer}</span>}
-          </li>
+          <TileRow key={a.id} label={formatTime(a.from)} value={a.customer || undefined} />
         ))}
-      </ul>
+      </TileRows>
       <MoreLine shown={tile.next.length} total={tile.count} bootstrap={bootstrap} />
     </NowCard>
   )
@@ -1672,34 +1434,32 @@ function NowDues({ tile, bootstrap }: { tile: NowDuesTile; bootstrap: Boot }) {
   if (payables) parts.push({ label: "Compras a pagar", part: payables, overdue: ["vencida", "vencidas"] })
   return (
     <NowCard title="Vencimientos de la semana">
-      <ul className="flex flex-col divide-y divide-border">
+      <TileRows>
         {parts.map(({ label, part, overdue }) => (
-          <li key={label} className="py-1.5 first:pt-0 last:pb-0">
-            <Link href={part.href} className="group flex items-baseline justify-between gap-2 text-sm">
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate group-hover:underline">{label}</span>
-                <span className="text-xs text-muted-foreground">
-                  {part.count > 0 && (
-                    <>
-                      {formatInt(part.count, bootstrap)} esta semana
-                      {part.next && ` · el próximo ${formatDate(part.next)}`}
-                    </>
-                  )}
-                  {part.count > 0 && part.overdue > 0 && " · "}
-                  {part.overdue > 0 && (
-                    <span className="font-medium text-destructive">
-                      {formatInt(part.overdue, bootstrap)} {part.overdue === 1 ? overdue[0] : overdue[1]}
-                    </span>
-                  )}
-                </span>
-              </span>
-              {part.count > 0 && (
-                <span className="shrink-0 font-semibold tabular-nums">{formatMoney(part.amount, bootstrap)}</span>
-              )}
-            </Link>
-          </li>
+          <TileRow
+            key={label}
+            href={part.href}
+            label={label}
+            note={
+              <TileNote>
+                {part.count > 0 && (
+                  <>
+                    {formatInt(part.count, bootstrap)} esta semana
+                    {part.next && ` · el próximo ${formatDate(part.next)}`}
+                  </>
+                )}
+                {part.count > 0 && part.overdue > 0 && " · "}
+                {part.overdue > 0 && (
+                  <TileNote tone="destructive">
+                    {formatInt(part.overdue, bootstrap)} {part.overdue === 1 ? overdue[0] : overdue[1]}
+                  </TileNote>
+                )}
+              </TileNote>
+            }
+            value={part.count > 0 ? formatMoney(part.amount, bootstrap) : undefined}
+          />
         ))}
-      </ul>
+      </TileRows>
     </NowCard>
   )
 }

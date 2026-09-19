@@ -553,6 +553,32 @@ La portada de un área: `/` (dashboard), `/finanzas` (resumen) y `/reports`
 4. Sin detalle propio: la tabla completa vive en el Listado o el Reporte al
    que el tablero lleva.
 
+### Escala tipográfica de las cards — [OWNER] 2026-09-19
+
+Una sola escala para TODAS las cards del Tablero, encapsulada en
+`frontend/components/domain/dashboard/tile.tsx`. Ninguna card pone un tamaño
+de texto propio: se arma con estos primitives.
+
+| Pieza | Primitive | Clases |
+|---|---|---|
+| Título de card | `TileCard` | `CardTitle` a secas, `CardHeader` sin overrides (nada de `pb-2`); acceso = chevron en `CardAction` |
+| Cifra destacada (Ganancia, "5 activas", "2 de 14 ocupados", saldo, hora pico) | `TileFigure` | `text-2xl font-semibold tabular-nums`; unidad al lado `text-sm text-muted-foreground`; pill y nota debajo, alineados al borde izquierdo de la cifra |
+| Fila label / valor | `TileRows` + `TileRow` | label `text-sm text-muted-foreground`, valor `text-sm font-medium` (total: `emphasis` = `font-semibold`); filas separadas por `divide-y`, SIN caja interna |
+| Línea secundaria / estado / meta | `TileNote` | `text-xs` muted, o tono de estado (`destructive`, `positive`). Nunca más grande que el cuerpo |
+| Tasa con barra | `TileMeter` | label/valor como una fila, barra `h-1` |
+| Comparativa | `DeltaLine compact` | el pill compartido, sin cambios |
+
+Soft = números, blanca = rankings y gráficos (T12): `TileCard` es `soft` por
+default y `variant="default"` para los bloques del período. `BigMetricCard`
+(Ingresos/Egresos) conserva su estilo propio por decisión del owner; solo su
+label se alineó a `text-sm`.
+
+**Pill sobre gris**: el fondo del pill (`--muted`) es el mismo gris de la card
+`soft`, así que el pill desaparecía y su padding se leía como un corrimiento
+del texto respecto de la cifra. La regla vive en `globals.css`
+(`[data-variant="soft"] [data-slot="delta-pill"]` → `--background`), mismo
+patrón que los inputs sobre `soft`; no se corrige por call-site.
+
 ---
 
 ## 9. Herramienta

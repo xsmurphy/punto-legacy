@@ -385,6 +385,18 @@
     background-color: color-mix(in oklab, var(--input) 50%, transparent);
 }
 
+/* Pill de comparativa (`DeltaLine`) dentro de una card `soft`: su fondo
+   `--muted` es el mismo gris de la card, así que el pill desaparecía y su
+   padding horizontal se leía como un corrimiento del texto respecto de la
+   cifra que acompaña (Ganancia del dashboard, owner 2026-09-19). Sobre gris
+   el pill pasa a `--background`; una card `default` anidada lo revierte. */
+[data-slot="card"][data-variant="soft"] [data-slot="delta-pill"] {
+    background-color: var(--background);
+}
+[data-slot="card"][data-variant="default"] [data-slot="delta-pill"] {
+    background-color: var(--muted);
+}
+
 /* ─── Áreas seguras del dispositivo ──────────────────────────────────────────
    (notch, barra de estado, indicador de gestos de iOS, barra de navegación
    por gestos de Android)
