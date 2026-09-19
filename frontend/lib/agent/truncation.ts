@@ -86,6 +86,24 @@ export function truncationMetadata({
 }
 
 /**
+ * Dos cortes que dejan la respuesta a medias sin que nadie lo diga:
+ *  - `length`: se acabó `maxOutputTokens`.
+ *  - `tool-calls` con los pasos AGOTADOS: el modelo todavía quería llamar
+ *    tools cuando `stepCountIs(max)` frenó el loop — lo escrito hasta ahí
+ *    queda colgado (una tabla a media fila, reporte del owner 2026-09-19).
+ * `tool-calls` con pasos de sobra NO es corte: es el `hasToolCall` de la
+ * confirmación (`register_action`), que termina el turno a propósito.
+ */
+export function truncationMetadataFor(steps: () => number, maxSteps: number) {
+  return ({ part }: { part: TextStreamPart<ToolSet> }): AgentMessageMetadata | undefined => {
+    if (part.type !== "finish") return undefined
+    if (part.finishReason === "length") return { truncated: true }
+    if (part.finishReason === "tool-calls" && steps() >= maxSteps) return { truncated: true }
+    return undefined
+  }
+}
+
+/**
  * Lado cliente: ¿este mensaje se cortó por longitud?
  *
  * Toma el mensaje estructuralmente (`{ metadata?: unknown }`) y no un

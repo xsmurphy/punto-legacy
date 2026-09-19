@@ -51,7 +51,7 @@ export function MessageStatusNotice({
     ? message.role === "user"
       ? "No llegó la respuesta."
       : "La respuesta se interrumpió y está incompleta."
-    : "La respuesta se cortó porque llegó al largo máximo: está incompleta."
+    : "La respuesta quedó incompleta."
   const detail = interrupted ? interruptedDetail(message) : undefined
 
   return (

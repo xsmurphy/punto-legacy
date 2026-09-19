@@ -326,6 +326,7 @@ export async function POST(req: Request) {
     // mostrador que necesita más de seis pasos ya perdió la carrera contra la
     // fila.
     stopWhen: [stepCountIs(6), hasToolCall("register_action")],
+    maxSteps: 6,
     // Mucho más bajo que el panel (4000) a propósito: acá una respuesta larga
     // es un defecto, no una feature — el mostrador lee de un vistazo y el
     // prompt de arriba ya prohíbe tablas. También acota el gasto si el modelo

@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/nextjs"
 import { createUIMessageStreamResponse, streamText } from "ai"
 import type { LanguageModelUsage, ToolSet } from "ai"
 import { debitAiUsage } from "@/lib/ai/billing-gate"
-import { truncationMetadata } from "@/lib/agent/truncation"
+import { truncationMetadataFor } from "@/lib/agent/truncation"
 import {
   HEARTBEAT_MS,
   STREAM_ERROR_COPY,
@@ -59,6 +59,8 @@ export interface AgentTurnOptions<TOOLS extends ToolSet> {
   messages: NonNullable<StreamTextParams["messages"]>
   tools: TOOLS
   stopWhen: StreamTextParams["stopWhen"]
+  /** El N de `stepCountIs(N)` dentro de `stopWhen`: con los pasos agotados el turno se marca incompleto. */
+  maxSteps: number
   maxOutputTokens: number
   temperature: number
   experimental_transform?: StreamTextParams["experimental_transform"]
@@ -154,8 +156,8 @@ export function runAgentTurn<TOOLS extends ToolSet>(opts: AgentTurnOptions<TOOLS
   })
 
   const uiStream = result.toUIMessageStream({
-    // Corte por `maxOutputTokens` — ver lib/agent/truncation.ts.
-    messageMetadata: truncationMetadata,
+    // Corte por `maxOutputTokens` o por pasos agotados — ver lib/agent/truncation.ts.
+    messageMetadata: truncationMetadataFor(() => trace.steps, opts.maxSteps),
     onError: (error) => {
       trace.error ??= errorText(error)
       console.error(`${opts.logPrefix} error en el stream del modelo`, error)

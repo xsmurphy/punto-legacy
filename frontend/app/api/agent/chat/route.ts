@@ -291,6 +291,7 @@ export async function POST(req: Request) {
     // execute_action en el MISMO turno (auto-ejecutaba sin esperar el click
     // del usuario en RegisterActionCard).
     stopWhen: [stepCountIs(10), hasToolCall("register_action")],
+    maxSteps: 10,
     // Tope de seguridad: acota el gasto de créditos si el modelo se degenera
     // en un loop de repetición (síntoma conocido de deepseek-chat con tools).
     //
