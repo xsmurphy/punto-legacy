@@ -118,7 +118,7 @@ export async function POST(req: Request) {
   // del negocio que se inyecta al final del prompt (context/69).
   let currency = ""
   let country = ""
-  let agentName = "Asistente"
+  let agentName = "Punto AI"
   let agentPersonality: AgentPersonality = "professional"
   // Texto crudo que el comercio escribió sobre su negocio (context/69). Sale
   // del MISMO fetch de settings que el nombre y el tono — no agrega un

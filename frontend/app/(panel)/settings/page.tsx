@@ -1671,7 +1671,7 @@ function AsistenteTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
             <FormItem>
               <FormLabel>Nombre del asistente</FormLabel>
               <FormControl>
-                <Input {...field} placeholder="Asistente" maxLength={40} />
+                <Input {...field} placeholder="Punto AI" maxLength={40} />
               </FormControl>
               <FormDescription>
                 Con qué nombre se presenta en el chat del panel y de la caja.

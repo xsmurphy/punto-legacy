@@ -98,7 +98,6 @@ export default function ChatPage() {
   const [input, setInput] = React.useState("")
   const [tick, setTick] = React.useState(0)
   const taRef = React.useRef<HTMLTextAreaElement>(null)
-  const bottomRef = React.useRef<HTMLDivElement>(null)
 
   const {
     messages,
@@ -124,7 +123,7 @@ export default function ChatPage() {
   })
 
   const { data: settingsData } = useSettings()
-  const agentName = settingsData?.agentName?.trim() || "Asistente"
+  const agentName = settingsData?.agentName?.trim() || "Punto AI"
 
   const isStreaming = status === "streaming" || status === "submitted"
   const { data: balData } = useAiBalance()
@@ -139,8 +138,13 @@ export default function ChatPage() {
   // durante el stream (las animaciones suaves encadenadas se ven como saltos).
   const [isAtBottom, setIsAtBottom] = React.useState(true)
 
+  // Scrollea SOLO el contenedor del hilo. `scrollIntoView` scrolleaba también
+  // la ventana, y como el hilo no estaba anclado a la altura real del main, la
+  // página entera saltaba y el encabezado quedaba fuera de vista.
+  const threadRef = React.useRef<HTMLDivElement>(null)
   const scrollToBottom = React.useCallback((behavior: ScrollBehavior = "smooth") => {
-    bottomRef.current?.scrollIntoView({ behavior })
+    const el = threadRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
   }, [])
 
   function handleScroll(e: React.UIEvent<HTMLDivElement>) {
@@ -213,7 +217,7 @@ export default function ChatPage() {
     // que es casi toda conversación, exigir puntería sobre el textarea es
     // pedirle al usuario que adivine dónde está la zona válida.
     <div
-      className="relative flex h-[calc(100dvh-4rem)] flex-col gap-0"
+      className="relative flex h-[calc(100dvh-var(--main-pt)-var(--main-pb))] flex-col gap-0"
       {...dropHandlers}
     >
       {isDragging && <FileDropOverlay />}
@@ -281,7 +285,7 @@ export default function ChatPage() {
       ) : (
         // ── Estado con mensajes: thread + input al pie ───────────────────────
         <>
-          <div className="flex-1 overflow-y-auto" onScroll={handleScroll}>
+          <div ref={threadRef} className="min-h-0 flex-1 overflow-y-auto" onScroll={handleScroll}>
             <div className="mx-auto w-full max-w-3xl space-y-4 px-2 pt-6 pb-[10px] sm:px-6">
               {messages.map((message) => {
                 const isUser = message.role === "user"
@@ -398,7 +402,6 @@ export default function ChatPage() {
 
               <ThinkingIndicator messages={messages} isStreaming={isStreaming} />
 
-              <div ref={bottomRef} />
             </div>
           </div>
 

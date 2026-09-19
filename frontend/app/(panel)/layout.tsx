@@ -38,7 +38,7 @@ export default async function PanelLayout({
         <PanelOrderStatusLabels>
           <SidebarInset>
             <SidebarTrigger className="fixed left-[calc(0.75rem+var(--safe-l))] top-[calc(0.75rem+var(--safe-t))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
-            <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+var(--safe-t))] pb-[calc(6rem+var(--safe-b))] md:p-6 md:pt-6 md:pb-[calc(6rem+var(--safe-b))]">
+            <main className="flex min-w-0 flex-1 flex-col gap-4 px-4 pt-[var(--main-pt)] pb-[var(--main-pb)] [--main-pt:calc(3.5rem+var(--safe-t))] [--main-pb:calc(6rem+var(--safe-b))] md:px-6 md:[--main-pt:1.5rem]">
               {children}
             </main>
           </SidebarInset>

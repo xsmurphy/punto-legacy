@@ -142,7 +142,7 @@ export function PosAgentDialog() {
           error={error}
           sendMessage={(m) => void sendMessage(m)}
           onClear={clear}
-          agentName="Asistente"
+          agentName="Punto AI"
           // El alcance de los datos es de SUCURSAL, nunca del turno ni de esta
           // caja (Roc::build filtra por company + outlet y nada más). El copy lo
           // dice para que nadie lea "lo mío".

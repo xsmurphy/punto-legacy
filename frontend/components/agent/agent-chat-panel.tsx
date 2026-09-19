@@ -72,7 +72,7 @@ export function AgentChatPanel({
   } = useAgentChat({ companyName, viewOutletId, viewOutletName, userId })
 
   const { data: settingsData } = useSettings()
-  const agentName = settingsData?.agentName?.trim() || "Asistente"
+  const agentName = settingsData?.agentName?.trim() || "Punto AI"
 
   const { data: balData } = useAiBalance()
   const balance = balData?.balance ?? null
