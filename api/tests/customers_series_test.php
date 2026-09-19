@@ -144,7 +144,7 @@ try {
     $svc = new CustomersService();
 
     /* ═══ Semanal: 01/03 → 15/04 (46 días) ═════════════════════════════════ */
-    $w = $svc->dashboard('2026-03-01 00:00:00', '2026-04-15 23:59:59', $companyId, $outletA);
+    $w = $svc->dashboard('2026-03-01 00:00:00', '2026-04-15 23:59:59', $companyId, [$outletA]);
     $s = $w['serie'];
     check('46 días grafican por SEMANA', ($w['granularity'] ?? null) === 'week', var_export($w['granularity'] ?? null, true), $failures, $checks);
     check('la primera semana arranca el lunes 23/02 y es parcial',
@@ -161,7 +161,7 @@ try {
         (int) $w['totales']['activos'] === 3 && (int) $w['totales']['nuevos'] === 2, json_encode($w['totales']), $failures, $checks);
 
     /* ═══ Mensual: 01/01 → 31/05 (151 días) ════════════════════════════════ */
-    $m = $svc->dashboard('2026-01-01 00:00:00', '2026-05-31 23:59:59', $companyId, $outletA);
+    $m = $svc->dashboard('2026-01-01 00:00:00', '2026-05-31 23:59:59', $companyId, [$outletA]);
     check('151 días grafican por MES', ($m['granularity'] ?? null) === 'month', var_export($m['granularity'] ?? null, true), $failures, $checks);
     check('marzo: C2 y C3 nuevos, C1 recurrente; C2 cuenta una vez aunque compró dos veces',
         nr(point($m['serie'], '2026-03-01')) === '2/1', nr(point($m['serie'], '2026-03-01')), $failures, $checks);
@@ -169,7 +169,7 @@ try {
         count($m['serie']) === 5 && array_filter($m['serie'], static fn($p) => $p['partial']) === [], (string) count($m['serie']), $failures, $checks);
 
     /* ═══ Diario: marzo (31 días) ══════════════════════════════════════════ */
-    $d = $svc->dashboard('2026-03-01 00:00:00', '2026-03-31 23:59:59', $companyId, $outletA);
+    $d = $svc->dashboard('2026-03-01 00:00:00', '2026-03-31 23:59:59', $companyId, [$outletA]);
     check('un mes grafica por DÍA, con los 31 días', ($d['granularity'] ?? null) === 'day' && count($d['serie']) === 31,
         var_export($d['granularity'] ?? null, true) . ' / ' . count($d['serie']), $failures, $checks);
     check('03/03: C2 nuevo, C1 recurrente', nr(point($d['serie'], '2026-03-03')) === '1/1', nr(point($d['serie'], '2026-03-03')), $failures, $checks);

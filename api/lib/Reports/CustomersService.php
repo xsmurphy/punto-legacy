@@ -21,8 +21,10 @@ use Punto\Api\Contacts\ContactDisplayName;
  * (Fase 2 batch 5), con dos agregados posteriores: `displayName` (resuelto con
  * ContactDisplayName, ver §"nombre vs razón social" abajo) y `avgTicket`.
  *
- * Tenant: TODA query agregada usa `Roc::build()` (companyId + outlet del
- * view-scope); los lookups de contacto llevan `companyId` bound.
+ * Tenant: TODA query agregada lleva companyId + sucursales — `ranking()` con el
+ * `$roc` del endpoint, `kpis()`/`dashboard()`/`newByMonth()` con la lista
+ * explícita de sucursales (`Roc::scoped()`); los lookups de contacto llevan
+ * `companyId` bound.
  *
  * ── Nombre vs razón social ───────────────────────────────────────────────────
  * `name` es `contactName` (razón social) y `secondName` es el nombre de la
@@ -170,11 +172,163 @@ final class CustomersService
      * los clientes activos del período. Es el precio de saber quién es nuevo
      * sin una tabla de rollup; si el reporte se vuelve lento, ese es el lugar
      * a atacar (context/18 — rollups pre-agregados).
+     *
+     * `dashboard()` = `kpis()` + la serie nuevos/recurrentes para el gráfico.
+     *
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`):
+     *                                `[]` = todo el tenant, 1 = esa, 2+ = el conjunto.
      */
-    public function dashboard(string $from, string $to, string $companyId, string $outletId): array
+    public function dashboard(string $from, string $to, string $companyId, array $outletIds): array
     {
-        $rocT = Roc::build($companyId, $outletId, 't');
-        $rocH = Roc::build($companyId, $outletId, 'h');
+        [$kpis, $activos] = $this->computeKpis($from, $to, $companyId, $outletIds);
+
+        // Grano de la serie (día / semana / mes según el largo del rango): la
+        // regla única de `TimeBuckets`, la misma de todos los gráficos.
+        $tb = \Punto\Api\Support\TimeBuckets::forRange($from, $to);
+
+        // Clientes nuevos por bucket: el período de su primera compra
+        // histórica. Sale de las MISMAS filas que los totales (paso 1 de
+        // `computeKpis`), así no se repite la CTE `historia`.
+        $fromTs = strtotime($from);
+        $toTs   = strtotime($to);
+        $nuevosPorBucket = [];
+        foreach ($activos as $r) {
+            $feTs = self::firstEverTs($r['first_ever'] ?? null);
+            if (self::isNew($feTs, $fromTs, $toTs)) {
+                // `date()` ya está en la zona del tenant (TenantClock) y
+                // `keyFor()` corta igual que el `date_trunc` de la query de abajo.
+                $key = $tb->keyFor(date('Y-m-d', $feTs));
+                $nuevosPorBucket[$key] = ($nuevosPorBucket[$key] ?? 0) + 1;
+            }
+        }
+
+        // ── Serie: clientes distintos por bucket ─────────────────────────────
+        // Un cliente cuenta UNA vez por bucket (COUNT DISTINCT), aunque haya
+        // comprado cinco veces esa semana. Es nuevo en el bucket de su primera
+        // compra histórica y recurrente en cualquier otro en el que compre: el
+        // resto de los que compraron en el bucket son recurrentes por
+        // definición.
+        $rocT = Roc::scoped($companyId, $outletIds, 't');
+        $nvT  = SaleFilters::notVoidedSql('t');
+        $tipo = self::VENTA_TYPES_SQL;
+        $porBucket = $this->fetchAll(
+            "SELECT {$tb->sql('t.transactionDate')} AS day_key,
+                    COUNT(DISTINCT t.customerId)         AS clientes,
+                    COALESCE(SUM(t.transactionTotal), 0) AS total
+               FROM transaction t
+              WHERE t.transactionType IN $tipo
+                AND $nvT
+                AND t.transactionDate BETWEEN ? AND ?
+                AND t.customerId IS NOT NULL$rocT
+              GROUP BY day_key
+              ORDER BY day_key ASC",
+            [$from, $to]
+        );
+
+        $valores = [];
+        foreach ($porBucket as $d) {
+            $key      = (string) $d['day_key'];
+            $clientes = (int) $d['clientes'];
+            $nuevos   = min($nuevosPorBucket[$key] ?? 0, $clientes);
+            $valores[$key] = [
+                'nuevos'      => $nuevos,
+                'recurrentes' => $clientes - $nuevos,
+                'total'       => (float) $d['total'],
+            ];
+        }
+        // Calendario completo: un bucket sin ventas a clientes va en cero, no
+        // desaparece del eje.
+        $serie = $tb->fill($valores, ['nuevos' => 0, 'recurrentes' => 0, 'total' => 0.0]);
+
+        return $kpis + [
+            'granularity' => $tb->granularity,
+            'serie'       => $serie,
+        ];
+    }
+
+    /**
+     * Los KPIs del período SIN la serie: `periodo`, `totales`, `tasas` y
+     * `comportamiento`, con las definiciones del docblock de `dashboard()`.
+     *
+     * Es la fuente ÚNICA de "cuántos clientes nuevos / recurrentes / qué
+     * retención": la usan el reporte de clientes (vía `dashboard()`) y la card
+     * "Clientes" del dashboard del panel (`DashboardService`, widget
+     * `customers`), que linkea a ese reporte. Dos definiciones del mismo número
+     * en dos pantallas enlazadas era el bug del 2026-09-19: el dashboard
+     * contaba como "nuevo" al contacto DADO DE ALTA en el período, y en un
+     * tenant migrado eso son todos.
+     *
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`):
+     *                                `[]` = todo el tenant, 1 = esa, 2+ = el conjunto.
+     */
+    public function kpis(string $from, string $to, string $companyId, array $outletIds): array
+    {
+        return $this->computeKpis($from, $to, $companyId, $outletIds)[0];
+    }
+
+    /**
+     * Clientes NUEVOS por mes: cada cliente cuenta en el mes de su PRIMERA
+     * venta histórica, si ese mes cae dentro del rango. Misma definición de
+     * "nuevo" que `kpis()` (y mismo alcance), así que la suma de la serie da
+     * `totales.nuevos` del mismo rango.
+     *
+     * La historia se recorre solo para los clientes que compraron dentro del
+     * rango: un cliente cuya primera venta cae en el rango necesariamente
+     * compró en el rango.
+     *
+     * @param list<string> $outletIds
+     * @return list<array{bucket:string,new:int}> Meses con al menos un nuevo, ascendentes.
+     */
+    public function newByMonth(string $from, string $to, string $companyId, array $outletIds): array
+    {
+        $rocT = Roc::scoped($companyId, $outletIds, 't');
+        $rocH = Roc::scoped($companyId, $outletIds, 'h');
+        $nvT  = SaleFilters::notVoidedSql('t');
+        $nvH  = SaleFilters::notVoidedSql('h');
+        $tipo = self::VENTA_TYPES_SQL;
+
+        $rows = $this->fetchAll(
+            "WITH periodo AS (
+                 SELECT DISTINCT t.customerId AS cid
+                   FROM transaction t
+                  WHERE t.transactionType IN $tipo
+                    AND $nvT
+                    AND t.transactionDate BETWEEN ? AND ?
+                    AND t.customerId IS NOT NULL$rocT
+             ), historia AS (
+                 SELECT h.customerId AS cid, MIN(h.transactionDate) AS first_ever
+                   FROM transaction h
+                  WHERE h.transactionType IN $tipo
+                    AND $nvH
+                    AND h.customerId IS NOT NULL$rocH
+                    AND h.customerId IN (SELECT cid FROM periodo)
+                  GROUP BY h.customerId
+             )
+             SELECT to_char(date_trunc('month', first_ever), 'YYYY-MM') AS bucket,
+                    COUNT(*) AS n
+               FROM historia
+              WHERE first_ever BETWEEN ? AND ?
+              GROUP BY bucket
+              ORDER BY bucket ASC",
+            [$from, $to, $from, $to]
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = ['bucket' => (string) $r['bucket'], 'new' => (int) $r['n']];
+        }
+        return $out;
+    }
+
+    /**
+     * @return array{0:array<string,mixed>,1:list<array<string,mixed>>}
+     *         [KPIs, filas de actividad por cliente] — las filas las reusa
+     *         `dashboard()` para partir la serie sin repetir la query.
+     */
+    private function computeKpis(string $from, string $to, string $companyId, array $outletIds): array
+    {
+        $rocT = Roc::scoped($companyId, $outletIds, 't');
+        $rocH = Roc::scoped($companyId, $outletIds, 'h');
         $nvT  = SaleFilters::notVoidedSql('t');
         $nvH  = SaleFilters::notVoidedSql('h');
         $tipo = self::VENTA_TYPES_SQL;
@@ -217,12 +371,6 @@ final class CustomersService
         $totalFacturado = 0.0;
         $conDosOMas     = 0;
         $intervalos     = [];
-        // Grano de la serie (día / semana / mes según el largo del rango): la
-        // regla única de `TimeBuckets`, la misma de todos los gráficos.
-        $tb = \Punto\Api\Support\TimeBuckets::forRange($from, $to);
-        // Clientes nuevos por bucket: el período de su primera compra
-        // histórica. Sirve para partir la serie sin repetir la CTE `historia`.
-        $nuevosPorBucket = [];
 
         foreach ($activos as $r) {
             $cnt   = (int)   $r['cnt'];
@@ -231,14 +379,8 @@ final class CustomersService
             $totalCompras   += $cnt;
             $totalFacturado += $total;
 
-            $firstEver = $r['first_ever'] ?? null;
-            $feTs      = $firstEver ? strtotime((string) $firstEver) : null;
-            if ($feTs !== null && $feTs >= $fromTs && $feTs <= $toTs) {
+            if (self::isNew(self::firstEverTs($r['first_ever'] ?? null), $fromTs, $toTs)) {
                 $totalNuevos++;
-                // `date()` ya está en la zona del tenant (TenantClock) y
-                // `keyFor()` corta igual que el `date_trunc` de la query de abajo.
-                $key = $tb->keyFor(date('Y-m-d', $feTs));
-                $nuevosPorBucket[$key] = ($nuevosPorBucket[$key] ?? 0) + 1;
             }
 
             if ($cnt >= 2) {
@@ -250,42 +392,7 @@ final class CustomersService
             }
         }
 
-        // ── 2. Serie: clientes distintos por bucket ──────────────────────────
-        // Un cliente cuenta UNA vez por bucket (COUNT DISTINCT), aunque haya
-        // comprado cinco veces esa semana. Es nuevo en el bucket de su primera
-        // compra histórica (paso 1) y recurrente en cualquier otro en el que
-        // compre: el resto de los que compraron en el bucket son recurrentes
-        // por definición.
-        $porBucket = $this->fetchAll(
-            "SELECT {$tb->sql('t.transactionDate')} AS day_key,
-                    COUNT(DISTINCT t.customerId)         AS clientes,
-                    COALESCE(SUM(t.transactionTotal), 0) AS total
-               FROM transaction t
-              WHERE t.transactionType IN $tipo
-                AND $nvT
-                AND t.transactionDate BETWEEN ? AND ?
-                AND t.customerId IS NOT NULL$rocT
-              GROUP BY day_key
-              ORDER BY day_key ASC",
-            [$from, $to]
-        );
-
-        $valores = [];
-        foreach ($porBucket as $d) {
-            $key      = (string) $d['day_key'];
-            $clientes = (int) $d['clientes'];
-            $nuevos   = min($nuevosPorBucket[$key] ?? 0, $clientes);
-            $valores[$key] = [
-                'nuevos'      => $nuevos,
-                'recurrentes' => $clientes - $nuevos,
-                'total'       => (float) $d['total'],
-            ];
-        }
-        // Calendario completo: un bucket sin ventas a clientes va en cero, no
-        // desaparece del eje.
-        $serie = $tb->fill($valores, ['nuevos' => 0, 'recurrentes' => 0, 'total' => 0.0]);
-
-        // ── 3. Período anterior (misma duración, inmediatamente previo) ─────
+        // ── 2. Período anterior (misma duración, inmediatamente previo) ─────
         [$prevFrom, $prevTo] = self::previousWindow($from, $to);
 
         $comp = $this->fetchOne(
@@ -314,7 +421,7 @@ final class CustomersService
         $tasaCrecimiento = $previos > 0 ? (($totalActivos - $previos) / $previos) * 100 : null;
         $tasaRetorno     = $totalActivos > 0 ? ($conDosOMas / $totalActivos) * 100 : null;
 
-        // ── 4. Padrón completo: cuántos clientes tiene cargados el comercio ──
+        // ── 3. Padrón completo: cuántos clientes tiene cargados el comercio ──
         // Mismo criterio que `geography()` (contacto de tipo cliente, activo).
         // NO va scopeado por outlet a propósito: un contacto pertenece a la
         // empresa, no a una sucursal, así que este número no cambia con el
@@ -329,7 +436,7 @@ final class CustomersService
             [$companyId]
         );
 
-        return [
+        $kpis = [
             'periodo' => [
                 'from'         => $from,
                 'to'           => $to,
@@ -361,9 +468,22 @@ final class CustomersService
                 // puede juzgar si el promedio significa algo.
                 'intervaloBase'      => count($intervalos),
             ],
-            'granularity' => $tb->granularity,
-            'serie'       => $serie,
         ];
+
+        return [$kpis, $activos];
+    }
+
+    /** Timestamp de `first_ever` (la fila es un CaseInsensitiveArray del wrapper, no un array). */
+    private static function firstEverTs(mixed $firstEver): ?int
+    {
+        $ts = $firstEver ? strtotime((string) $firstEver) : false;
+        return $ts === false ? null : $ts;
+    }
+
+    /** NUEVO = su primera venta histórica cae dentro del período. */
+    private static function isNew(?int $firstEverTs, int $fromTs, int $toTs): bool
+    {
+        return $firstEverTs !== null && $firstEverTs >= $fromTs && $firstEverTs <= $toTs;
     }
 
     /**

@@ -80,20 +80,14 @@ if (in_array('rows', $secciones, true)) {
 if (in_array('dashboard', $secciones, true)) {
     // `OUTLET_ID` crudo acá daba DOS alcances en la MISMA respuesta: `rows`
     // sale de `$roc` (todo el conjunto del usuario) y `dashboard` salía de una
-    // sola sucursal. Nadie lo notaría — los dos bloques devuelven números
-    // plausibles— y esa es exactamente la falla cara.
-    //
-    // `dashboard()` filtra por `Roc::build()`, que YA sabe emitir el `IN (...)`
-    // de un subconjunto leyendo `VIEW_OUTLET_IDS` por su cuenta. Por eso acá
-    // alcanza con pasarle el valor único cuando lo hay y `''` cuando el alcance
-    // son 2 o más: en ese caso `Roc` resuelve el conjunto solo, con el MISMO
-    // desempate que `effectiveIds()`. El 422 que había sobraba.
-    $dashScope = \Punto\Api\Outlets\OutletScope::effectiveIds();
+    // sola sucursal. El alcance va EXPLÍCITO como lista (`effectiveIds()`, el
+    // mismo desempate que `Roc::build()`), igual que lo pasa el dashboard del
+    // panel a `kpis()`: mismo argumento, mismo SQL, mismos números.
     $out['dashboard'] = $svc->dashboard(
         $from,
         $to,
         (string) COMPANY_ID,
-        count($dashScope) === 1 ? $dashScope[0] : ''
+        \Punto\Api\Outlets\OutletScope::effectiveIds()
     );
 }
 if (in_array('geo', $secciones, true)) {

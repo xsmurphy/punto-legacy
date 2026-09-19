@@ -18,8 +18,11 @@ use Punto\App\Helpers\Date;
  *  - `getAllToPayTransactions` (en /app pero cacheaba en la sesión de PHP y `COMPANY_ID` interpolado en
  *    el SQL) → `payedByParent()` private inline parametrizado.
  *  - `getItemData` (panel-only) → `itemData()` private inline.
- *  - `getCustomersRate` (panel-only, contiene `COMPANY_ID` interpolado sin comillas →
- *    roto en PG) → `customersRate()` private inline con bound params.
+ *  - `getCustomersRate` / los widgets `customers` y `customersRates` del legacy
+ *    (nuevo = contacto DADO DE ALTA en el período; `$acquired = 0` heredado) →
+ *    ELIMINADOS 2026-09-19: el widget `customers` delega en
+ *    `CustomersService::kpis()`, las mismas definiciones que el reporte de
+ *    clientes al que la card linkea.
  *  - `getTaxonomyName` → lookup directo bindeado por companyId (fix preventivo aplicado
  *    en batch 14 + commit fix 348b4ba; ver ProductsService::tname).
  *  - `enc` → identity en PG (mismo patrón que otros services).
@@ -42,8 +45,9 @@ final class DashboardService
      * @param list<string> $outletIds Alcance por sucursal de esta request
      *   (`OutletScope::effectiveIds()`): `[]` = sin restricción, 1 = esa
      *   sucursal, 2+ = las asignadas al usuario. Solo lo miran los widgets que
-     *   NO se sirven de `$roc` — `schedule` (query propia) y los dos que pegan
-     *   al gateway de notificaciones.
+     *   NO se sirven de `$roc` — `schedule` (query propia), los de clientes
+     *   (delegan en `CustomersService`, que recibe el alcance como lista) y
+     *   los dos que pegan al gateway de notificaciones.
      */
     /**
      * @param (callable(string):bool)|null $can ¿La persona tiene este permiso?
@@ -69,9 +73,8 @@ final class DashboardService
                 static fn (string $module): bool => (new \Punto\Api\Modules\ModulesService())->isEnabled($companyId, $module)
             );
             case 'paymentStatus':       return $this->paymentStatus($opts, $roc, $companyId);
-            case 'customers':           return $this->customers($opts, $roc, $companyId);
-            case 'customersRates':      return $this->customersRates($opts, $roc, $companyId);
-            case 'customersSeries':     return $this->customersSeries($opts, $companyId);
+            case 'customers':           return $this->customers($opts, $companyId, $outletIds);
+            case 'customersSeries':     return $this->customersSeries($opts, $companyId, $outletIds);
             case 'topItems':            return $this->topItems($opts, $roc, $companyId);
             case 'topHours':            return $this->topHours($opts, $roc);
             case 'topCategories':       return $this->topTaxonomy($opts, 'categoryId', 'Sin categoría', $roc, $companyId);
@@ -327,72 +330,33 @@ final class DashboardService
         ];
     }
 
-    private function customers(array $opts, string $roc, string $companyId): array
+    /**
+     * Card "Clientes" del Inicio: los KPIs del reporte de clientes al que linkea
+     * (`CustomersService::kpis()` — activos, nuevos por PRIMERA VENTA, recurrentes,
+     * retorno, retención/pérdida/crecimiento contra el período anterior, null
+     * cuando no hay base). Mismo rango y mismo alcance ⇒ mismos números que el
+     * reporte; no hay una segunda definición acá.
+     *
+     * @param list<string> $outletIds
+     */
+    private function customers(array $opts, string $companyId, array $outletIds): array
     {
         [$from, $to] = $this->range($opts);
-
-        $total = (int) $this->scalar("SELECT COUNT(contactId) as count FROM contact WHERE type = 1 AND companyId = ?", [$companyId]);
-        $new   = (int) $this->scalar(
-            "SELECT COUNT(contactId) as count FROM contact WHERE type = 1 AND contactDate BETWEEN ? AND ? AND companyId = ?",
-            [$from, $to, $companyId]
-        );
-
-        $rocA = str_replace(['outletId', 'companyId'], ['a.outletId', 'a.companyId'], $roc);
-        $res = ncmExecute(
-            "SELECT COUNT(DISTINCT a.customerId) as count
-             FROM transaction a, contact b
-             WHERE a.transactionDate BETWEEN ? AND ? AND a.customerId IS NOT NULL" . $rocA . "
-             AND a.transactionType IN (0,3) AND " . SaleFilters::notVoidedSql('a') . "
-             AND a.customerId = b.contactId
-             AND b.contactDate < ? AND b.type = 1",
-            [$from, $to, $from]
-        );
-        $recurring = max(0, (int) ($res['count'] ?? 0));
-
-        return [
-            'total'       => $total,
-            'totalPeriod' => $new + $recurring,
-            'new'         => $new,
-            'old'         => $recurring,
-            'returnRate'  => round($this->div($recurring, $new + $recurring) * 100, 2),
-        ];
-    }
-
-    private function customersRates(array $opts, string $roc, string $companyId): array
-    {
-        [$from, $to] = $this->range($opts);
-        return $this->customersRate($from, $to, $roc, $companyId);
+        return (new CustomersService())->kpis($from, $to, $companyId, $outletIds);
     }
 
     /**
-     * Serie de clientes NUEVOS por mes (para gráficos de evolución, ej. el agente IA).
-     * Mismo criterio que `customers()->new`: contact.type=1, contactDate en rango,
-     * companyId. Sin roc: contact NO está scopeado por outlet (igual que `customers()`,
-     * cuyo `new`/`total` tampoco aplica $roc — solo el join de recurrentes lo usa).
+     * Serie de clientes NUEVOS por mes (el agente IA: `get_customer_evolution`).
+     * "Nuevo" = primera venta histórica en ese mes, la definición del reporte de
+     * clientes (`CustomersService::newByMonth()`) — antes contaba contactos
+     * dados de alta, que en un tenant migrado son todos del día de la migración.
+     *
+     * @param list<string> $outletIds
      */
-    private function customersSeries(array $opts, string $companyId): array
+    private function customersSeries(array $opts, string $companyId, array $outletIds): array
     {
         [$from, $to] = $this->range($opts);
-
-        $sql = "SELECT to_char(date_trunc('month', contactDate), 'YYYY-MM') AS bucket,
-                       COUNT(contactId) AS count
-                FROM contact
-                WHERE type = 1 AND companyId = ? AND contactDate BETWEEN ? AND ?
-                GROUP BY bucket
-                ORDER BY bucket ASC";
-
-        $res  = ncmExecute($sql, [$companyId, $from, $to], false, true);
-        $rows = [];
-        if ($res && is_object($res)) {
-            while (!$res->EOF) {
-                $f      = $res->fields;
-                $rows[] = ['bucket' => (string) $f['bucket'], 'new' => (int) ($f['count'] ?? 0)];
-                $res->MoveNext();
-            }
-            $res->Close();
-        }
-
-        return ['rows' => $rows];
+        return ['rows' => (new CustomersService())->newByMonth($from, $to, $companyId, $outletIds)];
     }
 
     /* ───────────── widgets "top" ───────────── */
@@ -746,69 +710,6 @@ final class DashboardService
             [$itemId, $companyId]
         );
         return $r ?: [];
-    }
-
-    /**
-     * Port inline de getCustomersRate (panel-only). Fix vs el original: el legacy interpola
-     * COMPANY_ID en el SQL `companyId = " . COMPANY_ID` sin comillas → roto en PG (UUID).
-     * Acá bindeado.
-     */
-    private function customersRate(string $from, string $to, string $roc, string $companyId): array
-    {
-        $rocC = str_replace(['companyId', 'outletId'], ['c.companyId', 'c.outletId'], $roc);
-        [$backStart, $backEnd] = NonAddingSales::previousPeriod($from, $to);
-
-        $newC = ncmExecute(
-            "SELECT COUNT(contactId) as count FROM contact
-             WHERE type = 1 AND contactDate BETWEEN ? AND ? AND companyId = ?",
-            [$from, $to, $companyId]
-        );
-        $acquired = $newC ? (int) $newC['count'] : 0;
-
-        $sql = 'SELECT COUNT(c.contactId) as count
-                FROM contact c
-                WHERE c.contactDate < ?' . $rocC . '
-                AND EXISTS (
-                    SELECT 1 FROM transaction t
-                    WHERE t.transactionDate BETWEEN ? AND ?
-                    AND t.transactionType IN (0,3)
-                    AND ' . SaleFilters::notVoidedSql('t') . '
-                    AND t.customerId = c.contactId
-                    -- Correlación de tenant en el EXISTS (P2 de la auditoría de
-                    -- auth del 2026-08-26): el `contact` de afuera ya va
-                    -- scopeado por $rocC, pero la subconsulta no filtraba
-                    -- `transaction` por empresa. Se correlaciona contra `c` en
-                    -- vez de bindear otro parámetro: así no hay un segundo
-                    -- lugar del que el scope pueda divergir.
-                    AND t.companyId = c.companyId
-                )';
-
-        $resPast = ncmExecute($sql, [$backStart, $backStart, $backEnd]);
-        $customerStart = $resPast ? (int) ($resPast['count'] ?? 0) : 0;
-
-        $resNow = ncmExecute($sql, [$from, $from, $to]);
-        $customerEnd = $resNow ? (int) ($resNow['count'] ?? 0) : 0;
-
-        // Réplica fiel del bug histórico: el legacy resetea $acquired = 0 antes de los cálculos.
-        $acquired = 0;
-
-        $custGrowth = $customerEnd - $customerStart;
-        $growthR    = $this->div($custGrowth, $customerStart) * 100;
-        $churn      = $customerEnd - $acquired - $customerStart;
-        $churn      = $churn > 0 ? 0 : abs($churn);
-        $churnR     = $this->div($churn, $customerStart) * 100;
-        $retentionR = $this->div(($customerEnd - $acquired), $customerStart) * 100;
-
-        return [
-            'churn_rate'           => round($churnR, 2),
-            'churn'                => round($churn, 2),
-            'retention_rate'       => round($retentionR - $growthR, 2),
-            'customer_growth'      => round($custGrowth, 2),
-            'customer_growth_rate' => round($growthR, 2),
-            'start_count'          => $customerStart,
-            'end_count'            => $customerEnd,
-            'new_count'            => $acquired,
-        ];
     }
 
     /**
